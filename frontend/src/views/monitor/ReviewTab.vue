@@ -9,6 +9,7 @@
  * Emits: fetchReviewData, runBacktest, saveParamSnapshot
  */
 import { ElDatePicker, ElButton, ElTag } from 'element-plus'
+import FactorEffectSection from './components/FactorEffectSection.vue'
 
 defineProps<{
   visible: boolean
@@ -197,29 +198,7 @@ const emit = defineEmits<{
           <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
         </template>
         <div v-else class="empty">选择日期后查看月复盘</div>
-        <div class="st" style="margin-top:8px">📊 因子效果跟踪 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">(市场漂移检测)</span></div>
-        <div v-if="factorEffectData" class="factor-effect-section">
-          <div v-if="factorEffectData.drift_alerts?.length" class="violations-list" style="margin-bottom:8px">
-            <div v-for="(a, i) in factorEffectData.drift_alerts" :key="i" class="violation-item sev-medium">
-              <span class="v-icon">⚠️</span><span class="v-type">{{ a.factor }}/{{ a.bucket }}</span><span class="v-detail">{{ a.alert }}</span>
-            </div>
-          </div>
-          <div v-for="(periods, fname) in factorEffectData.factor_stats || {}" :key="fname" class="factor-group">
-            <div class="factor-name">{{ fname }}</div>
-            <div v-for="(items, period) in periods" :key="period" class="factor-period">
-              <div class="factor-period-label">{{ period }}</div>
-              <div class="factor-bars">
-                <div v-for="it in items?.slice(0, 5)" :key="it.name" class="factor-bar-row">
-                  <span class="fb-name">{{ it.name }}</span>
-                  <div class="fb-bar-bg"><div class="fb-bar-fill" :style="{width: it.total > 0 ? Math.min(it.win_rate, 100) + '%' : '0%'}" :class="it.win_rate >= 60 ? 'fb-up' : it.win_rate >= 40 ? 'fb-mid' : 'fb-down'"></div></div>
-                  <span class="fb-wr" :class="it.win_rate >= 60 ? 'up' : 'down'">{{ it.win_rate }}%</span>
-                  <span class="fb-cnt">({{ it.total }})</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else class="empty">无因子数据</div>
+        <FactorEffectSection :factorEffectData="factorEffectData" />
         <div class="st" style="margin-top:8px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
         <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
           <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
@@ -533,36 +512,6 @@ const emit = defineEmits<{
 .stacked-label { font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 
 .stacked-val { font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
-
-.factor-effect-section { display: flex; flex-direction: column; gap: 8px; }
-
-.factor-group { background: var(--bg-elevated); border-radius: 8px; padding: 8px; }
-
-.factor-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
-
-.factor-period { margin-bottom: 6px; }
-
-.factor-period-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
-
-.factor-bars { display: flex; flex-direction: column; gap: 2px; }
-
-.factor-bar-row { display: flex; align-items: center; gap: 6px; }
-
-.fb-name { width: 60px; font-size: 10px; text-align: right; color: var(--text-secondary); }
-
-.fb-bar-bg { flex: 1; height: 14px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
-
-.fb-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-
-.fb-up { background: var(--color-up, #f56c6c); }
-
-.fb-mid { background: var(--color-warn, #e6a23c); }
-
-.fb-down { background: var(--color-down, #67c23a); }
-
-.fb-wr { width: 36px; font-size: 10px; font-weight: 600; text-align: right; }
-
-.fb-cnt { width: 28px; font-size: 9px; color: var(--text-tertiary); }
 
 .closed-loop-list { display: flex; flex-direction: column; gap: 6px; }
 
