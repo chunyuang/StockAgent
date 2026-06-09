@@ -118,31 +118,22 @@ class EmotionCycleManager:
         因为盘中涨跌停数会变化，每次扫描都应重新计算。
         只在limit_stocks=None(历史/盘后模式)时使用缓存。
         """
-        # 【v2.9.86修复】实时模式(limit_stocks传入)跳过缓存
+        # 实时模式跳过缓存(盘中涨跌停会变); 历史/盘后模式使用缓存
         use_cache = limit_stocks is None
         if use_cache and trade_date in self._cache:
             return self._cache[trade_date]
 
         # 1-4. 收集情绪因子数据
         factors = await self._collect_emotion_factors(trade_date, limit_stocks)
-
-        # 5. 综合打分
         score = self._compute_score(**factors)
-
-        # 6. 判断情绪阶段
         phase = self._score_to_phase(score)
-
-        # 7. 构建结果
         result = self._build_emotion_score(trade_date, score, phase, factors)
-        # 【v2.9.86修复】只在历史/盘后模式(limit_stocks=None)时缓存
         if use_cache:
             self._cache[trade_date] = result
 
-        logger.info(
-            f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
+        logger.info(f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
             f"涨停={factors['limit_up_count']}, 跌停={factors['limit_down_count']}, "
-            f"最高连板={factors['max_continue_limit']}, 仓位乘数={result.position_multiplier:.2f}"
-        )
+            f"连板={factors['max_continue_limit']}, 仓乘={result.position_multiplier:.2f}")
         return result
 
     async def _collect_emotion_factors(
