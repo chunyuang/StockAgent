@@ -194,11 +194,11 @@ class QuoteManager:
                 cache_age = time.time() - eastmoney._cache_time if eastmoney._cache_time > 0 else 9999
                 logger.info(f"[QUOTE] 东财缓存: {len(eastmoney._cache)}只, {cache_age:.0f}秒前")
                 return self._build_realtime_from_cache(eastmoney._cache)
-            # L2降级: 从MongoDB读取最新日线
-            if self._quote_degrade_level >= 1:
-                mongo_data = await self._fallback_to_mongo_daily()
-                if mongo_data:
-                    return mongo_data
+            # 【v2.9.86修复】非交易时间缓存为空时, 无论degrade_level都尝试MongoDB
+            # 之前只在degrade_level>=1时才fallback, 重启后正常状态会返回空{}
+            mongo_data = await self._fallback_to_mongo_daily()
+            if mongo_data:
+                return mongo_data
             return {}
 
         # 降级level 2: 尝试从MongoDB读取最近日线数据
