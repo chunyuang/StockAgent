@@ -484,6 +484,8 @@ class SimulatedBroker:
             quantity = int(self.account.available_cash / current_price / lot_size) * lot_size
             if quantity <= 0:
                 return False, "可用资金不足", 0
+            # 【v2.9.88修复】数量调整后重算est_amount, 避免后续单票仓位检查用过期估算
+            est_amount = quantity * current_price * (1 + self.COMMISSION_RATE)
 
         # 单票仓位上限
         if self.account.total_assets > 0:
@@ -672,7 +674,7 @@ class SimulatedBroker:
         - 大量成交: 0.3% (委托量>成交量10%)
         - 跌停卖出: 0.5% (跌停卖盘拥挤)
         """
-        slippage = self.SLIPPAGE_RATE  # 默认0.1%
+        slippage = self.SLIPPAGE_RATE  # 默认0.2%
 
         limit_info = self._limit_prices.get(order.ts_code, {})
         if not limit_info:
@@ -696,7 +698,7 @@ class SimulatedBroker:
 
         return slippage
 
-    def _execute_buy(self, order: Order, fill_price: float, total_cost: float) -> Optional[Dict]:
+    def _execute_buy(self, order: Order, fill_price: float, total_cost: float) -> None:
         """执行买入"""
         # 买入成本含佣金, 计入avg_cost
         amount = fill_price * order.quantity + total_cost
@@ -740,6 +742,7 @@ class SimulatedBroker:
         order.profit_pct = round(profit_pct, 2)
         order.profit_amount = round(profit_amount, 2)
         self.account.total_profit += profit
+        self.account.today_profit += profit  # 【v2.9.88修复】今日盈亏需同步累加
 
         # 收回资金
         amount = fill_price * order.quantity - total_cost
