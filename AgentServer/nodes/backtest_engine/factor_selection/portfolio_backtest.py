@@ -584,12 +584,17 @@ class PortfolioBacktester:
             (sentiment_score: int, sentiment_level: str)
         """
         sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
-        if sentiment_score >= 70:
+        # 【v2.9.87修复】4阶段映射(与emotion_cycle/strategy_defaults对齐)
+        # 旧bug: 3阶段(rising/chaos/depression)缺失分化期
+        _st = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        if sentiment_score >= _st["rising"]:
             sentiment_level = 'rising'
-        elif sentiment_score >= 40:
+        elif sentiment_score >= _st["differentiation"]:
+            sentiment_level = 'differentiation'
+        elif sentiment_score >= _st["chaos"]:
             sentiment_level = 'chaos'
         else:
-            sentiment_level = 'depression'
+            sentiment_level = 'bearish'
         return sentiment_score, sentiment_level
 
     async def _print_market_environment(self, trade_date: int):
@@ -782,7 +787,7 @@ class PortfolioBacktester:
             max_turnover = params.get("max_turnover_rate") if params.get("max_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_turnover_rate", 15)
             max_blast = params.get("max_blast_count") if params.get("max_blast_count") is not None else 1
             require_hot = params.get("require_hot_sector") if params.get("require_hot_sector") is not None else True
-            require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
+            require_sentiment = params.get("require_sentiment_period", ["rising", "differentiation", "chaos"])
             # 【N11修复:竞价涨幅从参数读取,不再硬编码】
             opening_min = params.get("opening_pct_min") if params.get("opening_pct_min") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_min", -1.0)
             opening_max = params.get("opening_pct_max") if params.get("opening_pct_max") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_max", 5.0)  # V66: fallback 7→5, 与strategy_defaults对齐
@@ -1898,13 +1903,16 @@ class PortfolioBacktester:
         #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50, 范围[0,100]
         # 所有个股共享同一个市场情绪周期,这是正确语义:情绪是市场属性不是个股属性
         if self._risk_config.get("enable_sentiment_cycle", True):
-            # 【P2-8修复:直接用market_sentiment_score映射,逻辑与_calc_sentiment_score一致】
-            if market_sentiment_score >= 70:
+            # 【v2.9.87修复】4阶段映射(与strategy_defaults对齐)
+            _st = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+            if market_sentiment_score >= _st["rising"]:
                 market_sentiment_period = 'rising'
-            elif market_sentiment_score >= 40:
+            elif market_sentiment_score >= _st["differentiation"]:
+                market_sentiment_period = 'differentiation'
+            elif market_sentiment_score >= _st["chaos"]:
                 market_sentiment_period = 'chaos'
             else:
-                market_sentiment_period = 'depression'
+                market_sentiment_period = 'bearish'
             factor_df['sentiment_period_in'] = market_sentiment_period
             await self.log(f"   ✅ 情绪周期计算完成(市场级): score={market_sentiment_score} → {market_sentiment_period}")
         else:
@@ -4031,7 +4039,7 @@ class PortfolioBacktester:
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
             min_rise_after = self._param_or_default(converted_params, "min_rise_after_qiao", strategy_defaults, 0.03)
             require_high_sentiment = self._param_or_default(converted_params, "require_high_sentiment", strategy_defaults, False)
-            require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
+            require_sentiment = converted_params.get("require_sentiment_period", ["rising", "differentiation", "chaos"])
             # 【P0-1修复(V24):min_turnover_rate从STRATEGY_CONFIGS读取,不再硬编码】
             min_turnover_qiao = self._param_or_default(converted_params, "min_turnover_rate", strategy_defaults, 10.0)
             # 【修复:min_turnover_rate前端可能传小数(0.10=10%),需转换】
