@@ -66,7 +66,7 @@ onMounted(() => {
             {{ (premarketSentiment?.phase_name) || '震荡' }}
             <span class="pm-ov-sub">{{ (premarketSentiment?.score ?? '-') }}分</span>
           </div>
-          <div class="pm-ov-hint">仓位系数 {{ (((premarketSentiment?.position_ratio) ?? 0.5) * 100).toFixed(0) }}%</div>
+          <div class="pm-ov-hint">仓位系数 {{ ((Number(premarketSentiment?.position_ratio) || 0.5) * 100).toFixed(0) }}%</div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">📈 涨/跌</div>
@@ -75,7 +75,7 @@ onMounted(() => {
             <span class="pm-ov-sep">/</span>
             <span class="down">{{ (premarketMarketSnapshot?.down_count) || 0 }}</span>
           </div>
-          <div class="pm-ov-hint">均幅 {{ ((premarketMarketSnapshot?.avg_pct_chg) || 0).toFixed(2) }}%<span v-if="premarketMarketSnapshot?.data_date"> ({{ String(premarketMarketSnapshot.data_date).slice(4,6) }}/{{ String(premarketMarketSnapshot.data_date).slice(6,8) }}数据)</span></div>
+          <div class="pm-ov-hint">均幅 {{ (Number(premarketMarketSnapshot?.avg_pct_chg) || 0).toFixed(2) }}%<span v-if="premarketMarketSnapshot?.data_date"> ({{ String(premarketMarketSnapshot.data_date).slice(4,6) }}/{{ String(premarketMarketSnapshot.data_date).slice(6,8) }}数据)</span></div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">🔴 涨停/跌停</div>
