@@ -54,8 +54,8 @@ onUnmounted(() => clearInterval(timer))
       <!-- 扫描器 -->
       <div class="sh-row">
         <span class="sh-label">扫描器</span>
-        <span :class="data.scanner.is_running ? 'sh-ok' : 'sh-err'">{{ data.scanner.is_running ? '🟢 运行中' : '🔴 已停止' }}</span>
-        <span class="sh-sub" v-if="data.scanner.is_running">{{ uptimeFmt(data.scanner.uptime_seconds) }}</span>
+        <span :class="data.scanner?.is_running ? 'sh-ok' : 'sh-err'">{{ data.scanner?.is_running ? '🟢 运行中' : '🔴 已停止' }}</span>
+        <span class="sh-sub" v-if="data.scanner?.is_running">{{ uptimeFmt(data.scanner?.uptime_seconds) }}</span>
       </div>
 
       <!-- 数据源 -->
@@ -70,10 +70,10 @@ onUnmounted(() => clearInterval(timer))
       <!-- 存储 -->
       <div class="sh-row">
         <span class="sh-label">MongoDB</span>
-        <span :class="data.mongo.connected ? 'sh-ok' : 'sh-err'">{{ data.mongo.connected ? '🟢' : '🔴' }}</span>
-        <span v-if="data.mongo.collections" class="sh-sub">{{ data.mongo.collections }}集合</span>
+        <span :class="data.mongo?.connected ? 'sh-ok' : 'sh-err'">{{ data.mongo?.connected ? '🟢' : '🔴' }}</span>
+        <span v-if="data.mongo?.collections" class="sh-sub">{{ data.mongo.collections }}集合</span>
         <span class="sh-label" style="margin-left:12px">Redis</span>
-        <span :class="data.redis.connected ? 'sh-ok' : 'sh-err'">{{ data.redis.connected ? '🟢' : '🔴' }}</span>
+        <span :class="data.redis?.connected ? 'sh-ok' : 'sh-err'">{{ data.redis?.connected ? '🟢' : '🔴' }}</span>
         <template v-if="data.websocket && data.websocket.connected !== undefined">
           <span class="sh-label" style="margin-left:12px">WS</span>
           <span :class="data.websocket.connected !== false ? 'sh-ok' : 'sh-warn'">{{ data.websocket.connected !== false ? '🟢' : '🟡' }}</span>
@@ -84,13 +84,13 @@ onUnmounted(() => clearInterval(timer))
       <!-- 系统资源 -->
       <div class="sh-row">
         <span class="sh-label">CPU</span>
-        <div class="sh-bar-wrap"><div class="sh-bar" :style="{ width: data.system.cpu_pct + '%', background: cpuColor(data.system.cpu_pct) }"></div></div>
-        <span class="sh-bar-val">{{ data.system.cpu_pct }}%</span>
+        <div class="sh-bar-wrap"><div class="sh-bar" :style="{ width: (data.system?.cpu_pct ?? 0) + '%', background: cpuColor(data.system?.cpu_pct ?? 0) }"></div></div>
+        <span class="sh-bar-val">{{ data.system?.cpu_pct ?? 0 }}%</span>
         <span class="sh-label" style="margin-left:8px">MEM</span>
-        <div class="sh-bar-wrap"><div class="sh-bar" :style="{ width: data.system.memory_pct + '%', background: cpuColor(data.system.memory_pct) }"></div></div>
-        <span class="sh-bar-val">{{ data.system.memory_pct }}%</span>
+        <div class="sh-bar-wrap"><div class="sh-bar" :style="{ width: (data.system?.memory_pct ?? 0) + '%', background: cpuColor(data.system?.memory_pct ?? 0) }"></div></div>
+        <span class="sh-bar-val">{{ data.system?.memory_pct ?? 0 }}%</span>
         <span class="sh-label" style="margin-left:8px">DISK</span>
-        <span class="sh-bar-val">{{ data.system.disk_pct }}%</span>
+        <span class="sh-bar-val">{{ data.system?.disk_pct ?? 0 }}%</span>
       </div>
 
       <!-- 告警 -->

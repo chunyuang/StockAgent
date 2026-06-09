@@ -77,9 +77,10 @@ const {
       <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
       <div v-else class="ht-audit">
         <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
-          <span class="tl-time">{{ String(log.timestamp || log.time_str || log.time || '').split('T').pop()?.substring(0, 8) || '' }}</span>
+          <span class="tl-time">{{ String(log.timestamp || log.time_str || log.time || '').replace(/T/, ' ').substring(0, 19) || '' }}</span>
           <span class="ha-action">{{ log.action }}</span>
           <span class="ha-detail">{{ log.reason || log.detail || '' }}</span>
+          <span v-if="log.ts_code" class="ha-code">{{ log.ts_code }}</span>
         </div>
       </div>
 
@@ -124,7 +125,9 @@ const {
 
 .ha-action { color: var(--el-color-primary); font-weight: 600; min-width: 60px; }
 
-.ha-detail { color: var(--text-secondary); }
+.ha-detail { color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ha-code { font-size: 11px; color: var(--el-color-primary); font-family: 'JetBrains Mono', monospace; }
 
 .ht-export { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
