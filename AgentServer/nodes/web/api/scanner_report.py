@@ -123,9 +123,10 @@ async def get_daily_report():
         if await scanner._broker._ensure_mongo():
             db = scanner._broker._mongo_db
             today = datetime.now().strftime("%Y%m%d")
+            today_int = int(today)
             async for doc in db["broker_orders"].find({
                 "account_id": scanner._broker.account.account_id,
-                "trade_date": today,
+                "trade_date": today_int,
                 "status": "filled"
             }):
                 side = doc.get("side", "")
@@ -141,14 +142,14 @@ async def get_daily_report():
                 # funnel
                 from collections import defaultdict as _dd2
                 funnel_agg = _dd2(lambda: {"total_input": 0, "total_rejected": 0})
-                async for doc in db2["scan_traces"].find({"trade_date": today}, {"summary": 1}):
+                async for doc in db2["scan_traces"].find({"trade_date": today_int}, {"summary": 1}):
                     for layer_name, layer_data in (doc.get("summary") or {}).items():
                         if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                             funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
                             funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
                 funnel_summary = {k: dict(v) for k, v in funnel_agg.items()} or None
                 # sentiment
-                sent_doc = await db2["sentiment_scores"].find_one({"trade_date": int(today)})
+                sent_doc = await db2["sentiment_scores"].find_one({"trade_date": today_int})
                 if sent_doc:
                     sentiment_snapshot = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
         except Exception:
@@ -470,9 +471,12 @@ async def _daily_report_from_mongo():
     db = mongo_manager.db
     today = datetime.now().strftime("%Y%m%d")
     
+    # 【v2.9.86修复】broker_orders/scan_traces.trade_date是int类型，必须转换
+    today_int = int(today)
+
     # 1. 今日订单
     buys, sells = [], []
-    async for doc in db["broker_orders"].find({"trade_date": today, "status": "filled"}).sort("fill_time", 1):
+    async for doc in db["broker_orders"].find({"trade_date": today_int, "status": "filled"}).sort("fill_time", 1):
         (buys if doc.get("side") == "buy" else sells).append(doc)
     
     if not buys and not sells:
@@ -521,7 +525,7 @@ async def _daily_report_from_mongo():
     
     # 3. 扫描统计(从scan_traces)
     scan_stats = {}
-    async for doc in db["scan_traces"].find({"trade_date": today}):
+    async for doc in db["scan_traces"].find({"trade_date": today_int}):
         cands = doc.get("candidates", [])
         scan_stats["scans"] = scan_stats.get("scans", 0) + 1
         scan_stats["signals_found"] = scan_stats.get("signals_found", 0) + len([c for c in cands if c.get("final_status") == "passed"])
@@ -536,20 +540,20 @@ async def _daily_report_from_mongo():
     # 4. 情绪快照(优先从scan_traces L3读取, fallback到sentiment_scores)
     sentiment_snap = None
     latest_with_l3 = await db["scan_traces"].find_one(
-        {"trade_date": today, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+        {"trade_date": today_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
         sort=[("_id", -1)],
         projection={"layer_details.L3_sentiment": 1}
     )
     if latest_with_l3:
         sentiment_snap = (latest_with_l3.get("layer_details") or {}).get("L3_sentiment")
     if not sentiment_snap:
-        sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(today)})
+        sent_doc = await db["sentiment_scores"].find_one({"trade_date": today_int})
         if sent_doc:
             sentiment_snap = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
     
     # 4b. 漏斗聚合(从scan_traces)
     funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
-    async for doc in db["scan_traces"].find({"trade_date": today}, {"summary": 1}):
+    async for doc in db["scan_traces"].find({"trade_date": today_int}, {"summary": 1}):
         for layer_name, layer_data in (doc.get("summary") or {}).items():
             if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                 funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)

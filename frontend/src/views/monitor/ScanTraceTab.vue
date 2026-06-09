@@ -114,7 +114,7 @@ onMounted(async () => {
               <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px;min-width:28px;padding:0 2px">{{ strategyCN(sig.strategy) }}</ElTag>
               <span class="code">{{ sig.ts_code }}</span>
               <span class="name">{{ sig.stock_name }}</span>
-              <span :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+              <span :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg ?? 0).toFixed(1) }}%</span>
               <span v-if="sig.final_status === 'passed'" class="et-ok">✅</span>
               <span v-else class="et-no">❌{{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}</span>
             </div>
