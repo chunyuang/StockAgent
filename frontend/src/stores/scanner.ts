@@ -246,8 +246,12 @@ export const useScannerStore = defineStore('scanner', () => {
         account.value = s.account || account.value
         sentiment.value = s.sentiment || sentiment.value
         positionRatio.value = s.position_ratio ?? s.positionRatio ?? positionRatio.value
-        positions.value = s.positions || positions.value
-        signals.value = s.signals || signals.value
+        // 【v2.9.86修复】positions可能是数字(持仓数量)或数组(持仓详情)
+        // /scanner/status返回positions=数量, WS推送返回positions=数组
+        // 只有数组才更新, 数字(数量)不覆盖
+        if (Array.isArray(s.positions)) positions.value = s.positions
+        // signals同理: 只接受数组
+        if (Array.isArray(s.signals)) signals.value = s.signals
       }
 
       if (healthRes.status === 'fulfilled' && healthRes.value?.success) {

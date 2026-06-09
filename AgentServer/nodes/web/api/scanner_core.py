@@ -193,6 +193,42 @@ async def get_scanner_status():
     status["sentiment"] = status.get("filter_pipeline", {}).get("sentiment", None)
     status["position_ratio"] = status.get("filter_pipeline", {}).get("position_ratio", 1.0)
     
+    # 【v2.9.86修复】添加完整持仓列表+账户详情, 供REST轮询全量刷新
+    # 之前positions只返回数量(数字), 导致前端refreshFromApi把数组覆盖为数字
+    try:
+        pos_list = scanner.get_positions()
+        if pos_list:
+            status["positions"] = pos_list  # 覆盖数量为完整持仓数组
+            status["position_count"] = len(pos_list)  # 数量移到新字段
+        else:
+            status["positions"] = []
+            status["position_count"] = 0
+    except Exception:
+        status["position_count"] = status.get("positions", 0)  # fallback: 保留原数字
+    # 账户信息(完整对象)
+    if scanner._broker:
+        try:
+            acct = scanner._broker.account
+            status["account"] = {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "total_profit": round(acct.today_profit, 2),
+            }
+        except Exception:
+            pass
+    # 信号列表
+    try:
+        status["signals"] = [
+            {"ts_code": s.ts_code, "stock_name": s.stock_name, "strategy": s.strategy,
+             "strategy_name": getattr(s, 'strategy_name', ''), "price": s.price,
+             "pct_chg": s.pct_chg, "reason": s.reason, "created_at": s.created_at,
+             "signal_status": s.signal_status}
+            for s in scanner._active_signals
+        ] if scanner._active_signals else []
+    except Exception:
+        pass
+    
     # 熔断状态
     if hasattr(scanner, '_circuit_breaker'):
         status["circuit_breaker"] = {
