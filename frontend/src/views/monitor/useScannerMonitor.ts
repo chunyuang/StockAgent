@@ -284,7 +284,22 @@ export function useScannerMonitor() {
   async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/strategy-params-compare`); const p = parseResponse(r); if (p.success) { compareData.value = p.data; compareVisible.value = true } } catch { /* ignore */ } finally { compareLoading.value = false } }
 
   const toggleDryRun = () => { tradeMode.value = tradeMode.value === 'dry_run' ? 'simulated' : 'dry_run' }
-  const cumulativePnl = computed(() => core.totalPnl.value)
+  // 【v2.9.87修复】cumulativePnl: 优先从timeline sell事件累加profit_amount(更准确),
+  // fallback到account.total_profit(回测/全量场景)
+  const cumulativePnl = computed(() => {
+    // 尝试从timeline的sell事件累加
+    let sellPnl = 0
+    let hasSellPnl = false
+    for (const item of timeline.value) {
+      if (item.action === 'sell' && item.profit_amount != null) {
+        sellPnl += item.profit_amount
+        hasSellPnl = true
+      }
+    }
+    // 如果timeline有profit_amount数据,用累加值(更精确); 否则fallback到account
+    if (hasSellPnl) return sellPnl
+    return core.totalPnl.value
+  })
 
   // ==================== 📌 模板兼容/stub 属性 ====================
   const signalTraceVisible = ref(false)
