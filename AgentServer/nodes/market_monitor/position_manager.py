@@ -569,7 +569,8 @@ class PositionManager:
                 pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
             sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
             
-            if pos.profit_pct / 100 > sl_pct * 2 and pos.profit_pct <= 0:
+            # 【v2.9.84修复】profit_pct<0而非<=0, 恰好0%不应触发移动止损(与position_checker对齐)
+            if pos.profit_pct / 100 > sl_pct * 2 and pos.profit_pct < 0:
                 to_sell.append((pos, f"移动止损(盈利回撤至{pos.profit_pct:.1f}%)", pos.current_price, risk))
                 logger.info(f"[TRAILING] {pos.ts_code} 盈利回撤至{pos.profit_pct:.1f}%, 移动止损触发")
         
