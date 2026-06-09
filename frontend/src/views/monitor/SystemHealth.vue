@@ -27,12 +27,16 @@ async function fetchData() {
 }
 
 function uptimeFmt(s: number): string {
+  if (s == null || isNaN(s)) return '-'
   if (s < 60) return `${Math.round(s)}s`
   if (s < 3600) return `${Math.round(s / 60)}m`
   return `${(s / 3600).toFixed(1)}h`
 }
 
-function cpuColor(v: number): string { return v > 80 ? '#f56c6c' : v > 50 ? '#e6a23c' : '#67c23a' }
+function cpuColor(v: number): string {
+  if (v == null || isNaN(v)) return '#67c23a'
+  return v > 80 ? '#f56c6c' : v > 50 ? '#e6a23c' : '#67c23a'
+}
 
 let timer: number
 onMounted(() => { fetchData(); timer = window.setInterval(fetchData, 10000) })
