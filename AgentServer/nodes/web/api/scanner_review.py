@@ -857,12 +857,19 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 return {"success": True, "data": None, "message": "无交易数据"}
             sd, ed = min(sells), max(sells)
 
+        # 【v2.9.87修复】broker_orders.trade_date是int, scan_traces是str
+        # 统一sd_int/ed_int用于broker_orders+sentiment, sd_str/ed_str用于scan_traces
+        sd_int = int(sd) if isinstance(sd, str) and sd.isdigit() else sd
+        ed_int = int(ed) if isinstance(ed, str) and ed.isdigit() else ed
+        sd_str = str(sd)
+        ed_str = str(ed)
+
         # 1. 获取实盘卖出订单
         query = {"side": "sell", "status": "filled"}
         if sd == ed:
-            query["trade_date"] = sd
+            query["trade_date"] = sd_int
         else:
-            query["trade_date"] = {"$gte": sd, "$lte": ed}
+            query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
 
         sells = []
         async for doc in db["broker_orders"].find(query):
@@ -871,9 +878,9 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         # 2. 获取同区间买入订单(用于计算纪律偏差)
         buy_query = {"side": "buy", "status": "filled"}
         if sd == ed:
-            buy_query["trade_date"] = sd
+            buy_query["trade_date"] = sd_int
         else:
-            buy_query["trade_date"] = {"$gte": sd, "$lte": ed}
+            buy_query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
 
         buys = []
         async for doc in db["broker_orders"].find(buy_query):
@@ -883,9 +890,9 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         sentiment_map = {}
         s_query = {}
         if sd == ed:
-            s_query["trade_date"] = int(sd)
+            s_query["trade_date"] = sd_int
         else:
-            s_query["trade_date"] = {"$gte": int(sd), "$lte": int(ed)}
+            s_query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
         _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         async for doc in db["sentiment_scores"].find(s_query, {"trade_date":1, "score":1, "period":1}):
             raw_p = doc.get("period", "震荡")
@@ -896,9 +903,9 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         scan_map = {}  # trade_date -> {ts_code -> {price, strategy}}
         scan_query = {}
         if sd == ed:
-            scan_query["trade_date"] = sd
+            scan_query["trade_date"] = sd_str
         else:
-            scan_query["trade_date"] = {"$gte": sd, "$lte": ed}
+            scan_query["trade_date"] = {"$gte": sd_str, "$lte": ed_str}
         async for doc in db["scan_traces"].find(scan_query, {"trade_date":1, "candidates":1}):
             td = doc.get("trade_date","")
             cands = doc.get("candidates",[])
@@ -1255,12 +1262,16 @@ async def review_weekly(date: str = None):
 
         # 获取本周卖出
         sells = []
-        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":monday,"$lte":sunday}}):
+        # 【v2.9.87修复】broker_orders.trade_date是int，必须转
+        monday_int = int(monday)
+        sunday_int = int(sunday)
+        
+        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":monday_int,"$lte":sunday_int}}):
             sells.append(doc)
 
         # 获取本周买入
         buys = []
-        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":monday,"$lte":sunday}}):
+        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":monday_int,"$lte":sunday_int}}):
             buys.append(doc)
 
         # 逐日统计(偏差趋势)
@@ -1301,7 +1312,8 @@ async def review_weekly(date: str = None):
             wm = (base - timedelta(weeks=3-w)).strftime("%Y%m%d")
             ws = (base - timedelta(weeks=3-w) + timedelta(days=6)).strftime("%Y%m%d")
             ws_list = []
-            async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":wm,"$lte":ws}}):
+            # 【v2.9.87修复】broker_orders.trade_date是int
+            async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":int(wm),"$lte":int(ws)}}):
                 ws_list.append(doc)
             if ws_list:
                 wr = sum(1 for s in ws_list if (s.get("profit_pct") or 0) >= 0) / len(ws_list) * 100
@@ -1362,13 +1374,17 @@ async def review_monthly(date: str = None):
                 next_m = dt(today.year, today.month+1, 1)
             last_day = (next_m - timedelta(days=1)).strftime("%Y%m%d")
 
+        # 【v2.9.87修复】broker_orders.trade_date是int，必须转
+        month_start_int = int(month_start)
+        last_day_int = int(last_day)
+
         # 月度统计
         sells = []
-        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":month_start,"$lte":last_day}}):
+        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":month_start_int,"$lte":last_day_int}}):
             sells.append(doc)
 
         buys = []
-        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":month_start,"$lte":last_day}}):
+        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":month_start_int,"$lte":last_day_int}}):
             buys.append(doc)
 
         total_sells = len(sells)
@@ -1775,8 +1791,9 @@ async def review_closed_loop(date: str = None):
         # 加载买卖数据
         buys = []
         sells = []
+        # 【v2.9.87修复】broker_orders.trade_date是int，不能用str
         async for doc in db["broker_orders"].find(
-            {"status": "filled", "trade_date": {"$gte": str(start_d), "$lte": str(end_d)}},
+            {"status": "filled", "trade_date": {"$gte": start_d, "$lte": end_d}},
             {"_id": 0, "side": 1, "strategy": 1, "ts_code": 1, "stock_name": 1,
              "filled_price": 1, "profit_pct": 1, "reason": 1, "trade_date": 1, "create_time": 1}
         ):

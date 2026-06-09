@@ -385,6 +385,8 @@ async def get_execution_quality(date: str = None):
             import datetime
             date = datetime.datetime.now().strftime("%Y%m%d")
         
+        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        
         # 从broker_orders聚合
         total_orders = 0
         filled_orders = 0
@@ -392,7 +394,7 @@ async def get_execution_quality(date: str = None):
         slippages = []
         delays = []
         
-        async for doc in db["broker_orders"].find({"trade_date": date}):
+        async for doc in db["broker_orders"].find({"trade_date": date_int}):
             total_orders += 1
             if doc.get("status") == "filled":
                 filled_orders += 1
