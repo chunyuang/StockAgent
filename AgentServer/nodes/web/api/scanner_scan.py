@@ -855,7 +855,7 @@ async def get_premarket_status(date: str = None):
                         "position_gaps": [],
                         "analysis": analysis,
                     }})
-            return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}}}
+            return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}, "limit_pools": {}, "position_gaps": [], "analysis": None}}
         
         from datetime import datetime
         now = datetime.now()

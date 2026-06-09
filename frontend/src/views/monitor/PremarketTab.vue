@@ -64,7 +64,7 @@ onMounted(() => {
           <div class="pm-ov-label">🌡️ 情绪周期</div>
           <div class="pm-ov-val" :class="(premarketSentiment?.score ?? 0) >= 55 ? 'up' : (premarketSentiment?.score ?? 0) < 40 ? 'down' : ''">
             {{ (premarketSentiment?.phase_name) || '震荡' }}
-            <span class="pm-ov-sub">{{ (premarketSentiment?.score ?? '-') }}分</span>
+            <span class="pm-ov-sub">{{ premarketSentiment?.score ?? '-' }}分</span>
           </div>
           <div class="pm-ov-hint">仓位系数 {{ ((Number(premarketSentiment?.position_ratio) || 0.5) * 100).toFixed(0) }}%</div>
         </div>
@@ -156,7 +156,7 @@ onMounted(() => {
             </span>
           </div>
           <div v-if="(premarketLimitPools?.limit_up_list) && (premarketLimitPools?.limit_up_list).length" class="pm-zt-list">
-            <div class="pm-zt-toggle cp" @click="premarketGroupExpanded['limit_up'] = !premarketGroupExpanded['limit_up']">
+            <div class="pm-zt-toggle cp" @click="premarketGroupExpanded = { ...premarketGroupExpanded, limit_up: !premarketGroupExpanded['limit_up'] }">
               {{ premarketGroupExpanded['limit_up'] ? '▼' : '▶' }} 涨停明细 {{ (premarketLimitPools?.limit_up_list).length }}只
             </div>
             <div v-if="premarketGroupExpanded['limit_up']" class="pm-zt-items">
@@ -183,7 +183,7 @@ onMounted(() => {
       <!-- 策略分组模式 -->
       <div v-if="premarketGroupMode === 'strategy'" class="pm-groups">
         <div v-for="g in premarketStrategyGroups" :key="g.strategy" class="pm-group">
-          <div class="pm-group-header cp" @click="premarketGroupExpanded[g.strategy] = !premarketGroupExpanded[g.strategy]">
+          <div class="pm-group-header cp" @click="premarketGroupExpanded = { ...premarketGroupExpanded, [g.strategy]: !premarketGroupExpanded[g.strategy] }">
             <span class="pm-group-toggle">{{ premarketGroupExpanded[g.strategy] ? '▼' : '▶' }}</span>
             <ElTag size="small" :color="strategyMeta[g.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(g.strategy) }}</ElTag>
             <span class="pm-group-stat">{{ g.count }}只</span>
