@@ -38,8 +38,8 @@ const {
           <template v-else>
             <span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span>
             <span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span>
-            <span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct || 0).toFixed(1) }}%</span>
-            <span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount || 0).toFixed(0) }}</span>
+            <span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct ?? 0).toFixed(1) }}%</span>
+            <span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount ?? 0).toFixed(0) }}</span>
           </template>
         </div>
       </div>
