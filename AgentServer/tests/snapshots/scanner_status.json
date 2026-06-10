@@ -78,7 +78,7 @@
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
   "realtime_cache_age_sec": "NoneType",
-  "smart_check_interval": "NoneType",
+  "smart_check_interval": "float",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",

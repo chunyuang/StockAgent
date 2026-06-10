@@ -129,7 +129,7 @@ class SimulatedBroker:
 
     # ==================== 持久化 ====================
 
-    async def _ensure_mongo(self) -> None:
+    async def _ensure_mongo(self) -> bool:
         """懒初始化MongoDB连接"""
         if self._mongo_db is not None:
             return True
