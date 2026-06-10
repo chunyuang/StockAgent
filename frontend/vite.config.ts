@@ -58,40 +58,29 @@ export default defineConfig({
     ]
   },
   build: {
-    chunkSizeWarningLimit: 800,
+    // 【v2.9.90 P0 修复】回退 v2.9.89 element-plus 过度拆分
+    // 原因: 把 element-plus 拆成 el-table/el-form/el-overlay/element-plus 多个 chunk 后
+    // 子组件之间存在 ESM 循环依赖, 浏览器执行时报错:
+    // ReferenceError: Cannot access 'qo' before initialization @ el-overlay.js
+    // 导致整个页面白屏 (#app 为空, Vue 无法 mount)。
+    // 回归到单 element-plus chunk(857KB), 牺牲单chunk大小换可用性。
+    // E2E 是连 dev server 跑的, 没暴露此问题 —— 后续需补强 build 产物冒烟测试。
+    chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // element-plus子模块拆分：按功能组拆分避免单chunk过大(v2.9.89)
+          // element-plus 整体作为一个 chunk(仅把 locale/utils 拆出作为共享)
           if (id.includes('node_modules/element-plus/')) {
             if (id.includes('element-plus/es/locale') || id.includes('element-plus/es/utils')) {
               return 'el-shared';
             }
-            // 表格组件(通常较大)
-            if (id.includes('element-plus/es/components/table') || id.includes('element-plus/es/components/virtual-table')) {
-              return 'el-table';
-            }
-            // 表单组件
-            if (id.includes('element-plus/es/components/form') || id.includes('element-plus/es/components/input')
-                || id.includes('element-plus/es/components/select') || id.includes('element-plus/es/components/checkbox')
-                || id.includes('element-plus/es/components/radio') || id.includes('element-plus/es/components/switch')
-                || id.includes('element-plus/es/components/slider') || id.includes('element-plus/es/components/time-picker')
-                || id.includes('element-plus/es/components/date-picker') || id.includes('element-plus/es/components/cascader')) {
-              return 'el-form';
-            }
-            // 弹出层/对话框
-            if (id.includes('element-plus/es/components/dialog') || id.includes('element-plus/es/components/drawer')
-                || id.includes('element-plus/es/components/popover') || id.includes('element-plus/es/components/tooltip')
-                || id.includes('element-plus/es/components/message-box') || id.includes('element-plus/es/components/notification')) {
-              return 'el-overlay';
-            }
             return 'element-plus';
           }
-          // echarts单独chunk
+          // echarts 单独 chunk
           if (id.includes('node_modules/echarts/') || id.includes('node_modules/vue-echarts/') || id.includes('node_modules/zrender/')) {
             return 'echarts';
           }
-          // 核心vendor
+          // 核心 vendor
           if (id.includes('node_modules/vue/') || id.includes('node_modules/@vue/')
               || id.includes('node_modules/vue-router/') || id.includes('node_modules/pinia/')
               || id.includes('node_modules/axios/')) {
