@@ -811,8 +811,11 @@ async def get_data_status() -> Dict[str, Any]:
         for f in all_factors:
             group_fields[f'{f}_count'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
 
-        # 【v2.9.49】异步聚合查询
+        # 【v2.9.90】限制聚合范围: 仅最近60天,避免全量聚合超时
+        from datetime import timedelta
+        cutoff_date = (date.today() - timedelta(days=60)).strftime('%Y%m%d')
         agg_cursor = db.stock_daily_ak_full.aggregate([
+            {'$match': {'trade_date': {'$gte': cutoff_date}}},
             {'$group': {'_id': '$trade_date', **group_fields}},
             {'$sort': {'_id': 1}}
         ])
