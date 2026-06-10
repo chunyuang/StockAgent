@@ -31,7 +31,7 @@ async function fetchData() {
   try {
     const r: any = await api.get('/scanner/position-risk-matrix')
     if (r?.success) {
-      positions.value = r.data?.positions || []
+      positions.value = Array.isArray(r.data?.positions) ? r.data.positions : []
       globalRisk.value = r.data?.global || null
       isFallback.value = !!r.data?._fallback
     }

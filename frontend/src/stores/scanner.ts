@@ -187,9 +187,9 @@ export const useScannerStore = defineStore('scanner', () => {
         break
 
       case 'position':
-        if (data.positions && data.positions.length > 0) {
-          // 【v2.9.82修复】空数组[]不覆盖 — 防止增量通知清空已有持仓
-          // 增量通知(position_changed)不含positions数组, 只有action/ts_code
+        if (data.positions && Array.isArray(data.positions)) {
+          // 【v2.9.87修复】空数组[]也必须覆盖 — 全量推送0持仓=所有仓位已平
+          // 但增量通知(position_changed)不含positions数组, 只有action/ts_code
           positions.value = data.positions
         }
         if (data.account) {
