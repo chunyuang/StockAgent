@@ -3,7 +3,9 @@
   "scan_count": "int",
   "last_scan_time": "str",
   "active_signals": "int",
-  "positions": "int",
+  "positions": [
+    "<empty_list>"
+  ],
   "stocks_scanned": "int",
   "account": {
     "total_assets": "int",
@@ -111,6 +113,10 @@
     "period": "str"
   },
   "position_ratio": "float",
+  "position_count": "int",
+  "signals": [
+    "<empty_list>"
+  ],
   "circuit_breaker": {
     "trading_paused": "bool",
     "pause_reason": "str",

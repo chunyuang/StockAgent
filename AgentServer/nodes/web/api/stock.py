@@ -147,7 +147,7 @@ async def get_stock_daily_ak_full(
     return [
         StockDaily(
             ts_code=r["ts_code"],
-            trade_date=r["trade_date"],
+            trade_date=str(r["trade_date"]),
             open=r.get("open", 0),
             high=r.get("high", 0),
             low=r.get("low", 0),
