@@ -171,18 +171,18 @@ const emit = defineEmits<{
           </div>
           <div class="st" style="margin-top:8px">🗓️ 日历热力图</div>
           <div v-if="(monthlyReviewData?.daily_breakdown?.length || 0)" class="calendar-heatmap">
-            <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="d.pnl > 0 ? 'cal-up' : d.pnl < 0 ? 'cal-down' : 'cal-neutral'">
+            <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="(d.pnl || 0) > 0 ? 'cal-up' : (d.pnl || 0) < 0 ? 'cal-down' : 'cal-neutral'">
               <div class="cal-date">{{ d.date?.slice(-2) }}</div>
-              <div class="cal-pnl">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</div>
-              <div class="cal-trades">{{ d.trades }}笔</div>
+              <div class="cal-pnl">{{ (d.pnl || 0) >= 0 ? '+' : '' }}{{ d.pnl || 0 }}%</div>
+              <div class="cal-trades">{{ d.trades || 0 }}笔</div>
             </div>
           </div>
           <div v-else class="empty">无逐日数据</div>
           <div class="st" style="margin-top:8px">🎯 策略月度贡献</div>
           <div class="strategy-stacked">
-            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
               <span class="stacked-label">{{ strategyCN(key) }}</span>
-              <span class="stacked-val">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
+              <span class="stacked-val">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span>
             </div>
           </div>
           <div class="st" style="margin-top:8px">🔧 参数漂移检测
@@ -234,8 +234,8 @@ const emit = defineEmits<{
         </div>
         <div class="strategy-contrib">
           <div v-for="(data, key) in weeklyReviewData.strategy_stats || {}" :key="key" class="strat-card">
-            <div class="strat-header"><ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag><span class="strat-pnl" :class="data.pnl >= 0 ? 'up' : 'down'">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span></div>
-            <div class="strat-metrics"><div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div><div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div></div>
+            <div class="strat-header"><ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag><span class="strat-pnl" :class="(data.pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span></div>
+            <div class="strat-metrics"><div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades || 0 }}笔</span></div><div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ data.win_rate || 0 }}%</span></div></div>
           </div>
         </div>
         <div class="st" style="margin-top:8px">📈 偏差趋势(近4周)</div>
@@ -257,8 +257,8 @@ const emit = defineEmits<{
             <span>{{ d.date?.length >= 8 ? d.date.slice(4,6)+'/'+d.date.slice(6,8) : d.date }}</span>
             <span>{{ d.buys || 0 }}</span>
             <span>{{ d.sells || 0 }}</span>
-            <span :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</span>
-            <span :class="d.pnl >= 0 ? 'up' : 'down'" style="font-weight:600">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</span>
+            <span :class="(d.win_rate || 0) >= 50 ? 'up' : 'down'">{{ d.win_rate || 0 }}%</span>
+            <span :class="(d.pnl || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (d.pnl || 0) >= 0 ? '+' : '' }}{{ d.pnl || 0 }}%</span>
             <span style="font-size:11px">{{ weeklyReviewData.sentiments?.[d.date]?.period || '-' }}</span>
           </div>
         </div>
