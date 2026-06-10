@@ -1,6 +1,19 @@
 {
   "success": "bool",
   "data": [
-    "<empty_list>"
+    {
+      "time": "str",
+      "ts_code": "str",
+      "stock_name": "str",
+      "side": "str",
+      "quantity": "int",
+      "price": "float",
+      "amount": "float",
+      "strategy": "str",
+      "reason": "str",
+      "source": "str",
+      "trade_date": "str",
+      "order_id": "str"
+    }
   ]
 }
