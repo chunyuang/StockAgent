@@ -685,9 +685,23 @@ class LiveFilterPipeline:
             if "ST" in name or "退" in name:
                 continue
 
-            # 排除次新（代码规则：60/00/30开头且上市不足60个交易日）
-            # 简化：北交所(8/9开头)次新波动大，优先排除上市<30天
-            # 实际需查stock_basic的list_date
+            # 排除次新(上市<60天)
+            # 【v2.9.89修复】从factors或realtime中获取list_date判断次新
+            # 无list_date时按代码规则: 688/300开头次新波动大, 保守排除上市<30天
+            factors = c.get("factors", {}) or {}
+            list_date = factors.get("list_date", "")
+            if list_date and isinstance(list_date, str) and len(list_date) == 8:
+                try:
+                    from datetime import datetime as _dt
+                    list_dt = _dt.strptime(list_date, "%Y%m%d")
+                    days_since_list = (_dt.now() - list_dt).days
+                    if days_since_list < 60:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            # 无list_date时: 北交所(8/9开头.BJ)次新波动大, 跳过
+            elif ts_code and ts_code[0] in ("8", "9") and ts_code.endswith(".BJ"):
+                continue
 
             # 排除低成交额（用实时数据中的amount判断）
             amount = c.get("amount", 0) or c.get("amt", 0)
