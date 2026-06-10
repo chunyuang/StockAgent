@@ -8,12 +8,27 @@
 
 
 def _get_position_ratio(period_cn: str) -> float:
-    """从strategy_defaults读取仓位系数(单一来源)"""
+    """从strategy_defaults读取仓位系数(单一来源)
+    
+    【V75-审计修复】优先从运行时覆盖读取,确保前端API修改sentiment_position_map后立即生效。
+    旧问题: 只读GLOBAL_RISK(Python模块变量,默认值),用户通过strategy-config API修改后不生效。
+    """
     from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
     cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
     en_lower = period_cn.lower() if period_cn else ""
     en_map = {"rising": "rising", "differentiation": "differentiation", "chaos": "chaos", "bearish": "bearish"}
     en_key = cn_to_en.get(period_cn, en_map.get(en_lower, "bearish"))
+    
+    # 优先读运行时覆盖(strategy-config API修改的值)
+    try:
+        from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+        if _overrides_loaded and _override_global_risk:
+            override_spm = _override_global_risk.get("sentiment_position_map", {})
+            if en_key in override_spm:
+                return float(override_spm[en_key])
+    except Exception:
+        pass
+    
     return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, 0.3)
 
 # 情绪周期四阶段:
@@ -85,10 +100,20 @@ class EmotionCycleManager:
     # 仓位乘数 — 从strategy_defaults读取(单一来源)
     # 旧值: {RISING:1.0, DIFFERENTIATION:0.5, CHAOS:0.25, BEARISH:0.0} → 与回测不一致
     # 新值: 从GLOBAL_RISK["sentiment_position_map"]统一读取
+    # 【V75-审计修复】优先从运行时覆盖读取,确保strategy-config API修改后立即生效
     @property
     def POSITION_MULTIPLIER(self) -> Dict:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         m = GLOBAL_RISK.get("sentiment_position_map", {})
+        # 优先读取strategy-config API的运行时覆盖
+        try:
+            from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+            if _overrides_loaded and _override_global_risk:
+                override_spm = _override_global_risk.get("sentiment_position_map", {})
+                if override_spm:
+                    m = {**m, **override_spm}  # 覆盖值优先
+        except Exception:
+            pass
         return {
             EmotionPhase.RISING: m.get("rising", 1.0),
             EmotionPhase.DIFFERENTIATION: m.get("differentiation", 0.7),

@@ -652,6 +652,15 @@ class LiveFilterPipeline:
             # 分化期(55-70)缺失: 55-70走了chaos(0.5), 应走differentiation(0.7)
             from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
             spm = GLOBAL_RISK.get("sentiment_position_map", {})
+            # 【V75-审计修复】优先读运行时覆盖,确保strategy-config API修改后立即生效
+            try:
+                from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+                if _overrides_loaded and _override_global_risk:
+                    override_spm = _override_global_risk.get("sentiment_position_map", {})
+                    if override_spm:
+                        spm = {**spm, **override_spm}
+            except Exception:
+                pass
             if score >= 70:
                 phase = "rising"
                 ratio = spm.get("rising", 1.0)

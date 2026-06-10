@@ -23,7 +23,10 @@ router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
 
 
 def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> float:
-    """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)"""
+    """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)
+    
+    【V75-审计修复】优先从运行时覆盖读取,确保strategy-config API修改后立即生效。
+    """
     try:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         # 中文key映射
@@ -32,6 +35,17 @@ def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> floa
         en_lower = period_cn.lower() if period_cn else ""
         en_map = {"rising": "rising", "differentiation": "differentiation", "chaos": "chaos", "bearish": "bearish"}
         en_key = cn_to_en.get(period_cn, en_map.get(en_lower, "bearish"))
+        
+        # 优先读运行时覆盖(strategy-config API修改的值)
+        try:
+            from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+            if _overrides_loaded and _override_global_risk:
+                override_spm = _override_global_risk.get("sentiment_position_map", {})
+                if en_key in override_spm:
+                    return float(override_spm[en_key])
+        except Exception:
+            pass
+        
         return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, fallback)
     except Exception:
         return fallback
