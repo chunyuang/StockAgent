@@ -18,10 +18,51 @@
     "win_trades": "int",
     "loss_trades": "int",
     "win_rate": "float",
-    "avg_profit_pct": "int",
-    "avg_loss_pct": "int"
+    "avg_profit_pct": "float",
+    "avg_loss_pct": "float"
   },
-  "strategy_performance": {},
+  "strategy_performance": {
+    "半路追涨": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "首板打板": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "涨停开板": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "龙头低吸": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "跌停翘板": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "强势涨停": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "halfway_chase": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "float"
+    },
+    "急速拉升": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    }
+  },
   "risk_status": {
     "circuit_breaker_active": "bool",
     "circuit_breaker_reason": "str",
