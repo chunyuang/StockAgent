@@ -8,6 +8,15 @@
 defineProps<{
   factorEffectData: any
 }>()
+
+// 周趋势数据
+const weeklyTrendData = computed(() => factorEffectData?.weekly_trend || {})
+const hasWeeklyTrend = computed(() => Object.keys(weeklyTrendData.value).length > 0)
+</script>
+
+<script lang="ts">
+import { computed } from 'vue'
+export default { name: 'FactorEffectSection' }
 </script>
 
 <template>
@@ -40,6 +49,23 @@ defineProps<{
         </div>
       </div>
     </div>
+    <!-- 周趋势(v2.9.89增强) -->
+    <div v-if="hasWeeklyTrend" class="weekly-trend-section">
+      <div class="st" style="font-size:11px;font-weight:600;margin-bottom:4px">📈 因子周趋势</div>
+      <div v-for="(weeks, fname) in weeklyTrendData" :key="'wt-'+fname" class="wt-factor">
+        <div class="wt-name">{{ fname }}</div>
+        <div class="wt-bars">
+          <div v-for="w in (weeks as any[])?.slice()?.sort((a: any, b: any) => a.week?.localeCompare?.(b?.week ?? '') ?? 0)" :key="w.week" class="wt-bar-row">
+            <span class="wt-week">{{ w.week }}</span>
+            <div class="wt-bar-bg">
+              <div class="wt-bar-fill" :style="{width: Math.min(Math.max(w.win_rate || 0, 0), 100) + '%'}" :class="(w.win_rate || 0) >= 60 ? 'fb-up' : (w.win_rate || 0) >= 40 ? 'fb-mid' : 'fb-down'"></div>
+            </div>
+            <span class="wt-wr" :class="(w.win_rate || 0) >= 60 ? 'up' : 'down'">{{ w.win_rate ?? '-' }}%</span>
+            <span class="wt-cnt">({{ w.total ?? 0 }})</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div v-else class="empty">无因子数据</div>
 </template>
@@ -68,4 +94,14 @@ defineProps<{
 .v-type { font-weight: 600; min-width: 50px; }
 .v-detail { color: var(--text-secondary); }
 .empty { color: var(--text-tertiary); font-size: 12px; padding: 8px 0; }
+.weekly-trend-section { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-light); }
+.wt-factor { margin-bottom: 4px; }
+.wt-name { font-size: 10px; font-weight: 600; color: var(--text-secondary); margin-bottom: 2px; }
+.wt-bars { display: flex; flex-direction: column; gap: 1px; }
+.wt-bar-row { display: flex; align-items: center; gap: 4px; }
+.wt-week { width: 24px; font-size: 9px; color: var(--text-tertiary); }
+.wt-bar-bg { flex: 1; height: 12px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; }
+.wt-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.wt-wr { width: 32px; font-size: 9px; font-weight: 600; text-align: right; }
+.wt-cnt { width: 24px; font-size: 8px; color: var(--text-tertiary); }
 </style>

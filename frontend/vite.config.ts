@@ -58,41 +58,44 @@ export default defineConfig({
     ]
   },
   build: {
-    chunkSizeWarningLimit: 600,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // element-plus组件按需已由auto-import处理，这里拆分大依赖
+          // element-plus子模块拆分：按功能组拆分避免单chunk过大(v2.9.89)
           if (id.includes('node_modules/element-plus/')) {
-            // element-plus子模块拆分：es/locale和es/utils较小，保持主chunk
             if (id.includes('element-plus/es/locale') || id.includes('element-plus/es/utils')) {
               return 'el-shared';
             }
+            // 表格组件(通常较大)
+            if (id.includes('element-plus/es/components/table') || id.includes('element-plus/es/components/virtual-table')) {
+              return 'el-table';
+            }
+            // 表单组件
+            if (id.includes('element-plus/es/components/form') || id.includes('element-plus/es/components/input')
+                || id.includes('element-plus/es/components/select') || id.includes('element-plus/es/components/checkbox')
+                || id.includes('element-plus/es/components/radio') || id.includes('element-plus/es/components/switch')
+                || id.includes('element-plus/es/components/slider') || id.includes('element-plus/es/components/time-picker')
+                || id.includes('element-plus/es/components/date-picker') || id.includes('element-plus/es/components/cascader')) {
+              return 'el-form';
+            }
+            // 弹出层/对话框
+            if (id.includes('element-plus/es/components/dialog') || id.includes('element-plus/es/components/drawer')
+                || id.includes('element-plus/es/components/popover') || id.includes('element-plus/es/components/tooltip')
+                || id.includes('element-plus/es/components/message-box') || id.includes('element-plus/es/components/notification')) {
+              return 'el-overlay';
+            }
             return 'element-plus';
           }
-          // echarts单独chunk(不再与vendor捆绑，避免单个chunk过大)
-          if (id.includes('node_modules/echarts/')) {
-            return 'echarts';
-          }
-          if (id.includes('node_modules/vue-echarts/')) {
+          // echarts单独chunk
+          if (id.includes('node_modules/echarts/') || id.includes('node_modules/vue-echarts/') || id.includes('node_modules/zrender/')) {
             return 'echarts';
           }
           // 核心vendor
-          if (id.includes('node_modules/vue/') || id.includes('node_modules/@vue/')) {
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/@vue/')
+              || id.includes('node_modules/vue-router/') || id.includes('node_modules/pinia/')
+              || id.includes('node_modules/axios/')) {
             return 'vendor';
-          }
-          if (id.includes('node_modules/vue-router/')) {
-            return 'vendor';
-          }
-          if (id.includes('node_modules/pinia/')) {
-            return 'vendor';
-          }
-          if (id.includes('node_modules/axios/')) {
-            return 'vendor';
-          }
-          // zrender是echarts的渲染引擎，跟echarts走
-          if (id.includes('node_modules/zrender/')) {
-            return 'echarts';
           }
         },
       },

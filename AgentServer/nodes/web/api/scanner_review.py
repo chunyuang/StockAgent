@@ -1875,7 +1875,102 @@ async def review_closed_loop(date: str = None):
                 # 简化: 用当天最高价和成交价差来估算
                 slippage_list.append(fill_price)
 
-        # 2e. 参数漂移建议
+        # 2e. 仓位集中度诊断 — 检测过度集中少数股票/行业
+        try:
+            buy_counts = {}  # ts_code -> buy count
+            industry_counts = {}  # industry -> buy count (简化: 用ts_code前2位)
+            for b in buys:
+                ts = b.get("ts_code", "")
+                if ts:
+                    buy_counts[ts] = buy_counts.get(ts, 0) + 1
+                    # 简化行业: 用股票代码前缀
+                    prefix = ts[:2]
+                    industry_counts[prefix] = industry_counts.get(prefix, 0) + 1
+
+            total_buys = len(buys)
+            if total_buys >= 5:
+                # Top-3股票占比
+                top3_count = sum(sorted(buy_counts.values(), reverse=True)[:3])
+                top3_ratio = top3_count / total_buys * 100
+                # Top-3行业占比
+                top3_ind = sum(sorted(industry_counts.values(), reverse=True)[:3])
+                top3_ind_ratio = top3_ind / total_buys * 100
+
+                if top3_ratio > 50 and len(buy_counts) > 3:
+                    top3_codes = sorted(buy_counts, key=buy_counts.get, reverse=True)[:3]
+                    suggestions.append({
+                        "type": "仓位集中度",
+                        "severity": "high" if top3_ratio > 70 else "medium",
+                        "diagnosis": f"Top3股票占买入{top3_ratio:.0f}%({top3_count}/{total_buys}),集中度过高",
+                        "action": "建议单票仓位上限降至3%,或增加不同行业/风格的选股条件",
+                        "verification": "回测对比:集中度限制前后最大回撤和夏普比",
+                        "detail": {"top3_codes": top3_codes, "top3_count": top3_count, "total": total_buys},
+                    })
+                elif top3_ind_ratio > 70 and len(industry_counts) > 3:
+                    top3_prefixes = sorted(industry_counts, key=industry_counts.get, reverse=True)[:3]
+                    suggestions.append({
+                        "type": "行业集中度",
+                        "severity": "medium",
+                        "diagnosis": f"Top3行业占买入{top3_ind_ratio:.0f}%,行业集中度过高",
+                        "action": "建议增加行业分散性检查,同行业最多2只",
+                        "verification": "回测对比:行业分散限制前后收益曲线",
+                        "detail": {"top3_industries": top3_prefixes, "ratio": top3_ind_ratio},
+                    })
+        except Exception:
+            pass
+
+        # 2f. 持仓时长分布 — 诊断日内持仓是否过长
+        try:
+            hold_durations = []  # 持仓时长(分钟)
+            for b in buys:
+                td = b.get("trade_date", "")
+                ts = b.get("ts_code", "")
+                b_time = b.get("create_time", "")
+                # 找对应卖出
+                for s in sells:
+                    if s.get("ts_code") == ts and s.get("trade_date") == td:
+                        s_time = s.get("create_time", "")
+                        if b_time and s_time:
+                            try:
+                                # 简化: 尝试解析时间差
+                                bt = datetime.strptime(str(b_time)[:19], "%Y-%m-%d %H:%M:%S")
+                                st = datetime.strptime(str(s_time)[:19], "%Y-%m-%d %H:%M:%S")
+                                dur = (st - bt).total_seconds() / 60
+                                if dur > 0:
+                                    hold_durations.append(dur)
+                            except (ValueError, TypeError):
+                                pass
+                        break
+
+            if len(hold_durations) >= 5:
+                avg_dur = sum(hold_durations) / len(hold_durations)
+                short_trades = len([d for d in hold_durations if d < 15])  # <15分钟=超短线
+                long_trades = len([d for d in hold_durations if d > 180])  # >3小时=持仓过长
+                short_ratio = short_trades / len(hold_durations) * 100
+                long_ratio = long_trades / len(hold_durations) * 100
+
+                # 超短线过多 = 频繁交易
+                if short_ratio > 40:
+                    suggestions.append({
+                        "type": "持仓时长",
+                        "severity": "medium",
+                        "diagnosis": f"超短线(<15min)占比{short_ratio:.0f}%({short_trades}/{len(hold_durations)}),平均持仓{avg_dur:.0f}分钟",
+                        "action": "频繁交易侵蚀利润,建议提高信号过滤等级减少低质量信号",
+                        "verification": "回测对比:提高信号阈值前后的交易频率和收益",
+                    })
+                # 持仓过长 = 可能抗单
+                elif long_ratio > 30:
+                    suggestions.append({
+                        "type": "持仓时长",
+                        "severity": "high" if long_ratio > 50 else "medium",
+                        "diagnosis": f"长持仓(>3h)占比{long_ratio:.0f}%({long_trades}/{len(hold_durations)}),可能存在抗单",
+                        "action": "建议收紧日内止损(如浮亏>1.5%自动平仓),避免日内转隔夜",
+                        "verification": "回测对比:日内强制平仓前后的最大回撤",
+                    })
+        except Exception:
+            pass
+
+        # 2g. 参数快照与因子效果关联 — 参数变更时关联因子效果变化
         try:
             latest_snap = await db["param_snapshots"].find_one(sort=[("date", -1)])
             if latest_snap:
@@ -1888,6 +1983,32 @@ async def review_closed_loop(date: str = None):
                         "action": "建议更新参数快照以确保漂移检测准确",
                         "verification": "点击📸保存当前参数快照",
                     })
+
+                # 关联因子效果: 对比快照前后的因子胜率
+                snap_int = int(snap_date) if snap_date.isdigit() else 0
+                if snap_int > 0 and len(factor_stats) > 0 if 'factor_stats' in dir() else False:
+                    # 注: factor_stats来自factor_effectiveness的计算,这里简化处理
+                    # 对比快照日期前3天和后3天的因子表现
+                    pre_start = snap_int - 3
+                    post_end = snap_int + 3
+                    pre_sells = [s for s in sells if isinstance(s.get("trade_date"), int) and pre_start <= s["trade_date"] < snap_int]
+                    post_sells = [s for s in sells if isinstance(s.get("trade_date"), int) and snap_int <= s["trade_date"] <= post_end]
+
+                    if len(pre_sells) >= 3 and len(post_sells) >= 3:
+                        pre_wr = len([s for s in pre_sells if (s.get("profit_pct") or 0) > 0]) / len(pre_sells) * 100
+                        post_wr = len([s for s in post_sells if (s.get("profit_pct") or 0) > 0]) / len(post_sells) * 100
+                        wr_change = post_wr - pre_wr
+
+                        if abs(wr_change) > 15:
+                            direction = "提升" if wr_change > 0 else "下降"
+                            suggestions.append({
+                                "type": "参数效果",
+                                "severity": "medium",
+                                "diagnosis": f"参数快照({snap_date})后胜率{direction}{abs(wr_change):.0f}%({pre_wr:.0f}%→{post_wr:.0f}%)",
+                                "action": f"参数调整效果{'正向,建议保持' if wr_change > 0 else '负向,建议回滚参数或进一步优化'}",
+                                "verification": "回测验证参数调整前后的完整收益曲线",
+                                "detail": {"snap_date": snap_date, "pre_wr": round(pre_wr, 1), "post_wr": round(post_wr, 1), "change": round(wr_change, 1)},
+                            })
         except Exception:
             pass
 
