@@ -129,7 +129,8 @@ export function useCoreMethods(refs: CoreRefs) {
         if (d.signals && refs.signals.value.length > 0 && d.signals.length > refs.signals.value.length) { playSignalSound() }
         if (d.status) refs.status.value = d.status
         if (d.signals) refs.signals.value = d.signals
-        if (d.positions) refs.positions.value = d.positions
+        // 【v2.9.87修复】positions可能是数字(持仓数量)或数组(持仓详情)，只有数组才更新
+        if (d.positions && Array.isArray(d.positions)) refs.positions.value = d.positions
         if (d.timeline) refs.timeline.value = d.timeline
         if (d.orders) refs.orders.value = d.orders
       }
