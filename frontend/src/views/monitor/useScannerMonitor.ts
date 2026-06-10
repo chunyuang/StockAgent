@@ -24,7 +24,7 @@ interface PositionInfo { ts_code: string; stock_name: string; strategy: string; 
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number; profit_amount?: number; decision_detail?: Record<string, any> }
 interface StrategyConfig { id: string; name: string; enabled: boolean; params: Record<string, any>; riskParams: Record<string, any>; paramDescriptions: ParamDesc[]; riskDescriptions: ParamDesc[] }
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
-interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
+interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_per_stock: number; max_total_position: number }
 interface HealthData { overall_status: 'healthy' | 'warning' | 'critical'; circuit_breaker: { trading_paused: boolean; pause_reason: string; consecutive_losses: number; max_consecutive_losses: number }; risk_metrics: { daily_drawdown_pct: number; max_drawdown_pct: number; position_ratio: number }; data_sources: Array<{ name: string; available: boolean; last_check: string }> }
 
 type HealthStatusKey = 'healthy' | 'warning' | 'critical'
@@ -257,7 +257,7 @@ export function useScannerMonitor() {
     if (!editingStrategy.value) return
     saving.value = true
     try {
-      const r = await api.post(`${configApi}/strategies/${editingStrategy.value.id}`, { params: editParams.value, risk_params: editRiskParams.value })
+      const r = await api.put(`${configApi}/strategies/${editingStrategy.value.id}`, { params: editParams.value, risk_params: editRiskParams.value })
       const p = parseResponse(r)
       if (p.success) { ElMessage.success('策略已保存'); editDialogVisible.value = false; core.fetchStrategies() }
       else ElMessage.error('保存失败')
