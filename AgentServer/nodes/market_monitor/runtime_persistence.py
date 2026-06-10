@@ -1149,6 +1149,8 @@ class RuntimePersistence:
         """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】
         
         修复: 优先从strategy_overrides读取覆盖后的参数, 而非原始strategies配置
+        【V75-审计修复】同时读取strategy-config API的覆盖(scanner_config.strategy_config_overrides),
+        确保前端API修改的参数不遗漏
         """
         try:
             from core.managers import mongo_manager as mm
@@ -1161,7 +1163,24 @@ class RuntimePersistence:
                 strategy_overrides = scanner_config.get("strategy_overrides", {})
                 global_risk = scanner_config.get("global_risk", {})
                 
-                # 构建快照: 合并strategies + overrides
+                # 【V75-审计修复】同时读取strategy-config API的运行时覆盖
+                # 问题: 前端通过strategy-config API修改的参数存在scanner_config.strategy_config_overrides中,
+                # 与strategy_overrides(scanner内部持久化)是两套独立存储,之前只读了后者导致遗漏
+                api_overrides = {}
+                api_global_risk = {}
+                try:
+                    override_doc = await mm.db["scanner_config"].find_one(
+                        {"_id": "strategy_config_overrides"}
+                    )
+                    if override_doc and "data" in override_doc:
+                        api_overrides = override_doc["data"].get("params", {})
+                        api_risk_overrides = override_doc["data"].get("risk", {})
+                        api_enabled_overrides = override_doc["data"].get("enabled", {})
+                        api_global_risk = override_doc["data"].get("global_risk", {})
+                except Exception:
+                    pass
+                
+                # 构建快照: 合并strategies + strategy_overrides + api_overrides
                 merged_strategies = {}
                 for sid, cfg in strategies.items():
                     merged_cfg = {
@@ -1178,6 +1197,13 @@ class RuntimePersistence:
                             merged_cfg["riskParams"].update(override["riskParams"])
                         if "enabled" in override:
                             merged_cfg["enabled"] = override["enabled"]
+                    # 应用strategy-config API覆盖(最高优先级)
+                    if sid in api_overrides:
+                        merged_cfg["params"].update(api_overrides[sid])
+                    if sid in api_risk_overrides:
+                        merged_cfg["riskParams"].update(api_risk_overrides[sid])
+                    if sid in api_enabled_overrides:
+                        merged_cfg["enabled"] = api_enabled_overrides[sid]
                     merged_strategies[sid] = merged_cfg
                 
                 # 也加入overrides中存在但strategies中没有的策略
@@ -1188,10 +1214,24 @@ class RuntimePersistence:
                             "params": dict(override.get("params", {})),
                             "riskParams": dict(override.get("riskParams", {})),
                         }
+                # 也加入API覆盖中存在但以上都未覆盖的策略
+                for sid in set(list(api_overrides.keys()) + list(api_risk_overrides.keys()) + list(api_enabled_overrides.keys())):
+                    if sid not in merged_strategies:
+                        # 不引用回测模块, 从已遍历的strategies或空白配置回退
+                        base_cfg = strategies.get(sid, {})
+                        merged_strategies[sid] = {
+                            "enabled": api_enabled_overrides.get(sid, base_cfg.get("enabled", True)),
+                            "params": {**base_cfg.get("params", {}), **api_overrides.get(sid, {})},
+                            "riskParams": {**base_cfg.get("riskParams", {}), **api_risk_overrides.get(sid, {})},
+                        }
+                
+                # 合并全局风控: scanner.config.global_risk + API覆盖
+                merged_global_risk = {k: v for k, v in global_risk.items() if not k.startswith("__")} if global_risk else {}
+                merged_global_risk.update(api_global_risk)
                 
                 snapshot = {
                     "date": today,
-                    "global_risk": {k: v for k, v in global_risk.items() if not k.startswith("__")} if global_risk else {},
+                    "global_risk": merged_global_risk,
                     "strategies": merged_strategies,
                 }
                 await mm.db["param_snapshots"].update_one(
