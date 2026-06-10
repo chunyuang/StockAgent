@@ -352,18 +352,20 @@ class PositionChecker:
                 pass
 
         # 移动止损(盈利保护)
+        # 【v2.9.89修复+同步】与position_manager.check_moving_stop对齐
+        # 旧bug: 条件 `profit_pct/100 > sl_pct*2 and profit_pct < 0` 永远为False
+        # (不可能同时>2*sl_pct且<0)
+        # 修复: 使用trailing_stop已激活(说明盈利曾>=2%) + 当前亏损 作为触发条件
         for pos in self.broker.get_positions():
             if pos.available_qty <= 0:
                 continue
             risk = scanner._get_strategy_risk(pos.strategy)
-            # 【v2.9.84修复】线程安全读取position_risk_overrides(与position_manager对齐)
+            # 线程安全读取position_risk_overrides(与position_manager对齐)
             with self.state_lock:
-                pos_overrides = dict(scanner._position_risk_overrides.get(pos.ts_code, {}))
-            sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
-            if pos.profit_pct / 100 > sl_pct * 2:
+                trailing = dict(self.trailing_stops.get(pos.ts_code, {}))
+            if trailing.get("activated") and pos.profit_pct < 0:
                 already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
-                # 【v2.9.84修复】profit_pct<0而非<=0, 恰好0%不应触发移动止损
-                if not already and pos.profit_pct < 0:
+                if not already:
                     to_sell.append((pos, f"移动止损(盈利回撤至{pos.profit_pct:.1f}%)", pos.current_price, risk))
                     logger.info(f"[TRAILING] {pos.ts_code} 盈利回撤至{pos.profit_pct:.1f}%, 移动止损触发")
 
