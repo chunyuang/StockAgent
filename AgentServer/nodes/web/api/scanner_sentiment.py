@@ -95,8 +95,22 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                  "zt_premium": 1, "data_source": 1, "missing_data": 1}
             ).sort("trade_date", 1):
                 td = str(doc["trade_date"])
+                raw_period = doc.get("period", "")
+                raw_score = doc.get("score", 0)
+                # 非标准period兜底: 根据score推断(如period="daily"→按阈值推断)
+                _cn_periods = {"高潮", "分化", "震荡", "冰点"}
+                _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
+                if raw_period in _en_to_cn:
+                    raw_period = _en_to_cn[raw_period]
+                if raw_period not in _cn_periods:
+                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    if raw_score >= _th["rising"]: raw_period = "高潮"
+                    elif raw_score >= _th["differentiation"]: raw_period = "分化"
+                    elif raw_score >= _th["chaos"]: raw_period = "震荡"
+                    else: raw_period = "冰点"
                 daily_map[td] = {
-                    "date": td, "score": doc.get("score", 0), "period": doc.get("period", ""),
+                    "date": td, "score": raw_score, "period": raw_period,
                     "position_ratio": _get_position_ratio_sentiment(doc.get("period", ""), doc.get("position_ratio", 0.3)),
                     "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
                     "max_continue": doc.get("max_continue", 0),
@@ -299,16 +313,26 @@ async def get_sentiment_strategy_matrix(date: str = None):
             "RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
             "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点",
         }
+        _cn_periods = {"高潮", "分化", "震荡", "冰点"}
         # 获取每日情绪阶段
         daily_sentiment = {}
         # 从sentiment_scores读取,missing_data的日期用前一个有效期补
         last_valid_period = ""
-        async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}).sort("trade_date", 1):
+        async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "score": 1, "missing_data": 1}).sort("trade_date", 1):
             td = str(doc["trade_date"])
             period = doc.get("period", "")
+            score = doc.get("score", 50)
             # 英文key转中文
             if period in _en_to_cn_period:
                 period = _en_to_cn_period[period]
+            # 非标准period(如"daily")兜底: 根据score推断
+            if period not in _cn_periods and period not in ("数据缺失", ""):
+                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+                _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                if score >= _th["rising"]: period = "高潮"
+                elif score >= _th["differentiation"]: period = "分化"
+                elif score >= _th["chaos"]: period = "震荡"
+                else: period = "冰点"
             if doc.get("missing_data"):
                 # 用前一个有效期补,没有则为数据缺失
                 period = last_valid_period if last_valid_period else "数据缺失"
