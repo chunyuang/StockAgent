@@ -803,7 +803,7 @@ class TieredScanner:
     def _check_single_position_stop_profit(
         self, pos: Dict, prices: Dict[str, Dict]
     ) -> Optional[SellSignal]:
-        """单只持仓止损止盈检查【v2.9.61:从_l3_builtin_check提取】"""
+        """单只持仓止损止盈检查【v2.9.61:从_l3_builtin_check提取, v2.9.90:修复止损符号】"""
         ts_code = pos.get("ts_code", "")
         if not ts_code:
             return None
@@ -818,10 +818,13 @@ class TieredScanner:
             return None
 
         profit_pct = (current_price - cost_price) / cost_price * 100
-        stop_loss_pct = pos.get("stop_loss_pct", -3.0)
-        take_profit_pct = pos.get("take_profit_pct", 7.0)
+        # 【v2.9.90修复】stop_loss_pct/take_profit_pct从position_to_dict获取为正值(如3.0=3%)
+        # 旧bug: profit_pct<=stop_loss_pct 在盈利0~3%时误触发止损
+        # 正确: profit_pct<=-stop_loss_pct (亏损>=3%才触发止损)
+        stop_loss_pct = abs(pos.get("stop_loss_pct", 3.0))   # 正值, 如3.0=3%
+        take_profit_pct = abs(pos.get("take_profit_pct", 7.0))  # 正值, 如7.0=7%
 
-        if profit_pct <= stop_loss_pct:
+        if profit_pct <= -stop_loss_pct:
             sell_reason = "stop_loss"
         elif profit_pct >= take_profit_pct:
             sell_reason = "take_profit"

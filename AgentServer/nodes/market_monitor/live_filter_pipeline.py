@@ -362,12 +362,14 @@ class LiveFilterPipeline:
         return ratio
 
     def _finalize_traces(self, result: FilterResult) -> None:
-        """最终标记候选通过/拒绝状态+构建汇总【v2.9.61:从apply提取】"""
+        """最终标记候选通过/拒绝状态+构建汇总【v2.9.61:从apply提取, v2.9.90:L9标记通过】"""
         passed_ids = {c["ts_code"] for c in result.candidates}
         for t in result.trace_candidates:
             if t.final_status == "pending":
                 if t.ts_code in passed_ids:
                     t.final_status = "passed"
+                    # L9_execute: 管道外由MarketScanner执行, 此处默认标记通过
+                    t.layer_results["L9_execute"] = {"passed": True, "reason": "管道筛选通过, 待执行"}
                 else:
                     t.final_status = "rejected"
                     t.final_rejection_layer = t.final_rejection_layer or "unknown"
@@ -437,10 +439,11 @@ class LiveFilterPipeline:
         【v2.9.80修复】每层的input=上次仍存活的候选数(非之前层的rejected)。
         淘汰层(L1/L3冰点/L4/L5/L7): 部分passed, 部分rejected
         仓位调整层(L2/L3非冰点/L6/L8): 全部passed, 0 rejected
+        【v2.9.90修复】层级列表与_fix_funnel_summary对齐, 加入L9_execute(默认output=input)
         """
         layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
                    "L4_premarket", "L5_auction", "L6_strategy",
-                   "L7_ranking", "L8_position"]
+                   "L7_ranking", "L8_position", "L9_execute"]
         
         prev_output = len(result.trace_candidates)
         for layer in layers:
