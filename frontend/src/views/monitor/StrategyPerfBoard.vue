@@ -47,7 +47,7 @@ async function fetchData() {
   try {
     const r: any = await api.get('/scanner/strategy-performance')
     if (r?.success) data.value = r.data || []
-  } catch { } finally { loading.value = false }
+  } catch (e) { console.warn('[StrategyPerfBoard] fetchData failed:', e) } finally { loading.value = false }
 }
 
 function sparklineOption(vals: number[], color: string) {
