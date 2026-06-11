@@ -178,6 +178,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     _quote_fail_count: int = 0
     _quote_last_recover_check: float = 0.0
     _is_running: bool = False
+    _start_time: float = 0.0  # v2.9.86: 启动时间戳(供uptime计算)
     _task = None
     _scan_count: int = 0
     _last_scan_time: str = ""
@@ -337,6 +338,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         
         # 启动主循环
         self._is_running = True
+        self._start_time = time.time()  # v2.9.86: 记录启动时间
         self._task = asyncio.create_task(self._scan_loop(trade_date))
         
         # 【Phase1.2:启动风控独立线程】
