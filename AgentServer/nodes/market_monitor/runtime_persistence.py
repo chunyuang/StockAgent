@@ -582,10 +582,12 @@ class RuntimePersistence:
 
         # 推送到飞书(如果有webhook)
         try:
-            from core.managers.signal_dispatcher import SignalDispatcher
+            from nodes.market_monitor.signal_dispatcher import SignalDispatcher
             dispatcher = SignalDispatcher.get_instance()
             if dispatcher:
                 await dispatcher.push_message(summary, channel="feishu")
+        except ImportError:
+            pass  # signal_dispatcher模块不存在时静默跳过
         except Exception as _e:
             logger.warning(f"[DAILY] 飞书日报推送失败: {_e}")
         logger.info(f"[DAILY] {summary}")
@@ -901,6 +903,11 @@ class RuntimePersistence:
         批量写入MongoDB, 供情绪计算和历史回测使用。
         """
         from pymongo.operations import UpdateOne
+        try:
+            from core.managers import mongo_manager
+        except ImportError:
+            logger.warning("[SCANNER] mongo_manager不可用, 跳过数据同步")
+            return
         if not mongo_manager.is_initialized:
             return
         db = mongo_manager.db
@@ -908,7 +915,8 @@ class RuntimePersistence:
         scanner = self._scanner
         
         # 1. 同步limit_pools → limit_list
-        ops = self._build_limit_ops(scanner._limit_pools, td_int)
+        limit_pools = getattr(scanner, '_limit_pools', None) or {}
+        ops = self._build_limit_ops(limit_pools, td_int)
         if ops:
             result = await db["limit_list"].bulk_write(ops)
             logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
@@ -1178,7 +1186,8 @@ class RuntimePersistence:
                         api_enabled_overrides = override_doc["data"].get("enabled", {})
                         api_global_risk = override_doc["data"].get("global_risk", {})
                 except Exception:
-                    pass
+                    api_risk_overrides = {}
+                    api_enabled_overrides = {}
                 
                 # 构建快照: 合并strategies + strategy_overrides + api_overrides
                 merged_strategies = {}

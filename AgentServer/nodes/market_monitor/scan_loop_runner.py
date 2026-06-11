@@ -157,7 +157,8 @@ class ScanLoopRunner:
                 await self.scan_once(trade_date)
                 return True
             except Exception as e:
-                logger.error(f"[SCAN_TRADING] scan_once异常: {e}")
+                import traceback
+                logger.error(f"[SCAN_TRADING] scan_once异常: {e}\n{traceback.format_exc()}")
                 self._scan_loop_error_count += 1
                 return False
         else:

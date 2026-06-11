@@ -405,8 +405,8 @@ def check_timeout(holding, market_data, params):
 
     注意: 需要外部传入trade_days_held,通过params传入
     """
-    trade_days_held = params.get('trade_days_held', 0)
-    max_hold_days = params.get('max_hold_days', 3)
+    trade_days_held = params.get('trade_days_held', 0) or 0
+    max_hold_days = params.get('max_hold_days', 3) or 3
 
     if max_hold_days >= 999:  # 未设置上限
         return None

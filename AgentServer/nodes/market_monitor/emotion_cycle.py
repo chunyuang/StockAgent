@@ -150,7 +150,9 @@ class EmotionCycleManager:
 
         # 1-4. 收集情绪因子数据
         factors = await self._collect_emotion_factors(trade_date, limit_stocks)
-        score = self._compute_score(**factors)
+        # 只传_compute_score接受的5个参数,过滤掉up_count/down_count等辅助字段
+        score_keys = {'limit_up_count', 'limit_down_count', 'max_continue_limit', 'up_down_ratio', 'zt_premium'}
+        score = self._compute_score(**{k: v for k, v in factors.items() if k in score_keys})
         phase = self._score_to_phase(score)
         result = self._build_emotion_score(trade_date, score, phase, factors)
         if use_cache:
@@ -581,7 +583,7 @@ class EmotionCycleManager:
         注意: daily_basic没有pct_chg字段,不能用于涨跌停统计!
         注意: tushare_stk_limit只有up_limit/down_limit价格,没有limit标记!
         """
-        limit_pools = scanner._limit_pools
+        limit_pools = getattr(scanner, '_limit_pools', None) or {}
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
         max_lb = max((item.get("limit_times", 1) for item in limit_pools.get("limit_up", [])), default=1) if lu > 0 else 1
