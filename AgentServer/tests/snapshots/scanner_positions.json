@@ -1,6 +1,33 @@
 {
   "success": "bool",
   "data": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "shares": "int",
+      "available_qty": "int",
+      "cost_price": "float",
+      "current_price": "float",
+      "profit_pct": "float",
+      "profit_amount": "float",
+      "market_value": "float",
+      "today_buy": "int",
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "distance_to_stop": "float",
+      "buy_date": "str",
+      "trailing_stop": {
+        "high_price": "float",
+        "trailing_stop_pct": "float",
+        "activated": "bool",
+        "activated_at": "NoneType",
+        "stop_price": "float"
+      },
+      "risk_level": "str",
+      "effective_stop_price": "float"
+    }
   ]
 }
