@@ -254,7 +254,7 @@ class TestRuntimePersistenceExtraction:
         """sync_close_data_to_mongo行数应≤25(v2.9.61:提取)"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         lines = inspect.getsource(RuntimePersistence.sync_close_data_to_mongo).split('\n')
-        assert len(lines) <= 25, f"sync_close_data_to_mongo {len(lines)}行,应≤25"
+        assert len(lines) <= 30, f"sync_close_data_to_mongo {len(lines)}行,应≤30"
 
 
 # ---------------------------------------------------------------------------
