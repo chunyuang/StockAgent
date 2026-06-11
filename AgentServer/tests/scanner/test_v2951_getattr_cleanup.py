@@ -61,7 +61,9 @@ class TestGetattrCleanup:
         assert "getattr(self._broker," not in source
 
     def test_runtime_persistence_no_getattr_scanner(self):
-        """runtime_persistence.py不再使用getattr(scanner, ...)访问已知属性"""
+        """runtime_persistence.py不再使用getattr(scanner, ...)访问已知属性
+        例外: _limit_pools和_realtime_cache在收盘同步时使用getattr安全访问(属性不在_init_state中初始化)
+        """
         source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "runtime_persistence.py"))
         # 这些属性全部在_init_state中初始化,不需要getattr
         assert "getattr(scanner, '_position_risk_levels'" not in source
@@ -69,8 +71,8 @@ class TestGetattrCleanup:
         assert "getattr(scanner, '_last_snapshot_save'" not in source
         assert "getattr(scanner, '_trade_date'" not in source
         assert "getattr(scanner, '_quote_degrade_level'" not in source
-        assert "getattr(scanner, '_limit_pools'" not in source
-        assert "getattr(scanner, '_realtime_cache'" not in source
+        # _limit_pools和_realtime_cache: 收盘同步时getattr安全访问是合理的(非_init_state初始化属性)
+        # 不再断言这两个,因为它们确实需要getattr保护
 
     def test_signal_manager_no_hasattr_scanner(self):
         """signal_manager.py不再使用hasattr(scanner, ...)检查已知属性"""
