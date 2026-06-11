@@ -63,52 +63,57 @@ async def get_realtime_quote(ts_code: str):
                 },
             })
     
-    # 3. 从东方财富获取
+    # 3. 从东方财富获取(直接使用适配器)
     try:
-        from nodes.market_monitor.data_source_router import DataSourceRouter
-        router = DataSourceRouter()
-        em_data = await router.fetch_eastmoney_snapshot([ts_code])
-        if em_data and ts_code in em_data:
-            rt = em_data[ts_code]
-            return _sanitize({
-                "success": True,
-                "data": {
-                    "ts_code": ts_code,
-                    "name": rt.get("name", ""),
-                    "price": rt.get("price", 0),
-                    "pct_chg": rt.get("pct_chg", 0),
-                    "volume_ratio": rt.get("volume_ratio", 0),
-                    "turnover_rate": rt.get("turnover_rate", 0),
-                    "source": "eastmoney",
-                },
-            })
+        from src.data_sources.eastmoney_adapter import EastmoneyAdapter
+        em = EastmoneyAdapter()
+        await em.initialize()
+        quotes = await em.get_realtime_quotes_batch([ts_code])
+        if quotes and ts_code in quotes:
+            rt = quotes[ts_code]
+            price = getattr(rt, 'price', 0) or (rt.get('price', 0) if isinstance(rt, dict) else 0)
+            name = getattr(rt, 'name', '') or (rt.get('name', '') if isinstance(rt, dict) else '')
+            pct = getattr(rt, 'pct_chg', 0) or (rt.get('pct_chg', 0) if isinstance(rt, dict) else 0)
+            vol_ratio = getattr(rt, 'volume_ratio', 0) or (rt.get('volume_ratio', 0) if isinstance(rt, dict) else 0)
+            turnover = getattr(rt, 'turnover_rate', 0) or (rt.get('turnover_rate', 0) if isinstance(rt, dict) else 0)
+            if price and price > 0:
+                return _sanitize({
+                    "success": True,
+                    "data": {
+                        "ts_code": ts_code,
+                        "name": name,
+                        "price": price,
+                        "pct_chg": pct,
+                        "volume_ratio": vol_ratio,
+                        "turnover_rate": turnover,
+                        "source": "eastmoney",
+                    },
+                })
     except Exception as e:
         logger.warning(f"[QUOTE] 东方财富获取失败: {e}")
     
-    # 4. 从必盈获取
+    # 4. 从必盈获取(直接使用适配器)
     try:
-        from nodes.market_monitor.data_source_router import DataSourceRouter
-        ds_router = DataSourceRouter()
-        biying = ds_router.get_biying()
-        if biying:
-            # 必盈用纯数字代码
-            dm = ts_code.split(".")[0]
-            quote = await biying.get_realtime_quote(dm)
-            if quote:
-                price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
-                name = quote.get("name", "") if isinstance(quote, dict) else getattr(quote, 'name', '')
-                pct = float(quote.get("pct_chg", 0) if isinstance(quote, dict) else getattr(quote, 'pct_chg', 0))
-                if price > 0:
-                    return _sanitize({
-                        "success": True,
-                        "data": {
-                            "ts_code": ts_code,
-                            "name": name,
-                            "price": price,
-                            "pct_chg": pct,
-                            "source": "biying",
-                        },
-                    })
+        from src.data_sources.biying_adapter import BiyingAdapter
+        biying = BiyingAdapter()
+        await biying.initialize()
+        dm = ts_code.split(".")[0]
+        quote = await biying.get_realtime_quote(dm)
+        if quote:
+            price = float(getattr(quote, 'price', 0) or (quote.get('price', 0) if isinstance(quote, dict) else 0))
+            name = getattr(quote, 'name', '') or (quote.get('name', '') if isinstance(quote, dict) else '')
+            pct = float(getattr(quote, 'pct_chg', 0) or (quote.get('pct_chg', 0) if isinstance(quote, dict) else 0))
+            if price > 0:
+                return _sanitize({
+                    "success": True,
+                    "data": {
+                        "ts_code": ts_code,
+                        "name": name,
+                        "price": price,
+                        "pct_chg": pct,
+                        "source": "biying",
+                    },
+                })
     except Exception as e:
         logger.warning(f"[QUOTE] 必盈获取失败: {e}")
     
