@@ -140,8 +140,7 @@ const emit = defineEmits<{
         </div>
       </template>
 
-      <!-- 周复盘 -->
-      <!-- 周复盘 -->
+      <!-- 月复盘 -->
       <template v-if="reviewTab === 'monthly'">
         <template v-if="monthlyReviewData">
           <div class="st" style="margin-top:8px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
@@ -229,7 +228,7 @@ const emit = defineEmits<{
         <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
           <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
           <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
-          <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="weeklyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ weeklyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl || 0 }}%</div></div>
+          <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="(weeklyReviewData.summary?.pnl ?? 0) >= 0 ? 'up' : 'down'">{{ (weeklyReviewData.summary?.pnl ?? 0) >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl ?? 0 }}%</div></div>
           <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ (Object.values(weeklyReviewData.sentiments || {}) as any[])[0]?.period || '-' }}</div></div>
         </div>
         <div class="strategy-contrib">

@@ -36,7 +36,7 @@ async function fetchKline() {
       kline.value = r.data?.kline || []
       annotations.value = r.data?.annotations || []
     }
-  } catch { } finally { loading.value = false }
+  } catch (e) { console.warn(`[MiniKline] fetchKline failed for ${props.tsCode}:`, e) } finally { loading.value = false }
 }
 
 const miniOption = computed(() => {
