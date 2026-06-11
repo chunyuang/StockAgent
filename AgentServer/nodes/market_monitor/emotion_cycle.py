@@ -95,7 +95,18 @@ class EmotionCycleManager:
     @property
     def THRESHOLD(self) -> Dict:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        return GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        t = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        # 【V76-修复】优先从运行时覆盖读取,确保strategy-config API修改sentiment_thresholds后立即生效
+        # 之前只有POSITION_MULTIPLIER读覆盖,THRESHOLD漏掉了,导致API修改情绪阈值不生效
+        try:
+            from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+            if _overrides_loaded and _override_global_risk:
+                override_st = _override_global_risk.get("sentiment_thresholds", {})
+                if override_st:
+                    t = {**t, **override_st}  # 覆盖值优先
+        except Exception:
+            pass
+        return t
     
     # 仓位乘数 — 从strategy_defaults读取(单一来源)
     # 旧值: {RISING:1.0, DIFFERENTIATION:0.5, CHAOS:0.25, BEARISH:0.0} → 与回测不一致
