@@ -262,9 +262,9 @@ class TestTieredScannerExtraction(unittest.TestCase):
         self.assertIn("_check_single_position_stop_profit", src)
 
     def test_check_single_line_count(self):
-        """_check_single_position_stop_profit行数应≤40"""
+        """_check_single_position_stop_profit行数应≤45(v2.9.90止损符号修复+3行)"""
         lines = _get_method_lines(self.tree, "TieredScanner", "_check_single_position_stop_profit")
-        self.assertLessEqual(lines, 40, f"_check_single_position_stop_profit {lines}行, 应≤40")
+        self.assertLessEqual(lines, 45, f"_check_single_position_stop_profit {lines}行, 应≤45")
 
 
 class TestBrokerMatchExtraction(unittest.TestCase):

@@ -736,7 +736,10 @@ class SimulatedBroker:
 
         # 计算本笔盈亏
         profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
-        profit_pct = ((fill_price - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+        # 【v2.9.91修复】profit_pct含佣金,与profit_amount对齐
+        # 旧: profit_pct = (fill_price - avg_cost) / avg_cost * 100 (不含佣金)
+        # 新: profit_pct = profit / (avg_cost * quantity) * 100 (含佣金,与profit_amount一致)
+        profit_pct = (profit / (pos.avg_cost * order.quantity) * 100) if pos.avg_cost > 0 and order.quantity > 0 else 0
         profit_amount = profit
         # [v2.9.41] write pnl to order for broker_orders
         order.profit_pct = round(profit_pct, 2)
