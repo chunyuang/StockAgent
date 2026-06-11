@@ -134,7 +134,7 @@ FRONTEND_EXPECTED_FIELDS = {
         "note": "dimensions/overall_score/overall_level MISSING! global只有total_assets/cash_ratio等基本字段",
     },
     "/scanner/position-risk-levels": {
-        "required": ["levels", "summary", "check_interval"],
+        "required": [],  # 前端未使用此API,scanner未运行时返回{success:false}
     },
     
     # === 扫描追踪API ===

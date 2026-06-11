@@ -1,10 +1,10 @@
 {
   "date": "str",
   "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
-    "today_profit": "float",
+    "total_assets": "float",
+    "available_cash": "float",
+    "market_value": "float",
+    "today_profit": "int",
     "total_profit": "float",
     "position_ratio": "float"
   },
@@ -13,12 +13,12 @@
     "strategy_summary": {
       "halfway_chase": {
         "count": "int",
-        "market_value": "int",
-        "total_profit": "int",
+        "market_value": "float",
+        "total_profit": "float",
         "win_count": "int",
         "loss_count": "int",
-        "closed_profit": "float",
         "closed_count": "int",
+        "closed_profit": "float",
         "win_rate": "float",
         "closed_win_rate": "float",
         "stop_loss_count": "int",
@@ -31,18 +31,26 @@
       }
     },
     "top_profit": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "name": "str",
+        "pct": "float"
+      }
     ],
     "top_loss": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "name": "str",
+        "pct": "float"
+      }
     ]
   },
   "trades": {
     "buy": "int",
     "sell": "int",
-    "total_amount": "int"
+    "total_amount": "float"
   },
-  "win_rate": "int",
+  "win_rate": "float",
   "stop_loss_count": "int",
   "take_profit_count": "int",
   "risk": {
@@ -62,6 +70,19 @@
     "buy_count": "int",
     "sell_count": "int"
   },
-  "funnel_summary": "NoneType",
+  "funnel_summary": {
+    "L4_premarket": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L5_auction": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L7_ranking": {
+      "total_input": "int",
+      "total_rejected": "int"
+    }
+  },
   "sentiment_snapshot": "NoneType"
 }
