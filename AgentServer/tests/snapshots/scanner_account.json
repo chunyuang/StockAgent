@@ -3,7 +3,7 @@
   "total_assets": "int",
   "available_cash": "int",
   "market_value": "int",
-  "today_profit": "float",
+  "today_profit": "int",
   "total_profit": "float",
   "position_count": "int",
   "position_ratio": "float"
