@@ -66,7 +66,7 @@ class RuntimePersistence:
             return
         
         # 跨日检查
-        snapshot_date = doc.get("trade_date", "")
+        snapshot_date = str(doc.get("trade_date", ""))
         today = datetime.now().strftime("%Y%m%d")
         is_same_day = (snapshot_date == today)
         if not is_same_day and snapshot_date:
@@ -276,7 +276,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")
+            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
             scanner = self._scanner
             if not scanner._timeline:
                 return
@@ -381,7 +381,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")
+            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
@@ -601,7 +601,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")
+            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
