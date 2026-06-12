@@ -114,3 +114,20 @@ if npx vite build > /tmp/vite_build.log 2>&1; then
 else
     log "⚠️ 前端 build 失败，保留旧版本 (详见 /tmp/vite_build.log)"
 fi
+
+# 6. 确保云桌面浏览器在跑 (反向漏斗:浏览器崩了则重启)
+if command -v supervisorctl > /dev/null 2>&1; then
+    BROWSER_STATUS=$(supervisorctl status cua-vnc:monitor-browser 2>/dev/null | awk '{print $2}')
+    if [ "$BROWSER_STATUS" != "RUNNING" ]; then
+        log "🔄 云桌面浏览器未运行 ($BROWSER_STATUS), 重启中..."
+        supervisorctl restart cua-vnc:monitor-browser > /dev/null 2>&1
+        sleep 5
+        log "✅ 云桌面浏览器已重启"
+    else
+        log "✅ 云桌面浏览器运行中"
+        # 刚重新build了前端, 刷新浏览器拿最新代码
+        log "🔄 刷新云桌面浏览器以加载最新代码..."
+        DISPLAY=:99 xdotool search --name "localhost" key --window %@ ctrl+F5 > /dev/null 2>&1 || \
+            DISPLAY=:99 xdotool key --window $(DISPLAY=:99 xdotool search --name "Monitor" 2>/dev/null | head -1) F5 > /dev/null 2>&1 || true
+    fi
+fi
