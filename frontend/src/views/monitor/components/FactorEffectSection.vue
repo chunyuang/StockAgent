@@ -5,12 +5,12 @@
  * 从ReviewTab.vue提取【v2.9.86】
  * 展示因子效果统计、市场漂移告警和因子衰减告警
  */
-defineProps<{
+const props = defineProps<{
   factorEffectData: any
 }>()
 
 // 周趋势数据
-const weeklyTrendData = computed(() => factorEffectData?.weekly_trend || {})
+const weeklyTrendData = computed(() => props.factorEffectData?.weekly_trend || {})
 const hasWeeklyTrend = computed(() => Object.keys(weeklyTrendData.value).length > 0)
 </script>
 

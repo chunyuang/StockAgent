@@ -20,6 +20,7 @@ const HistoryTab = defineAsyncComponent(() => import('./HistoryTab.vue'))
 const ScanTraceTab = defineAsyncComponent(() => import('./ScanTraceTab.vue'))
 const PositionRiskMatrix = defineAsyncComponent(() => import('./PositionRiskMatrix.vue'))
 const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
+const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard.vue'))
 const SignalTracePanel = defineAsyncComponent(() => import('./SignalTracePanel.vue'))
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 
@@ -214,7 +215,8 @@ const {
         </div>
 
         <!-- 盈亏曲线 → 已移至绩效Tab -->
-
+        <!-- 策略绩效看板 -->
+        <StrategyPerfBoard />
       </div>
     </div>
 
