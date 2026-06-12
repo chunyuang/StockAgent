@@ -232,8 +232,11 @@ class RuntimePersistence:
     
     # ==================== 盘前竞价 ====================
     
-    async def premarket_auction(self) -> None:
+    async def premarket_auction(self, trade_date: str = None) -> None:
         """盘前竞价: 从持仓中筛选竞价异常股
+        
+        Args:
+            trade_date: 交易日期(兼容scan_loop调用, 暂未使用)
         
         集合竞价9:15-9:25, 价格可能跳空:
         - 跳空高开(>3%): 标记为强势, 可以继续持有
@@ -1175,6 +1178,8 @@ class RuntimePersistence:
                 # 问题: 前端通过strategy-config API修改的参数存在scanner_config.strategy_config_overrides中,
                 # 与strategy_overrides(scanner内部持久化)是两套独立存储,之前只读了后者导致遗漏
                 api_overrides = {}
+                api_risk_overrides = {}
+                api_enabled_overrides = {}
                 api_global_risk = {}
                 try:
                     override_doc = await mm.db["scanner_config"].find_one(
@@ -1186,8 +1191,7 @@ class RuntimePersistence:
                         api_enabled_overrides = override_doc["data"].get("enabled", {})
                         api_global_risk = override_doc["data"].get("global_risk", {})
                 except Exception:
-                    api_risk_overrides = {}
-                    api_enabled_overrides = {}
+                    pass
                 
                 # 构建快照: 合并strategies + strategy_overrides + api_overrides
                 merged_strategies = {}
