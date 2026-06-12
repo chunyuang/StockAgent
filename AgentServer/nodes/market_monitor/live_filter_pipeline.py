@@ -623,15 +623,19 @@ class LiveFilterPipeline:
             from ..listener.strategies.emotion_cycle import emotion_cycle_manager
         
         # 构建limit_stocks dict供emotion_cycle使用
+        # 【v2.9.89优化】同时传入realtime_data的pct_chg供日内涨跌比计算
         limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
             for code, data in realtime_data.items():
                 pct = data.get("pct_chg", 0)
                 if isinstance(pct, (int, float)):
                     if pct >= 9.5:
-                        limit_stocks[code] = {"limit_type": "U"}
+                        limit_stocks[code] = {"limit_type": "U", "pct_chg": pct}
                     elif pct <= -9.5:
-                        limit_stocks[code] = {"limit_type": "D"}
+                        limit_stocks[code] = {"limit_type": "D", "pct_chg": pct}
+                    else:
+                        # 【v2.9.89】非涨跌停也记录pct_chg, 供计算实时涨跌比
+                        limit_stocks[code] = {"limit_type": "normal", "pct_chg": pct}
         
         try:
             emotion = await emotion_cycle_manager.calculate_daily_emotion(
