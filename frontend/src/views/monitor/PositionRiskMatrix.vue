@@ -59,9 +59,9 @@ function slColor(dist: number): string {
 
 const riskScore = computed(() => {
   if (!globalRisk.value) return 0
-  const c = globalRisk.value.risk_summary?.critical || 0
-  const w = globalRisk.value.risk_summary?.warning || 0
-  const t = globalRisk.value.position_count || 1
+  const c = globalRisk.value?.risk_summary?.critical ?? 0
+  const w = globalRisk.value?.risk_summary?.warning ?? 0
+  const t = globalRisk.value?.position_count ?? 1
   return Math.round((c * 100 + w * 50) / t)
 })
 
@@ -91,31 +91,31 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-stats">
         <div class="rm-stat">
           <span class="rm-label">仓位</span>
-          <span class="rm-val">{{ (globalRisk?.position_ratio || 0) }}%</span>
+          <span class="rm-val">{{ globalRisk?.position_ratio ?? 0 }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">现金</span>
-          <span class="rm-val">{{ (globalRisk?.cash_ratio || 0) }}%</span>
+          <span class="rm-val">{{ globalRisk?.cash_ratio ?? 0 }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">集中度</span>
-          <span class="rm-val" :class="globalRisk.max_single_pct > 30 ? 'warn' : ''">{{ globalRisk.max_single_pct }}%</span>
+          <span class="rm-val" :class="(globalRisk?.max_single_pct ?? 0) > 30 ? 'warn' : ''">{{ globalRisk?.max_single_pct ?? '-' }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">行业集中</span>
-          <span class="rm-val">{{ (globalRisk?.top_industry_concentration || 0) }}%</span>
+          <span class="rm-val">{{ globalRisk?.top_industry_concentration ?? 0 }}%</span>
         </div>
         <div class="rm-risk-counts">
-          <span class="rm-rc ok">🟢 {{ (globalRisk?.risk_summary?.normal || 0) }}</span>
-          <span class="rm-rc warn">🟡 {{ (globalRisk?.risk_summary?.warning || 0) }}</span>
-          <span class="rm-rc crit">🔴 {{ (globalRisk?.risk_summary?.critical || 0) }}</span>
+          <span class="rm-rc ok">🟢 {{ globalRisk?.risk_summary?.normal ?? 0 }}</span>
+          <span class="rm-rc warn">🟡 {{ globalRisk?.risk_summary?.warning ?? 0 }}</span>
+          <span class="rm-rc crit">🔴 {{ globalRisk?.risk_summary?.critical ?? 0 }}</span>
         </div>
       </div>
       <div class="rm-industry" v-if="Object.keys(globalRisk?.industry_exposure || {}).length > 1">
         <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
           <span class="ind-label">{{ name }}</span>
-          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min((pct || 0), 100).toFixed(0) + '%' }"></div></div>
-          <span class="ind-pct">{{ (pct || 0).toFixed(0) }}%</span>
+          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min((pct ?? 0), 100).toFixed(0) + '%' }"></div></div>
+          <span class="ind-pct">{{ (pct ?? 0).toFixed(0) }}%</span>
         </div>
       </div>
     </div>

@@ -83,6 +83,7 @@ export function useCoreMethods(refs: CoreRefs) {
   let _wsSubscribed = false
   let refreshTimer: any = null
   let nowTimer: any = null
+  let _unwatchWs: (() => void) | null = null
 
   // computed
   const isRunning = computed(() => refs.status.value?.is_running ?? false)
@@ -250,7 +251,7 @@ export function useCoreMethods(refs: CoreRefs) {
       }
     })
     // 【v2.9.75】WS重连后主动fetch恢复数据
-    const unwatchWs = watch(() => wsHook.isConnected.value, (connected: boolean, prev: boolean) => {
+    _unwatchWs = watch(() => wsHook.isConnected.value, (connected: boolean, prev: boolean) => {
       if (connected && !prev) {
         // WS从断开恢复到连接 → 主动fetch一次全量数据恢复
         console.log('[WS] 重连成功, 主动fetch恢复数据')
@@ -274,6 +275,7 @@ export function useCoreMethods(refs: CoreRefs) {
     if (nowTimer) clearInterval(nowTimer)
     _wsSubscribed = false
     if (_wsUnsubFn) { _wsUnsubFn(); _wsUnsubFn = null }
+    if (_unwatchWs) { _unwatchWs(); _unwatchWs = null }
     // 重置WS数据新鲜度时间戳, 避免下次mount时wsDataStale判断错误
     lastWsDataTime.value = 0
   }

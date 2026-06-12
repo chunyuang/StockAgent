@@ -125,7 +125,7 @@ export function usePremarketMonitor() {
     } catch { /* ignore */ }
   }
 
-  /** 判断当前是否非交易时间(盘前9:00之前、盘后15:30之后、周末) */
+  /** 判断当前是否非交易时间(盘前9:00之前、盘后15:30之后、周末) - 暴露给模板使用 */
   function isNonTradingHours(): boolean {
     const now = new Date()
     const day = now.getDay()
@@ -143,6 +143,6 @@ export function usePremarketMonitor() {
     premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
     auctionTopGainers,
     // 方法
-    fetchPremarketData,
+    fetchPremarketData, isNonTradingHours,
   }
 }
