@@ -578,7 +578,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         now = datetime.now()
         ct = now.strftime("%H:%M")
         if "09:15" <= ct <= "09:30":
-            await self._premarket_auction(trade_date)
+            await self._runtime_persistence.premarket_auction()
         else:
             logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
 
