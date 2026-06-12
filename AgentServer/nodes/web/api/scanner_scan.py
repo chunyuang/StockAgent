@@ -272,8 +272,9 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         
         query = {}
         if date:
-            # scan_traces.trade_date is stored as string "YYYYMMDD"
-            query["trade_date"] = date
+            # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用int查询
+            date_int = int(date.replace("-", "").replace("/", "")) if isinstance(date, str) else int(date)
+            query["trade_date"] = date_int
         
         docs = []
         # 列表查询：排除candidates和rejected_summary字段，避免返回20MB+

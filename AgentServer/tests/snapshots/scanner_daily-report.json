@@ -48,7 +48,7 @@
   "trades": {
     "buy": "int",
     "sell": "int",
-    "total_amount": "int"
+    "total_amount": "float"
   },
   "win_rate": "float",
   "stop_loss_count": "int",
@@ -71,5 +71,5 @@
     "sell_count": "int"
   },
   "funnel_summary": "NoneType",
-  "sentiment_snapshot": "NoneType"
+  "sentiment_snapshot": "str"
 }

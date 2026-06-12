@@ -21,6 +21,14 @@ from nodes.web.api.scanner_shared import (
 
 router = APIRouter(prefix="/scanner", tags=["复盘/归因/偏差/参数漂移"])
 
+
+def _normalize_date(date_str) -> int:
+    """将日期参数统一为int(YYYYMMDD)，兼容 '20260612'/'2026-06-12' 两种格式"""
+    if date_str is None:
+        return None
+    s = str(date_str).replace("-", "").replace("/", "")
+    return int(s) if s.isdigit() else None
+
 # 策略ID归一化(anomaly_surge→halfway_chase等)
 try:
     from nodes.backtest_engine.strategy_defaults import normalize_strategy_id as _norm_strat
@@ -48,7 +56,7 @@ async def backtest_compare(date: str = None):
             sell_query = {"side":"sell","status":"filled"}
             if date:
                 # 【v2.9.86修复】broker_orders.trade_date是int，不能用str
-                sell_query["trade_date"] = {"$lte": int(date)}
+                sell_query["trade_date"] = {"$lte": _normalize_date(date)}
             async for doc in mongo_manager.db["broker_orders"].find(sell_query):
                 strat = _norm_strat(doc.get("strategy","unknown"))
                 pct = doc.get("profit_pct",0) or 0
@@ -230,7 +238,7 @@ async def get_trade_attribution(date: str = None):
             date = latest.get("trade_date", "")
 
         # 【v2.9.86修复】broker_orders.trade_date是int，必须转换
-        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        date_int = _normalize_date(date)
 
         attributions = []
         # 从broker_order读取卖出记录
@@ -357,7 +365,7 @@ async def get_review_hero(date: str = None):
             return {"success": True, "data": None, "message": "无交易数据"}
 
         # 【v2.9.86修复】broker_orders.trade_date是int
-        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        date_int = _normalize_date(date)
 
         # 1. 当日交易统计
         sells, buys = [], []
@@ -381,17 +389,17 @@ async def get_review_hero(date: str = None):
         # 3. 大盘对比(上证)
         benchmark_pct = 0
         benchmark_name = "上证指数"
-        idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": int(date)})
+        idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": _normalize_date(date)})
         if idx_doc:
             benchmark_pct = idx_doc.get("pct_chg", 0) or 0
         else:
             # 尝试最近的交易日
-            idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": {"$lte": int(date)}}, sort=[("trade_date",-1)])
+            idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": {"$lte": _normalize_date(date)}}, sort=[("trade_date",-1)])
             if idx_doc:
                 benchmark_pct = idx_doc.get("pct_chg", 0) or 0
 
         # 4. 情绪环境
-        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": _normalize_date(date)})
         sentiment_period = sentiment_doc.get("period", "") if sentiment_doc else ""
         sentiment_score = sentiment_doc.get("score", 0) if sentiment_doc else 50
         if sentiment_doc and sentiment_doc.get("missing_data"):
@@ -522,7 +530,7 @@ async def get_discipline_check(date: str = None):
             return {"success": True, "data": None, "message": "无交易数据"}
 
         # 情绪
-        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": _normalize_date(date)})
         raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
         sentiment_score = sentiment_doc.get("score",50) if sentiment_doc else 50
 
@@ -544,7 +552,7 @@ async def get_discipline_check(date: str = None):
         correct_actions = 0
 
         # 【v2.9.86修复】broker_orders.trade_date是int
-        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        date_int = _normalize_date(date)
 
         # 检查买入
         async for doc in db["broker_orders"].find({"trade_date": date_int, "side": "buy", "status": "filled"}):
@@ -618,7 +626,8 @@ async def get_review_forward(date: str = None):
             date = datetime.datetime.now().strftime("%Y%m%d")
 
         # 1. 当前情绪
-        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        date_int = _normalize_date(date)
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": date_int})
         if not sentiment_doc:
             # fallback到最近
             sentiment_doc = await db["sentiment_scores"].find_one({"missing_data": {"$ne": True}}, sort=[("trade_date",-1)])
@@ -857,12 +866,12 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 return {"success": True, "data": None, "message": "无交易数据"}
             sd, ed = min(sells), max(sells)
 
-        # 【v2.9.87修复】broker_orders.trade_date是int, scan_traces是str
-        # 统一sd_int/ed_int用于broker_orders+sentiment, sd_str/ed_str用于scan_traces
-        sd_int = int(sd) if isinstance(sd, str) and sd.isdigit() else sd
-        ed_int = int(ed) if isinstance(ed, str) and ed.isdigit() else ed
-        sd_str = str(sd)
-        ed_str = str(ed)
+        # 【v2.9.88修复】统一所有集合trade_date为int类型
+        # scan_traces已在v2.9.88迁移为int，不再需要sd_str/ed_str
+        sd_int = _normalize_date(sd)
+        ed_int = _normalize_date(ed)
+        if sd_int is None or ed_int is None:
+            return {"success": True, "data": None, "message": "日期格式无效"}
 
         # 1. 获取实盘卖出订单
         query = {"side": "sell", "status": "filled"}
@@ -902,10 +911,10 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         # 4. 获取scan_traces(信号价格,用于滑点计算)
         scan_map = {}  # trade_date -> {ts_code -> {price, strategy}}
         scan_query = {}
-        if sd == ed:
-            scan_query["trade_date"] = sd_str
+        if sd_int == ed_int:
+            scan_query["trade_date"] = sd_int
         else:
-            scan_query["trade_date"] = {"$gte": sd_str, "$lte": ed_str}
+            scan_query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
         async for doc in db["scan_traces"].find(scan_query, {"trade_date":1, "candidates":1}):
             td = doc.get("trade_date","")
             cands = doc.get("candidates",[])
@@ -1252,7 +1261,9 @@ async def review_weekly(date: str = None):
         # 计算本周范围(周一~周日)
         if date:
             from datetime import datetime as dt, timedelta
-            d = dt.strptime(date, "%Y%m%d")
+            # 【v2.9.88修复】兼容带连字符日期
+            date_clean = str(date).replace("-", "").replace("/", "")
+            d = dt.strptime(date_clean, "%Y%m%d")
             weekday = d.weekday()
             monday = (d - timedelta(days=weekday)).strftime("%Y%m%d")
             sunday = (d + timedelta(days=6-weekday)).strftime("%Y%m%d")
@@ -1356,9 +1367,10 @@ async def review_monthly(date: str = None):
 
         # 计算本月范围
         if date:
-            month_start = date[:6] + "01"
+            date_clean = str(date).replace("-", "").replace("/", "")
+            month_start = date_clean[:6] + "01"
             from datetime import datetime as dt
-            d = dt.strptime(date, "%Y%m%d")
+            d = dt.strptime(date_clean, "%Y%m%d")
             if d.month == 12:
                 month_end = f"{d.year+1}0101"
             else:
@@ -1544,7 +1556,7 @@ async def factor_effectiveness(date: str = None):
         db = mongo_manager.db
 
         # 最近30天
-        end_date = int(date)
+        end_date = _normalize_date(date) or 0
         start_date = end_date - 30
 
         # 1. 加载情绪数据
@@ -1566,7 +1578,7 @@ async def factor_effectiveness(date: str = None):
         # 用scan_traces中passed的候选和对应实盘结果
         trace_dates = set()
         async for doc in db["scan_traces"].find(
-            {"trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"trade_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0, "candidates": 1, "trade_date": 1}
         ):
             td = doc.get("trade_date", "")
@@ -1602,9 +1614,9 @@ async def factor_effectiveness(date: str = None):
                         factor_stats[fname][period][bucket] = {"total": 0, "wins": 0, "pnl_sum": 0}
                     factor_stats[fname][period][bucket]["total"] += 1
 
-        # 【v2.9.86修复】broker_orders.trade_date是int，scan_traces是string
-        start_str = str(start_date)
-        end_str = str(end_date)
+        # 【v2.9.88修复】scan_traces.trade_date已统一为int
+        start_int = _normalize_date(start_date)
+        end_int = _normalize_date(end_date)
 
         # 3. 用broker_orders的买入和后续卖出结果来补充胜率
         # 简化: 用scan_traces候选的pct_chg作为近似
@@ -1696,7 +1708,7 @@ async def factor_effectiveness(date: str = None):
         # 7. 按周时间趋势: 各因子在不同周的效果变化(v2.9.86增强)
         weekly_trend = {}  # factor_name -> [{week, win_rate, total, avg_pnl}]
         # 按周分组: 每7天一组
-        date_int = int(date)
+        date_int = _normalize_date(date)
         week_boundaries = []
         for w in range(4):  # 最近4周
             w_end = date_int - w * 7
@@ -1774,8 +1786,8 @@ async def review_closed_loop(date: str = None):
         db = mongo_manager.db
 
         # 1. 获取偏差归因数据
-        int_date = int(date)
-        end_d = int(date)
+        int_date = _normalize_date(date) or 0
+        end_d = int_date
         start_d = end_d - 13  # 最近2周
 
         # 加载情绪

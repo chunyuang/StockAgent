@@ -11,6 +11,9 @@ from pydantic import BaseModel
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
+# 【v2.9.88】统一日期规范化函数
+from nodes.web.api.scanner_review import _normalize_date
+
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
     _get_scanner, _get_scanner_instance, _clean_mongo,
@@ -124,6 +127,7 @@ async def get_daily_report():
             db = scanner._broker._mongo_db
             today = datetime.now().strftime("%Y%m%d")
             today_int = int(today)
+            # 【v2.9.88修复】scan_traces.trade_date已统一为int
             async for doc in db["broker_orders"].find({
                 "account_id": scanner._broker.account.account_id,
                 "trade_date": today_int,
@@ -142,7 +146,7 @@ async def get_daily_report():
                 # funnel
                 from collections import defaultdict as _dd2
                 funnel_agg = _dd2(lambda: {"total_input": 0, "total_rejected": 0})
-                async for doc in db2["scan_traces"].find({"trade_date": today}, {"summary": 1}):
+                async for doc in db2["scan_traces"].find({"trade_date": today_int}, {"summary": 1}):
                     for layer_name, layer_data in (doc.get("summary") or {}).items():
                         if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                             funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
@@ -221,10 +225,10 @@ async def get_historical_review(date: str = None):
                 return {"success": True, "data": None, "message": "无历史交易数据"}
             date = latest.get("trade_date", "")
         
-        # 统一date为字符串(供scan_traces查询)和整数(供broker_orders查询)
-        date_str = str(date) if isinstance(date, int) else date
-        # 【v2.9.86修复】broker_orders.trade_date是int类型，必须转换
-        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        # 【v2.9.88修复】统一所有集合trade_date为int，用_normalize_date处理
+        date_int = _normalize_date(date)
+        if date_int is None:
+            return {"success": True, "data": None, "message": "日期格式无效"}
         
         # 查询当日所有成交订单
         buys, sells = [], []
@@ -282,12 +286,12 @@ async def get_historical_review(date: str = None):
             }
         
         # 扫描统计
-        # 【v2.9.87修复】scan_traces.trade_date是str，必须用date_str
-        scan_count = await db["scan_traces"].count_documents({"trade_date": date_str, "is_debug": {"$ne": True}})
-        debug_count = await db["scan_traces"].count_documents({"trade_date": date_str, "is_debug": True})
+        # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用date_int
+        scan_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": {"$ne": True}})
+        debug_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": True})
         total_passed = 0
         funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
-        async for doc in db["scan_traces"].find({"trade_date": date_str}, {"summary": 1, "layer_details.L3_sentiment": 1}):
+        async for doc in db["scan_traces"].find({"trade_date": date_int}, {"summary": 1, "layer_details.L3_sentiment": 1}):
             total_passed += (doc.get("summary") or {}).get("passed", 0)
             for layer_name, layer_data in (doc.get("summary") or {}).items():
                 if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
@@ -474,10 +478,8 @@ async def _daily_report_from_mongo():
     db = mongo_manager.db
     today = datetime.now().strftime("%Y%m%d")
     
-    # 【v2.9.86修复】broker_orders.trade_date是int类型，必须转换
-    # scan_traces.trade_date是str类型，需要分开处理
+    # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用today_int
     today_int = int(today)
-    today_str = today  # YYYYMMDD string for scan_traces
 
     # 1. 今日订单
     buys, sells = [], []
@@ -530,7 +532,7 @@ async def _daily_report_from_mongo():
     
     # 3. 扫描统计(从scan_traces)
     scan_stats = {}
-    async for doc in db["scan_traces"].find({"trade_date": today_str}):
+    async for doc in db["scan_traces"].find({"trade_date": today_int}):
         cands = doc.get("candidates", [])
         scan_stats["scans"] = scan_stats.get("scans", 0) + 1
         scan_stats["signals_found"] = scan_stats.get("signals_found", 0) + len([c for c in cands if c.get("final_status") == "passed"])
@@ -545,7 +547,7 @@ async def _daily_report_from_mongo():
     # 4. 情绪快照(优先从scan_traces L3读取, fallback到sentiment_scores)
     sentiment_snap = None
     latest_with_l3 = await db["scan_traces"].find_one(
-        {"trade_date": today_str, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+        {"trade_date": today_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
         sort=[("_id", -1)],
         projection={"layer_details.L3_sentiment": 1}
     )
@@ -558,7 +560,7 @@ async def _daily_report_from_mongo():
     
     # 4b. 漏斗聚合(从scan_traces)
     funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
-    async for doc in db["scan_traces"].find({"trade_date": today_str}, {"summary": 1}):
+    async for doc in db["scan_traces"].find({"trade_date": today_int}, {"summary": 1}):
         for layer_name, layer_data in (doc.get("summary") or {}).items():
             if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                 funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)

@@ -22,16 +22,7 @@
       "impact": "int"
     },
     "selection": [
-      {
-        "strategy": "str",
-        "live_count": "int",
-        "signal_count": "int",
-        "overlap_count": "int",
-        "overlap_pct": "float",
-        "only_live": "int",
-        "only_signal": "int",
-        "scan_dates_matched": "int"
-      }
+      "<empty_list>"
     ],
     "timing": {
       "late_count": "int",
