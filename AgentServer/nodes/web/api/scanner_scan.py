@@ -117,6 +117,47 @@ async def get_realtime_quote(ts_code: str):
     except Exception as e:
         logger.warning(f"[QUOTE] 必盈获取失败: {e}")
     
+    # 【v2.9.88修复】指数行情专用查询（指数不在全市场股票缓存中）
+    # 指数ts_code特征: 000001.SH/399001.SZ/399006.SZ 等
+    _is_index = ts_code and (
+        (ts_code.endswith('.SH') and ts_code[:6].startswith('0000')) or
+        (ts_code.endswith('.SZ') and ts_code[:6].startswith('399'))
+    )
+    if _is_index:
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                db = mongo_manager.db
+                idx = await db["index_daily"].find_one(
+                    {"ts_code": ts_code},
+                    {"_id": 0, "trade_date": 1, "close": 1, "pct_chg": 1, "open": 1, "high": 1, "low": 1, "pre_close": 1},
+                    sort=[("trade_date", -1)]
+                )
+                if idx and idx.get("close", 0) > 0:
+                    ibasic = await db["index_basic"].find_one(
+                        {"ts_code": ts_code}, {"_id": 0, "name": 1}
+                    )
+                    name = ibasic.get("name", "") if ibasic else ts_code
+                    return _sanitize({
+                        "success": True,
+                        "data": {
+                            "ts_code": ts_code,
+                            "name": name,
+                            "price": idx["close"],
+                            "pct_chg": idx.get("pct_chg", 0),
+                            "volume_ratio": 0,
+                            "turnover_rate": 0,
+                            "open": idx.get("open", 0),
+                            "high": idx.get("high", 0),
+                            "low": idx.get("low", 0),
+                            "pre_close": idx.get("pre_close", 0),
+                            "trade_date": idx.get("trade_date", 0),
+                            "source": "index_mongodb",
+                        },
+                    })
+        except Exception as e:
+            logger.warning(f"[QUOTE] 指数行情查询失败: {e}")
+    
     # 5. 从MongoDB回退(收盘后/非交易时间)
     try:
         from core.managers import mongo_manager
