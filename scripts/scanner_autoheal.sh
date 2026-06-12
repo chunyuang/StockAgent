@@ -104,3 +104,13 @@ else
     log "❌ 扫描器启动失败: $START_RESULT"
     exit 1
 fi
+
+# 5. 同步前端生产 build (确保 Web 看到最新代码)
+log "🔄 同步前端生产 build..."
+cd /root/.openclaw/workspace/StockAgent/frontend
+if npx vite build > /tmp/vite_build.log 2>&1; then
+    rsync -a --delete dist/ /root/.openclaw/workspace/StockAgent/AgentServer/static/
+    log "✅ 前端 build 已同步到 static/"
+else
+    log "⚠️ 前端 build 失败，保留旧版本 (详见 /tmp/vite_build.log)"
+fi
