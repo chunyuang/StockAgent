@@ -2,7 +2,7 @@
   "success": "bool",
   "data": [
     {
-      "trade_date": "str",
+      "trade_date": "int",
       "scan_time": "str",
       "account_id": "str",
       "is_debug": "bool",
@@ -57,6 +57,13 @@
           "output": "int"
         },
         "L8_position": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L9_execute": {
           "total": "int",
           "passed": "int",
           "rejected": "int",
