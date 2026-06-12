@@ -4,41 +4,14 @@
   "last_scan_time": "str",
   "active_signals": "int",
   "positions": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "shares": "int",
-      "available_qty": "int",
-      "cost_price": "float",
-      "current_price": "float",
-      "profit_pct": "float",
-      "profit_amount": "float",
-      "market_value": "float",
-      "today_buy": "int",
-      "stop_loss_pct": "float",
-      "take_profit_pct": "float",
-      "stop_loss_price": "float",
-      "take_profit_price": "float",
-      "distance_to_stop": "float",
-      "buy_date": "str",
-      "trailing_stop": {
-        "high_price": "float",
-        "trailing_stop_pct": "float",
-        "activated": "bool",
-        "activated_at": "NoneType",
-        "stop_price": "float"
-      },
-      "risk_level": "str",
-      "effective_stop_price": "float"
-    }
+    "<empty_list>"
   ],
   "stocks_scanned": "int",
   "account": {
-    "total_assets": "float",
-    "available_cash": "float",
-    "market_value": "float",
-    "total_profit": "int"
+    "total_assets": "int",
+    "available_cash": "int",
+    "market_value": "int",
+    "total_profit": "float"
   },
   "stats": {
     "scans": "int",
@@ -60,7 +33,7 @@
   "risk_watchdog": {
     "overall_status": "str",
     "uptime_seconds": "float",
-    "scanner_heartbeat_age": "float",
+    "scanner_heartbeat_age": "int",
     "alert_count": "int",
     "checks": {}
   },
@@ -99,62 +72,26 @@
     "partial_fills": "int",
     "avg_fill_latency_ms": "float",
     "stop_loss_response_times": [
-      "float"
+      "<empty_list>"
     ]
   },
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
-  "realtime_cache_age_sec": "float",
-  "smart_check_interval": "float",
+  "realtime_cache_age_sec": "NoneType",
+  "smart_check_interval": "NoneType",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",
     "is_healthy": "bool",
-    "scan_lag_seconds": "float",
-    "risk_check_lag_seconds": "float",
+    "scan_lag_seconds": "int",
+    "risk_check_lag_seconds": "int",
     "quote_staleness_seconds": "float",
     "risk_thread_alive": "bool",
     "risk_thread_restarts": "int",
     "warnings": [
       "str"
     ],
-    "event_bus_stats": {
-      "emotion_changed": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "scan_completed": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "signal_generated": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "risk_sell_executed": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "position_changed": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "scanner_error": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      },
-      "daily_settled": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      }
-    }
+    "event_bus_stats": {}
   },
   "market_status": "str",
   "current_time": "str",
@@ -169,14 +106,7 @@
     "filtered": "int"
   },
   "data_sources": [
-    {
-      "name": "str",
-      "available": "bool",
-      "stocks": "int",
-      "calls": "int",
-      "limit": "int",
-      "note": "str"
-    }
+    "<empty_list>"
   ],
   "sentiment": {
     "score": "int",
@@ -185,17 +115,7 @@
   "position_ratio": "float",
   "position_count": "int",
   "signals": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "strategy_name": "str",
-      "price": "float",
-      "pct_chg": "float",
-      "reason": "str",
-      "created_at": "float",
-      "signal_status": "str"
-    }
+    "<empty_list>"
   ],
   "circuit_breaker": {
     "trading_paused": "bool",
