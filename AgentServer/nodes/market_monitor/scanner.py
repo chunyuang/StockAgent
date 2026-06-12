@@ -240,7 +240,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         module_status = self._build_module_status()
         return {
             "is_running": self._is_running,
-            "scan_count": self._scan_count,
+            "scan_count": self._stats.get("scans", self._scan_count),  # 【v2.9.89修复】优先用持久化的stats.scans,避免重启后归零
             "last_scan_time": self._last_scan_time,
             "active_signals": len(self._active_signals),
             "positions": len(self.get_positions()),

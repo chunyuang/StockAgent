@@ -177,7 +177,12 @@ class EmotionCycleManager:
     async def _collect_emotion_factors(
         self, trade_date: str, limit_stocks: Optional[Dict] = None,
     ) -> Dict[str, Any]:
-        """收集情绪计算所需的5个因子"""
+        """收集情绪计算所需的5个因子
+        
+        【v2.9.89优化】实时模式时从limit_stocks推算涨跌家数比,
+        而非从stock_daily读全天数据(盘中stock_daily是昨日数据)。
+        这样up_down_ratio会随盘中实时变化, 情绪period也会更精细。
+        """
         # 涨跌停数量
         if limit_stocks is not None:
             limit_up_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
@@ -192,8 +197,22 @@ class EmotionCycleManager:
         max_continue_limit = await self._get_max_continuation_limit(trade_date, limit_up_count)
 
         # 涨跌家数
-        up_count, down_count = await self._get_up_down_counts(trade_date)
-        up_down_ratio = up_count / (up_count + down_count) if (up_count + down_count) > 0 else 0.5
+        # 【v2.9.89优化】实时模式从limit_stocks的pct_chg推算涨跌家数
+        # 盘中stock_daily是昨日数据, 涨跌家数比无法反映当日实时状况
+        # limit_stocks dict的value含pct_chg, 可用于计算实时涨跌比
+        if limit_stocks is not None and len(limit_stocks) > 100:
+            # 从limit_stocks(=realtime_data)提取pct_chg分布
+            up_count = sum(1 for v in limit_stocks.values() 
+                          if isinstance(v.get("pct_chg"), (int, float)) and v["pct_chg"] > 0)
+            down_count = sum(1 for v in limit_stocks.values() 
+                            if isinstance(v.get("pct_chg"), (int, float)) and v["pct_chg"] < 0)
+            if up_count + down_count > 0:
+                up_down_ratio = up_count / (up_count + down_count)
+            else:
+                up_down_ratio = 0.5
+        else:
+            up_count, down_count = await self._get_up_down_counts(trade_date)
+            up_down_ratio = up_count / (up_count + down_count) if (up_count + down_count) > 0 else 0.5
 
         # 昨日涨停溢价
         zt_premium = await self._calculate_zt_premium(trade_date)

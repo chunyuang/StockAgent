@@ -323,6 +323,18 @@ class RuntimePersistence:
             trace_doc = self._build_trace_doc(filter_result, passed_candidates, rejected_summary)
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
+            # 【v2.9.89优化】同步更新scan_date_cache缓存(供scan-dates API秒级查询)
+            try:
+                trade_date = trace_doc.get("trade_date")
+                is_debug = trace_doc.get("is_debug", False)
+                if trade_date:
+                    await mongo_manager.db["scan_date_cache"].update_one(
+                        {"date": trade_date},
+                        {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
+                        upsert=True
+                    )
+            except Exception:
+                pass  # 非关键, 不影响主流程
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
         except Exception as e:
             logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")

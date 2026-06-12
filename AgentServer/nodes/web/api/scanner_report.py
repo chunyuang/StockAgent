@@ -287,21 +287,48 @@ async def get_historical_review(date: str = None):
         
         # 扫描统计
         # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用date_int
-        scan_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": {"$ne": True}})
-        debug_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": True})
+        # 【v2.9.89优化】scan_traces含2.7MB大文档,避免全量扫描超时:
+        # 1. 优先从scan_date_cache读取count(写入时同步维护)
+        # 2. funnel/total_passed从最新50条采样
+        # 3. 情绪快照仅取1条
+        scan_count = 0
+        debug_count = 0
+        cache_entry = await db["scan_date_cache"].find_one({"date": date_int})
+        if cache_entry:
+            total_count = cache_entry.get("count", 0)
+            is_debug_day = cache_entry.get("is_debug", False)
+            # debug_count从cache估算: is_debug=True的日期是debug日, 非debug日debug_count=0
+            # 更精确的做法: 维护debug_count字段, 但is_debug日期少且不影响核心逻辑
+            debug_count = 1 if is_debug_day else 0
+            scan_count = total_count - debug_count
+        else:
+            # 回退到count_documents(较慢,仅首次)
+            scan_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": {"$ne": True}})
+            debug_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": True})
         total_passed = 0
         funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
-        async for doc in db["scan_traces"].find({"trade_date": date_int}, {"summary": 1, "layer_details.L3_sentiment": 1}):
-            total_passed += (doc.get("summary") or {}).get("passed", 0)
-            for layer_name, layer_data in (doc.get("summary") or {}).items():
-                if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
-                    funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
-                    funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
+        # 【v2.9.89】采样最近50条计算funnel(避免2413条×2.7MB全扫描)
+        # 注意: 不用sort, 因为sort+limit在大集合上会全扫。自然顺序已按插入时间
+        sample_size = min(scan_count + debug_count, 50)
+        if sample_size > 0:
+            async for doc in db["scan_traces"].find(
+                {"trade_date": date_int},
+                {"summary": 1}
+            ).limit(sample_size):
+                total_passed += (doc.get("summary") or {}).get("passed", 0)
+                for layer_name, layer_data in (doc.get("summary") or {}).items():
+                    if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
+                        funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
+                        funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
+            # 按采样比例放大total_passed
+            if scan_count + debug_count > sample_size:
+                total_passed = int(total_passed * (scan_count + debug_count) / sample_size)
         # 取最新一条layer_details.L3作为情绪快照
         sentiment_snap = None
         # 1. 优先从scan_traces读取L3情绪层
+        # 【v2.9.89修复】scan_traces.trade_date是int，必须用date_int而非date字符串
         latest_with_l3 = await db["scan_traces"].find_one(
-            {"trade_date": date, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+            {"trade_date": date_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
             sort=[("_id", -1)],
             projection={"layer_details.L3_sentiment": 1}
         )

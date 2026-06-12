@@ -274,22 +274,42 @@ async def get_scan_trace_dates():
     
     返回格式: [{"date": "YYYYMMDD", "is_debug": bool, "count": int}]
     非交易日标记is_debug=true，前端可区分显示
+    
+    【v2.9.89优化】scan_traces含2.7MB大文档,聚合全扫超时。
+    改用scan_date_cache缓存集合,写入时同步更新,查询秒级返回。
     """
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
-        pipeline = [
-            {"$group": {
-                "_id": "$trade_date",
-                "count": {"$sum": 1},
-                "is_debug": {"$max": {"$cond": [{"$eq": ["$is_debug", True]}, True, False]}}
-            }},
-            {"$sort": {"_id": -1}}
-        ]
-        results = await mongo_manager.db["scan_traces"].aggregate(pipeline).to_list(None)
-        dates = [{"date": str(r["_id"]), "count": r["count"], "is_debug": r.get("is_debug", False)} for r in results]
-        return {"success": True, "data": dates}
+        db = mongo_manager.db
+        
+        # 优先从缓存集合读取(写入时同步维护)
+        cache_docs = await db["scan_date_cache"].find({}).sort("date", -1).to_list(None)
+        if cache_docs:
+            return {"success": True, "data": [{
+                "date": str(d["date"]),
+                "count": d.get("count", 0),
+                "is_debug": d.get("is_debug", False),
+            } for d in cache_docs]}
+        
+        # 缓存为空时,回退到distinct()构建缓存(仅首次)
+        distinct_dates = await db["scan_traces"].distinct("trade_date")
+        if not distinct_dates:
+            return {"success": True, "data": []}
+        
+        # 逐日期count(较慢但仅首次)
+        results = []
+        for dt in sorted(distinct_dates, reverse=True):
+            cnt = await db["scan_traces"].count_documents({"trade_date": dt})
+            is_dbg = await db["scan_traces"].find_one({"trade_date": dt, "is_debug": True}, {"_id": 1})
+            entry = {"date": dt, "count": cnt, "is_debug": is_dbg is not None}
+            results.append({"date": str(dt), "count": cnt, "is_debug": is_dbg is not None})
+            # 写入缓存
+            await db["scan_date_cache"].update_one(
+                {"date": dt}, {"$set": entry}, upsert=True
+            )
+        return {"success": True, "data": results}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
