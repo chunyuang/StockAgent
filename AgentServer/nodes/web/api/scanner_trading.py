@@ -213,8 +213,11 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
 
 
 @router.get("/orders")
-async def get_orders(limit: int = 50):
-    """获取历史订单(从MongoDB)"""
+async def get_orders(limit: int = 50, date: str = None):
+    """获取历史订单(从MongoDB)
+    
+    【v2.9.92d】支持date参数过滤指定日期的订单
+    """
     scanner = await _get_scanner()
     if not scanner._broker:
         return {"success": True, "data": []}
@@ -224,9 +227,14 @@ async def get_orders(limit: int = 50):
             return {"success": True, "data": []}
         
         db = scanner._broker._mongo_db
+        query = {"account_id": scanner._broker.account.account_id}
+        if date:
+            # 支持int和string两种格式
+            query["trade_date"] = {"$in": [date, int(date)] if date.isdigit() else date}
+        
         docs = await db["broker_orders"].find(
-            {"account_id": scanner._broker.account.account_id}
-        ).sort("create_time", -1).limit(limit).to_list(limit)
+            query
+        ).sort("create_time", 1).limit(limit).to_list(limit)
         
         # 转换ObjectId
         for d in docs:

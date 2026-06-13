@@ -191,8 +191,24 @@ export function useScannerMonitor() {
   // ==================== 📜 历史 ====================
   const historyDate = ref('')
   const historyData = ref<any[]>([])
+  const historyOrders = ref<any[]>([])
   const historyLoading = ref(false)
-  async function loadHistory() { if (!historyDate.value) return; historyLoading.value = true; try { const d = historyDate.value.replace(/-/g, ''); const r = await api.get(`${scannerApi}/timeline/history?date=${d}`); const p = parseResponse(r); if (p.success) historyData.value = p.data || [] } catch {} finally { historyLoading.value = false } }
+  async function loadHistory() {
+    if (!historyDate.value) return
+    historyLoading.value = true
+    try {
+      const d = historyDate.value.replace(/-/g, '')
+      const [tlR, ordR] = await Promise.all([
+        api.get(`${scannerApi}/timeline/history?date=${d}`),
+        api.get(`${scannerApi}/orders?limit=200&date=${d}`),
+      ])
+      const tlP = parseResponse(tlR)
+      const ordP = parseResponse(ordR)
+      if (tlP.success) historyData.value = tlP.data || []
+      if (ordP.success) historyOrders.value = ordP.data || []
+    } catch {}
+    finally { historyLoading.value = false }
+  }
 
   // ==================== 🔧 核心方法 (子composable) ====================
   const core = useCoreMethods({
@@ -401,7 +417,7 @@ export function useScannerMonitor() {
     ...review,
     pnlHistory, perfData,
     // 历史
-    historyDate, historyData, historyLoading, loadHistory,
+    historyDate, historyData, historyOrders, historyLoading, loadHistory,
     // 审计
     auditLog, auditLogLoading, fetchAuditLog,
     // 交易详情/审计
