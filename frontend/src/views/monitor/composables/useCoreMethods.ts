@@ -148,12 +148,15 @@ export function useCoreMethods(refs: CoreRefs) {
     }
     refs.loading.value = true
     try {
-      await api.post(`${scannerApi}/start`, payload)
-      ElMessage.success('扫描器已启动')
-      refs.activeTab.value = 'trading'
-      // 等待scanner后台初始化完成再fetch状态
-      await new Promise(r => setTimeout(r, 1500))
-      await fetchScanner()
+      const res: any = await api.post(`${scannerApi}/start`, payload)
+      if (res?.success === false) {
+        ElMessage.warning(res?.data?.message || res?.message || '启动被拒绝')
+      } else {
+        ElMessage.success('扫描器已启动')
+        refs.activeTab.value = 'trading'
+        await new Promise(r => setTimeout(r, 1500))
+        await fetchScanner()
+      }
     } catch (e: any) {
       ElMessage.error('启动失败: ' + (e?.response?.data?.detail || e?.message || '超时'))
     } finally {
@@ -161,7 +164,7 @@ export function useCoreMethods(refs: CoreRefs) {
     }
   }
 
-  async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器?\n持仓将保留,可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
+  async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器?\n持仓将保留,可手动卖出。', async () => { const res: any = await api.post(`${scannerApi}/stop`, { sell_all: false }); if (res?.success === false) { ElMessage.warning(res?.data?.message || '停止失败') } else { await fetchScanner() } }) }
 
   async function manualScan() {
     refs.loading.value = true
