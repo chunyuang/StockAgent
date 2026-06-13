@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, inject, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -15,6 +15,12 @@ const c = useChartColors().value
 const loading = ref(false)
 const accountData = ref<any>(null)
 const activeSection = ref('overview')
+
+// 切换section时滚动到顶部
+watch(activeSection, () => {
+  const el = document.querySelector('.at')
+  if (el) el.scrollTop = 0
+})
 const expandedCode = ref<string | null>(null)
 const detailData = ref<any>(null)
 const detailLoading = ref(false)
@@ -245,7 +251,7 @@ const posPie = computed(() => {
           <div class="at-pg-item"><span class="at-pg-k">MA60过滤</span><span class="at-pg-v">{{ riskParams.enable_ma60_filter ? '✅' : '❌' }}</span></div>
           <div class="at-pg-item"><span class="at-pg-k">板块集中度</span><span class="at-pg-v">≤{{ riskParams.sector_concentration_top_n }}只/行业</span></div>
           <div class="at-pg-item"><span class="at-pg-k">冷却期</span><span class="at-pg-v">{{ riskParams.force_empty_cooldown_days }}天/≤{{ (riskParams.force_empty_cooldown_position_cap * 100).toFixed(0) }}%</span></div>
-          <div class="at-pg-item"><span class="at-pg-k">次日高开卖</span><span class="at-pg-v">{{ (riskParams.next_day_open_sell_pct * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">次日高开卖</span><span class="at-pg-v">{{ ((riskParams.next_day_open_sell_pct || 0.02) * 100).toFixed(0) }}%</span></div>
           <div class="at-pg-item"><span class="at-pg-k">持仓保护</span><span class="at-pg-v">{{ (riskParams.hold_protection_threshold * 100).toFixed(0) }}%</span></div>
           <div class="at-pg-item"><span class="at-pg-k">追踪止损</span><span class="at-pg-v">{{ (riskParams.intraday_lock_pullback_pct * 100).toFixed(1) }}%</span></div>
           <div class="at-pg-item"><span class="at-pg-k">情绪:高潮/分化</span><span class="at-pg-v">{{ (riskParams.sentiment_position_map.rising * 100).toFixed(0) }}%/{{ (riskParams.sentiment_position_map.differentiation * 100).toFixed(0) }}%</span></div>
@@ -259,7 +265,7 @@ const posPie = computed(() => {
 </template>
 
 <style scoped>
-.at { padding: 8px; }
+.at { padding: 8px; flex: 1; overflow-y: auto; min-height: 0; }
 
 /* Alert */
 .at-alert { padding: 5px 10px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.3); border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: #e6a23c; }
