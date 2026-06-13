@@ -125,7 +125,7 @@ class PositionManager:
     def calc_take_profit_price(self, pos_or_cost, risk: Dict) -> float:
         """统一止盈价计算"""
         cost = self._extract_cost(pos_or_cost)
-        tp_pct = risk.get("take_profit_pct", 0.07)
+        tp_pct = risk.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07))
         return round(cost * (1 + tp_pct), 2)
     
     def get_effective_stop_price(self, pos, risk: Dict) -> Optional[float]:
@@ -163,7 +163,7 @@ class PositionManager:
 
             risk = self._get_risk_with_overrides(pos)
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
-            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
+            take_profit_pct = risk.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07)) * 100
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
 
             sell_reason = None
@@ -260,7 +260,7 @@ class PositionManager:
         # 【v2.9.92x】冲高回落参数从strategy_defaults读取(与回测对齐)
         pullback_high = risk.get("pullback_high_threshold", 0.05)      # 默认5%
         pullback_fallback = risk.get("pullback_mid_fallback_pct", 0.015)  # 默认1.5%(回测V65)
-        pullback_lock = risk.get("pullback_profit_lock_threshold", 0)  # 利润>=此值不触发冲高回落
+        pullback_lock = risk.get("pullback_profit_lock_threshold", GLOBAL_RISK.get("pullback_profit_lock_threshold", 0))  # 利润>=此值不触发冲高回落
         
         # 冲高回落(利润保护锁: 利润>=pullback_lock时不触发，让利润锁定/超时处理)
         if open_rise >= next_day_sell_pct and pos.current_price < today_open:
@@ -527,7 +527,7 @@ class PositionManager:
 
             # 获取策略追踪止损比例
             risk = self._scanner._get_strategy_risk(pos.strategy)
-            trailing_stop_pct = risk.get("trailing_stop_pct", 0.0)  # 0=不启用
+            trailing_stop_pct = risk.get("trailing_stop_pct", GLOBAL_RISK.get("trailing_stop_pct", 0.02))
 
             if trailing_stop_pct <= 0:
                 continue
