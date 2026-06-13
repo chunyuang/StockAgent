@@ -32,8 +32,8 @@ async function fetchAnalysis() {
   finally { loading.value = false }
 }
 
-onMounted(() => { if (activeTab.value === 'analysis') fetchAnalysis() })
-watch(activeTab, (t) => { if (t === 'analysis' && !analysisData.value) fetchAnalysis() })
+onMounted(() => { fetchAnalysis() })
+watch(activeTab, (t) => { if (t === 'analysis') fetchAnalysis() })
 
 const kpi = computed(() => analysisData.value?.kpi || {})
 const strategies = computed(() => analysisData.value?.strategy_contrib || [])
