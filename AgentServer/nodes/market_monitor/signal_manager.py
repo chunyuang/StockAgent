@@ -369,6 +369,20 @@ class SignalManager:
                     name, f"换手率{tr:.1f}%<{min_tr}%", sig)
                 return False, "turnover_filter"
         
+        # A7: 流动性门槛(与回测GLOBAL_RISK.liquidity_threshold对齐)
+        # 成交额<500万的股票流动性不足，可能无法卖出
+        liquidity_threshold = GLOBAL_RISK.get('liquidity_threshold', 500)  # 万元
+        amount = getattr(sig, 'factors', {}).get('amount', 0) or 0  # 成交额(万元)
+        if amount <= 0:
+            # 尝试从实时数据估算: price * volume
+            vol = getattr(sig, 'factors', {}).get('volume', 0) or 0
+            if vol > 0 and sig.price > 0:
+                amount = sig.price * vol / 10000  # 粗估万元
+        if liquidity_threshold > 0 and amount > 0 and amount < liquidity_threshold:
+            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                name, f"流动性不足(成交额{amount:.0f}万<{liquidity_threshold}万)", sig)
+            return False, "liquidity_filter"
+        
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:

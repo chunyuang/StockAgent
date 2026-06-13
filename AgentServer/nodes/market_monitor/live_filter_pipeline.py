@@ -306,6 +306,36 @@ class LiveFilterPipeline:
             except (ValueError, TypeError):
                 pass
         
+        # 【v2.9.92x】A8: 大盘MA60过滤(与回测对齐)
+        # 大盘跌破MA60 → 仓位×0.5
+        enable_ma60 = self._config.get("enable_ma60_filter", True)
+        if enable_ma60:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    # 查询上证指数最近60天close
+                    import asyncio
+                    index_docs = await mongo_manager.find_many(
+                        "index_daily",
+                        {"ts_code": "000001.SH"},
+                        {"_id": 0, "close": 1, "trade_date": 1},
+                        sort=[("trade_date", -1)],
+                        limit=60
+                    )
+                    if index_docs and len(index_docs) >= 20:
+                        index_docs.sort(key=lambda x: x.get("trade_date", 0))
+                        close_list = [d["close"] for d in index_docs]
+                        ma60 = sum(close_list) / len(close_list)
+                        current_close = close_list[-1]
+                        if current_close < ma60:
+                            final_ratio = final_ratio * 0.5
+                            result.layer_details["L8_ma60"] = f"📉 大盘跌破MA60(MA60={ma60:.0f}, 当前={current_close:.0f}), 仓位×0.5"
+                            logger.info(f"[FILTER] 📉 大盘跌破MA60: MA60={ma60:.0f}, 当前={current_close:.0f}, 仓位×0.5")
+                        else:
+                            result.layer_details["L8_ma60"] = f"📈 大盘在MA60之上({current_close:.0f}>{ma60:.0f})"
+            except Exception as e:
+                logger.debug(f"[FILTER] MA60检查异常: {e}")
+        
         result.position_ratio = final_ratio
         result.layers_applied["L8_position"] = True
         result.layer_details["L8_position"] = (
