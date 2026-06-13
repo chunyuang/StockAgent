@@ -229,17 +229,13 @@ async def get_scanner_status():
             if mongo_manager.is_initialized:
                 acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
                 if acct_doc and acct_doc.get("total_assets", 0) > 0:
-                    # 从broker_positions重新计算市值(更准确)
-                    mv = 0
-                    async for p in mongo_manager.db["broker_positions"].find({"account_id": "default"}):
-                        mv += p.get("current_price", 0) * p.get("total_qty", 0)
-                    cash = acct_doc.get("available_cash", 0)
-                    total = cash + mv
+                    # 直接用MongoDB中的账户数据(最权威)
+                    # 不从broker_positions重新计算(因为scanner没运行时current_price=0会导致市值归零)
                     status["account"] = {
-                        "total_assets": round(total, 2),
-                        "available_cash": round(cash, 2),
-                        "market_value": round(mv, 2),
-                        "total_profit": round(total - 1000000, 2),
+                        "total_assets": round(acct_doc.get("total_assets", 0), 2),
+                        "available_cash": round(acct_doc.get("available_cash", 0), 2),
+                        "market_value": round(acct_doc.get("market_value", 0), 2),
+                        "total_profit": round(acct_doc.get("total_profit", 0), 2),
                     }
         except Exception:
             pass
