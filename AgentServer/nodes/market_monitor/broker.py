@@ -592,7 +592,13 @@ class SimulatedBroker:
         logger.info(f"[BROKER] {action} {order.ts_code} {quantity}股@{fill_price:.2f} "
                      f"佣金{commission:.0f} 印花税{stamp_duty:.0f} ({strategy})")
 
-        self._async_save_state()
+        # 【v2.9.92p】买入/卖出后立即持久化(force=True)，不依赖stop()
+        # 防止进程崩溃时持仓丢失(000608事故根因)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.save_state(force=True))
+        except Exception:
+            self._pending_save = True
         return True, f"{action}{quantity}股@{fill_price:.2f}", order
 
     def _create_order_instance(self, ts_code: str, stock_name: str,
