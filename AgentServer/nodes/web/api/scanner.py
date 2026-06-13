@@ -26,6 +26,7 @@ from nodes.web.api.scanner_sentiment import router as sentiment_router
 from nodes.web.api.scanner_debug import router as debug_router
 from nodes.web.api.scanner_strategy import router as strategy_router
 from nodes.web.api.scanner_report import router as report_router
+from nodes.web.api.scanner_analysis import router as analysis_router
 from nodes.web.api.scanner_system import router as system_router
 from nodes.web.api.scanner_scan import router as scan_router
 
@@ -39,5 +40,6 @@ router.include_router(sentiment_router)
 router.include_router(debug_router)
 router.include_router(strategy_router)
 router.include_router(report_router)
+router.include_router(analysis_router)
 router.include_router(system_router)
 router.include_router(scan_router)

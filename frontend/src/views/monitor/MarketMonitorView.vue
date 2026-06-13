@@ -17,6 +17,7 @@ const OpsTab = defineAsyncComponent(() => import('./OpsTab.vue'))
 const PremarketTab = defineAsyncComponent(() => import('./PremarketTab.vue'))
 const SentimentTab = defineAsyncComponent(() => import('./SentimentTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('./HistoryTab.vue'))
+const AnalysisTab = defineAsyncComponent(() => import('./AnalysisTab.vue'))
 const ScanTraceTab = defineAsyncComponent(() => import('./ScanTraceTab.vue'))
 const PositionRiskMatrix = defineAsyncComponent(() => import('./PositionRiskMatrix.vue'))
 const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
@@ -152,6 +153,10 @@ const {
       <button :class="['tab-btn', activeTab === 'history' ? 'active' : '']" @click="activeTab = 'history'">
         <span class="tab-icon">📜</span>
         <span class="tab-text"><span class="tab-label">历史</span><span class="tab-desc">时间线·订单</span></span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'analysis' ? 'active' : '']" @click="activeTab = 'analysis'">
+        <span class="tab-icon">📊</span>
+        <span class="tab-text"><span class="tab-label">分析</span><span class="tab-desc">KPI·策略·归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
@@ -405,6 +410,7 @@ const {
 
     <!-- ==================== 📜 历史Tab ==================== -->
     <HistoryTab v-if="activeTab === 'history'" />
+    <AnalysisTab v-if="activeTab === 'analysis'" />
 
     <OpsTab v-if="activeTab === 'ops'" />
 

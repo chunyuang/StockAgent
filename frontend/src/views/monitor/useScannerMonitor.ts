@@ -163,7 +163,7 @@ export function useScannerMonitor() {
   const weeklyReportVisible = ref(false)
 
   // ==================== 🎛️ UI状态 ====================
-  const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'ops'>('guide')
+  const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'analysis' | 'ops'>('guide')
   watch(activeTab, (tab) => {
     try {
       if (tab === 'premarket') premarket.fetchPremarketData()
