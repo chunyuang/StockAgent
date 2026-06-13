@@ -147,13 +147,11 @@ function dailyHoverBottom(): number {
       <!-- ============ 区块1: 情绪时间线 ============ -->
       <div class="st">📈 情绪时间线
         <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary);margin-left:8px">
-          {{ sentimentMode === 'intraday' && !sentimentTimeline.length ? '（Scanner未运行或非交易日，暂无日内数据）' : `（${displayTimeline.length}个数据点）` }}
+          {{ isIntradayFallback ? '（当前日期无日内数据，显示日线参考）' : `（${displayTimeline.length}个数据点）` }}
         </span>
       </div>
-      <div v-if="sentimentMode === 'intraday' && !sentimentTimeline.length" class="empty" style="padding:16px 0;text-align:center">
-        <div style="font-size:32px;margin-bottom:8px">📡</div>
-        <div>日内模式需要扫描器运行中才能采集数据</div>
-        <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">非交易日无日内数据，请切换到日线/周线/月线模式查看历史情绪</div>
+      <div v-if="sentimentMode === 'intraday' && !sentimentTimeline.length && isIntradayFallback" class="empty" style="padding:10px 0;text-align:center;font-size:12px;color:var(--text-tertiary)">
+        📡 当前日期无日内扫描数据（非交易日或Scanner未运行），上方显示日线数据供参考。切换到有扫描记录的交易日可查看真实日内情绪曲线。
       </div>
       <div v-else-if="!displayTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
       <div v-else class="sentiment-chart">
