@@ -14,6 +14,9 @@ const c = useChartColors().value
 const loading = ref(false)
 const accountData = ref<any>(null)
 const activeSection = ref('overview')
+const expandedCode = ref<string | null>(null)
+const detailData = ref<any>(null)
+const detailLoading = ref(false)
 
 const monitorData = inject(SCANNER_MONITOR_KEY, null)
 const setActiveTab = (tab: string) => {
@@ -25,12 +28,25 @@ const setActiveTab = (tab: string) => {
 const fetchAccount = async () => {
   loading.value = true
   try {
-    const [analysisRes] = await Promise.all([
-      fetch('/api/v1/scanner/analysis?period=30d').then(r => r.json()),
-    ])
-    accountData.value = { analysis: analysisRes.data || {} }
+    const res = await fetch('/api/v1/scanner/analysis?period=30d').then(r => r.json())
+    accountData.value = { analysis: res.data || {} }
   } catch (e) { console.error(e) }
   loading.value = false
+}
+
+const toggleDetail = async (code: string) => {
+  if (expandedCode.value === code) {
+    expandedCode.value = null
+    detailData.value = null
+    return
+  }
+  expandedCode.value = code
+  detailLoading.value = true
+  try {
+    const res = await fetch(`/api/v1/scanner/analysis/stock/${code}`).then(r => r.json())
+    detailData.value = res.data || {}
+  } catch (e) { console.error(e) }
+  detailLoading.value = false
 }
 
 onMounted(fetchAccount)
@@ -54,7 +70,6 @@ const realizedPnl = computed(() => {
   return totalProfit.value - positions_pnl
 })
 
-// Pie chart
 const posPie = computed(() => {
   const pos = positions.value
   if (!pos.length) return null
@@ -103,7 +118,6 @@ const posPie = computed(() => {
 
     <!-- ===== Overview ===== -->
     <div v-show="activeSection === 'overview'" class="at-sec">
-      <!-- Row 1: Pie + Summary -->
       <div class="at-row2">
         <div class="at-card">
           <div class="at-card-t">📊 资产分布</div>
@@ -134,35 +148,64 @@ const posPie = computed(() => {
         <div class="at-card-t">💼 持仓明细 <span class="at-tag">{{ positions.length }}只</span>
           <span v-if="brokenSL.length" class="at-tag at-tag-danger">🔴 {{ brokenSL.length }}只破止损</span>
           <span v-if="nearSL.length" class="at-tag at-tag-warn">⚠ {{ nearSL.length }}只近止损</span>
+          <span class="at-tag" style="margin-left:auto">点击行查看详情</span>
         </div>
-        <div class="at-tbl-wrap">
-          <table class="at-tbl">
-            <thead><tr>
-              <th>代码</th><th>名称</th><th>策略</th><th>数量</th>
-              <th>成本</th><th>现价</th><th>止损价</th>
-              <th>盈亏%</th><th>盈亏额</th><th>市值</th><th>仓位%</th><th>状态</th>
-            </tr></thead>
-            <tbody>
-              <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'r-up' : 'r-dn'">
-                <td>{{ p.ts_code?.slice(0,6) }}</td>
-                <td>{{ p.stock_name }}</td>
-                <td>{{ p.strategy }}</td>
-                <td>{{ p.shares }}</td>
-                <td>{{ p.cost_price?.toFixed(2) }}</td>
-                <td>{{ p.current_price?.toFixed(2) }}</td>
-                <td :class="p.stop_loss_status === 'broken' ? 'down' : p.stop_loss_status === 'near' ? 'warn' : 'muted'">{{ p.stop_loss_price?.toFixed(2) || '-' }}</td>
-                <td :class="cls(p.profit_pct)" class="b">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct?.toFixed(1) }}%</td>
-                <td :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(p.profit_amount || 0).toLocaleString() }}</td>
-                <td>¥{{ (p.market_value || 0).toLocaleString() }}</td>
-                <td class="muted">{{ totalAssets > 0 ? ((p.market_value || 0) / totalAssets * 100).toFixed(1) : 0 }}%</td>
-                <td>
-                  <span v-if="p.stop_loss_status === 'broken'" class="sl-broken">🔴破止损</span>
-                  <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
-                  <span v-else class="sl-ok">安全</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Cards layout instead of table -->
+        <div class="pos-list">
+          <div v-for="p in positions" :key="p.ts_code"
+               :class="['pos-card', p.stop_loss_status === 'broken' ? 'pos-danger' : p.stop_loss_status === 'near' ? 'pos-warn' : '', expandedCode === p.ts_code ? 'pos-expanded' : '']"
+               @click="toggleDetail(p.ts_code)">
+            <!-- Row 1: Name + P&L -->
+            <div class="pos-top">
+              <div class="pos-name">
+                <span class="pos-code">{{ p.ts_code?.slice(0,6) }}</span>
+                <span class="pos-stock">{{ p.stock_name }}</span>
+                <span v-if="p.stop_loss_status === 'broken'" class="sl-broken">🔴破止损</span>
+                <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
+              </div>
+              <div :class="['pos-pnl', cls(p.profit_pct)]">
+                <span class="pos-pnl-pct">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct?.toFixed(1) }}%</span>
+                <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (p.profit_amount || 0).toLocaleString() }}</span>
+              </div>
+            </div>
+            <!-- Row 2: Key numbers -->
+            <div class="pos-metrics">
+              <div class="pos-m"><span class="pos-ml">成本</span><span>¥{{ p.cost_price?.toFixed(2) }}</span></div>
+              <div class="pos-m"><span class="pos-ml">现价</span><span>¥{{ p.current_price?.toFixed(2) }}</span></div>
+              <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price?.toFixed(2) || '-' }}</span></div>
+              <div class="pos-m"><span class="pos-ml">数量</span><span>{{ p.shares }}</span></div>
+              <div class="pos-m"><span class="pos-ml">市值</span><span>¥{{ (p.market_value || 0).toLocaleString() }}</span></div>
+              <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ totalAssets > 0 ? ((p.market_value || 0) / totalAssets * 100).toFixed(1) : 0 }}%</span></div>
+            </div>
+            <!-- Expand detail -->
+            <div v-if="expandedCode === p.ts_code" class="pos-detail" @click.stop>
+              <div v-if="detailLoading" style="text-align:center;padding:12px;color:var(--text-tertiary)">加载中...</div>
+              <template v-else-if="detailData">
+                <div class="pd-head">📋 {{ detailData.stock_name }} {{ detailData.ts_code }} 交易审查</div>
+                <!-- Summary -->
+                <div class="pd-grid">
+                  <div class="pd-cell"><span class="pd-cl">策略</span><span>{{ detailData.strategy }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">持仓量</span><span>{{ detailData.summary?.holding_qty }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">均价</span><span>¥{{ detailData.summary?.avg_cost?.toFixed(2) }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">现价</span><span>¥{{ detailData.summary?.current_price?.toFixed(2) }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏</span><span :class="cls(detailData.summary?.holding_profit_pct || 0)">{{ (detailData.summary?.holding_profit_pct || 0).toFixed(1) }}%</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏额</span><span :class="cls(detailData.summary?.holding_profit_amount || 0)">¥{{ (detailData.summary?.holding_profit_amount || 0).toLocaleString() }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">持仓天数</span><span>{{ detailData.summary?.hold_days }}天</span></div>
+                  <div class="pd-cell"><span class="pd-cl">市值</span><span>¥{{ (detailData.summary?.market_value || 0).toLocaleString() }}</span></div>
+                </div>
+                <!-- Trades -->
+                <div class="pd-trade-head">📝 交易记录</div>
+                <div v-for="(t, i) in detailData.trades" :key="i" class="pd-trade">
+                  <span class="pd-trade-date">{{ t.date }} {{ t.time }}</span>
+                  <span :class="t.action === 'buy' ? 'up' : 'down'" style="font-weight:600">{{ t.action === 'buy' ? '买入' : '卖出' }}</span>
+                  <span>{{ t.shares }}股@¥{{ t.price?.toFixed(2) }}</span>
+                  <span class="muted">¥{{ (t.amount || 0).toLocaleString() }}</span>
+                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct.toFixed(1) }}%</span>
+                  <span class="pd-trade-reason">{{ t.reason }}</span>
+                </div>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -228,13 +271,37 @@ const posPie = computed(() => {
 .at-eq-sep { text-align: center; color: var(--text-tertiary); border-bottom: none; }
 .at-eq-total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; margin-top: 2px; }
 
-/* Table wrapper - horizontal scroll for narrow screens */
-.at-tbl-wrap { overflow-x: auto; }
-.at-tbl { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 800px; }
-.at-tbl th { padding: 5px 6px; text-align: left; border-bottom: 2px solid var(--border); color: var(--text-tertiary); font-size: 11px; font-weight: 600; white-space: nowrap; position: sticky; top: 0; background: var(--bg-card); }
-.at-tbl td { padding: 4px 6px; border-bottom: 1px solid var(--border-light); white-space: nowrap; }
-.r-up td { background: rgba(239,68,68,0.03); }
-.r-dn td { background: rgba(8,153,129,0.03); }
+/* ===== Position Cards ===== */
+.pos-list { display: flex; flex-direction: column; gap: 6px; }
+.pos-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 6px; padding: 8px 10px; cursor: pointer; transition: border-color .15s; }
+.pos-card:hover { border-color: var(--el-color-primary); }
+.pos-card.pos-danger { border-left: 3px solid var(--stock-up); }
+.pos-card.pos-warn { border-left: 3px solid #e6a23c; }
+.pos-card.pos-expanded { border-color: var(--el-color-primary); }
+
+.pos-top { display: flex; justify-content: space-between; align-items: center; }
+.pos-name { display: flex; align-items: center; gap: 6px; }
+.pos-code { font-size: 12px; color: var(--text-tertiary); font-family: monospace; }
+.pos-stock { font-size: 13px; font-weight: 600; }
+.pos-pnl { text-align: right; }
+.pos-pnl-pct { font-size: 14px; font-weight: 700; margin-right: 6px; }
+.pos-pnl-amt { font-size: 12px; }
+
+.pos-metrics { display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; }
+.pos-m { font-size: 11px; color: var(--text-secondary); }
+.pos-ml { color: var(--text-tertiary); margin-right: 2px; }
+
+/* ===== Detail Panel ===== */
+.pos-detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-light); }
+.pd-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.pd-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 12px; font-size: 12px; }
+.pd-cell { display: flex; justify-content: space-between; padding: 3px 0; }
+.pd-cl { color: var(--text-tertiary); }
+
+.pd-trade-head { font-size: 12px; font-weight: 600; margin: 8px 0 4px; color: var(--text-secondary); }
+.pd-trade { display: flex; gap: 8px; padding: 4px 6px; font-size: 12px; border-bottom: 1px solid var(--border-light); align-items: baseline; }
+.pd-trade-date { font-family: monospace; color: var(--text-tertiary); font-size: 11px; min-width: 90px; }
+.pd-trade-reason { color: var(--text-tertiary); font-size: 11px; flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Color classes */
 .up { color: var(--stock-down); }
