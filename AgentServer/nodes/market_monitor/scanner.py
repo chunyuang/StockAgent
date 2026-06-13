@@ -475,6 +475,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
 
     async def _persist_stop_state(self) -> None:
         """停止时持久化状态 — 委托给RuntimePersistence【v2.9.32提取】"""
+        # 【v2.9.92x】收盘后刷新持仓收盘价(解决收盘后current_price不更新问题)
+        if self._broker and self.positions:
+            try:
+                await self._broker.refresh_close_prices()
+            except Exception as e:
+                logger.debug(f"[SCANNER] 收盘价刷新异常: {e}")
         await self._runtime_persistence.persist_stop_state()
 
     # ==================== 盘前准备 ====================
