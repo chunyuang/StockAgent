@@ -20,13 +20,16 @@ export function useSentimentMonitor() {
   const sentimentTradesCache = ref<Record<string, any[]>>({})
   const sentimentTimeline = computed(() => sentimentCache.value[sentimentMode.value] || [])
   const sentimentTrades = computed(() => sentimentTradesCache.value[sentimentMode.value] || [])
-  // displayTimeline: 直接用当前模式数据
-  // 日内无数据时不fallback日线(避免日内=日线的bug)，改为显示空+提示
+  // displayTimeline: 日内无数据时fallback日线，标注清楚
   const displayTimeline = computed(() => {
     const data = sentimentTimeline.value
+    if (sentimentMode.value === 'intraday' && !data.length) {
+      const dailyData = sentimentCache.value['daily'] || []
+      return dailyData.slice(-60)
+    }
     return data
   })
-  const isIntradayFallback = computed(() => false)
+  const isIntradayFallback = computed(() => sentimentMode.value === 'intraday' && !sentimentTimeline.value.length && (sentimentCache.value['daily'] || []).length > 0)
   // 日内模式candidates最大值(用于归一化Y轴)
   const intradayMaxCand = computed(() => {
     if (sentimentMode.value !== 'intraday') return 0
