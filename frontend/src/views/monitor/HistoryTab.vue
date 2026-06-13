@@ -1,8 +1,7 @@
 <script setup lang="ts">
 /**
  * HistoryTab — 交易历史Tab
- * 从 MarketMonitorView provide/inject 获取composable数据
- * 【v2.9.74: 从MarketMonitorView提取(73行)】
+ * v2.9.92g: 双栏紧凑布局 — 左栏timeline，右栏订单+平仓+审计
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElDatePicker, ElTag } from 'element-plus'
@@ -17,24 +16,38 @@ const {
   saveSnapshot, strategyCN, strategyMeta, timeline,
 } = m
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
-// 历史回放时用历史orders，否则用实时orders
+const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
+
+const displaySource = computed(() => historyData.value.length ? historyData.value : timeline.value)
+
+const filteredTimeline = computed(() => {
+  const src = displaySource.value
+  if (tlFilter.value === 'trade') return src.filter((t: any) => t.action !== 'blocked')
+  if (tlFilter.value === 'blocked') return src.filter((t: any) => t.action === 'blocked')
+  return src
+})
+
+const tlStats = computed(() => {
+  const src = displaySource.value
+  const buy = src.filter((t: any) => t.action === 'buy').length
+  const sell = src.filter((t: any) => t.action === 'sell').length
+  const blocked = src.filter((t: any) => t.action === 'blocked').length
+  return { buy, sell, blocked, total: src.length }
+})
+
 const displayOrders = computed(() => {
   const source = historyData.value.length ? historyOrders.value : orders.value
   return source.filter((o: any) => o.status === 'filled' || o.filled_qty > 0)
 })
 
-// 历史回放时的已平仓汇总(基于timeline中的buy/sell配对)
-// 【v2.9.92e】修复: 按时间顺序配对 — sell必须配对它之前最近的buy(不是任意buy)
-// 09:35卖出配对的是昨天买入(无对应buy记录)，10:12买入才是新仓
 const historyClosedPositions = computed(() => {
   const source = historyData.value.length ? historyData.value : timeline.value
   const result: any[] = []
-  // 按时间顺序遍历，维护每个(股票+策略)的未平仓买入队列
-  const openBuys = new Map<string, any[]>() // key=ts_code|strategy, value=buy records
+  const openBuys = new Map<string, any[]>()
   const selectedDate = historyDate.value || ''
-  const dateLabel = selectedDate ? selectedDate.replace(/-/g, '').slice(-4) : '' // MMDD
+  const dateLabel = selectedDate ? selectedDate.replace(/-/g, '').slice(-4) : ''
   
   for (const item of source) {
     if (item.action === 'buy') {
@@ -45,147 +58,225 @@ const historyClosedPositions = computed(() => {
       const key = item.ts_code + '|' + (item.strategy || '')
       const queue = openBuys.get(key)
       const buy = queue?.length ? queue.shift() : undefined
-      // buy为空说明是昨天买的(overnight position)，用sell自带的成本价
-      const buyPrice = buy?.price ?? sell?.decision_detail?.cost_price ?? 0
-      // 如果sell自带profit数据，优先用(更准确)
+      const buyPrice = buy?.price ?? item?.decision_detail?.cost_price ?? 0
       const profitAmount = item.profit_amount ?? (buyPrice > 0 ? (item.price - buyPrice) * (item.shares || 0) : 0)
       const profitPct = item.profit_pct ?? (buyPrice > 0 ? (item.price - buyPrice) / buyPrice * 100 : 0)
-      // 时间加日期前缀
       const buyTimeStr = buy ? (dateLabel + ' ' + (buy.time || '')) : ('昨日 ' + (item.time || ''))
       const sellTimeStr = dateLabel + ' ' + (item.time || '')
       result.push({ 
         ts_code: item.ts_code, 
         stock_name: item.stock_name || buy?.stock_name || '', 
         strategy: item.strategy, 
-        buy_price: buyPrice, 
-        sell_price: item.price, 
-        profit_amount: profitAmount, 
-        profit_pct: profitPct, 
-        buy_time: buyTimeStr, 
-        sell_time: sellTimeStr,
-        is_overnight: !buy // 标记是否为隔夜仓
+        buy_price: buyPrice, sell_price: item.price, 
+        profit_amount: profitAmount, profit_pct: profitPct, 
+        buy_time: buyTimeStr, sell_time: sellTimeStr,
+        is_overnight: !buy
       })
     }
   }
   return result.sort((a: any, b: any) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
 })
 const displayClosedPositions = computed(() => historyData.value.length ? historyClosedPositions.value : closedPositions.value)
+
+// 平仓汇总统计
+const closedStats = computed(() => {
+  const items = displayClosedPositions.value
+  if (!items.length) return null
+  const totalProfit = items.reduce((s: number, c: any) => s + (c.profit_amount || 0), 0)
+  const wins = items.filter((c: any) => c.profit_pct >= 0).length
+  return { count: items.length, totalProfit, winRate: (wins / items.length * 100).toFixed(0), wins }
+})
 </script>
 
 <template>
   <div class="mm-tab-content">
-    <div class="mm-tab-scroll">
-      <!-- 交易时间线 -->
-      <div class="st">⏱️ 交易时间线 <span class="text-tertiary" style="font-size:11px">({{ timeline.length }}笔)</span>
-        <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
-        <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:8px">🔍 审查</ElButton>
-        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="历史日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData = []; historyDate = ''">返回</ElButton></div>
-      </div>
-      <div v-if="historyData.length" class="history-tag" style="margin-bottom:6px">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
-      <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易记录</div>
-      <div class="ht-timeline">
-        <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
-          <span class="tl-time">{{ item.time }}</span>
-          <span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
-          <span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span>
-          <span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span>
-          <template v-else>
-            <span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span>
-            <span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span>
-            <span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct ?? 0).toFixed(1) }}%</span>
-            <span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount ?? 0).toFixed(0) }}</span>
-          </template>
+    <div class="mm-tab-scroll ht-wrap">
+      <!-- 顶部工具栏 -->
+      <div class="ht-toolbar">
+        <div class="ht-toolbar-left">
+          <span class="ht-title">📜 交易历史</span>
+          <span v-if="historyData.length" class="ht-badge">{{ historyDate }} 回放 · {{ historyData.length }}条</span>
+          <span v-else-if="timeline.length" class="ht-badge">今日 · {{ timeline.length }}条</span>
+          <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" class="ht-pnl">{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
+        </div>
+        <div class="ht-toolbar-right">
+          <ElDatePicker v-model="historyDate" type="date" placeholder="历史日期" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" />
+          <ElButton size="small" @click="loadHistory" :loading="historyLoading">回放</ElButton>
+          <ElButton v-if="historyData.length" size="small" type="info" @click="historyData = []; historyDate = ''">返回今日</ElButton>
+          <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit">🔍 审查</ElButton>
+          <ElButton size="small" @click="exportTradeLog">📥 CSV</ElButton>
+          <ElButton size="small" @click="exportJSON">📋 JSON</ElButton>
         </div>
       </div>
 
-      <!-- 历史订单 -->
-      <div class="st" style="margin-top:16px">📋 历史订单 <span class="text-tertiary" style="font-size:11px">({{ displayOrders.length }}笔)</span></div>
-      <div v-if="!displayOrders.length" class="empty">暂无订单</div>
-      <div v-else class="ht-orders">
-        <div class="ho-header"><span>时间</span><span>方向</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span></div>
-        <div v-for="o in displayOrders" :key="o.order_id" class="ho-row cp" @click="openTradeDetail(o.ts_code)">
-          <span class="tl-time">{{ String(o.trade_date || '').slice(-4) }} {{ o.create_time }}</span>
-          <span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
-          <span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span>
-          <span>{{ o.filled_qty }}股</span><span>¥{{ o.filled_price?.toFixed(2) || '0.00' }}</span>
-          <span class="text-tertiary-sm">{{ strategyCN(o.strategy) }}</span>
+      <!-- 双栏主体 -->
+      <div class="ht-body">
+        <!-- 左栏: 交易时间线 -->
+        <div class="ht-left">
+          <div class="ht-sec-header">
+            <span>⏱️ 时间线</span>
+            <div class="ht-filter">
+              <button :class="{active: tlFilter==='trade'}" @click="tlFilter='trade'">交易 {{ tlStats.buy + tlStats.sell }}</button>
+              <button :class="{active: tlFilter==='blocked'}" @click="tlFilter='blocked'">⛔ {{ tlStats.blocked }}</button>
+              <button :class="{active: tlFilter==='all'}" @click="tlFilter='all'">全部 {{ tlStats.total }}</button>
+            </div>
+          </div>
+          <div v-if="!filteredTimeline.length" class="ht-empty">暂无记录</div>
+          <div class="ht-tl-list">
+            <div v-for="(item, i) in filteredTimeline" :key="i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
+              <span class="tl-time">{{ item.time }}</span>
+              <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
+              <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
+              <span class="tl-name">{{ item.stock_name }}</span>
+              <template v-if="item.action !== 'blocked'">
+                <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
+                <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
+                <span v-if="item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
+              </template>
+              <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- 已平仓汇总 -->
-      <div class="st" style="margin-top:16px">💰 已平仓汇总</div>
-      <div v-if="!displayClosedPositions.length" class="empty">暂无已平仓记录</div>
-      <div v-else class="ht-closed">
-        <div class="hc-header"><span>代码</span><span>名称</span><span>策略</span><span>买入时间</span><span>买入价</span><span>卖出时间</span><span>卖出价</span><span>盈亏%</span></div>
-        <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="hc-row" @click="openTradeDetail(cp.ts_code)" :class="cp.profit_pct >= 0 ? 'hc-win' : 'hc-loss'">
-          <span class="code">{{ cp.ts_code }}</span><span class="name">{{ cp.stock_name }}</span>
-          <span><ElTag size="small" :color="strategyMeta[cp.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(cp.strategy) }}</ElTag></span>
-          <span class="tl-time-sm" :class="{ 'overnight': cp.is_overnight }">{{ cp.buy_time || '-' }}</span>
-          <span>¥{{ Number(cp.buy_price || 0).toFixed(2) }}</span>
-          <span class="tl-time-sm">{{ cp.sell_time || '-' }}</span>
-          <span>¥{{ Number(cp.sell_price || 0).toFixed(2) }}</span>
-          <span :class="(cp.profit_pct ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (cp.profit_pct ?? 0) >= 0 ? '+' : '' }}{{ Number(cp.profit_pct ?? 0).toFixed(1) }}%</span>
+        <!-- 右栏: 订单 + 平仓 + 审计 -->
+        <div class="ht-right">
+          <!-- 已平仓汇总(置顶,最关键) -->
+          <div class="ht-panel">
+            <div class="ht-sec-header">
+              <span>💰 已平仓</span>
+              <span v-if="closedStats" class="ht-stat">{{ closedStats.count }}笔 · 胜率{{ closedStats.winRate }}%</span>
+              <span v-if="closedStats" :class="closedStats.totalProfit >= 0 ? 'up' : 'down'" class="ht-stat-pnl">{{ closedStats.totalProfit >= 0 ? '+' : '' }}¥{{ Number(closedStats.totalProfit).toFixed(0) }}</span>
+            </div>
+            <div v-if="!displayClosedPositions.length" class="ht-empty-sm">暂无</div>
+            <div class="ht-cp-list">
+              <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct >= 0 ? 'win' : 'loss'" @click="openTradeDetail(cp.ts_code)">
+                <span class="cp-code">{{ cp.ts_code?.slice(0,6) }}</span>
+                <span class="cp-name">{{ cp.stock_name }}</span>
+                <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ (cp.profit_pct??0) >= 0 ? '+' : '' }}{{ Number(cp.profit_pct??0).toFixed(1) }}%</span>
+                <span class="cp-amt" :class="(cp.profit_amount??0) >= 0 ? 'up' : 'down'">¥{{ Number(cp.profit_amount??0).toFixed(0) }}</span>
+                <span class="cp-time" :class="{overnight: cp.is_overnight}">{{ cp.is_overnight ? '昨→今' : '今→今' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 历史订单 -->
+          <div class="ht-panel">
+            <div class="ht-sec-header"><span>📋 成交订单</span><span class="ht-stat">{{ displayOrders.length }}笔</span></div>
+            <div v-if="!displayOrders.length" class="ht-empty-sm">暂无</div>
+            <div class="ht-ord-list">
+              <div v-for="o in displayOrders" :key="o.order_id" class="ord-row" @click="openTradeDetail(o.ts_code)">
+                <span class="ord-dir" :class="o.side === 'buy' ? 'up' : 'down'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
+                <span class="ord-code">{{ o.ts_code?.slice(0,6) }}</span>
+                <span class="ord-name">{{ o.stock_name }}</span>
+                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price?.toFixed(2) }}</span>
+                <span class="ord-time">{{ String(o.create_time || '').slice(0,8) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 审计日志 -->
+          <div class="ht-panel">
+            <div class="ht-sec-header"><span>📝 审计</span><ElButton size="small" @click="fetchAuditLog" :loading="auditLogLoading" style="font-size:10px;padding:2px 6px">🔄</ElButton></div>
+            <div v-if="!auditLog.length" class="ht-empty-sm">暂无</div>
+            <div class="ht-audit-list">
+              <div v-for="(log, i) in auditLog.slice(0, 20)" :key="i" class="aud-row">
+                <span class="aud-time">{{ String(log.timestamp || log.time_str || '').replace(/T/, ' ').substring(11, 19) || '' }}</span>
+                <span class="aud-act">{{ log.action }}</span>
+                <span class="aud-detail">{{ (log.reason || log.detail || '').slice(0, 30) }}</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <!-- 审计日志 -->
-      <div class="st" style="margin-top:16px">📝 审计日志 <ElButton size="small" @click="fetchAuditLog" :loading="auditLogLoading">🔄</ElButton></div>
-      <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
-      <div v-else class="ht-audit">
-        <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
-          <span class="tl-time">{{ String(log.timestamp || log.time_str || log.time || '').replace(/T/, ' ').substring(0, 19) || '' }}</span>
-          <span class="ha-action">{{ log.action }}</span>
-          <span class="ha-detail">{{ log.reason || log.detail || '' }}</span>
-          <span v-if="log.ts_code" class="ha-code">{{ log.ts_code }}</span>
-        </div>
-      </div>
-
-      <!-- 导出 -->
-      <div class="st" style="margin-top:16px">📥 数据导出</div>
-      <div class="ht-export">
-        <ElButton size="small" @click="exportTradeLog">📥 导出交易日志(CSV)</ElButton>
-        <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
-        <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 交易审查</ElButton>
-        <ElButton size="small" @click="exportJSON">📋 导出JSON</ElButton>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="scss">
-.ht-timeline { display: flex; flex-direction: column; gap: 2px; }
+/* 整体 */
+.ht-wrap { display: flex; flex-direction: column; height: 100%; }
+.ht-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 6px; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border-default); margin-bottom: 8px; }
+.ht-toolbar-left { display: flex; align-items: center; gap: 8px; }
+.ht-toolbar-right { display: flex; align-items: center; gap: 4px; }
+.ht-title { font-size: 14px; font-weight: 700; }
+.ht-badge { font-size: 11px; color: var(--text-tertiary); background: var(--bg-muted); padding: 2px 8px; border-radius: 10px; }
+.ht-pnl { font-size: 13px; font-weight: 700; }
 
-.ht-orders { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+/* 双栏 */
+.ht-body { display: grid; grid-template-columns: 1fr 340px; gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
+.ht-left { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ht-right { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
 
-.ho-header { display: grid; grid-template-columns: 100px 40px 80px 1fr 60px 70px 60px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
+/* 段头 */
+.ht-sec-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-primary); padding: 4px 0; }
+.ht-stat { font-size: 10px; color: var(--text-tertiary); font-weight: 400; }
+.ht-stat-pnl { font-size: 11px; font-weight: 700; }
 
-.ho-row { display: grid; grid-template-columns: 100px 40px 80px 1fr 60px 70px 60px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; }
+/* 过滤器 */
+.ht-filter { display: flex; gap: 2px; margin-left: auto; }
+.ht-filter button { font-size: 10px; padding: 1px 6px; border: 1px solid var(--border-default); border-radius: 3px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.ht-filter button.active { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
 
-.ho-row:hover { background: var(--bg-muted); }
+/* 时间线列表 */
+.ht-tl-list { flex: 1; overflow-y: auto; min-height: 0; }
+.tl-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; font-size: 11px; border-bottom: 1px solid var(--border-light); cursor: pointer; }
+.tl-row:hover { background: var(--bg-muted); }
+.tl-time { font-size: 10px; color: var(--text-tertiary); min-width: 52px; font-family: 'JetBrains Mono', monospace; }
+.tl-act { font-weight: 700; min-width: 16px; font-size: 11px; }
+.tl-act.buy { color: var(--stock-up); }
+.tl-act.sell { color: var(--stock-down); }
+.tl-act.blocked { color: var(--text-tertiary); font-size: 10px; }
+.tl-code { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 50px; }
+.tl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-strat { font-size: 9px; color: var(--el-color-primary); background: var(--el-color-primary-light-9); padding: 0 4px; border-radius: 2px; }
+.tl-qty { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+.tl-pct { font-weight: 600; font-size: 11px; min-width: 40px; text-align: right; }
+.tl-reason { font-size: 10px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.ht-closed { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+/* 右栏面板 */
+.ht-panel { background: var(--bg-base, var(--bg-muted)); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 8px; }
 
-.hc-header { display: grid; grid-template-columns: 70px 1fr 50px 90px 60px 90px 60px 55px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
+/* 已平仓 */
+.ht-cp-list { max-height: 200px; overflow-y: auto; }
+.cp-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; font-size: 11px; border-bottom: 1px solid var(--border-light); cursor: pointer; }
+.cp-row:hover { background: var(--bg-muted); }
+.cp-row.win { border-left: 2px solid var(--stock-up); }
+.cp-row.loss { border-left: 2px solid var(--stock-down); }
+.cp-code { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 48px; }
+.cp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-pct { font-weight: 600; min-width: 36px; text-align: right; }
+.cp-amt { font-size: 10px; min-width: 44px; text-align: right; }
+.cp-time { font-size: 9px; color: var(--text-tertiary); white-space: nowrap; }
+.cp-time.overnight { color: var(--el-color-warning); }
 
-.hc-row { display: grid; grid-template-columns: 70px 1fr 50px 90px 60px 90px 60px 55px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; cursor: pointer; }
+/* 订单 */
+.ht-ord-list { max-height: 160px; overflow-y: auto; }
+.ord-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; font-size: 11px; border-bottom: 1px solid var(--border-light); cursor: pointer; }
+.ord-row:hover { background: var(--bg-muted); }
+.ord-dir { font-weight: 700; font-size: 10px; min-width: 14px; }
+.ord-code { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 48px; }
+.ord-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ord-qty { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+.ord-time { font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
 
-.hc-row:hover { background: var(--bg-muted); }
+/* 审计 */
+.ht-audit-list { max-height: 120px; overflow-y: auto; }
+.aud-row { display: flex; align-items: center; gap: 4px; padding: 1px 4px; font-size: 10px; }
+.aud-time { font-family: 'JetBrains Mono', monospace; color: var(--text-tertiary); min-width: 52px; }
+.aud-act { color: var(--el-color-primary); font-weight: 600; min-width: 40px; }
+.aud-detail { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.hc-win { border-left: 3px solid var(--stock-up); }
+/* 空状态 */
+.ht-empty { padding: 40px 0; text-align: center; color: var(--text-tertiary); font-size: 13px; }
+.ht-empty-sm { padding: 12px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }
 
-.hc-loss { border-left: 3px solid var(--stock-down); }
-.tl-time-sm { font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
-.tl-time-sm.overnight { color: var(--el-color-warning); }
+/* 通用 */
+.up { color: var(--stock-up); }
+.down { color: var(--stock-down); }
 
-.ht-audit { display: flex; flex-direction: column; gap: 2px; }
-
-.ha-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
-
-.ha-action { color: var(--el-color-primary); font-weight: 600; min-width: 60px; }
-
-.ha-detail { color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.ha-code { font-size: 11px; color: var(--el-color-primary); font-family: 'JetBrains Mono', monospace; }
-
-.ht-export { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 响应式: 窄屏退回单列 */
+@media (max-width: 900px) {
+  .ht-body { grid-template-columns: 1fr; }
+  .ht-right { max-height: 400px; }
+}
 </style>
