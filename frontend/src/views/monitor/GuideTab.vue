@@ -18,7 +18,7 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
         <div class="gb-logo">📡</div>
         <div>
           <div class="gb-title">超短量化实盘监控系统</div>
-          <div class="gb-sub">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
+          <div class="gb-sub">9层漏斗筛选 · 5策略联合选股 · 实时风控守护 · 参数对齐回测</div>
         </div>
       </div>
       <ElButton v-if="!isRunning" type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
@@ -64,7 +64,7 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div>
         <div class="gg-body gg-compact">
-          <div class="gg-line">盘中涨幅3-5% + 量能放大</div>
+          <div class="gg-line">盘中涨幅3-7% + 量能放大1.5-3倍</div>
           <div class="gg-params">
             <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
             <span class="gg-p"><span class="gg-pl">TP</span>12%</span>
@@ -77,10 +77,23 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div>
         <div class="gg-body gg-compact">
-          <div class="gg-line">首次涨停封板 + 成交概率</div>
+          <div class="gg-line">首次涨停封板 + 4级成交概率</div>
           <div class="gg-params">
-            <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
+            <span class="gg-p"><span class="gg-pl">SL</span>3.5%</span>
             <span class="gg-p"><span class="gg-pl">TP</span>10%</span>
+            <span class="gg-p"><span class="gg-pl">持仓</span>2天</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 涨停开板 -->
+      <div class="gg-card">
+        <div class="gg-head"><span class="gg-icon">🔓</span>涨停开板<span class="gg-tag-off">暂未启用</span></div>
+        <div class="gg-body gg-compact">
+          <div class="gg-line">2-4连板开板回封 + 封单≥3000万</div>
+          <div class="gg-params">
+            <span class="gg-p"><span class="gg-pl">SL</span>5%</span>
+            <span class="gg-p"><span class="gg-pl">TP</span>6%</span>
             <span class="gg-p"><span class="gg-pl">持仓</span>2天</span>
           </div>
         </div>
@@ -90,9 +103,9 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div>
         <div class="gg-body gg-compact">
-          <div class="gg-line">连板龙头回调 + MA支撑</div>
+          <div class="gg-line">连板龙头回调5-22% + MA支撑</div>
           <div class="gg-params">
-            <span class="gg-p"><span class="gg-pl">SL</span>3.5%</span>
+            <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
             <span class="gg-p"><span class="gg-pl">TP</span>30%</span>
             <span class="gg-p"><span class="gg-pl">持仓</span>7天</span>
           </div>
@@ -103,7 +116,7 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div>
         <div class="gg-body gg-compact">
-          <div class="gg-line">连续跌停翘板反转</div>
+          <div class="gg-line">连续跌停≥2翘板反转</div>
           <div class="gg-params">
             <span class="gg-p"><span class="gg-pl">SL</span>5%</span>
             <span class="gg-p"><span class="gg-pl">TP</span>20%</span>
@@ -121,8 +134,13 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
             <div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div>
             <div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div>
             <div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div>
+            <div class="gr-row"><span class="gr-k">持仓保护</span><span class="gr-v">利润≥6%启用冲高回落保护 / 默认止损3%止盈7%</span></div>
+            <div class="gr-row"><span class="gr-k">次日高开</span><span class="gr-v">高开≥2%触发冲高回落保护(默认)</span></div>
+            <div class="gr-row"><span class="gr-k">MA60过滤</span><span class="gr-v">股价在MA60上方才买入(全局开关)</span></div>
+            <div class="gr-row"><span class="gr-k">板块集中</span><span class="gr-v">同行业≤3只 · 冷却期2天仓位≤60%</span></div>
             <div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div>
             <div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div>
+            <div class="gr-row"><span class="gr-k">参数对齐</span><span class="gr-v">实盘参数与回测strategy_defaults完全一致(每晚22:00自动检查)</span></div>
           </div>
         </div>
       </div>
@@ -159,7 +177,7 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 
 .gb-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
-.guide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.guide-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 
 .gg-card { background: var(--bg-elevated); border-radius: 10px; overflow: hidden; }
 
@@ -208,4 +226,6 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 .gk-g { font-size: 12px; display: flex; align-items: center; gap: 4px; }
 
 .gk-g kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+
+.gg-tag-off { font-size: 10px; color: var(--text-tertiary); background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 3px; padding: 0 5px; margin-left: 6px; vertical-align: middle; }
 </style>
