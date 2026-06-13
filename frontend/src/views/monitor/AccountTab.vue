@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject } from 'vue'
 import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
+
+use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 
 const c = useChartColors().value
