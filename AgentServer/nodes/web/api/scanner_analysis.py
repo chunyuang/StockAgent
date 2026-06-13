@@ -250,6 +250,46 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                     pass
                 
                 profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
+                
+                # 【v2.9.92n】止损状态 + 风控标注
+                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+                strat_key = h.get("strategy", "")
+                # 反查策略英文key(前端可能存中文)
+                strat_en = strat_key
+                for k, v in STRATEGY_CONFIGS.items():
+                    if v.get("display_name") == strat_key or k == strat_key:
+                        strat_en = k
+                        break
+                strat_cfg = STRATEGY_CONFIGS.get(strat_en, {})
+                sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
+                stop_loss_price = round(avg_cost * (1 - sl_pct), 2)
+                tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07))
+                take_profit_price = round(avg_cost * (1 + tp_pct), 2)
+                
+                # 止损状态
+                stop_loss_status = "safe"
+                stop_loss_desc = ""
+                if cur_price <= stop_loss_price:
+                    stop_loss_status = "broken"
+                    stop_loss_desc = f"已跌破止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)，当前亏{profit_pct:.1f}%"
+                elif cur_price <= stop_loss_price * 1.05:
+                    stop_loss_status = "near"
+                    stop_loss_desc = f"接近止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)"
+                
+                # 风控状态(从scanner_status获取)
+                risk_monitor_active = False
+                risk_monitor_desc = ""
+                try:
+                    from nodes.web.api.scanner_shared import _scanner_instance
+                    if _scanner_instance and _scanner_instance._is_running:
+                        risk_monitor_active = _scanner_instance._risk_running and _scanner_instance._risk_thread and _scanner_instance._risk_thread.is_alive()
+                        if not risk_monitor_active:
+                            risk_monitor_desc = "风控线程未运行，止损不会自动执行"
+                    else:
+                        risk_monitor_desc = "扫描器未启动，持仓无人监控"
+                except Exception:
+                    risk_monitor_desc = "无法获取风控状态"
+                
                 positions.append({
                     "ts_code": tc,
                     "stock_name": h["name"],
@@ -260,6 +300,14 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                     "profit_pct": round(profit_pct, 2),
                     "profit_amount": round((cur_price - avg_cost) * h["qty"], 0),
                     "market_value": round(cur_price * h["qty"], 0),
+                    # 【v2.9.92n】止损+风控标注
+                    "stop_loss_price": stop_loss_price,
+                    "stop_loss_pct": round(sl_pct * 100, 1),
+                    "take_profit_price": take_profit_price,
+                    "stop_loss_status": stop_loss_status,  # safe/near/broken
+                    "stop_loss_desc": stop_loss_desc,
+                    "risk_monitor_active": risk_monitor_active,
+                    "risk_monitor_desc": risk_monitor_desc,
                 })
         except Exception:
             pass
@@ -272,10 +320,49 @@ async def get_analysis(start_date: str = None, end_date: str = None):
             "daily_detail": daily_detail,
             "positions": positions,
             "date_range": f"{start_date or '全部'} ~ {end_date or '全部'}",
+            # 【v2.9.92n】全局风控监控状态
+            "risk_monitor": _get_risk_monitor_status(),
         }}
     except Exception as e:
         import traceback
         return {"success": False, "message": str(e), "traceback": traceback.format_exc()}
+
+def _get_risk_monitor_status():
+    """【v2.9.92n】获取全局风控监控状态"""
+    try:
+        from nodes.web.api.scanner_shared import _scanner_instance
+        if _scanner_instance is None:
+            return {"scanner_alive": False, "scan_loop_active": False, "risk_thread_alive": False,
+                    "status": "scanner_not_created", "desc": "Scanner实例未创建，持仓无人监控"}
+        
+        is_running = _scanner_instance._is_running
+        risk_alive = _scanner_instance._risk_running and \
+                     _scanner_instance._risk_thread and \
+                     _scanner_instance._risk_thread.is_alive()
+        
+        status = "healthy"
+        desc = "风控监控正常运行"
+        if not is_running and not risk_alive:
+            status = "scanner_stopped"
+            desc = "扫描器未启动，风控线程未运行，止损不会自动执行"
+        elif is_running and not risk_alive:
+            status = "risk_thread_dead"
+            desc = "风控线程已退出，止损不会自动执行！请重启扫描器"
+        elif not is_running and risk_alive:
+            status = "scanner_loop_dead"
+            desc = "扫描循环已停止，但风控线程仍在运行(部分监控)"
+        
+        return {
+            "scanner_alive": True,
+            "scan_loop_active": is_running,
+            "risk_thread_alive": risk_alive,
+            "status": status,
+            "desc": desc,
+        }
+    except Exception as e:
+        return {"scanner_alive": False, "scan_loop_active": False, "risk_thread_alive": False,
+                "status": "error", "desc": f"无法获取风控状态: {e}"}
+
 
 def _empty_result():
     return {
