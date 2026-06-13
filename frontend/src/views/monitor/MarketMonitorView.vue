@@ -230,13 +230,13 @@ const {
     </ElDialog>
 
     <!-- 交易详情弹窗 — 结构化卡片 -->
-    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''} ${tradeDetailData?.stock_name || tradeDetailData?.buy?.stock_name || tradeDetailData?.sell?.stock_name || ''}`" width="780px">
+    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''} ${tradeDetailData?.stock_name || tradeDetailData?.buy?.stock_name || tradeDetailData?.sell?.stock_name || ''} ${tradeDetailData?.trade_date ? '('+String(tradeDetailData.trade_date).replace(/^(\\d{4})(\\d{2})(\\d{2})$/, '$1-$2-$3')+' )' : ''}`" width="780px">
       <div v-if="tradeDetailData" class="td2">
         <!-- 买入决策 -->
         <div class="td2-sec"><div class="td2-title">📥 买入决策</div>
           <template v-if="tradeDetailData.buy">
             <div class="td2-grid">
-              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.buy.time }}</div></div>
+              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.buy.time_display || tradeDetailData.buy.time }}</div></div>
               <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.price || 0).toFixed(2) }}</div></div>
               <div class="td2-card"><div class="td2-label">📊 数量</div><div class="td2-val">{{ tradeDetailData.buy.shares }}股</div></div>
               <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" :color="strategyMeta[tradeDetailData.buy.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(tradeDetailData.buy.strategy) }}</ElTag></div></div>
@@ -280,7 +280,7 @@ const {
         <div class="td2-sec"><div class="td2-title">📤 卖出决策</div>
           <template v-if="tradeDetailData.sell">
             <div class="td2-grid">
-              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.sell.time }}</div></div>
+              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.sell.time_display || tradeDetailData.sell.time }}</div></div>
               <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ Number(tradeDetailData.sell.price || 0).toFixed(2) }}</div></div>
               <div class="td2-card"><div class="td2-label">📊 盈亏</div><div class="td2-val" :class="(tradeDetailData.sell.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (tradeDetailData.sell.profit_pct || 0) >= 0 ? '+' : '' }}{{ Number(tradeDetailData.sell.profit_pct || 0).toFixed(2) }}%</div></div>
               <div class="td2-card"><div class="td2-label">💵 盈亏额</div><div class="td2-val" :class="(tradeDetailData.sell.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ Number(tradeDetailData.sell.profit_amount || 0).toFixed(0) }}</div></div>

@@ -280,28 +280,42 @@ async def daily_settlement():
 
 
 @router.get("/trade-detail/{ts_code}")
-async def get_trade_detail(ts_code: str):
+async def get_trade_detail(ts_code: str, date: str = None):
     """获取指定股票的完整交易审查详情
     
     包含：买入原因、9层筛选决策链路、卖出原因、盈亏分析
     数据来源: 内存timeline → MongoDB scanner_timeline → MongoDB broker_orders
+    【v2.9.92e】支持date参数，时间显示加日期前缀
     """
     scanner = await _get_scanner()
     
+    # 当前scanner的trade_date
+    scanner_date = getattr(scanner, '_trade_date', '') or ''
+    target_date = date or scanner_date
+    date_label = target_date[4:] if len(target_date) == 8 else target_date  # MMDD格式
+    
     detail = {
         "ts_code": ts_code,
+        "trade_date": target_date,
         "buy": None,       # 买入决策详情
         "sell": None,      # 卖出决策详情
         "position": None,  # 当前持仓状态
         "signal": None,    # 当前信号状态
     }
     
-    # 1. 从内存时间线查找买入/卖出记录
+    # 1. 从内存时间线查找买入/卖出记录(只查target_date)
     for item in scanner._timeline:
         if item.get("ts_code") == ts_code:
+            item_date = str(item.get("trade_date", ""))
+            # 只匹配当天的记录
+            if target_date and item_date and item_date != target_date:
+                continue
             if item.get("action") == "buy" and not detail["buy"]:
+                raw_time = item.get("time", "")
                 detail["buy"] = {
-                    "time": item.get("time", ""),
+                    "time": raw_time,
+                    "time_display": f"{date_label} {raw_time}" if date_label and raw_time else raw_time,
+                    "trade_date": item.get("trade_date", ""),
                     "price": item.get("price", 0),
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
@@ -310,8 +324,11 @@ async def get_trade_detail(ts_code: str):
                     "decision_detail": item.get("decision_detail", {}),
                 }
             elif item.get("action") == "sell" and not detail["sell"]:
+                raw_time = item.get("time", "")
                 detail["sell"] = {
-                    "time": item.get("time", ""),
+                    "time": raw_time,
+                    "time_display": f"{date_label} {raw_time}" if date_label and raw_time else raw_time,
+                    "trade_date": item.get("trade_date", ""),
                     "price": item.get("price", 0),
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
@@ -322,18 +339,26 @@ async def get_trade_detail(ts_code: str):
                     "decision_detail": item.get("decision_detail", {}),
                 }
     
-    # 1b. 从MongoDB历史时间线补充(跨session数据)
+    # 1b. 从MongoDB历史时间线补充(跨session数据, 按target_date过滤)
     if not detail["buy"] or not detail["sell"]:
         try:
             from core.managers import mongo_manager
             if mongo_manager.is_initialized:
                 account_id = scanner._broker.account.account_id if scanner._broker else "default"
+                query = {"account_id": account_id, "ts_code": ts_code}
+                if target_date:
+                    query["trade_date"] = {"$in": [str(target_date), int(target_date)]} if str(target_date).isdigit() else str(target_date)
                 async for doc in mongo_manager.db["scanner_timeline"].find(
-                    {"account_id": account_id, "ts_code": ts_code}
+                    query
                 ).sort("time", 1):
                     if doc.get("action") == "buy" and not detail["buy"]:
+                        doc_date = str(doc.get("trade_date", ""))
+                        doc_label = doc_date[4:] if len(doc_date) == 8 else doc_date
+                        raw_time = doc.get("time", "")
                         detail["buy"] = {
-                            "time": doc.get("time", ""),
+                            "time": raw_time,
+                            "time_display": f"{doc_label} {raw_time}" if doc_label and raw_time else raw_time,
+                            "trade_date": doc.get("trade_date", ""),
                             "price": doc.get("price", 0),
                             "shares": doc.get("shares", 0),
                             "reason": doc.get("reason", ""),
@@ -342,8 +367,13 @@ async def get_trade_detail(ts_code: str):
                             "decision_detail": doc.get("decision_detail", {}),
                         }
                     elif doc.get("action") == "sell" and not detail["sell"]:
+                        doc_date = str(doc.get("trade_date", ""))
+                        doc_label = doc_date[4:] if len(doc_date) == 8 else doc_date
+                        raw_time = doc.get("time", "")
                         detail["sell"] = {
-                            "time": doc.get("time", ""),
+                            "time": raw_time,
+                            "time_display": f"{doc_label} {raw_time}" if doc_label and raw_time else raw_time,
+                            "trade_date": doc.get("trade_date", ""),
                             "price": doc.get("price", 0),
                             "shares": doc.get("shares", 0),
                             "reason": doc.get("reason", ""),
