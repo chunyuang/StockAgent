@@ -22,30 +22,50 @@ import { computed } from 'vue'
 // 历史回放时用历史orders，否则用实时orders
 const displayOrders = computed(() => {
   const source = historyData.value.length ? historyOrders.value : orders.value
-  // 只显示已成交的订单(rejected订单filled_qty=0无意义)
   return source.filter((o: any) => o.status === 'filled' || o.filled_qty > 0)
 })
 
 // 历史回放时的已平仓汇总(基于timeline中的buy/sell配对)
+// 【v2.9.92e】修复: 按时间顺序配对 — sell必须配对它之前最近的buy(不是任意buy)
+// 09:35卖出配对的是昨天买入(无对应buy记录)，10:12买入才是新仓
 const historyClosedPositions = computed(() => {
   const source = historyData.value.length ? historyData.value : timeline.value
-  const buys = source.filter((t: any) => t.action === 'buy')
-  const sells = source.filter((t: any) => t.action === 'sell')
   const result: any[] = []
-  const buyQueues = new Map<string, any[]>()
-  for (const buy of buys) {
-    const key = buy.ts_code + '|' + (buy.strategy || '')
-    if (!buyQueues.has(key)) buyQueues.set(key, [])
-    buyQueues.get(key)!.push(buy)
-  }
-  for (const sell of sells) {
-    const key = sell.ts_code + '|' + (sell.strategy || '')
-    const queue = buyQueues.get(key)
-    const buy = queue?.length ? queue.shift() : undefined
-    const buyPrice = buy?.price ?? sell.decision_detail?.cost_price ?? 0
-    const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
-    const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0)
-    result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: profitAmount, profit_pct: profitPct, buy_time: buy?.time || '', sell_time: sell.time || '' })
+  // 按时间顺序遍历，维护每个(股票+策略)的未平仓买入队列
+  const openBuys = new Map<string, any[]>() // key=ts_code|strategy, value=buy records
+  const selectedDate = historyDate.value || ''
+  const dateLabel = selectedDate ? selectedDate.replace(/-/g, '').slice(-4) : '' // MMDD
+  
+  for (const item of source) {
+    if (item.action === 'buy') {
+      const key = item.ts_code + '|' + (item.strategy || '')
+      if (!openBuys.has(key)) openBuys.set(key, [])
+      openBuys.get(key)!.push(item)
+    } else if (item.action === 'sell') {
+      const key = item.ts_code + '|' + (item.strategy || '')
+      const queue = openBuys.get(key)
+      const buy = queue?.length ? queue.shift() : undefined
+      // buy为空说明是昨天买的(overnight position)，用sell自带的成本价
+      const buyPrice = buy?.price ?? sell?.decision_detail?.cost_price ?? 0
+      // 如果sell自带profit数据，优先用(更准确)
+      const profitAmount = item.profit_amount ?? (buyPrice > 0 ? (item.price - buyPrice) * (item.shares || 0) : 0)
+      const profitPct = item.profit_pct ?? (buyPrice > 0 ? (item.price - buyPrice) / buyPrice * 100 : 0)
+      // 时间加日期前缀
+      const buyTimeStr = buy ? (dateLabel + ' ' + (buy.time || '')) : ('昨日 ' + (item.time || ''))
+      const sellTimeStr = dateLabel + ' ' + (item.time || '')
+      result.push({ 
+        ts_code: item.ts_code, 
+        stock_name: item.stock_name || buy?.stock_name || '', 
+        strategy: item.strategy, 
+        buy_price: buyPrice, 
+        sell_price: item.price, 
+        profit_amount: profitAmount, 
+        profit_pct: profitPct, 
+        buy_time: buyTimeStr, 
+        sell_time: sellTimeStr,
+        is_overnight: !buy // 标记是否为隔夜仓
+      })
+    }
   }
   return result.sort((a: any, b: any) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
 })
@@ -96,12 +116,14 @@ const displayClosedPositions = computed(() => historyData.value.length ? history
       <div class="st" style="margin-top:16px">💰 已平仓汇总</div>
       <div v-if="!displayClosedPositions.length" class="empty">暂无已平仓记录</div>
       <div v-else class="ht-closed">
-        <div class="hc-header"><span>代码</span><span>名称</span><span>策略</span><span>买入价</span><span>卖出价</span><span>盈亏</span><span>盈亏%</span></div>
-        <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy" class="hc-row" @click="openTradeDetail(cp.ts_code)" :class="cp.profit_pct >= 0 ? 'hc-win' : 'hc-loss'">
+        <div class="hc-header"><span>代码</span><span>名称</span><span>策略</span><span>买入时间</span><span>买入价</span><span>卖出时间</span><span>卖出价</span><span>盈亏%</span></div>
+        <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="hc-row" @click="openTradeDetail(cp.ts_code)" :class="cp.profit_pct >= 0 ? 'hc-win' : 'hc-loss'">
           <span class="code">{{ cp.ts_code }}</span><span class="name">{{ cp.stock_name }}</span>
           <span><ElTag size="small" :color="strategyMeta[cp.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(cp.strategy) }}</ElTag></span>
-          <span>¥{{ Number(cp.buy_price || 0).toFixed(2) }}</span><span>¥{{ Number(cp.sell_price || 0).toFixed(2) }}</span>
-          <span :class="(cp.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ (cp.profit_amount ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(Number(cp.profit_amount ?? 0)).toFixed(0) }}</span>
+          <span class="tl-time-sm" :class="{ 'overnight': cp.is_overnight }">{{ cp.buy_time || '-' }}</span>
+          <span>¥{{ Number(cp.buy_price || 0).toFixed(2) }}</span>
+          <span class="tl-time-sm">{{ cp.sell_time || '-' }}</span>
+          <span>¥{{ Number(cp.sell_price || 0).toFixed(2) }}</span>
           <span :class="(cp.profit_pct ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (cp.profit_pct ?? 0) >= 0 ? '+' : '' }}{{ Number(cp.profit_pct ?? 0).toFixed(1) }}%</span>
         </div>
       </div>
@@ -143,15 +165,17 @@ const displayClosedPositions = computed(() => historyData.value.length ? history
 
 .ht-closed { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
 
-.hc-header { display: grid; grid-template-columns: 80px 1fr 60px 70px 70px 70px 60px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
+.hc-header { display: grid; grid-template-columns: 70px 1fr 50px 90px 60px 90px 60px 55px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
 
-.hc-row { display: grid; grid-template-columns: 80px 1fr 60px 70px 70px 70px 60px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; cursor: pointer; }
+.hc-row { display: grid; grid-template-columns: 70px 1fr 50px 90px 60px 90px 60px 55px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; cursor: pointer; }
 
 .hc-row:hover { background: var(--bg-muted); }
 
 .hc-win { border-left: 3px solid var(--stock-up); }
 
 .hc-loss { border-left: 3px solid var(--stock-down); }
+.tl-time-sm { font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
+.tl-time-sm.overnight { color: var(--el-color-warning); }
 
 .ht-audit { display: flex; flex-direction: column; gap: 2px; }
 
