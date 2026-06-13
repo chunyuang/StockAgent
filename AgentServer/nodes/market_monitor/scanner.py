@@ -790,9 +790,13 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     async def _process_filter_result(
         self, signals: List[ScanSignal], result, trade_date: str
     ) -> List[ScanSignal]:
-        """处理筛选管道结果: 合并信号+情绪调仓+EventBus事件【v2.9.31提取】"""
+        """处理筛选管道结果: 合并信号+情绪调仓+板块集中度过滤+EventBus事件"""
         # 转回ScanSignal，注入筛选决策详情+逐层trace
         filtered_signals = self._merge_filter_result(signals, result)
+
+        # 【v2.9.92x】板块集中度过滤(与回测sector_concentration对齐)
+        # 同行业最多保留N只(默认3只)，避免同行业过度集中
+        filtered_signals = await self._apply_sector_concentration(filtered_signals)
 
         # 更新仓位系数和情绪信息
         old_phase = (self._current_sentiment or {}).get("period", "")
@@ -816,6 +820,77 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         })
 
         return filtered_signals
+
+    async def _apply_sector_concentration(self, signals: List) -> List:
+        """【v2.9.92x】板块集中度过滤(与回测sector_concentration对齐)
+        
+        同行业最多保留N只(默认3只)，避免同行业过度集中同涨同跌
+        优先保留评分高的(pct_chg/volume_ratio大的)
+        """
+        if not signals or len(signals) <= 1:
+            return signals
+        
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        sector_top_n = GLOBAL_RISK.get("sector_concentration_top_n", 3)
+        
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return signals
+            
+            # 构建行业映射
+            industry_map = {}
+            ts_codes = [s.ts_code for s in signals if hasattr(s, 'ts_code')]
+            if ts_codes:
+                async for doc in mongo_manager.db["stock_basic"].find(
+                    {"ts_code": {"$in": ts_codes}},
+                    {"_id": 0, "ts_code": 1, "industry": 1}
+                ):
+                    industry_map[doc.get("ts_code", "")] = doc.get("industry", "未知")
+            
+            # 加上已持仓的行业(防止持仓+新信号同行业过多)
+            existing_positions = self._broker.get_positions() if self._broker else []
+            existing_industries = {}
+            for pos in existing_positions:
+                ind = industry_map.get(pos.ts_code)
+                if not ind:
+                    async for doc in mongo_manager.db["stock_basic"].find(
+                        {"ts_code": pos.ts_code}, {"_id": 0, "ts_code": 1, "industry": 1}
+                    ):
+                        ind = doc.get("industry", "未知")
+                        industry_map[pos.ts_code] = ind
+                if ind:
+                    existing_industries[ind] = existing_industries.get(ind, 0) + 1
+            
+            # 按行业分组信号
+            industry_signals = {}
+            for s in signals:
+                ind = industry_map.get(getattr(s, 'ts_code', ''), '未知')
+                if ind not in industry_signals:
+                    industry_signals[ind] = []
+                industry_signals[ind].append(s)
+            
+            # 每个行业最多保留 sector_top_n - 已持仓数 只
+            filtered = []
+            removed = 0
+            for ind, sigs in industry_signals.items():
+                existing_count = existing_industries.get(ind, 0)
+                remaining_slots = max(1, sector_top_n - existing_count)
+                if len(sigs) <= remaining_slots:
+                    filtered.extend(sigs)
+                else:
+                    # 按涨跌幅排序，保留最强势的
+                    sigs.sort(key=lambda s: getattr(s, 'pct_chg', 0) or 0, reverse=True)
+                    filtered.extend(sigs[:remaining_slots])
+                    removed += len(sigs) - remaining_slots
+            
+            if removed > 0:
+                logger.info(f"[FILTER] 板块集中度: 移除{removed}只同行业过多信号(每行业≤{sector_top_n}只)")
+            
+            return filtered
+        except Exception as e:
+            logger.debug(f"[FILTER] 板块集中度过滤异常: {e}")
+            return signals
 
     def _signals_to_candidates(self, signals: List[ScanSignal]) -> List[Dict]:
         """将ScanSignal列表转换为filter_pipeline候选格式【v2.9.35:委托给ScanSignal.to_candidate】"""
