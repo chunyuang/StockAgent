@@ -233,17 +233,26 @@ const posPie = computed(() => {
           </div>
         </div>
       </div>
-      <!-- v2.9.92x: 风控参数概览(与回测对齐) -->
+      <!-- v2.9.92x: 风控参数概览(与回测对齐) → 三列网格布局 -->
       <div class="at-card" style="margin-top:6px">
         <div class="at-card-t">📐 风控参数 (与回测对齐)</div>
-        <div class="at-risk-row"><span>单票上限</span><span>{{ (riskParams.max_position_per_stock * 100).toFixed(0) }}%</span></div>
-        <div class="at-risk-row"><span>总仓位上限</span><span>{{ (riskParams.max_total_position * 100).toFixed(0) }}%</span></div>
-        <div class="at-risk-row"><span>默认止损/止盈</span><span>{{ (riskParams.stop_loss_pct * 100).toFixed(0) }}% / {{ (riskParams.take_profit_pct * 100).toFixed(0) }}%</span></div>
-        <div class="at-risk-row"><span>流动性门槛</span><span>{{ riskParams.liquidity_threshold }}万</span></div>
-        <div class="at-risk-row"><span>MA60过滤</span><span>{{ riskParams.enable_ma60_filter ? '✅ 开启' : '❌ 关闭' }}</span></div>
-        <div class="at-risk-row"><span>板块集中度</span><span>同行业≤{{ riskParams.sector_concentration_top_n }}只</span></div>
-        <div class="at-risk-row"><span>冷却期</span><span>{{ riskParams.force_empty_cooldown_days }}天 / 仓位≤{{ (riskParams.force_empty_cooldown_position_cap * 100).toFixed(0) }}%</span></div>
-        <div class="at-risk-row"><span>次日高开卖出</span><span>{{ (riskParams.next_day_open_sell_pct * 100).toFixed(0) }}%(默认)</span></div>
+        <div class="at-param-grid">
+          <div class="at-pg-item"><span class="at-pg-k">单票上限</span><span class="at-pg-v">{{ (riskParams.max_position_per_stock * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">总仓位上限</span><span class="at-pg-v">{{ (riskParams.max_total_position * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">默认止损</span><span class="at-pg-v">{{ (riskParams.stop_loss_pct * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">默认止盈</span><span class="at-pg-v">{{ (riskParams.take_profit_pct * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">流动性门槛</span><span class="at-pg-v">{{ riskParams.liquidity_threshold }}万</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">MA60过滤</span><span class="at-pg-v">{{ riskParams.enable_ma60_filter ? '✅' : '❌' }}</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">板块集中度</span><span class="at-pg-v">≤{{ riskParams.sector_concentration_top_n }}只/行业</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">冷却期</span><span class="at-pg-v">{{ riskParams.force_empty_cooldown_days }}天/≤{{ (riskParams.force_empty_cooldown_position_cap * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">次日高开卖</span><span class="at-pg-v">{{ (riskParams.next_day_open_sell_pct * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">持仓保护</span><span class="at-pg-v">{{ (riskParams.hold_protection_threshold * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">追踪止损</span><span class="at-pg-v">{{ (riskParams.intraday_lock_pullback_pct * 100).toFixed(1) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">情绪:高潮/分化</span><span class="at-pg-v">{{ (riskParams.sentiment_position_map.rising * 100).toFixed(0) }}%/{{ (riskParams.sentiment_position_map.differentiation * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">情绪:震荡/冰点</span><span class="at-pg-v">{{ (riskParams.sentiment_position_map.chaos * 100).toFixed(0) }}%/{{ (riskParams.sentiment_position_map.bearish * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">强制空仓-跌停</span><span class="at-pg-v">≥{{ riskParams.force_empty_limit_down }}只</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">强制空仓-大盘</span><span class="at-pg-v">跌幅≥{{ (riskParams.force_empty_index_drop_pct * 100).toFixed(0) }}%</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -334,6 +343,11 @@ const posPie = computed(() => {
 
 /* Risk rows */
 .at-risk-row { display: flex; justify-content: space-between; padding: 5px 6px; border-bottom: 1px solid var(--border-light); font-size: 12px; }
+/* 风控参数网格 */
+.at-param-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-light); border: 1px solid var(--border-light); border-radius: 4px; overflow: hidden; }
+.at-pg-item { background: var(--bg-card); padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.at-pg-k { font-size: 10px; color: var(--text-tertiary); }
+.at-pg-v { font-size: 13px; font-weight: 600; }
 
 /* Broken list */
 .at-broken-list { margin-top: 6px; padding: 6px 8px; background: rgba(8,153,129,0.08); border-radius: 4px; }
