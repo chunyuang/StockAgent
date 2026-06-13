@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useChartColors } from './useChartColors'
 /**
  * AnalysisTab — 市场监听结果分析
  * 参考BacktestResultPanel: KPI卡片→卖出分布条→分区导航→图表
@@ -16,6 +17,7 @@ import { LineChart, BarChart, PieChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent } from 'echarts/components'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
+const c = useChartColors().value
 
 const m = useScannerMonitorInject()
 const { activeTab } = m
@@ -57,7 +59,7 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
 
 const dailyProfitChart = computed(() => {
   const dd = dailyDetail.value; if (!dd.length) return null
-  return { tooltip: { trigger: 'axis' }, grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true }, xAxis: { type: 'category', data: dd.map((d: any) => d.date) }, yAxis: { type: 'value', name: '¥' }, dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }], series: [{ type: 'bar', data: dd.map((d: any) => d.profit), itemStyle: { color: (p: any) => p.value >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }, label: { show: true, position: 'top', fontSize: 10 } }] }
+  return { tooltip: { trigger: 'axis' }, grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true }, xAxis: { type: 'category', data: dd.map((d: any) => d.date) }, yAxis: { type: 'value', name: '¥' }, dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }], series: [{ type: 'bar', data: dd.map((d: any) => d.profit), itemStyle: { color: (p: any) => p.value >= 0 ? c.stockDown : c.stockUp }, label: { show: true, position: 'top', fontSize: 10 } }] }
 })
 
 const cumProfitChart = computed(() => {
@@ -70,18 +72,18 @@ const cumProfitChart = computed(() => {
 const positionChart = computed(() => {
   const pos = positions.value; if (!pos.length) return null
   const names = pos.map((p: any) => (p.stock_name || p.ts_code?.slice(0, 6)).substring(0, 4))
-  return { tooltip: { trigger: 'axis' }, grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }, xAxis: { type: 'category', data: names }, yAxis: { type: 'value', name: '盈亏%', axisLabel: { formatter: '{value}%' } }, series: [{ type: 'bar', data: pos.map((p: any) => p.profit_pct || 0), itemStyle: { color: (p: any) => p.value >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }, label: { show: true, position: 'top', formatter: '{c}%', fontSize: 10 } }] }
+  return { tooltip: { trigger: 'axis' }, grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }, xAxis: { type: 'category', data: names }, yAxis: { type: 'value', name: '盈亏%', axisLabel: { formatter: '{value}%' } }, series: [{ type: 'bar', data: pos.map((p: any) => p.profit_pct || 0), itemStyle: { color: (p: any) => p.value >= 0 ? c.stockDown : c.stockUp }, label: { show: true, position: 'top', formatter: '{c}%', fontSize: 10 } }] }
 })
 
 const strategyPieChart = computed(() => {
   const ss = strategies.value; if (!ss.length) return null
-  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: ss.map((s: any) => ({ name: s.strategy, value: s.trades, itemStyle: { color: s.profit >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' } })) }] }
+  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: ss.map((s: any) => ({ name: s.strategy, value: s.trades, itemStyle: { color: s.profit >= 0 ? c.stockDown : c.stockUp } })) }] }
 })
 
 const sellReasonChart = computed(() => {
   const rs = sellReasons.value; if (!rs.length) return null
-  const colors: Record<string, string> = { '止损': 'var(--stock-up)', '冲高回落': 'var(--warning)', '利润保护': 'var(--el-color-primary)', '止盈': 'var(--stock-down)', '到期': 'var(--el-color-warning)' }
-  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, legend: { bottom: 0, textStyle: { fontSize: 11 } }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: rs.map((r: any) => ({ name: r.reason, value: r.count, itemStyle: { color: colors[r.reason] || 'var(--text-tertiary)' } })) }] }
+  const colors: Record<string, string> = { '止损': c.stockUp, '冲高回落': c.warning, '利润保护': c.primary, '止盈': c.stockDown, '到期': c.warning }
+  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, legend: { bottom: 0, textStyle: { fontSize: 11 } }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: rs.map((r: any) => ({ name: r.reason, value: r.count, itemStyle: { color: colors[r.reason] || c.textTertiary } })) }] }
 })
 
 const radarChart = computed(() => {
@@ -93,13 +95,13 @@ const radarChart = computed(() => {
 
 const monthlyChart = computed(() => {
   const mm = monthly.value; if (!mm.length) return null
-  return { tooltip: { trigger: 'axis' }, legend: { data: ['月度收益', '累计收益'] }, grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }, xAxis: { type: 'category', data: mm.map((m: any) => m.month) }, yAxis: [{ type: 'value', name: '月度¥' }, { type: 'value', name: '累计¥', position: 'right' }], series: [{ name: '月度收益', type: 'bar', data: mm.map((m: any) => m.profit), itemStyle: { color: (p: any) => p.value >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }, label: { show: true, position: 'top', fontSize: 10 } }, { name: '累计收益', type: 'line', yAxisIndex: 1, data: mm.map((m: any) => m.cum_profit), smooth: true, lineStyle: { width: 2 }, itemStyle: { color: 'var(--el-color-primary)' } }] }
+  return { tooltip: { trigger: 'axis' }, legend: { data: ['月度收益', '累计收益'] }, grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }, xAxis: { type: 'category', data: mm.map((m: any) => m.month) }, yAxis: [{ type: 'value', name: '月度¥' }, { type: 'value', name: '累计¥', position: 'right' }], series: [{ name: '月度收益', type: 'bar', data: mm.map((m: any) => m.profit), itemStyle: { color: (p: any) => p.value >= 0 ? c.stockDown : c.stockUp }, label: { show: true, position: 'top', fontSize: 10 } }, { name: '累计收益', type: 'line', yAxisIndex: 1, data: mm.map((m: any) => m.cum_profit), smooth: true, lineStyle: { width: 2 }, itemStyle: { color: c.primary } }] }
 })
 
 const profitDistChart = computed(() => {
   const k = kpi.value; if (!k.total_trades) return null
   const wins = k.win_count || Math.round(k.total_trades * k.win_rate / 100)
-  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 12 }, data: [{ name: '盈利', value: wins, itemStyle: { color: 'var(--stock-down)' } }, { name: '亏损', value: k.loss_count || (k.total_trades - wins), itemStyle: { color: 'var(--stock-up)' } }] }] }
+  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 12 }, data: [{ name: '盈利', value: wins, itemStyle: { color: c.stockDown } }, { name: '亏损', value: k.loss_count || (k.total_trades - wins), itemStyle: { color: c.stockUp } }] }] }
 })
 
 const selectedDay = ref('')
