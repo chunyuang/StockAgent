@@ -48,7 +48,7 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         if df:
             tl_match = {"$and": [{"action": "sell"}, df]} if "$or" in df else {"action": "sell", **df}
         
-        sells = await db["scanner_timeline"].find(tl_match).sort("time", 1).to_list(5000)
+        sells = await db["scanner_timeline"].find(tl_match).sort([("trade_date", 1), ("time", 1)]).to_list(5000)
         
         # 2. 计算KPI
         total_trades = len(sells)
@@ -193,7 +193,7 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         try:
             # 从timeline汇总每只股票的净持仓
             holdings = {}  # ts_code -> {qty, total_cost, name, strategy}
-            async for doc in mongo_manager.db["scanner_timeline"].find({"action": {"$in": ["buy", "sell"]}}).sort("time", 1):
+            async for doc in mongo_manager.db["scanner_timeline"].find({"action": {"$in": ["buy", "sell"]}}).sort([("trade_date", 1), ("time", 1)]):
                 tc = doc.get("ts_code", "")
                 if not tc:
                     continue
@@ -210,9 +210,11 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                     holdings[tc]["strategy"] = doc.get("strategy", holdings[tc]["strategy"])
                     holdings[tc]["trades"] += 1
                 elif action == "sell":
+                    # 用买入均价减成本(不是卖出价)
+                    avg_before = holdings[tc]["total_cost"] / holdings[tc]["qty"] if holdings[tc]["qty"] > 0 else 0
                     holdings[tc]["qty"] -= shares
                     if holdings[tc]["qty"] > 0:
-                        holdings[tc]["total_cost"] -= shares * price
+                        holdings[tc]["total_cost"] = holdings[tc]["qty"] * avg_before
                     else:
                         holdings[tc]["total_cost"] = 0
             
@@ -266,3 +268,133 @@ def _empty_result():
         "strategy_contrib": [], "sell_reasons": [], "monthly": [], "daily_detail": [], "positions": [],
         "date_range": "",
     }
+
+
+@router.get("/analysis/stock/{ts_code}")
+async def get_stock_detail(ts_code: str):
+    """个股交易详情 — 查看某只股票的所有买卖记录、盈亏、持有天数"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 获取该股票所有交易记录
+        records = await db["scanner_timeline"].find(
+            {"ts_code": ts_code, "action": {"$in": ["buy", "sell"]}}
+        ).sort([("trade_date", 1), ("time", 1)]).to_list(100)
+        
+        if not records:
+            return {"success": False, "message": f"无{ts_code}交易记录"}
+        
+        trades = []
+        total_buy_qty = 0
+        total_sell_qty = 0
+        total_buy_amount = 0
+        total_sell_amount = 0
+        buy_count = 0
+        sell_count = 0
+        profit_pcts = []
+        profit_amounts = []
+        first_buy_date = None
+        last_sell_date = None
+        
+        for r in records:
+            action = r.get("action")
+            shares = r.get("shares", 0) or 0
+            price = r.get("price", 0) or 0
+            td = str(r.get("trade_date", ""))
+            t = r.get("time", "")
+            
+            trades.append({
+                "date": f"{td[:4]}-{td[4:6]}-{td[6:]}" if len(td) == 8 else td,
+                "time": t,
+                "action": action,
+                "shares": shares,
+                "price": price,
+                "amount": round(shares * price, 0),
+                "profit_pct": r.get("profit_pct"),
+                "profit_amount": r.get("profit_amount"),
+                "reason": r.get("reason", ""),
+                "strategy": _norm_strat(r.get("strategy", "")),
+            })
+            
+            if action == "buy":
+                total_buy_qty += shares
+                total_buy_amount += shares * price
+                buy_count += 1
+                if not first_buy_date:
+                    first_buy_date = td
+            elif action == "sell":
+                total_sell_qty += shares
+                total_sell_amount += shares * price
+                sell_count += 1
+                last_sell_date = td
+                if r.get("profit_pct") is not None:
+                    profit_pcts.append(r["profit_pct"])
+                if r.get("profit_amount") is not None:
+                    profit_amounts.append(r["profit_amount"])
+        
+        # 当前持仓
+        holding_qty = total_buy_qty - total_sell_qty
+        avg_cost = total_buy_amount / total_buy_qty if total_buy_qty > 0 else 0
+        
+        # 当前价格
+        cur_price = avg_cost
+        try:
+            latest = await db["stock_daily_ak_full"].find_one(
+                {"ts_code": ts_code}, {"close": 1}, sort=[("trade_date", -1)]
+            )
+            if latest and latest.get("close"):
+                cur_price = float(latest["close"])
+        except Exception:
+            pass
+        
+        # 持仓盈亏
+        holding_profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 and holding_qty > 0 else None
+        holding_profit_amount = (cur_price - avg_cost) * holding_qty if holding_qty > 0 else None
+        
+        # 已实现盈亏
+        realized_profit = sum(profit_amounts) if profit_amounts else 0
+        realized_win_rate = len([p for p in profit_pcts if p >= 0]) / len(profit_pcts) * 100 if profit_pcts else 0
+        
+        # 持有天数
+        hold_days = None
+        if first_buy_date and (last_sell_date or holding_qty > 0):
+            from datetime import datetime
+            end = last_sell_date or datetime.now().strftime("%Y%m%d")
+            try:
+                d1 = datetime.strptime(first_buy_date, "%Y%m%d")
+                d2 = datetime.strptime(end, "%Y%m%d")
+                hold_days = (d2 - d1).days
+            except Exception:
+                pass
+        
+        # 股票名称
+        stock_name = records[0].get("stock_name", "") or records[0].get("name", "")
+        
+        return {"success": True, "data": {
+            "ts_code": ts_code,
+            "stock_name": stock_name,
+            "strategy": _norm_strat(records[0].get("strategy", "")),
+            "trades": trades,
+            "summary": {
+                "buy_count": buy_count,
+                "sell_count": sell_count,
+                "total_buy_qty": total_buy_qty,
+                "total_sell_qty": total_sell_qty,
+                "avg_cost": round(avg_cost, 2),
+                "holding_qty": holding_qty,
+                "current_price": round(cur_price, 2),
+                "holding_profit_pct": round(holding_profit_pct, 2) if holding_profit_pct is not None else None,
+                "holding_profit_amount": round(holding_profit_amount, 0) if holding_profit_amount is not None else None,
+                "realized_profit": round(realized_profit, 0),
+                "realized_win_rate": round(realized_win_rate, 1),
+                "hold_days": hold_days,
+                "market_value": round(cur_price * holding_qty, 0) if holding_qty > 0 else 0,
+            }
+        }}
+    except Exception as e:
+        import traceback
+        return {"success": False, "message": str(e), "traceback": traceback.format_exc()}

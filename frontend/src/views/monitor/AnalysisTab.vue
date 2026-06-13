@@ -5,7 +5,7 @@
  * 含: 日收益率、累计收益、绩效雷达、盈亏分布、交易占比、卖出原因、月度收益、策略贡献、持仓
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElDatePicker, ElEmpty } from 'element-plus'
+import { ElButton, ElDatePicker, ElEmpty, ElDialog } from 'element-plus'
 import { ref, computed, onMounted, watch } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
@@ -110,6 +110,15 @@ async function showDayDetail(date: string) {
   selectedDay.value = date; dailyTradesLoading.value = true
   try { const d = date.replace(/-/g, ''); const r = await api.get(`/scanner/timeline/history?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data || []).filter((t: any) => t.action !== 'blocked') } catch {} finally { dailyTradesLoading.value = false }
 }
+
+// 个股详情
+const stockDetailVisible = ref(false)
+const stockDetail = ref<any>(null)
+const stockDetailLoading = ref(false)
+async function showStockDetail(tsCode: string) {
+  stockDetailLoading.value = true; stockDetailVisible.value = true; stockDetail.value = null
+  try { const r = await api.get(`/scanner/analysis/stock/${tsCode}`); const p = parseResponse(r); if (p.success) stockDetail.value = p.data } catch {} finally { stockDetailLoading.value = false }
+}
 </script>
 
 <template>
@@ -182,8 +191,8 @@ async function showDayDetail(date: string) {
           <div class="chart-section"><div class="chart-title">💼 持仓盈亏分布 <span class="ana-stat">{{ positions.length }}只</span></div><VChart v-if="positionChart" :option="positionChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="空仓或无数据" :image-size="40" /></div>
           <div v-if="positions.length" class="chart-section">
             <div class="chart-title">📋 持仓明细</div>
-            <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>现价</th><th>盈亏%</th><th>盈亏额</th><th>市值</th></tr></thead><tbody>
-              <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price }}</td><td>¥{{ p.current_price }}</td><td :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</td><td :class="p.profit_amount >= 0 ? 'up' : 'down'">¥{{ p.profit_amount.toLocaleString() }}</td><td>¥{{ p.market_value.toLocaleString() }}</td></tr>
+            <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>现价</th><th>盈亏%</th><th>盈亏额</th><th>市值</th><th></th></tr></thead><tbody>
+              <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price }}</td><td>¥{{ p.current_price }}</td><td :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</td><td :class="p.profit_amount >= 0 ? 'up' : 'down'">¥{{ p.profit_amount.toLocaleString() }}</td><td>¥{{ p.market_value.toLocaleString() }}</td><td><ElButton size="small" text type="primary" @click="showStockDetail(p.ts_code)">详情</ElButton></td></tr>
             </tbody></table>
           </div>
         </div>
@@ -208,6 +217,57 @@ async function showDayDetail(date: string) {
           </div>
         </div>
       </template>
+
+      <!-- 个股详情弹窗 -->
+      <ElDialog v-model="stockDetailVisible" :title="stockDetail ? `${stockDetail.ts_code} ${stockDetail.stock_name}` : '个股详情'" width="600px" destroy-on-close>
+        <div v-if="stockDetailLoading" style="text-align:center;padding:40px">加载中...</div>
+        <div v-else-if="stockDetail">
+          <!-- 摘要 -->
+          <div class="sd-summary">
+            <div class="sd-kpi" :class="(stockDetail.summary.holding_profit_pct ?? 0) >= 0 ? 'sd-up' : 'sd-down'">
+              <div class="sd-kpi-label">持仓盈亏</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary.holding_profit_pct != null ? (stockDetail.summary.holding_profit_pct >= 0 ? '+' : '') + stockDetail.summary.holding_profit_pct.toFixed(1) + '%' : '--' }}</div>
+            </div>
+            <div class="sd-kpi" :class="stockDetail.summary.realized_profit >= 0 ? 'sd-up' : 'sd-down'">
+              <div class="sd-kpi-label">已实现盈亏</div>
+              <div class="sd-kpi-val">¥{{ stockDetail.summary.realized_profit.toLocaleString() }}</div>
+            </div>
+            <div class="sd-kpi sd-neutral">
+              <div class="sd-kpi-label">持仓/成本</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary.holding_qty }}股 / ¥{{ stockDetail.summary.avg_cost }}</div>
+            </div>
+            <div class="sd-kpi sd-neutral">
+              <div class="sd-kpi-label">现价/市值</div>
+              <div class="sd-kpi-val">¥{{ stockDetail.summary.current_price }} / ¥{{ stockDetail.summary.market_value?.toLocaleString() }}</div>
+            </div>
+            <div class="sd-kpi sd-neutral">
+              <div class="sd-kpi-label">买卖次数</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary.buy_count }}买 / {{ stockDetail.summary.sell_count }}卖</div>
+            </div>
+            <div class="sd-kpi sd-neutral">
+              <div class="sd-kpi-label">持有天数</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary.hold_days ?? '--' }}天</div>
+            </div>
+          </div>
+          <!-- 交易记录 -->
+          <div class="sd-trades">
+            <div class="sd-trades-title">📋 交易记录</div>
+            <table class="ana-tbl">
+              <thead><tr><th>日期</th><th>时间</th><th>方向</th><th>数量</th><th>价格</th><th>盈亏%</th><th>盈亏额</th><th>原因</th></tr></thead>
+              <tbody>
+                <tr v-for="(t, i) in stockDetail.trades" :key="i" :class="t.action === 'buy' ? 'row-up' : 'row-down'">
+                  <td>{{ t.date }}</td><td>{{ t.time }}</td>
+                  <td :class="t.action === 'buy' ? 'up' : 'down'">{{ t.action === 'buy' ? '买入' : '卖出' }}</td>
+                  <td>{{ t.shares }}</td><td>¥{{ t.price }}</td>
+                  <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(1) + '%' : '-' }}</td>
+                  <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount.toFixed(0) : '-' }}</td>
+                  <td style="font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </ElDialog>
     </div>
   </div>
 </template>
@@ -267,6 +327,16 @@ async function showDayDetail(date: string) {
 
 .up { color: var(--stock-down); }
 .down { color: var(--stock-up); }
+
+/* 个股详情弹窗 */
+.sd-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.sd-kpi { padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-default); }
+.sd-kpi-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; }
+.sd-kpi-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sd-up { background: rgba(103,194,58,0.06); .sd-kpi-val { color: var(--stock-down); } }
+.sd-down { background: rgba(245,108,108,0.06); .sd-kpi-val { color: var(--stock-up); } }
+.sd-neutral { background: var(--bg-muted); }
+.sd-trades-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
 
 @media (max-width: 900px) {
   .chart-row { grid-template-columns: 1fr; }
