@@ -35,6 +35,7 @@ import logging
 from datetime import datetime, date
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
+from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
 
 logger = logging.getLogger(__name__)
 
@@ -283,9 +284,28 @@ class LiveFilterPipeline:
         ratio = await self._apply_filter_layers(result, trade_date, realtime_data, ratio)
 
         # ---- L8: 仓位控制 ----
-        max_position_ratio = self._config.get("max_total_position", 0.7)
-        max_per_stock = self._config.get("max_position_per_stock", 0.2)
+        # 【v2.9.92w】从strategy_defaults读取默认值(与回测对齐)
+        max_position_ratio = self._config.get("max_total_position", GLOBAL_RISK.get("max_total_position", 0.75))
+        max_per_stock = self._config.get("max_position_per_stock", GLOBAL_RISK.get("max_position_per_stock", 0.35))
         final_ratio = min(ratio, max_position_ratio)
+        
+        # 【v2.9.92w】冷却期检查(强制空仓后N天内仓位上限)
+        cooldown_info = getattr(self._scanner, '_cooldown_info', {})
+        if cooldown_info and cooldown_info.get('trigger_date'):
+            from datetime import datetime, timedelta
+            try:
+                trigger = datetime.strptime(cooldown_info['trigger_date'], '%Y%m%d')
+                cooldown_days = cooldown_info.get('cooldown_days', 2)
+                cooldown_cap = cooldown_info.get('position_cap', 0.6)
+                now = datetime.now()
+                days_since = (now - trigger).days
+                if days_since <= cooldown_days * 2:  # 粗略：日历天≤2×交易日
+                    final_ratio = min(final_ratio, cooldown_cap)
+                    result.layer_details["L8_cooldown"] = f"🧊 冷却期({days_since}天/{cooldown_days}交易日) 仓位上限{cooldown_cap*100:.0f}%"
+                    logger.info(f"[FILTER] 🧊 冷却期生效: 仓位上限{cooldown_cap*100:.0f}%")
+            except (ValueError, TypeError):
+                pass
+        
         result.position_ratio = final_ratio
         result.layers_applied["L8_position"] = True
         result.layer_details["L8_position"] = (

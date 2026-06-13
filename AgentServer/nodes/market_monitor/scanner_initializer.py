@@ -43,6 +43,9 @@ class ScannerInitializer:
         self._position_risk_levels: Dict[str, str] = {}
         self._pending_orders: Dict[str, Dict] = {}
         self._pending_sells: Dict[str, Dict] = {}
+        # 【v2.9.92w】冷却期信息(与回测对齐)
+        self._cooldown_info: Dict[str, Any] = {}  # {trigger_date, cooldown_days, position_cap, reason}
+        self._force_empty_cooldown_until: str = ""
         self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
 
     def _init_execution_state(self) -> None:
