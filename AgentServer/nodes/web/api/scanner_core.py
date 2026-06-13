@@ -358,7 +358,7 @@ async def get_timeline_history(date: str = None, days: int = 7):
             query = {"account_id": account_id, "trade_date": {"$gte": start_date}}
         
         items = []
-        async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1):
+        async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("time", 1):
             doc.pop("_id", None)
             doc.pop("account_id", None)
             items.append(doc)

@@ -322,7 +322,7 @@ async def get_trade_detail(ts_code: str):
                 account_id = scanner._broker.account.account_id if scanner._broker else "default"
                 async for doc in mongo_manager.db["scanner_timeline"].find(
                     {"account_id": account_id, "ts_code": ts_code}
-                ).sort("_id", 1):
+                ).sort("time", 1):
                     if doc.get("action") == "buy" and not detail["buy"]:
                         detail["buy"] = {
                             "time": doc.get("time", ""),
@@ -524,7 +524,7 @@ async def export_trade_log():
             # 从scanner_timeline补充
             async for doc in mongo_manager.db["scanner_timeline"].find(
                 {"account_id": account_id}
-            ).sort("_id", 1):
+            ).sort("time", 1):
                 key = (doc.get("ts_code", ""), doc.get("time", ""))
                 if key in existing_keys:
                     continue  # 去重(内存数据优先)
@@ -631,7 +631,7 @@ async def get_trade_audit():
             account_id = scanner._broker.account.account_id if scanner._broker else "default"
             async for doc in mongo_manager.db["scanner_timeline"].find(
                 {"account_id": account_id}
-            ).sort("_id", 1):
+            ).sort("time", 1):
                 ts_code = doc.get("ts_code", "")
                 if not ts_code or ts_code in traded_stocks:
                     continue

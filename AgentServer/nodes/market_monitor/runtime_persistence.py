@@ -276,7 +276,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
+            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
             scanner = self._scanner
             if not scanner._timeline:
                 return
@@ -367,7 +367,7 @@ class RuntimePersistence:
 
     def _build_trace_doc(self, filter_result, passed_candidates: List, rejected_summary: List) -> Dict:
         """构建链路追踪文档【v2.9.56从save_scan_traces提取】"""
-        today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int类型，与broker_orders一致
+        today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
         is_trading_day = datetime.now().weekday() < 5
         trace_doc = {
             "trade_date": today,
@@ -393,7 +393,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
+            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
@@ -414,7 +414,7 @@ class RuntimePersistence:
                     logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
                     query = {"account_id": account_id, "trade_date": fallback_date}
             
-            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1)
+            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("time", 1)
             
             async for doc in cursor:
                 doc.pop("_id", None)
@@ -613,7 +613,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = int(datetime.now().strftime("%Y%m%d"))  # 【v2.9.88修复】统一为int
+            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
@@ -633,7 +633,7 @@ class RuntimePersistence:
                     logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
                     query = {"account_id": account_id, "trade_date": fallback_date}
             
-            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1)
+            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("time", 1)
             
             async for doc in cursor:
                 doc.pop("_id", None)
