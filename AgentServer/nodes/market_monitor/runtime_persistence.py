@@ -276,7 +276,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
+            today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")  # 【v2.9.92f修复】用scanner._trade_date避免跨天写入
             scanner = self._scanner
             if not scanner._timeline:
                 return
@@ -367,7 +367,7 @@ class RuntimePersistence:
 
     def _build_trace_doc(self, filter_result, passed_candidates: List, rejected_summary: List) -> Dict:
         """构建链路追踪文档【v2.9.56从save_scan_traces提取】"""
-        today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
+        today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")  # 【v2.9.92f修复】用scanner._trade_date避免跨天写入
         is_trading_day = datetime.now().weekday() < 5
         trace_doc = {
             "trade_date": today,
@@ -388,31 +388,23 @@ class RuntimePersistence:
     
     async def load_timeline(self) -> None:
         """从MongoDB加载时间线(启动时恢复)
-        优先加载当天数据; 如果当天无数据则回退到最近一个有数据的交易日"""
+        【v2.9.92f修复】只加载当天的数据，不回退到历史日期。
+        之前回退到“数据最多”的历史日期会导致:
+        1. 历史timeline被加载到内存
+        2. save_timeline时用新trade_date写入 → 产生假数据重复
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
+            today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
-            # 优先查当天，无数据则回退数据最多的最近交易日
-            query = {"account_id": account_id, "trade_date": today}
+            # 只加载当天的数据(不回退到历史日期)
+            query = {"account_id": account_id, "trade_date": {"$in": [today, int(today)] if today.isdigit() else today}}
             count = await mongo_manager.db["scanner_timeline"].count_documents(query)
-            if count < 3:
-                # 找数据最多的交易日(而非最新)
-                pipeline = [
-                    {"$match": {"account_id": account_id}},
-                    {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1}},
-                    {"$limit": 1}
-                ]
-                result = await mongo_manager.db["scanner_timeline"].aggregate(pipeline).to_list(1)
-                if result:
-                    fallback_date = result[0]["_id"]
-                    logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
-                    query = {"account_id": account_id, "trade_date": fallback_date}
+            logger.info(f"[SCAN] 当天({today})时间线: {count}条")
             
             cursor = mongo_manager.db["scanner_timeline"].find(query).sort("time", 1)
             
@@ -613,7 +605,7 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            today = datetime.now().strftime("%Y%m%d")  # 【v2.9.92c修复】统一为string（与前端API一致）
+            today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")  # 【v2.9.92f修复】用scanner._trade_date避免跨天写入
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
