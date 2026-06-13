@@ -285,7 +285,14 @@ PARAM_LABELS = {
     "min_rise_pct": ("最小涨幅", "%", 100),
     "max_rise_pct": ("最大涨幅", "%", 100),
     "min_volume_ratio": ("最小量比", "", 1),
-    "allow_after_10am": ("允许10点后", "", 1),
+    "max_volume_ratio": ("最大量比", "", 1),
+    "min_close_rise_pct": ("收盘涨幅下限", "%", 100),
+    "max_open_rise_pct": ("开盘涨幅上限", "%", 100),
+    "allow_after_10am": ("10点后允许买入", "", 1),
+    "next_day_open_sell_pct": ("次日高开卖出", "%", 100),
+    "pullback_high_threshold": ("冲高回落触发阈值", "%", 100),
+    "pullback_mid_fallback_pct": ("冲高回落幅度", "%", 100),
+    "pullback_profit_lock_threshold": ("利润保护锁", "%", 100),
     # 首板打板
     "min_seal_amount": ("最小封单", "万元", 1),
     "max_limit_up_time": ("最晚涨停时间", "", 1),
@@ -297,8 +304,13 @@ PARAM_LABELS = {
     "opening_pct_max": ("竞价涨幅上限", "%", 1),
     "min_turnover_rate": ("最小换手率", "%", 1),
     "max_turnover_rate": ("最大换手率", "%", 1),
+    "hit_probability_yizi": ("一字板成交概率", "%", 100),
+    "hit_probability_fast": ("秒板成交概率", "%", 100),
+    "hit_probability_normal": ("快速板成交概率", "%", 100),
+    "hit_probability_slow": ("盘中板成交概率", "%", 100),
     # 涨停开板
     "min_consecutive_limit": ("最小连板数", "", 1),
+    "max_consecutive_limit": ("最大连板数", "", 1),
     "max_open_duration": ("最大开板时长", "分钟", 1),
     "min_seal_after_open": ("开板后封单", "万元", 1),
     # 龙头低吸
@@ -311,11 +323,13 @@ PARAM_LABELS = {
     "min_qiao_amount": ("翘板金额", "万元", 1),
     "min_rise_after_qiao": ("翘板后涨幅", "%", 100),
     "require_high_sentiment": ("要求高情绪", "", 1),
-    # 风控
+    # 通用风控
     "stop_loss_pct": ("止损", "%", 100),
     "take_profit_pct": ("止盈", "%", 100),
     "max_hold_days": ("最大持仓", "天", 1),
     "slippage_pct": ("滑点", "%", 100),
+    "trailing_stop_pct": ("追踪止损", "%", 100),
+    "hold_protection_threshold": ("持仓保护阈值", "%", 100),
 }
 
 RISK_LABELS = {
@@ -323,6 +337,8 @@ RISK_LABELS = {
     "take_profit_pct": ("止盈", "%", 100),
     "max_hold_days": ("最大持仓天数", "天", 1),
     "slippage_pct": ("滑点", "%", 100),
+    "trailing_stop_pct": ("追踪止损", "%", 100),
+    "hold_protection_threshold": ("持仓保护阈值", "%", 100),
 }
 
 
@@ -333,13 +349,28 @@ def _describe_params(strategy_id: str, params: Dict) -> List[Dict]:
         label_info = PARAM_LABELS.get(k, (k, "", 1))
         label, unit, scale = label_info
         display_val = round(v * scale, 4) if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
+        # 自动推断min/max/step(百分比值0~1→显示0~100%)
+        is_pct = scale == 100
+        is_bool = isinstance(v, bool)
+        is_str = isinstance(v, str)
+        if is_bool:
+            min_v, max_v, step_v = 0, 1, 1
+        elif is_str:
+            min_v, max_v, step_v = 0, 999, 1
+        elif is_pct:
+            min_v, max_v, step_v = 0, 100, 0.5
+        else:
+            min_v, max_v, step_v = 0, 999, 1
         result.append({
             "key": k,
             "label": label,
             "value": v,
             "displayValue": display_val,
             "unit": unit,
-            "type": "boolean" if isinstance(v, bool) else "string" if isinstance(v, str) else "number",
+            "type": "boolean" if is_bool else "string" if is_str else "number",
+            "min": min_v,
+            "max": max_v,
+            "step": step_v,
         })
     return result
 
@@ -350,6 +381,8 @@ def _describe_risk(risk_params: Dict) -> List[Dict]:
         label_info = RISK_LABELS.get(k, (k, "", 1))
         label, unit, scale = label_info
         display_val = round(v * scale, 4) if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
+        is_pct = scale == 100
+        min_v, max_v, step_v = (0, 100, 0.5) if is_pct else (0, 30, 1)
         result.append({
             "key": k,
             "label": label,
@@ -357,5 +390,8 @@ def _describe_risk(risk_params: Dict) -> List[Dict]:
             "displayValue": display_val,
             "unit": unit,
             "type": "number",
+            "min": min_v,
+            "max": max_v,
+            "step": step_v,
         })
     return result
