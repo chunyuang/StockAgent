@@ -4,7 +4,7 @@ import VChart from 'vue-echarts'
 import { useChartColors } from './useChartColors'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 
-const c = useChartColors()
+const c = useChartColors().value
 const loading = ref(false)
 const accountData = ref<any>(null)
 const activeSection = ref('overview')
@@ -42,6 +42,11 @@ const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_sta
 
 const fmt = (v: number) => `¥${(v/10000).toFixed(2)}万`
 const cls = (v: number) => v >= 0 ? 'up' : 'down'
+
+const realizedPnl = computed(() => {
+  const positions_pnl = positions.value.reduce((s: number, p: any) => s + (p.profit_amount || 0), 0)
+  return totalProfit.value - positions_pnl
+})
 
 // Pie chart
 const posPie = computed(() => {
@@ -104,6 +109,8 @@ const posPie = computed(() => {
           <div class="at-scroll">
             <div class="at-eq-row at-eq-head"><span>项目</span><span>金额</span></div>
             <div class="at-eq-row"><span>初始资金</span><span>¥100.00万</span></div>
+            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(realizedPnl)">{{ realizedPnl >= 0 ? '+' : '' }}¥{{ (realizedPnl / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏 ──</span><span></span></div>
             <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
               <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
               <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
@@ -212,6 +219,7 @@ const posPie = computed(() => {
 .at-eq-row { display: flex; justify-content: space-between; padding: 3px 6px; border-bottom: 1px solid var(--border-light); font-size: 12px; }
 .at-eq-head { font-weight: 600; color: var(--text-tertiary); font-size: 11px; border-bottom: 2px solid var(--border); }
 .at-eq-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-eq-sep { text-align: center; color: var(--text-tertiary); border-bottom: none; }
 .at-eq-total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; margin-top: 2px; }
 
 /* Table wrapper - horizontal scroll for narrow screens */
