@@ -176,6 +176,7 @@ const posPie = computed(() => {
               <div class="pos-m"><span class="pos-ml">数量</span><span>{{ p.shares }}</span></div>
               <div class="pos-m"><span class="pos-ml">市值</span><span>¥{{ (p.market_value || 0).toLocaleString() }}</span></div>
               <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ totalAssets > 0 ? ((p.market_value || 0) / totalAssets * 100).toFixed(1) : 0 }}%</span></div>
+              <div class="pos-m" v-if="p.stop_loss_status === 'broken' && p.risk_monitor_desc"><span class="pos-ml">风控</span><span class="down" style="font-size:10px">⚠ {{ p.risk_monitor_desc }}</span></div>
             </div>
             <!-- Expand detail -->
             <div v-if="expandedCode === p.ts_code" class="pos-detail" @click.stop>
@@ -235,20 +236,20 @@ const posPie = computed(() => {
 </template>
 
 <style scoped>
-.at { padding: 12px; }
+.at { padding: 8px; }
 
 /* Alert */
-.at-alert { padding: 8px 14px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.3); border-radius: 6px; margin-bottom: 10px; font-size: 12px; color: #e6a23c; }
+.at-alert { padding: 5px 10px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.3); border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: #e6a23c; }
 
-/* KPI */
-.at-kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-.at-kpi-c { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 6px; padding: 8px 10px; }
-.at-kpi-l { font-size: 11px; color: var(--text-tertiary); }
-.at-kpi-v { font-size: 15px; font-weight: 700; margin-top: 2px; }
+/* KPI - compact single row */
+.at-kpi { display: flex; gap: 2px; margin-bottom: 8px; flex-wrap: wrap; }
+.at-kpi-c { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 4px; padding: 3px 8px; display: flex; align-items: baseline; gap: 3px; }
+.at-kpi-l { font-size: 10px; color: var(--text-tertiary); }
+.at-kpi-v { font-size: 12px; font-weight: 700; }
 
 /* Nav */
-.at-nav { display: flex; gap: 4px; margin-bottom: 10px; }
-.at-nav-b { padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.at-nav { display: flex; gap: 3px; margin-bottom: 6px; }
+.at-nav-b { padding: 3px 8px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
 .at-nav-b:hover { background: var(--bg-hover); }
 .at-nav-b.on { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
 
@@ -272,7 +273,7 @@ const posPie = computed(() => {
 .at-eq-total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; margin-top: 2px; }
 
 /* ===== Position Cards ===== */
-.pos-list { display: flex; flex-direction: column; gap: 6px; }
+.pos-list { display: flex; flex-direction: column; gap: 5px; max-height: calc(100vh - 220px); overflow-y: auto; }
 .pos-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 6px; padding: 8px 10px; cursor: pointer; transition: border-color .15s; }
 .pos-card:hover { border-color: var(--el-color-primary); }
 .pos-card.pos-danger { border-left: 3px solid var(--stock-up); }

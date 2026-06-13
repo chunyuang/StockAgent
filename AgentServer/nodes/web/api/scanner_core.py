@@ -725,68 +725,27 @@ async def adjust_position_risk(ts_code: str, request: Request):
 async def get_position_risk_levels():
     """获取持仓风险等级分布
     
-    对标真实量化: 风险分级是实时监控的核心
-    - normal: 安全, 30秒检查
-    - warning: 距止损<1%, 10秒检查
-    - critical: 已触及止损区, 5秒检查
+    v2.9.92v: 始终从position-risk-matrix获取数据(scanner未运行时也能显示)
     """
     try:
-        scanner = _get_scanner_instance()
-        if not scanner:
-            # Scanner未运行: 复用position-risk-matrix的数据
-            try:
-                matrix_resp = await get_position_risk_matrix()
-                matrix_data = matrix_resp.get('data', {}) if isinstance(matrix_resp, dict) else {}
-                matrix_positions = matrix_data.get('positions', [])
-                grouped = {"normal": [], "warning": [], "critical": []}
-                for p in matrix_positions:
-                    level = p.get('risk_level', 'normal')
-                    grouped.setdefault(level, []).append(p)
-                return {
-                    "success": True,
-                    "data": {
-                        "levels": grouped,
-                        "summary": {
-                            "total": len(matrix_positions),
-                            "normal": len(grouped.get('normal', [])),
-                            "warning": len(grouped.get('warning', [])),
-                            "critical": len(grouped.get('critical', [])),
-                        },
-                        "check_interval": 30,
-                    }
-                }
-            except Exception as e:
-                return {"success": False, "message": f"Scanner未运行: {e}"}
-        
-        risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
-        trailing = _safe_read_shared(scanner, '_trailing_stops')
-        positions = scanner.get_positions() if hasattr(scanner, 'get_positions') else []
-        
-        # 按风险等级分组
+        matrix_resp = await get_position_risk_matrix()
+        matrix_data = matrix_resp.get('data', {}) if isinstance(matrix_resp, dict) else {}
+        matrix_positions = matrix_data.get('positions', [])
         grouped = {"normal": [], "warning": [], "critical": []}
-        for pos in positions:
-            if hasattr(pos, '__dict__'):
-                pos = pos.__dict__  # Position object → dict
-            ts_code = pos.get("ts_code", "")
-            level = risk_levels.get(ts_code, "normal")
-            info = {
-                **pos,
-                "risk_level": level,
-                "trailing_stop": trailing.get(ts_code),
-            }
-            grouped.setdefault(level, []).append(info)
-        
+        for p in matrix_positions:
+            level = p.get('risk_level', 'normal')
+            grouped.setdefault(level, []).append(p)
         return {
             "success": True,
             "data": {
                 "levels": grouped,
                 "summary": {
-                    "total": len(positions),
-                    "normal": len(grouped.get("normal", [])),
-                    "warning": len(grouped.get("warning", [])),
-                    "critical": len(grouped.get("critical", [])),
+                    "total": len(matrix_positions),
+                    "normal": len(grouped.get('normal', [])),
+                    "warning": len(grouped.get('warning', [])),
+                    "critical": len(grouped.get('critical', [])),
                 },
-                "check_interval": scanner._get_smart_check_interval(positions) if hasattr(scanner, '_get_smart_check_interval') else 30,
+                "check_interval": 30,
             }
         }
     except Exception as e:
@@ -849,25 +808,126 @@ async def get_position_risk_matrix():
     """持仓风控矩阵 + 全局风险仪表"""
     scanner = await _get_scanner()
     if not scanner._broker:
-        # Scanner未运行时: 从MongoDB读取最后已知的持仓快照作为回退
+        # Scanner未运行时: 从MongoDB直接构建风控矩阵(和analysis API同源)
         try:
             from core.managers import mongo_manager
             if not mongo_manager.is_initialized:
                 return {"success": True, "data": {"positions": [], "global": {}}}
-            # 读取最近的账户快照
-            last_snapshot = await mongo_manager.db["account_snapshots"].find_one(
-                sort=[("timestamp", -1)],
-                projection={"_id": 0}
-            )
-            if last_snapshot and last_snapshot.get("positions"):
-                return {"success": True, "data": {
-                    "positions": last_snapshot["positions"],
-                    "global": last_snapshot.get("global", {}),
-                    "_fallback": True,  # 标记回退数据，前端可显示提示
-                }}
-        except Exception:
-            pass
-        return {"success": True, "data": {"positions": [], "global": {}}}
+            db = mongo_manager.db
+            
+            # 读账户
+            acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
+            if not acct_doc:
+                return {"success": True, "data": {"positions": [], "global": {}}}
+            
+            # 读行业映射
+            industry_map = {}
+            async for doc in db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "industry": 1}):
+                industry_map[doc.get("ts_code", "")] = doc.get("industry", "")
+            
+            # 策略风控参数
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+            strategy_cn = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}
+            
+            # 构建矩阵
+            matrix = []
+            industry_exp = {}
+            max_single_pct = 0
+            total_mv = 0
+            
+            positions_data = []
+            async for doc in db["broker_positions"].find({"account_id": "default"}):
+                positions_data.append(doc)
+            
+            for pos_doc in positions_data:
+                cost = pos_doc.get("avg_cost", 0)
+                cur = pos_doc.get("current_price", 0)
+                qty = pos_doc.get("total_qty", 0)
+                ts_code = pos_doc.get("ts_code", "")
+                stock_name = pos_doc.get("stock_name", "")
+                strategy = pos_doc.get("strategy", "halfway_chase")
+                
+                if cost <= 0 or qty <= 0:
+                    continue
+                
+                mv = cur * qty
+                total_mv += mv
+                
+                strat_key = strategy
+                for k, v in STRATEGY_CONFIGS.items():
+                    if v.get("display_name") == strategy or k == strategy:
+                        strat_key = k
+                        break
+                strat_cfg = STRATEGY_CONFIGS.get(strat_key, {})
+                sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
+                tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.12))
+                if sl_pct > 1: sl_pct /= 100
+                if tp_pct > 1: tp_pct /= 100
+                
+                sl_price = cost * (1 - sl_pct)
+                tp_price = cost * (1 + tp_pct)
+                dist_sl = (cur - sl_price) / cur * 100 if cur > 0 else 0
+                dist_tp = (tp_price - cur) / cur * 100 if cur > 0 else 0
+                profit_pct = (cur - cost) / cost * 100 if cost > 0 else 0
+                profit_amount = (cur - cost) * qty
+                
+                position_pct = 0  # will calc after total_mv
+                industry = industry_map.get(ts_code, "未知")
+                industry_exp[industry] = industry_exp.get(industry, 0) + mv
+                
+                # Risk level
+                if cur <= sl_price:
+                    risk_level = "critical"
+                elif dist_sl < 2:
+                    risk_level = "warning"
+                else:
+                    risk_level = "normal"
+                
+                risk_score = min(max(0, 30 - dist_sl * 3) + min(abs(profit_pct), 20) + (10 if risk_level == "critical" else 0), 100)
+                
+                matrix.append({
+                    "ts_code": ts_code, "stock_name": stock_name,
+                    "strategy": strategy, "strategy_name": strategy_cn.get(strat_key, strategy),
+                    "industry": industry, "current_price": cur, "cost_price": cost,
+                    "profit_pct": round(profit_pct, 2), "profit_amount": round(profit_amount, 0),
+                    "market_value": round(mv, 0), "position_pct": 0,  # placeholder
+                    "stop_loss_price": round(sl_price, 2), "take_profit_price": round(tp_price, 2),
+                    "dist_to_stop": round(dist_sl, 1), "dist_to_take": round(dist_tp, 1),
+                    "risk_level": risk_level, "risk_score": round(risk_score, 0),
+                    "trailing_stop": None,
+                })
+            
+            # Fill position_pct
+            total_assets = acct_doc.get("available_cash", 0) + total_mv
+            for m in matrix:
+                m["position_pct"] = round(m["market_value"] / max(total_assets, 1) * 100, 1)
+                max_single_pct = max(max_single_pct, m["position_pct"])
+            
+            top_industry = max(industry_exp, key=industry_exp.get) if industry_exp else "无"
+            top_industry_pct = industry_exp.get(top_industry, 0) / max(total_assets, 1) * 100 if industry_exp else 0
+            
+            normal = len([m for m in matrix if m["risk_level"] == "normal"])
+            warning = len([m for m in matrix if m["risk_level"] == "warning"])
+            critical = len([m for m in matrix if m["risk_level"] == "critical"])
+            
+            return {"success": True, "data": {
+                "positions": matrix,
+                "global": {
+                    "total_assets": round(total_assets, 0),
+                    "cash_ratio": round(acct_doc.get("available_cash", 0) / max(total_assets, 1) * 100, 1),
+                    "position_ratio": round(total_mv / max(total_assets, 1) * 100, 1),
+                    "max_single_pct": round(max_single_pct, 1),
+                    "top_industry_concentration": round(top_industry_pct, 1),
+                    "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in industry_exp.items()},
+                    "position_count": len(matrix),
+                    "risk_summary": {"normal": normal, "warning": warning, "critical": critical},
+                },
+                "_fallback": True,
+            }}
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"success": True, "data": {"positions": [], "global": {}}}
 
     try:
         from core.managers import mongo_manager
@@ -875,6 +935,40 @@ async def get_position_risk_matrix():
             return {"success": True, "data": []}
         positions = scanner._broker.get_positions()
         acct = scanner._broker.get_account()
+        
+        # 【v2.9.92v】如果broker持仓为0或market_value=0但MongoDB有数据(scanner未load_state)
+        if not positions or (acct.market_value == 0 and positions):
+            try:
+                positions_data = []
+                async for doc in mongo_manager.db["broker_positions"].find({"account_id": "default"}):
+                    positions_data.append(doc)
+                if positions_data and (not positions or acct.market_value == 0):
+                    if not positions:
+                        # 用MongoDB数据构建positions列表
+                        from nodes.market_monitor.broker import Position
+                        for doc in positions_data:
+                            if doc.get("total_qty", 0) > 0:
+                                pos = Position(
+                                    ts_code=doc.get("ts_code", ""),
+                                    stock_name=doc.get("stock_name", ""),
+                                    total_qty=doc.get("total_qty", 0),
+                                    available_qty=doc.get("available_qty", 0),
+                                    avg_cost=doc.get("avg_cost", 0),
+                                    current_price=doc.get("current_price", 0),
+                                    profit_pct=((doc.get("current_price", 0) - doc.get("avg_cost", 0)) / doc.get("avg_cost", 1) * 100) if doc.get("avg_cost", 0) > 0 else 0,
+                                    strategy=doc.get("strategy", "halfway_chase"),
+                                )
+                                positions.append(pos)
+                    # 重建account数据(从MongoDB)
+                    acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
+                    if acct_doc:
+                        mv = sum(doc.get("current_price", 0) * doc.get("total_qty", 0) for doc in positions_data if doc.get("total_qty", 0) > 0)
+                        cash = acct_doc.get("available_cash", 0)
+                        acct.total_assets = cash + mv
+                        acct.available_cash = cash
+                        acct.market_value = mv
+            except Exception:
+                pass
         risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
         trailing_stops = _safe_read_shared(scanner, '_trailing_stops')
         strategy_cn = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}
@@ -932,7 +1026,7 @@ async def get_position_risk_matrix():
                 "dist_stop_loss": round(dist_sl, 2), "dist_take_profit": round(dist_tp, 2),
                 "stop_loss_price": round(sl_price, 2), "take_profit_price": round(tp_price, 2),
                 "volatility": round(abs(pos.profit_pct), 2), "turnover_rate": turnover,
-                "risk_score": round(risk_score, 0), "risk_level": risk_levels.get(pos.ts_code, "normal"),
+                "risk_score": round(risk_score, 0), "risk_level": risk_levels.get(pos.ts_code) or ("critical" if cur <= sl_price else "warning" if dist_sl < 2 else "normal"),
                 "trailing_stop": trail, "total_qty": pos.total_qty,
             })
 
