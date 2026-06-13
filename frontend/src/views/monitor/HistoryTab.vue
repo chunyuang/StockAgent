@@ -11,11 +11,41 @@ const m = useScannerMonitorInject()
 
 const {
   auditLog, auditLogLoading, closedPositions, cumulativePnl,
-  exportTradeLog, exportJSON, fetchAuditLog, historyData, historyDate, historyLoading,
+  exportTradeLog, exportJSON, fetchAuditLog, historyData, historyDate, historyOrders, historyLoading,
   loadHistory,
   openTradeAudit, openTradeDetail, orders,
   saveSnapshot, strategyCN, strategyMeta, timeline,
 } = m
+
+import { computed } from 'vue'
+
+// 历史回放时用历史orders，否则用实时orders
+const displayOrders = computed(() => historyData.value.length ? historyOrders.value : orders.value)
+
+// 历史回放时的已平仓汇总(基于timeline中的buy/sell配对)
+const historyClosedPositions = computed(() => {
+  const source = historyData.value.length ? historyData.value : timeline.value
+  const buys = source.filter((t: any) => t.action === 'buy')
+  const sells = source.filter((t: any) => t.action === 'sell')
+  const result: any[] = []
+  const buyQueues = new Map<string, any[]>()
+  for (const buy of buys) {
+    const key = buy.ts_code + '|' + (buy.strategy || '')
+    if (!buyQueues.has(key)) buyQueues.set(key, [])
+    buyQueues.get(key)!.push(buy)
+  }
+  for (const sell of sells) {
+    const key = sell.ts_code + '|' + (sell.strategy || '')
+    const queue = buyQueues.get(key)
+    const buy = queue?.length ? queue.shift() : undefined
+    const buyPrice = buy?.price ?? sell.decision_detail?.cost_price ?? 0
+    const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
+    const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0)
+    result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: profitAmount, profit_pct: profitPct, buy_time: buy?.time || '', sell_time: sell.time || '' })
+  }
+  return result.sort((a: any, b: any) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
+})
+const displayClosedPositions = computed(() => historyData.value.length ? historyClosedPositions.value : closedPositions.value)
 </script>
 
 <template>
@@ -45,11 +75,11 @@ const {
       </div>
 
       <!-- 历史订单 -->
-      <div class="st" style="margin-top:16px">📋 历史订单 <span class="text-tertiary" style="font-size:11px">({{ orders.length }}笔)</span></div>
-      <div v-if="!orders.length" class="empty">暂无订单</div>
+      <div class="st" style="margin-top:16px">📋 历史订单 <span class="text-tertiary" style="font-size:11px">({{ displayOrders.length }}笔)</span></div>
+      <div v-if="!displayOrders.length" class="empty">暂无订单</div>
       <div v-else class="ht-orders">
         <div class="ho-header"><span>时间</span><span>方向</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span></div>
-        <div v-for="o in orders" :key="o.order_id" class="ho-row cp" @click="openTradeDetail(o.ts_code)">
+        <div v-for="o in displayOrders" :key="o.order_id" class="ho-row cp" @click="openTradeDetail(o.ts_code)">
           <span class="tl-time">{{ String(o.trade_date || '').slice(-4) }} {{ o.create_time }}</span>
           <span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
           <span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span>
@@ -60,10 +90,10 @@ const {
 
       <!-- 已平仓汇总 -->
       <div class="st" style="margin-top:16px">💰 已平仓汇总</div>
-      <div v-if="!closedPositions.length" class="empty">暂无已平仓记录</div>
+      <div v-if="!displayClosedPositions.length" class="empty">暂无已平仓记录</div>
       <div v-else class="ht-closed">
         <div class="hc-header"><span>代码</span><span>名称</span><span>策略</span><span>买入价</span><span>卖出价</span><span>盈亏</span><span>盈亏%</span></div>
-        <div v-for="cp in closedPositions" :key="cp.ts_code + cp.strategy" class="hc-row" @click="openTradeDetail(cp.ts_code)" :class="cp.profit_pct >= 0 ? 'hc-win' : 'hc-loss'">
+        <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy" class="hc-row" @click="openTradeDetail(cp.ts_code)" :class="cp.profit_pct >= 0 ? 'hc-win' : 'hc-loss'">
           <span class="code">{{ cp.ts_code }}</span><span class="name">{{ cp.stock_name }}</span>
           <span><ElTag size="small" :color="strategyMeta[cp.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(cp.strategy) }}</ElTag></span>
           <span>¥{{ Number(cp.buy_price || 0).toFixed(2) }}</span><span>¥{{ Number(cp.sell_price || 0).toFixed(2) }}</span>

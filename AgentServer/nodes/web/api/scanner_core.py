@@ -84,15 +84,20 @@ async def get_all_scanner_data():
         except Exception:
             pass
     
-    # 订单(最近20条)
+    # 订单(最近N条，按scanner当前交易日期过滤)
     orders_data = []
     if scanner._broker:
         try:
             if await scanner._broker._ensure_mongo():
                 db = scanner._broker._mongo_db
+                orders_query = {"account_id": scanner._broker.account.account_id}
+                # 【v2.9.92d】如果有trade_date，只返回当天的订单
+                trade_date = getattr(scanner, '_trade_date', '')
+                if trade_date:
+                    orders_query["trade_date"] = {"$in": [str(trade_date), int(trade_date)] if str(trade_date).isdigit() else str(trade_date)}
                 docs = await db["broker_orders"].find(
-                    {"account_id": scanner._broker.account.account_id}
-                ).sort("create_time", -1).limit(20).to_list(20)
+                    orders_query
+                ).sort("create_time", 1).limit(50).to_list(50)
                 for d in docs:
                     d.pop("_id", None)
                     orders_data.append(d)
