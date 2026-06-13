@@ -353,7 +353,9 @@ def _describe_params(strategy_id: str, params: Dict) -> List[Dict]:
         is_pct = scale == 100
         is_bool = isinstance(v, bool)
         is_str = isinstance(v, str)
+        # boolean中文显示
         if is_bool:
+            display_val = "是" if v else "否"
             min_v, max_v, step_v = 0, 1, 1
         elif is_str:
             min_v, max_v, step_v = 0, 999, 1
