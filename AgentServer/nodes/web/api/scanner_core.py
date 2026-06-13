@@ -218,8 +218,29 @@ async def get_scanner_status():
                 "total_assets": round(acct.total_assets, 2),
                 "available_cash": round(acct.available_cash, 2),
                 "market_value": round(acct.market_value, 2),
-                "total_profit": round(acct.today_profit, 2),
+                "total_profit": round(acct.total_profit, 2),  # v2.9.92p: 改total_profit而非today_profit
             }
+        except Exception:
+            pass
+    # 【v2.9.92p】scanner未运行时从MongoDB读真实账户数据(不再显示默认100万)
+    if not status.get("account") or status["account"].get("total_assets") == 1000000:
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
+                if acct_doc and acct_doc.get("total_assets", 0) > 0:
+                    # 从broker_positions重新计算市值(更准确)
+                    mv = 0
+                    async for p in mongo_manager.db["broker_positions"].find({"account_id": "default"}):
+                        mv += p.get("current_price", 0) * p.get("total_qty", 0)
+                    cash = acct_doc.get("available_cash", 0)
+                    total = cash + mv
+                    status["account"] = {
+                        "total_assets": round(total, 2),
+                        "available_cash": round(cash, 2),
+                        "market_value": round(mv, 2),
+                        "total_profit": round(total - 1000000, 2),
+                    }
         except Exception:
             pass
     # 信号列表
