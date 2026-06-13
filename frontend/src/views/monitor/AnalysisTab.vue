@@ -16,6 +16,15 @@ const { activeTab } = m
 const loading = ref(false)
 const dateRange = ref<[string, string] | null>(null)
 const analysisData = ref<any>(null)
+const dateLabel = computed(() => analysisData.value?.date_range || '全部数据')
+
+// 默认最近7天
+function defaultDateRange(): [string, string] {
+  const now = new Date()
+  const week = new Date(now.getTime() - 7 * 86400000)
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return [fmt(week), fmt(now)]
+}
 
 async function fetchAnalysis() {
   loading.value = true
@@ -32,7 +41,10 @@ async function fetchAnalysis() {
   finally { loading.value = false }
 }
 
-onMounted(() => { fetchAnalysis() })
+onMounted(() => {
+  if (!dateRange.value) dateRange.value = defaultDateRange()
+  fetchAnalysis()
+})
 watch(activeTab, (t) => { if (t === 'analysis') fetchAnalysis() })
 
 const kpi = computed(() => analysisData.value?.kpi || {})
@@ -50,6 +62,7 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
       <!-- 工具栏 -->
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
+        <span class="ana-date-label">{{ dateLabel }}</span>
         <ElDatePicker v-model="dateRange" type="daterange" start-placeholder="开始" end-placeholder="结束" size="small" value-format="YYYY-MM-DD" style="width:220px" :disabled-date="(d: Date) => d > new Date()" />
         <ElButton size="small" type="primary" @click="fetchAnalysis" :loading="loading">刷新</ElButton>
         <span class="ana-note">数据来自scanner_timeline已平仓记录</span>
@@ -161,9 +174,10 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
         </div>
 
         <!-- 每日盈亏明细 -->
-        <div class="ana-panel" style="margin-top:8px" v-if="analysisData?.daily_detail">
+        <div class="ana-panel" style="margin-top:8px">
           <div class="ana-sec">📋 每日明细</div>
-          <div class="daily-list">
+          <div v-if="!analysisData?.daily_detail?.length" class="ana-empty-sm">暂无数据</div>
+          <div v-else class="daily-list">
             <div class="dl-header"><span>日期</span><span>笔数</span><span>胜率</span><span>盈亏</span></div>
             <div v-for="d in analysisData.daily_detail" :key="d.date" class="dl-row" :class="d.profit >= 0 ? 'row-up' : 'row-down'">
               <span>{{ d.date }}</span>
@@ -182,6 +196,7 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
 .ana-wrap { display: flex; flex-direction: column; gap: 8px; }
 .ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); }
 .ana-title { font-size: 14px; font-weight: 700; }
+.ana-date-label { font-size: 11px; color: var(--text-tertiary); background: var(--bg-muted); padding: 2px 8px; border-radius: 10px; }
 .ana-note { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
 .ana-empty { padding: 60px 0; text-align: center; }
 .ana-empty-sm { padding: 16px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }
