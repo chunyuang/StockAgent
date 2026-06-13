@@ -322,6 +322,8 @@ async def get_analysis(start_date: str = None, end_date: str = None):
             "date_range": f"{start_date or '全部'} ~ {end_date or '全部'}",
             # 【v2.9.92n】全局风控监控状态
             "risk_monitor": _get_risk_monitor_status(),
+            # 【v2.9.92o】账户信息(直接从MongoDB读，不依赖scanner运行)
+            "account": await _get_account_from_mongo(),
         }}
     except Exception as e:
         import traceback
@@ -362,6 +364,60 @@ def _get_risk_monitor_status():
     except Exception as e:
         return {"scanner_alive": False, "scan_loop_active": False, "risk_thread_alive": False,
                 "status": "error", "desc": f"无法获取风控状态: {e}"}
+
+
+async def _get_account_from_mongo():
+    """【v2.9.92o】直接从MongoDB读取账户信息(不依赖scanner运行)"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return None
+        db = mongo_manager.db
+        
+        # 从broker_accounts读账户
+        acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
+        if not acct_doc:
+            return None
+        
+        # 从broker_positions读持仓列表
+        pos_list = []
+        total_market_value = 0
+        total_cost = 0
+        async for doc in db["broker_positions"].find({"account_id": "default"}):
+            cost = doc.get("avg_cost", 0)
+            qty = doc.get("total_qty", 0)
+            cur = doc.get("current_price", cost)
+            mkt_val = cur * qty
+            total_market_value += mkt_val
+            total_cost += cost * qty
+            pos_list.append({
+                "ts_code": doc.get("ts_code", ""),
+                "stock_name": doc.get("stock_name", ""),
+                "shares": qty,
+                "cost_price": round(cost, 2),
+                "current_price": round(cur, 2),
+                "profit_pct": round((cur - cost) / cost * 100, 2) if cost > 0 else 0,
+                "profit_amount": round((cur - cost) * qty, 0),
+                "market_value": round(mkt_val, 0),
+                "strategy": doc.get("strategy", ""),
+            })
+        
+        available_cash = acct_doc.get("available_cash", 0)
+        total_assets = available_cash + total_market_value
+        
+        return {
+            "account_id": "default",
+            "total_assets": round(total_assets, 2),
+            "available_cash": round(available_cash, 2),
+            "market_value": round(total_market_value, 2),
+            "total_cost": round(total_cost, 2),
+            "total_profit": round(total_assets - 1000000, 2),  # 初始100万
+            "position_count": len(pos_list),
+            "position_ratio": round(total_market_value / max(total_assets, 1) * 100, 1),
+            "positions": pos_list,
+        }
+    except Exception:
+        return None
 
 
 def _empty_result():
