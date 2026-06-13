@@ -113,7 +113,7 @@ const posPie = computed(() => {
       <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">{{ fmt(availableCash) }}</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">持仓市值</div><div class="at-kpi-v">{{ fmt(marketValue) }}</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">总盈亏</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ totalProfit >= 0 ? '+' : '' }}{{ fmt(totalProfit) }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">仓位</div><div class="at-kpi-v">{{ positionRatio.toFixed(1) }}%</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">仓位</div><div class="at-kpi-v">{{ (positionRatio || 0).toFixed(1) }}%</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">持仓</div><div class="at-kpi-v">{{ positions.length }}只<el-badge v-if="brokenSL.length" :value="brokenSL.length" type="danger" style="margin-left:4px" /></div></div>
     </div>
 
@@ -252,10 +252,10 @@ const posPie = computed(() => {
           <div class="at-pg-item"><span class="at-pg-k">板块集中度</span><span class="at-pg-v">≤{{ riskParams.sector_concentration_top_n }}只/行业</span></div>
           <div class="at-pg-item"><span class="at-pg-k">冷却期</span><span class="at-pg-v">{{ riskParams.force_empty_cooldown_days }}天/≤{{ (riskParams.force_empty_cooldown_position_cap * 100).toFixed(0) }}%</span></div>
           <div class="at-pg-item"><span class="at-pg-k">次日高开卖</span><span class="at-pg-v">{{ ((riskParams.next_day_open_sell_pct || 0.02) * 100).toFixed(0) }}%</span></div>
-          <div class="at-pg-item"><span class="at-pg-k">持仓保护</span><span class="at-pg-v">{{ (riskParams.hold_protection_threshold * 100).toFixed(0) }}%</span></div>
-          <div class="at-pg-item"><span class="at-pg-k">追踪止损</span><span class="at-pg-v">{{ (riskParams.intraday_lock_pullback_pct * 100).toFixed(1) }}%</span></div>
-          <div class="at-pg-item"><span class="at-pg-k">情绪:高潮/分化</span><span class="at-pg-v">{{ (riskParams.sentiment_position_map.rising * 100).toFixed(0) }}%/{{ (riskParams.sentiment_position_map.differentiation * 100).toFixed(0) }}%</span></div>
-          <div class="at-pg-item"><span class="at-pg-k">情绪:震荡/冰点</span><span class="at-pg-v">{{ (riskParams.sentiment_position_map.chaos * 100).toFixed(0) }}%/{{ (riskParams.sentiment_position_map.bearish * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">持仓保护</span><span class="at-pg-v">{{ ((riskParams.hold_protection_threshold || 0) * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">追踪止损</span><span class="at-pg-v">{{ ((riskParams.intraday_lock_pullback_pct || 0) * 100).toFixed(1) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">情绪:高潮/分化</span><span class="at-pg-v">{{ ((riskParams.sentiment_position_map?.rising || 1.0) * 100).toFixed(0) }}%/{{ ((riskParams.sentiment_position_map?.differentiation || 0.7) * 100).toFixed(0) }}%</span></div>
+          <div class="at-pg-item"><span class="at-pg-k">情绪:震荡/冰点</span><span class="at-pg-v">{{ ((riskParams.sentiment_position_map?.chaos || 0.5) * 100).toFixed(0) }}%/{{ ((riskParams.sentiment_position_map?.bearish || 0.3) * 100).toFixed(0) }}%</span></div>
           <div class="at-pg-item"><span class="at-pg-k">强制空仓-跌停</span><span class="at-pg-v">≥{{ riskParams.force_empty_limit_down }}只</span></div>
           <div class="at-pg-item"><span class="at-pg-k">强制空仓-大盘</span><span class="at-pg-v">跌幅≥{{ (riskParams.force_empty_index_drop_pct * 100).toFixed(0) }}%</span></div>
         </div>

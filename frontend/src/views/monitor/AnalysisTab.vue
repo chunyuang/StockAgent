@@ -79,7 +79,7 @@ const positionChart = computed(() => {
 
 const strategyPieChart = computed(() => {
   const ss = strategies.value; if (!ss.length) return null
-  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: ss.map((s: any) => ({ name: s.strategy, value: s.trades, itemStyle: { color: s.profit >= 0 ? c.stockDown : c.stockUp } })) }] }
+  return { tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 11 }, data: ss.map((s: any) => ({ name: m.strategyCN(s.strategy) || s.strategy, value: s.trades, itemStyle: { color: s.profit >= 0 ? c.stockDown : c.stockUp } })) }] }
 })
 
 const sellReasonChart = computed(() => {
@@ -185,7 +185,7 @@ async function showStockDetail(tsCode: string) {
           <div v-if="strategies.length" class="chart-section">
             <div class="chart-title">🔄 策略贡献</div>
             <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
-              <tr v-for="s in strategies" :key="s.strategy" :class="s.profit >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ s.strategy }}</td><td>{{ s.trades }}</td><td :class="s.win_rate >= 50 ? 'up' : 'down'">{{ s.win_rate.toFixed(1) }}%</td><td :class="s.profit >= 0 ? 'up' : 'down'">¥{{ s.profit.toLocaleString() }}</td><td :class="s.avg_profit_pct >= 0 ? 'up' : 'down'">{{ s.avg_profit_pct.toFixed(2) }}%</td></tr>
+              <tr v-for="s in strategies" :key="s.strategy" :class="(s.profit || 0) >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ m.strategyCN(s.strategy) || s.strategy }}</td><td>{{ s.trades }}</td><td :class="(s.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (s.win_rate || 0).toFixed(1) }}%</td><td :class="(s.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (s.profit || 0).toLocaleString() }}</td><td :class="(s.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (s.avg_profit_pct || 0).toFixed(2) }}%</td></tr>
             </tbody></table>
           </div>
         </div>
@@ -199,7 +199,7 @@ async function showStockDetail(tsCode: string) {
           <div v-if="positions.length" class="chart-section">
             <div class="chart-title">📋 持仓明细</div>
             <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>最新收盘</th><th>止损价</th><th>盈亏%</th><th>盈亏额</th><th>市值</th><th>状态</th><th></th></tr></thead><tbody>
-              <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price }}</td><td>¥{{ p.current_price }}</td><td :style="{color: p.stop_loss_status === 'broken' ? 'var(--stock-up)' : p.stop_loss_status === 'near' ? '#e6a23c' : 'var(--text-tertiary)'}">¥{{ p.stop_loss_price || '-' }}</td><td :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</td><td :class="p.profit_amount >= 0 ? 'up' : 'down'">¥{{ p.profit_amount.toLocaleString() }}</td><td>¥{{ p.market_value.toLocaleString() }}</td><td><span v-if="p.stop_loss_status === 'broken'" style="color:var(--stock-up);font-weight:600;font-size:11px">🔴破止损</span><span v-else-if="p.stop_loss_status === 'near'" style="color:#e6a23c;font-size:11px">⚠近止损</span><span v-else style="color:var(--text-tertiary);font-size:11px">安全</span><span v-if="p.risk_monitor_desc" :title="p.risk_monitor_desc" style="color:#e6a23c;font-size:10px;margin-left:2px">⚡</span></td><td><ElButton size="small" text type="primary" @click="showStockDetail(p.ts_code)">详情</ElButton></td></tr>
+              <tr v-for="p in positions" :key="p.ts_code" :class="(p.profit_pct || 0) >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ m.strategyCN(p.strategy) || p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price || '-' }}</td><td>¥{{ p.current_price || '-' }}</td><td :style="{color: p.stop_loss_status === 'broken' ? 'var(--stock-up)' : p.stop_loss_status === 'near' ? '#e6a23c' : 'var(--text-tertiary)'}">¥{{ p.stop_loss_price || '-' }}</td><td :class="(p.profit_pct || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (p.profit_pct || 0) >= 0 ? '+' : '' }}{{ (p.profit_pct || 0).toFixed(1) }}%</td><td :class="(p.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ (p.profit_amount || 0).toLocaleString() }}</td><td>¥{{ (p.market_value || 0).toLocaleString() }}</td><td><span v-if="p.stop_loss_status === 'broken'" style="color:var(--stock-up);font-weight:600;font-size:11px">🔴破止损</span><span v-else-if="p.stop_loss_status === 'near'" style="color:#e6a23c;font-size:11px">⚠近止损</span><span v-else style="color:var(--text-tertiary);font-size:11px">安全</span><span v-if="p.risk_monitor_desc" :title="p.risk_monitor_desc" style="color:#e6a23c;font-size:10px;margin-left:2px">⚡</span></td><td><ElButton size="small" text type="primary" @click="showStockDetail(p.ts_code)">详情</ElButton></td></tr>
             </tbody></table>
           </div>
         </div>
@@ -211,7 +211,7 @@ async function showStockDetail(tsCode: string) {
             <div v-if="!dailyDetail.length" class="ana-empty-sm">暂无数据</div>
             <table class="ana-tbl" v-else><thead><tr><th>日期</th><th>笔数</th><th>胜率</th><th>盈亏</th></tr></thead><tbody>
               <template v-for="d in dailyDetail" :key="d.date">
-                <tr class="dl-row" :class="d.profit >= 0 ? 'row-up' : 'row-down'" @click="showDayDetail(d.date)" style="cursor:pointer"><td>{{ d.date }} <span style="font-size:9px;color:var(--text-tertiary)">{{ selectedDay === d.date ? '▲' : '▼' }}</span></td><td>{{ d.trades }}</td><td :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</td><td :class="d.profit >= 0 ? 'up' : 'down'">¥{{ d.profit.toLocaleString() }}</td></tr>
+                <tr class="dl-row" :class="(d.profit || 0) >= 0 ? 'row-up' : 'row-down'" @click="showDayDetail(d.date)" style="cursor:pointer"><td>{{ d.date }} <span style="font-size:9px;color:var(--text-tertiary)">{{ selectedDay === d.date ? '▲' : '▼' }}</span></td><td>{{ d.trades }}</td><td :class="(d.win_rate || 0) >= 50 ? 'up' : 'down'">{{ d.win_rate ?? '-' }}%</td><td :class="(d.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (d.profit || 0).toLocaleString() }}</td></tr>
                 <tr v-if="selectedDay === d.date"><td colspan="4" style="padding:4px 8px;background:var(--bg-muted)">
                   <div v-if="dailyTradesLoading" style="font-size:11px;color:var(--text-tertiary)">加载中...</div>
                   <div v-else-if="!dailyTrades.length" style="font-size:11px;color:var(--text-tertiary)">无交易记录</div>
@@ -233,11 +233,11 @@ async function showStockDetail(tsCode: string) {
           <div class="sd-summary">
             <div class="sd-kpi" :class="(stockDetail.summary.holding_profit_pct ?? 0) >= 0 ? 'sd-up' : 'sd-down'">
               <div class="sd-kpi-label">持仓盈亏</div>
-              <div class="sd-kpi-val">{{ stockDetail.summary.holding_profit_pct != null ? (stockDetail.summary.holding_profit_pct >= 0 ? '+' : '') + stockDetail.summary.holding_profit_pct.toFixed(1) + '%' : '--' }}</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary?.holding_profit_pct != null ? ((stockDetail.summary.holding_profit_pct >= 0 ? '+' : '') + stockDetail.summary.holding_profit_pct.toFixed(1) + '%') : '--' }}</div>
             </div>
             <div class="sd-kpi" :class="stockDetail.summary.realized_profit >= 0 ? 'sd-up' : 'sd-down'">
               <div class="sd-kpi-label">已实现盈亏</div>
-              <div class="sd-kpi-val">¥{{ stockDetail.summary.realized_profit.toLocaleString() }}</div>
+              <div class="sd-kpi-val">¥{{ (stockDetail.summary?.realized_profit || 0).toLocaleString() }}</div>
             </div>
             <div class="sd-kpi sd-neutral">
               <div class="sd-kpi-label">持仓/成本</div>
