@@ -20,7 +20,11 @@ const {
 import { computed } from 'vue'
 
 // 历史回放时用历史orders，否则用实时orders
-const displayOrders = computed(() => historyData.value.length ? historyOrders.value : orders.value)
+const displayOrders = computed(() => {
+  const source = historyData.value.length ? historyOrders.value : orders.value
+  // 只显示已成交的订单(rejected订单filled_qty=0无意义)
+  return source.filter((o: any) => o.status === 'filled' || o.filled_qty > 0)
+})
 
 // 历史回放时的已平仓汇总(基于timeline中的buy/sell配对)
 const historyClosedPositions = computed(() => {
