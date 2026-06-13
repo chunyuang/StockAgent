@@ -27,8 +27,8 @@ const fetchAccount = async () => {
 
 onMounted(fetchAccount)
 
-// Account summary
-const acc = computed(() => accountData.value?.account || {})
+// Account summary - prefer MongoDB account data (available even when scanner stopped)
+const acc = computed(() => accountData.value?.analysis?.account || accountData.value?.account || {})
 const status = computed(() => accountData.value?.status || {})
 const riskMonitor = computed(() => accountData.value?.analysis?.risk_monitor || {})
 const positions = computed(() => (accountData.value?.analysis?.positions || []).slice().sort((a: any, b: any) => (a.profit_pct || 0) - (b.profit_pct || 0)))
