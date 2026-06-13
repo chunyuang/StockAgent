@@ -246,8 +246,22 @@ async def get_scanner_status():
 
 @router.post("/start")
 async def start_scanner(req: ScannerStartRequest):
-    """启动扫描(后台线程初始化, 立即返回)"""
+    """启动扫描(后台线程初始化, 立即返回)
+    
+    【v2.9.92b】非交易时间拒绝启动(除非replay模式)，防止产生假数据
+    """
     from nodes.web.api import scanner_shared
+    from nodes.market_monitor.market_phase import MarketPhase
+
+    # 非交易时间拒绝启动(除非replay模式)
+    if not req.replay_date:
+        phase = MarketPhase.classify()
+        if not MarketPhase.is_in_trading(phase) and phase not in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
+            return {
+                "success": False,
+                "data": {"message": f"非交易时间({phase})，拒绝启动。请使用replay模式或等到交易时间。"},
+                "phase": phase,
+            }
 
     if scanner_shared._scanner_instance is None or (
         req.trade_mode != scanner_shared._scanner_instance._trade_mode
