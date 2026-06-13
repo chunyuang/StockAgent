@@ -26,23 +26,24 @@ export const GLOBAL_RISK = {
   force_empty_cooldown_position_cap: 0.6,
   dragon_head_early_exit_days: 5,
   dragon_head_early_exit_min_profit: 0.03,
-  intraday_lock_min_high_rise: 0.05,
-  intraday_lock_pullback_pct: 0.02,
+  intraday_lock_min_high_rise: 0.06,
+  intraday_lock_pullback_pct: 0.025,
   intraday_lock_min_profit: 0.02,
-  hold_protection_threshold: 0.05,
+  hold_protection_threshold: 0.06,
+  enable_ma60_filter: true,
+  sector_concentration_top_n: 3,
   live_trading_mode: false,
   risk_free_rate: 0.03,
   sentiment_position_map: {
-    rising: 1.0,              // 高潮期(≥70): 满仓
-    differentiation: 0.7,    // 分化期(55-70): 七仓
-    chaos: 0.5,              // 震荡期(40-55): 半仓
-    bearish: 0.3,            // 冰点期(<40): 三仓
+    rising: 1.0,
+    differentiation: 0.7,
+    chaos: 0.5,
+    bearish: 0.3,
   },
   sentiment_thresholds: {
-    rising: 70,               // ≥70 高潮
-    differentiation: 55,      // 55-70 分化
-    chaos: 40,                // 40-55 震荡
-    // <40 冰点
+    rising: 70,
+    differentiation: 55,
+    chaos: 40,
   },
 }
 
@@ -55,13 +56,13 @@ export const STRATEGY_CONFIGS = {
     params: {
       min_rise_pct: 0.03,
       max_rise_pct: 0.07,
-      min_volume_ratio: 2.0,
+      min_volume_ratio: 1.5,
       max_volume_ratio: 3.0,
       min_close_rise_pct: 0.05,
       max_open_rise_pct: 0.03,
       allow_after_10am: false,
       next_day_open_sell_pct: 0.02,
-      pullback_mid_fallback_pct: 0.01,
+      pullback_mid_fallback_pct: 0.015,
       pullback_high_threshold: 0.05,
       pullback_profit_lock_threshold: 0.08,
     },
@@ -69,6 +70,7 @@ export const STRATEGY_CONFIGS = {
       stop_loss_pct: 0.03,
       take_profit_pct: 0.12,
       max_hold_days: 3,
+      hold_protection_threshold: 0.04,
       slippage_pct: 0.002,
       trailing_stop_pct: 0.02,
     },
@@ -87,12 +89,12 @@ export const STRATEGY_CONFIGS = {
       max_circulation_market_cap: 500,
       hit_probability_yizi: 0.0,
       hit_probability_fast: 0.2,
-      hit_probability_normal: 0.4,
-      hit_probability_slow: 0.5,
+      hit_probability_normal: 0.45,
+      hit_probability_slow: 0.55,
       next_day_open_sell_pct: 0.02,
     },
     riskParams: {
-      stop_loss_pct: 0.03,
+      stop_loss_pct: 0.035,
       take_profit_pct: 0.1,
       max_hold_days: 2,
       slippage_pct: 0.005,
@@ -140,9 +142,10 @@ export const STRATEGY_CONFIGS = {
       pullback_high_threshold: 0.05,
     },
     riskParams: {
-      stop_loss_pct: 0.035,
+      stop_loss_pct: 0.03,
       take_profit_pct: 0.3,
       max_hold_days: 7,
+      hold_protection_threshold: 0.04,
       slippage_pct: 0.002,
       trailing_stop_pct: 0.03,
     },

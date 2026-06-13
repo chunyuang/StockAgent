@@ -9,6 +9,7 @@ import { useChartColors } from './useChartColors'
 
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
+import { GLOBAL_RISK } from '@/config/strategyDefaults'
 
 const c = useChartColors().value
 const loading = ref(false)
@@ -59,6 +60,7 @@ const availableCash = computed(() => acc.value.available_cash || 0)
 const marketValue = computed(() => acc.value.market_value || positions.value.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
 const totalProfit = computed(() => totalAssets.value - 1000000)
 const positionRatio = computed(() => totalAssets.value > 0 ? marketValue.value / totalAssets.value * 100 : 0)
+const riskParams = GLOBAL_RISK  // 前端参数与后端strategy_defaults.py完全对齐(由sync脚本同步)
 const brokenSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken'))
 const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'near'))
 
@@ -230,6 +232,18 @@ const posPie = computed(() => {
             <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ p.profit_pct?.toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
           </div>
         </div>
+      </div>
+      <!-- v2.9.92x: 风控参数概览(与回测对齐) -->
+      <div class="at-card" style="margin-top:6px">
+        <div class="at-card-t">📐 风控参数 (与回测对齐)</div>
+        <div class="at-risk-row"><span>单票上限</span><span>{{ (riskParams.max_position_per_stock * 100).toFixed(0) }}%</span></div>
+        <div class="at-risk-row"><span>总仓位上限</span><span>{{ (riskParams.max_total_position * 100).toFixed(0) }}%</span></div>
+        <div class="at-risk-row"><span>默认止损/止盈</span><span>{{ (riskParams.stop_loss_pct * 100).toFixed(0) }}% / {{ (riskParams.take_profit_pct * 100).toFixed(0) }}%</span></div>
+        <div class="at-risk-row"><span>流动性门槛</span><span>{{ riskParams.liquidity_threshold }}万</span></div>
+        <div class="at-risk-row"><span>MA60过滤</span><span>{{ riskParams.enable_ma60_filter ? '✅ 开启' : '❌ 关闭' }}</span></div>
+        <div class="at-risk-row"><span>板块集中度</span><span>同行业≤{{ riskParams.sector_concentration_top_n }}只</span></div>
+        <div class="at-risk-row"><span>冷却期</span><span>{{ riskParams.force_empty_cooldown_days }}天 / 仓位≤{{ (riskParams.force_empty_cooldown_position_cap * 100).toFixed(0) }}%</span></div>
+        <div class="at-risk-row"><span>次日高开卖出</span><span>{{ (riskParams.next_day_open_sell_pct * 100).toFixed(0) }}%(默认)</span></div>
       </div>
     </div>
   </div>
