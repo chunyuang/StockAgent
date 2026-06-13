@@ -64,7 +64,12 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         win_rate = len(wins) / total_trades * 100 if total_trades > 0 else 0
         avg_profit = sum(wins) / len(wins) if wins else 0
         avg_loss = sum(losses) / len(losses) if losses else 0
-        profit_loss_ratio = abs(avg_profit / avg_loss) if avg_loss != 0 else 99.99
+        # FIX4: 盈亏比用profit_amount均值比(和回测一致)
+        win_amounts = [a for a, p in zip(profit_amounts, profits) if p >= 0]
+        loss_amounts = [a for a, p in zip(profit_amounts, profits) if p < 0]
+        avg_win_amt = sum(win_amounts) / len(win_amounts) if win_amounts else 0
+        avg_loss_amt = sum(loss_amounts) / len(loss_amounts) if loss_amounts else 0
+        profit_loss_ratio = abs(avg_win_amt / avg_loss_amt) if avg_loss_amt != 0 else 99.99
         
         # 最大回撤(基于profit_pct收益率序列)
         cur_eq = 1.0  # 当前权益(1.0=100%起始)
@@ -83,6 +88,8 @@ async def get_analysis(start_date: str = None, end_date: str = None):
             "total_trades": total_trades,
             "total_profit": round(total_profit, 0),
             "win_rate": round(win_rate, 1),
+            "win_count": len(wins),  # FIX6: 直接返回盈亏笔数
+            "loss_count": len(losses),
             "profit_loss_ratio": round(min(profit_loss_ratio, 99.99), 2),
             "max_drawdown": round(max_dd, 2),
             "avg_profit_pct": round(sum(profits) / len(profits), 2) if profits else 0,
@@ -116,7 +123,11 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         reason_data = {}
         for s in sells:
             reason = s.get("reason", "其他") or "其他"
-            if "止损" in reason or "stop" in reason.lower():
+            if "跳空止损" in reason or "gap_stop" in reason.lower():
+                reason = "跳空止损"
+            elif "追踪止损" in reason or "trailing_stop" in reason.lower():
+                reason = "追踪止损"
+            elif "止损" in reason or "stop" in reason.lower():
                 reason = "止损"
             elif "止盈" in reason or "take_profit" in reason.lower():
                 reason = "止盈"
@@ -193,7 +204,11 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         try:
             # 从timeline汇总每只股票的净持仓
             holdings = {}  # ts_code -> {qty, total_cost, name, strategy}
-            async for doc in mongo_manager.db["scanner_timeline"].find({"action": {"$in": ["buy", "sell"]}}).sort([("trade_date", 1), ("time", 1)]):
+            # FIX1: positions也受日期过滤
+            pos_query = {"action": {"$in": ["buy", "sell"]}}
+            if df:
+                pos_query = {"$and": [pos_query, df]} if "$or" in df else {"action": {"$in": ["buy", "sell"]}, **df}
+            async for doc in mongo_manager.db["scanner_timeline"].find(pos_query).sort([("trade_date", 1), ("time", 1)]):
                 tc = doc.get("ts_code", "")
                 if not tc:
                     continue
@@ -336,9 +351,25 @@ async def get_stock_detail(ts_code: str):
                 if r.get("profit_amount") is not None:
                     profit_amounts.append(r["profit_amount"])
         
-        # 当前持仓
+        # 当前持仓(用剩余持仓均价,和持仓表一致)
         holding_qty = total_buy_qty - total_sell_qty
-        avg_cost = total_buy_amount / total_buy_qty if total_buy_qty > 0 else 0
+        # FIX3: 用剩余持仓均价而非总买入均价
+        qty_remaining = 0; cost_remaining = 0
+        for r in records:
+            action = r.get("action")
+            shares = r.get("shares", 0) or 0
+            price = r.get("price", 0) or 0
+            if action == "buy":
+                qty_remaining += shares
+                cost_remaining += shares * price
+            elif action == "sell":
+                avg_before = cost_remaining / qty_remaining if qty_remaining > 0 else 0
+                qty_remaining -= shares
+                if qty_remaining > 0:
+                    cost_remaining = qty_remaining * avg_before
+                else:
+                    cost_remaining = 0
+        avg_cost = cost_remaining / qty_remaining if qty_remaining > 0 else (total_buy_amount / total_buy_qty if total_buy_qty > 0 else 0)
         
         # 当前价格
         cur_price = avg_cost

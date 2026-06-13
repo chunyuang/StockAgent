@@ -52,7 +52,7 @@ const strategies = computed(() => analysisData.value?.strategy_contrib || [])
 const sellReasons = computed(() => analysisData.value?.sell_reasons || [])
 const monthly = computed(() => analysisData.value?.monthly || [])
 const dailyDetail = computed(() => analysisData.value?.daily_detail || [])
-const positions = computed(() => analysisData.value?.positions || [])
+const positions = computed(() => (analysisData.value?.positions || []).slice().sort((a: any, b: any) => (a.profit_pct || 0) - (b.profit_pct || 0)))
 const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: any) => s + r.count, 0) || 1)
 
 const dailyProfitChart = computed(() => {
@@ -98,8 +98,8 @@ const monthlyChart = computed(() => {
 
 const profitDistChart = computed(() => {
   const k = kpi.value; if (!k.total_trades) return null
-  const wins = Math.round(k.total_trades * k.win_rate / 100)
-  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 12 }, data: [{ name: '盈利', value: wins, itemStyle: { color: 'var(--stock-down)' } }, { name: '亏损', value: k.total_trades - wins, itemStyle: { color: 'var(--stock-up)' } }] }] }
+  const wins = k.win_count || Math.round(k.total_trades * k.win_rate / 100)
+  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 12 }, data: [{ name: '盈利', value: wins, itemStyle: { color: 'var(--stock-down)' } }, { name: '亏损', value: k.loss_count || (k.total_trades - wins), itemStyle: { color: 'var(--stock-up)' } }] }] }
 })
 
 const selectedDay = ref('')
@@ -191,7 +191,7 @@ async function showStockDetail(tsCode: string) {
           <div class="chart-section"><div class="chart-title">💼 持仓盈亏分布 <span class="ana-stat">{{ positions.length }}只</span></div><VChart v-if="positionChart" :option="positionChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="空仓或无数据" :image-size="40" /></div>
           <div v-if="positions.length" class="chart-section">
             <div class="chart-title">📋 持仓明细</div>
-            <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>现价</th><th>盈亏%</th><th>盈亏额</th><th>市值</th><th></th></tr></thead><tbody>
+            <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>最新收盘</th><th>盈亏%</th><th>盈亏额</th><th>市值</th><th></th></tr></thead><tbody>
               <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price }}</td><td>¥{{ p.current_price }}</td><td :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</td><td :class="p.profit_amount >= 0 ? 'up' : 'down'">¥{{ p.profit_amount.toLocaleString() }}</td><td>¥{{ p.market_value.toLocaleString() }}</td><td><ElButton size="small" text type="primary" @click="showStockDetail(p.ts_code)">详情</ElButton></td></tr>
             </tbody></table>
           </div>
