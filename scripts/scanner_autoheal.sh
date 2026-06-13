@@ -84,6 +84,9 @@ except:
 
 if [ "$START_OK" = "true" ]; then
     log "✅ 扫描器启动成功"
+elif echo "$START_RESULT" | grep -q '非交易时间'; then
+    log "ℹ️ 非交易时间，启动被拒绝(正常行为)"
+    exit 0
     # 等待2秒后验证
     sleep 2
     VERIFY=$(curl -sf "$API_BASE/scanner/status" 2>/dev/null | python3 -c "
