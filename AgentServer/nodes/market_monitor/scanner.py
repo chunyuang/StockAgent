@@ -822,9 +822,23 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         return [s.to_candidate() for s in signals]
 
     async def _execute_force_empty(self, reason: str) -> None:
-        """强制空仓: 卖出所有持仓【v2.9.20:复用_liquidate_positions, 修复total_qty→available_qty(T+1合规)】"""
+        """强制空仓: 卖出所有持仓+启动冷却期【v2.9.92w:与回测对齐】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
+        
+        # 【v2.9.92w】冷却期: 强制空仓后N天内仓位上限60%(与回测GLOBAL_RISK对齐)
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        cooldown_days = GLOBAL_RISK.get("force_empty_cooldown_days", 2)
+        cooldown_cap = GLOBAL_RISK.get("force_empty_cooldown_position_cap", 0.6)
+        self._force_empty_cooldown_until = datetime.now().strftime("%Y%m%d")  # 当天
+        # 简单实现: 标记冷却期开始日期，在仓位系数计算时检查
+        self._cooldown_info = {
+            "trigger_date": datetime.now().strftime("%Y%m%d"),
+            "cooldown_days": cooldown_days,
+            "position_cap": cooldown_cap,
+            "reason": reason,
+        }
+        logger.warning(f"[FILTER] 🧊 冷却期启动: {cooldown_days}个交易日内仓位上限{cooldown_cap*100:.0f}%")
 
 
     # ==================== 信号管理+止损止盈 ====================

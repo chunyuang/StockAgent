@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from enum import Enum
+from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
 
 logger = logging.getLogger("broker.simulated")
 
@@ -105,8 +106,9 @@ class SimulatedBroker:
     # 限制
     LOT_SIZE = 100             # 整手
     KCB_LOT_SIZE = 200         # 科创板最小200股
-    MAX_POSITION_RATIO = 0.15  # 单票最大15%仓位
-    MAX_TOTAL_RATIO = 0.7      # 总仓位上限70%
+    # 【v2.9.92w】从strategy_defaults读取，不硬编码(与回测对齐)
+    MAX_POSITION_RATIO = GLOBAL_RISK.get("max_position_per_stock", 0.35)  # 单票最大仓位(回测35%)
+    MAX_TOTAL_RATIO = GLOBAL_RISK.get("max_total_position", 0.75)       # 总仓位上限(回测75%)
 
     # 涨跌停比例
     LIMIT_RATIO_MAIN = 0.10       # 主板±10%
@@ -473,10 +475,15 @@ class SimulatedBroker:
         """买入检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】"""
         lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
 
-        # 涨停不可市价买入
+        # 【v2.9.92w】涨停可下单但成交不确定(与回测hit_probability对齐，与实盘一致)
+        # 旧: 硬拒绝涨停买入 → 842笔首板打板全被拒
+        # 新: 允许下单，在_execute_buy中模拟成交概率(按strategy_defaults的hit_probability)
+        # 实盘中涨停价可以挂买单，能不能成交看排单情况
         limit_info = self._limit_prices.get(ts_code, {})
-        if limit_info and current_price >= limit_info.get("upper", 999999):
-            return False, "涨停不可买入", quantity
+        at_limit_up = limit_info and current_price >= limit_info.get("upper", 999999)
+        if at_limit_up:
+            # 标记涨停买入，后续_execute_buy按概率决定是否成交
+            pass
 
         # 仓位检查(【v2.9.84修复】估算金额含佣金, 避免扣费后资金不足)
         est_amount = quantity * current_price * (1 + self.COMMISSION_RATE)
@@ -573,6 +580,35 @@ class SimulatedBroker:
 
         if fill_price <= 0:
             return self._reject_order(order, "撮合失败")
+
+        # 【v2.9.92w】涨停成交概率模拟(与回测hit_probability对齐)
+        # 实盘中涨停可以下单但未必成交，这里按回测的成交概率模型模拟
+        if side_enum == OrderSide.BUY:
+            limit_info = self._limit_prices.get(order.ts_code, {})
+            at_limit_up = limit_info and current_price >= limit_info.get("upper", 999999)
+            if at_limit_up:
+                import random
+                from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+                strat_cfg = STRATEGY_CONFIGS.get(strategy, {})
+                params = strat_cfg.get("params", {})
+                # 判断涨停类型和成交概率
+                opening_pct = 0  # 简化：用实时数据无法精确判断开盘涨幅
+                if hasattr(self, '_realtime_cache') and order.ts_code in (self._realtime_cache or {}):
+                    rt = self._realtime_cache[order.ts_code]
+                    pre_close = rt.get("pre_close", 0)
+                    if pre_close > 0:
+                        opening_pct = (current_price / pre_close - 1) * 100
+                
+                if opening_pct >= 8:
+                    hit_prob = params.get("hit_probability_fast", 0.20)
+                elif opening_pct >= 2:
+                    hit_prob = params.get("hit_probability_normal", 0.45)
+                else:
+                    hit_prob = params.get("hit_probability_slow", 0.55)
+                
+                if random.random() > hit_prob:
+                    return self._reject_order(order, f"涨停未成交(成交概率{hit_prob*100:.0f}%)")
+                logger.info(f"[BROKER] 涨停成交! {order.ts_code} 概率{hit_prob*100:.0f}% 策略={strategy}")
 
         order.filled_qty = quantity
         order.filled_price = fill_price
