@@ -898,9 +898,78 @@ class RuntimePersistence:
         # Scanner运行时状态恢复
         await self.load_runtime_snapshot()
 
+        _pos_count = len(scanner._broker.get_positions()) if scanner._broker else 0
         _ts_count = len(scanner._safe_copy_trailing_stops())
-        logger.info(f"[SCANNER] 持仓: {len(scanner._broker.get_positions()) if scanner._broker else 0}个, "
-                    f"追踪止损: {_ts_count}个")
+        
+        # 【v2.9.92n】持仓丢失检测：如果MongoDB恢复0持仓但broker_orders有未平仓买入，说明持仓丢失
+        if _pos_count == 0 and scanner._broker:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    # 从broker_orders重建持仓
+                    from collections import defaultdict
+                    holdings = defaultdict(lambda: {"qty": 0, "total_cost": 0, "name": "", "strategy": ""})
+                    async for doc in mongo_manager.db["broker_orders"].find(
+                        {"account_id": scanner._broker.account.account_id}
+                    ):
+                        tc = doc.get("ts_code", "")
+                        side = doc.get("side", "")
+                        qty = doc.get("filled_qty", doc.get("quantity", 0))
+                        price = doc.get("filled_price", doc.get("price", 0))
+                        if side == "buy" and tc:
+                            holdings[tc]["qty"] += qty
+                            holdings[tc]["total_cost"] += qty * price
+                            holdings[tc]["name"] = doc.get("stock_name", holdings[tc]["name"])
+                            holdings[tc]["strategy"] = doc.get("strategy", holdings[tc]["strategy"])
+                        elif side == "sell" and tc:
+                            holdings[tc]["qty"] -= qty
+                    
+                    restored_count = 0
+                    for tc, h in holdings.items():
+                        if h["qty"] <= 0:
+                            continue
+                        avg_cost = h["total_cost"] / h["qty"] if h["qty"] > 0 else 0
+                        # 写入broker_positions
+                        await mongo_manager.db["broker_positions"].update_one(
+                            {"account_id": scanner._broker.account.account_id, "ts_code": tc},
+                            {"$set": {
+                                "account_id": scanner._broker.account.account_id,
+                                "ts_code": tc,
+                                "stock_name": h["name"],
+                                "total_qty": h["qty"],
+                                "available_qty": h["qty"],
+                                "avg_cost": avg_cost,
+                                "current_price": 0,
+                                "profit_pct": 0,
+                                "today_buy_qty": 0,
+                                "strategy": h["strategy"],
+                                "restored_from_orders": True,
+                                "restored_at": datetime.now().isoformat(),
+                            }},
+                            upsert=True,
+                        )
+                        # 也加到内存
+                        from common.models.position import Position
+                        scanner._broker.positions[tc] = Position(
+                            ts_code=tc,
+                            stock_name=h["name"],
+                            total_qty=h["qty"],
+                            available_qty=h["qty"],
+                            avg_cost=avg_cost,
+                            current_price=0,
+                            profit_pct=0,
+                            strategy=h["strategy"],
+                        )
+                        restored_count += 1
+                    
+                    if restored_count > 0:
+                        _pos_count = restored_count
+                        logger.warning(f"[SCANNER] ⚠️ 持仓丢失检测：从broker_orders恢复了{restored_count}只持仓！")
+                        logger.warning(f"[SCANNER] 原因：进程崩溃时save_state()未执行，导致broker_positions为空")
+            except Exception as e:
+                logger.warning(f"[SCANNER] 持仓丢失检测失败: {e}")
+        
+        logger.info(f"[SCANNER] 持仓: {_pos_count}个, 追踪止损: {_ts_count}个")
 
     async def sync_close_data_to_mongo(self, trade_date: str) -> None:
         """收盘后同步内存数据到MongoDB(limit_list + daily_basic)
