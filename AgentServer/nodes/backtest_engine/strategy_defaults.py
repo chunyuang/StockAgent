@@ -33,6 +33,8 @@ GLOBAL_RISK = {
     "intraday_lock_pullback_pct": 0.025,    # 盘中利润锁定:从高点回撤≥2.5%(V68:从2%→2.5%,2%回撤在超短线中偏敏感,日内2%回撤很常见;2.5%减少误触发,只在真正大幅回撤时触发;V69验证3%过宽导致-21%收益下降,2.5%仍是最优)
     "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润(保持不变)
     "hold_protection_threshold": 0.06,     # 【V67:从5%→6%】持仓保护阈值提升:盈利≥6%的股不让调仓卖出;5%保护了龙头低吸低利润股,但6%以上的盈利股更有可能继续上涨,5%→6%减少被调仓卖出的潜在大牛
+    "enable_ma60_filter": True,       # 【v2.9.92x】大盘MA60过滤:大盘跌破MA60时仓位×0.5(与回测对齐)
+    "sector_concentration_top_n": 3,  # 【v2.9.92x】板块集中度:同行业最多N只(与回测对齐)
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
     "risk_free_rate": 0.03,        # 【V64-P2-3:无风险利率,用于夏普/索提诺计算(从0.03/252硬编码提升为可配置参数)】
     # 【V67:情绪仓位单一来源(Single Source of Truth)】
