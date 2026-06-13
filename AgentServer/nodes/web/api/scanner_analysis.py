@@ -188,47 +188,64 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                 "win_rate": round(info["wins"] / info["trades"] * 100, 1) if info["trades"] else 0,
             })
         
-        # 7. 当前持仓(实时优先,MongoDB补充)
+        # 7. 当前持仓(从scanner_timeline推算: buy累计-sell累计)
         positions = []
         try:
-            from nodes.web.api.scanner_shared import _scanner_instance
-            scanner = _scanner_instance
-            if scanner and hasattr(scanner, '_broker') and scanner._broker:
-                name_map = getattr(scanner, '_stock_name_map', {})
-                for p in scanner._broker.get_positions():
-                    positions.append({
-                        "ts_code": p.ts_code,
-                        "stock_name": p.stock_name or name_map.get(p.ts_code, ""),
-                        "strategy": _norm_strat(p.strategy),
-                        "shares": p.total_qty,
-                        "cost_price": round(p.avg_cost, 2),
-                        "current_price": round(p.current_price, 2),
-                        "profit_pct": round(p.profit_pct, 2),
-                        "profit_amount": round((p.current_price - p.avg_cost) * p.total_qty, 0),
-                        "market_value": round(p.current_price * p.total_qty, 0),
-                    })
+            # 从timeline汇总每只股票的净持仓
+            holdings = {}  # ts_code -> {qty, total_cost, name, strategy}
+            async for doc in mongo_manager.db["scanner_timeline"].find({"action": {"$in": ["buy", "sell"]}}).sort("time", 1):
+                tc = doc.get("ts_code", "")
+                if not tc:
+                    continue
+                action = doc.get("action")
+                shares = doc.get("shares", 0) or 0
+                price = doc.get("price", 0) or doc.get("filled_price", 0) or 0
+                
+                if tc not in holdings:
+                    holdings[tc] = {"qty": 0, "total_cost": 0, "name": doc.get("stock_name", ""), "strategy": doc.get("strategy", ""), "trades": 0}
+                
+                if action == "buy":
+                    holdings[tc]["qty"] += shares
+                    holdings[tc]["total_cost"] += shares * price
+                    holdings[tc]["strategy"] = doc.get("strategy", holdings[tc]["strategy"])
+                    holdings[tc]["trades"] += 1
+                elif action == "sell":
+                    holdings[tc]["qty"] -= shares
+                    if holdings[tc]["qty"] > 0:
+                        holdings[tc]["total_cost"] -= shares * price
+                    else:
+                        holdings[tc]["total_cost"] = 0
+            
+            # 获取最新价格(从daily_basic或current)
+            for tc, h in holdings.items():
+                if h["qty"] <= 0:
+                    continue
+                avg_cost = h["total_cost"] / h["qty"] if h["qty"] > 0 else 0
+                # 尝试获取当前价格
+                cur_price = avg_cost  # 默认用成本价
+                try:
+                    latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                        {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
+                    )
+                    if latest and latest.get("close"):
+                        cur_price = float(latest["close"])
+                except Exception:
+                    pass
+                
+                profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
+                positions.append({
+                    "ts_code": tc,
+                    "stock_name": h["name"],
+                    "strategy": _norm_strat(h["strategy"]),
+                    "shares": h["qty"],
+                    "cost_price": round(avg_cost, 2),
+                    "current_price": round(cur_price, 2),
+                    "profit_pct": round(profit_pct, 2),
+                    "profit_amount": round((cur_price - avg_cost) * h["qty"], 0),
+                    "market_value": round(cur_price * h["qty"], 0),
+                })
         except Exception:
             pass
-        
-        # 实时positions为空时,从MongoDB补充
-        if not positions:
-            try:
-                async for doc in mongo_manager.db["broker_positions"].find():
-                    ts = doc.get("ts_code", "")
-                    name = doc.get("stock_name", "")
-                    cost = doc.get("avg_cost", 0) or 0
-                    cur = doc.get("current_price", 0) or 0
-                    qty = doc.get("total_qty", 0) or 0
-                    positions.append({
-                        "ts_code": ts, "stock_name": name,
-                        "strategy": _norm_strat(doc.get("strategy", "")),
-                        "shares": qty, "cost_price": round(cost, 2), "current_price": round(cur, 2),
-                        "profit_pct": round((cur - cost) / cost * 100, 2) if cost > 0 else 0,
-                        "profit_amount": round((cur - cost) * qty, 0),
-                        "market_value": round(cur * qty, 0),
-                    })
-            except Exception:
-                pass
         
         return {"success": True, "data": {
             "kpi": kpi,
