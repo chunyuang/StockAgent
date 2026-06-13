@@ -149,6 +149,7 @@ class RiskWatchdog:
             "signal_output": self._check_signal_output(),
             "drawdown": await self._check_drawdown(),
             "position_health": await self._check_position_health(),
+            "stop_loss_breach": await self._check_stop_loss_breach(),
             "market_latency": self._check_market_latency(),
             "data_source": self._check_data_source(),
         }
@@ -347,6 +348,71 @@ class RiskWatchdog:
             value=value, threshold=threshold,
             message="正常", last_check_time=now,
         )
+
+    async def _check_stop_loss_breach(self) -> HealthCheck:
+        """【v2.9.92x】检查持仓是否跌破止损价但未被止损(6/10事故根因防护)"""
+        now = time.time()
+        
+        if not self._scanner or not self._scanner._broker:
+            return HealthCheck(
+                name="stop_loss_breach", status=HealthStatus.HEALTHY,
+                value="N/A", threshold="无跌破止损",
+                message="Broker未初始化", last_check_time=now)
+        
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return HealthCheck(
+                    name="stop_loss_breach", status=HealthStatus.HEALTHY,
+                    value="N/A", threshold="无跌破止损",
+                    message="MongoDB未连接", last_check_time=now)
+            
+            positions = self._scanner._broker.get_positions()
+            if not positions:
+                return HealthCheck(
+                    name="stop_loss_breach", status=HealthStatus.HEALTHY,
+                    value="0只持仓", threshold="无跌破止损",
+                    message="无持仓", last_check_time=now)
+            
+            breached = []
+            for pos in positions:
+                # 从strategy_scorer获取止损价
+                risk = self._scanner._get_strategy_risk(pos.strategy) if hasattr(self._scanner, '_get_strategy_risk') else {}
+                sl_pct = risk.get('stop_loss_pct', 0.03)
+                stop_price = pos.avg_cost * (1 - sl_pct)
+                
+                if pos.current_price <= 0 or pos.avg_cost <= 0:
+                    continue
+                    
+                if pos.current_price < stop_price:
+                    loss_pct = (pos.avg_cost - pos.current_price) / pos.avg_cost * 100
+                    breached.append(f"{pos.ts_code}({pos.stock_name}) 亏{loss_pct:.1f}% 止损{stop_price:.2f}")
+            
+            if breached:
+                msg = f"🔴 {len(breached)}只持仓跌破止损价未被止损: {', '.join(breached[:3])}"
+                logger.warning(f"[WATCHDOG] {msg}")
+                # 发送CRITICAL告警
+                if self._alert_callback:
+                    await self._alert_callback({
+                        "level": "CRITICAL",
+                        "type": "stop_loss_breach",
+                        "message": msg,
+                        "breached": breached,
+                    })
+                return HealthCheck(
+                    name="stop_loss_breach", status=HealthStatus.CRITICAL,
+                    value=f"{len(breached)}只破止损", threshold="0只",
+                    message=msg, last_check_time=now)
+            
+            return HealthCheck(
+                name="stop_loss_breach", status=HealthStatus.HEALTHY,
+                value="0只破止损", threshold="0只",
+                message="所有持仓在止损价之上", last_check_time=now)
+        except Exception as e:
+            return HealthCheck(
+                name="stop_loss_breach", status=HealthStatus.HEALTHY,
+                value=f"检查失败: {e}", threshold="0只",
+                message=f"止损检查异常(非关键): {e}", last_check_time=now)
 
     async def _check_position_health(self) -> HealthCheck:
         """检查持仓健康(编排方法)"""

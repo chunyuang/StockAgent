@@ -249,15 +249,15 @@ class SimulatedBroker:
             for o in self.orders if o.trade_date == today
         ]
         if today_orders:
-            existing_ids = set()
-            async for doc in self._mongo_db["broker_orders"].find(
-                {"account_id": self.account.account_id, "trade_date": {"$in": [today, int(today)]}},
-                {"order_id": 1}
-            ):
-                existing_ids.add(doc["order_id"])
-            new_orders = [o for o in today_orders if o["order_id"] not in existing_ids]
-            if new_orders:
-                await self._mongo_db["broker_orders"].insert_many(new_orders)
+            # 【v2.9.92x】改用upsert防止并发重复写入(000517重复订单根因)
+            # 旧逻辑: 先查existing_ids再insert_many，两个并发save_state都查到空集→重复insert
+            # 新逻辑: 用update_one+upsert逐条写入，order_id唯一索引做最终保底
+            for o in today_orders:
+                await self._mongo_db["broker_orders"].update_one(
+                    {"order_id": o["order_id"]},
+                    {"$set": o},
+                    upsert=True,
+                )
 
     async def load_state(self) -> bool:
         """从MongoDB恢复状态(断电/重启后)"""
@@ -409,6 +409,39 @@ class SimulatedBroker:
             pos.current_price = price
             if pos.avg_cost > 0:
                 pos.profit_pct = (price - pos.avg_cost) / pos.avg_cost * 100
+
+    async def refresh_close_prices(self) -> int:
+        """【v2.9.92x】收盘后用MongoDB当日收盘价刷新持仓(解决收盘后current_price不更新问题)"""
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return 0
+        
+        from datetime import datetime
+        today = int(datetime.now().strftime("%Y%m%d"))
+        
+        updated = 0
+        for ts_code, pos in self.positions.items():
+            try:
+                doc = await mongo_manager.find_one(
+                    "stock_daily_ak_full",
+                    {"ts_code": ts_code, "trade_date": today},
+                    {"_id": 0, "close": 1}
+                )
+                if doc and doc.get("close", 0) > 0:
+                    close_price = doc["close"]
+                    self._realtime_prices[ts_code] = close_price
+                    pos.current_price = close_price
+                    pos.profit_pct = (close_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
+                    updated += 1
+            except Exception:
+                pass
+        
+        if updated > 0:
+            self._recalc_account()
+            await self.save_state(force=True)
+            logger.info(f"[BROKER] 收盘价刷新: {updated}只持仓已更新")
+        
+        return updated
 
     def get_account(self) -> Account:
         """获取账户信息"""
