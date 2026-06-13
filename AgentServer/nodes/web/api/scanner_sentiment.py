@@ -196,7 +196,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
             # 1. 收集所有scan_traces(含L3情绪数据)
             raw_points = []
             async for doc in db["scan_traces"].find(
-                {"trade_date": date},
+                {"trade_date": int(date)},
                 {"scan_time": 1, "layer_details": 1, "summary": 1, "is_debug": 1}
             ).sort("scan_time", 1):
                 score, period, position_ratio = _parse_l3(doc)
