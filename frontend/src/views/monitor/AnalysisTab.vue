@@ -1,14 +1,21 @@
 <script setup lang="ts">
 /**
  * AnalysisTab — 市场监听结果分析
- * 参考回测结果分析，对实盘交易数据进行综合KPI、策略贡献、卖出原因、月度收益分析
- * v2.9.92g
+ * 参考回测结果分析，含KPI卡片、策略贡献、卖出原因、月度收益、累计收益曲线、每日明细
+ * v2.9.92h: 修复数据对齐、持仓数据、图表
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElDatePicker, ElTag, ElEmpty } from 'element-plus'
 import { ref, computed, onMounted, watch } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent } from 'echarts/components'
+
+use([CanvasRenderer, LineChart, BarChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
 const m = useScannerMonitorInject()
 const { activeTab } = m
@@ -16,9 +23,8 @@ const { activeTab } = m
 const loading = ref(false)
 const dateRange = ref<[string, string] | null>(null)
 const analysisData = ref<any>(null)
-const dateLabel = computed(() => analysisData.value?.date_range || '全部数据')
+const selectedDay = ref('')
 
-// 默认最近7天
 function defaultDateRange(): [string, string] {
   const now = new Date()
   const week = new Date(now.getTime() - 7 * 86400000)
@@ -30,9 +36,9 @@ async function fetchAnalysis() {
   loading.value = true
   try {
     let url = '/scanner/analysis'
-    if (dateRange.value) {
-      const [s, e] = dateRange.value
-      url += `?start_date=${s.replace(/-/g, '')}&end_date=${e.replace(/-/g, '')}`
+    const dr = dateRange.value
+    if (dr && dr[0] && dr[1]) {
+      url += `?start_date=${dr[0].replace(/-/g, '')}&end_date=${dr[1].replace(/-/g, '')}`
     }
     const r = await api.get(url)
     const p = parseResponse(r)
@@ -51,9 +57,66 @@ const kpi = computed(() => analysisData.value?.kpi || {})
 const strategies = computed(() => analysisData.value?.strategy_contrib || [])
 const sellReasons = computed(() => analysisData.value?.sell_reasons || [])
 const monthly = computed(() => analysisData.value?.monthly || [])
+const dailyDetail = computed(() => analysisData.value?.daily_detail || [])
 const positions = computed(() => analysisData.value?.positions || [])
-
 const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: any) => s + r.count, 0) || 1)
+
+// 累计收益曲线
+const cumProfitChart = computed(() => {
+  const dd = dailyDetail.value
+  if (!dd.length) return null
+  const dates = dd.map((d: any) => d.date)
+  const cumProfits = dd.map((d: any) => d.cum_profit ?? d.profit)
+  const dailyProfits = dd.map((d: any) => d.profit)
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['每日盈亏', '累计盈亏'] },
+    grid: { left: 60, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: 'category', data: dates },
+    yAxis: [
+      { type: 'value', name: '¥' },
+      { type: 'value', name: '累计¥' },
+    ],
+    series: [
+      { name: '每日盈亏', type: 'bar', data: dailyProfits, itemStyle: { color: (p: any) => p.value >= 0 ? '#f5222d' : '#52c41a' } },
+      { name: '累计盈亏', type: 'line', yAxisIndex: 1, data: cumProfits, smooth: true, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 } },
+    ],
+  }
+})
+
+// 卖出原因饼图
+const sellReasonChart = computed(() => {
+  const rs = sellReasons.value
+  if (!rs.length) return null
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'],
+      label: { formatter: '{b}\n{c}笔', fontSize: 11 },
+      data: rs.map((r: any) => ({
+        name: r.reason, value: r.count,
+        itemStyle: { color: r.profit >= 0 ? '#f5222d' : '#52c41a' }
+      })),
+    }],
+  }
+})
+
+// 每日明细展开
+const dailyTrades = ref<any[]>([])
+const dailyTradesLoading = ref(false)
+async function showDayDetail(date: string) {
+  if (selectedDay.value === date) { selectedDay.value = ''; dailyTrades.value = []; return }
+  selectedDay.value = date
+  dailyTradesLoading.value = true
+  try {
+    const d = date.replace(/-/g, '')
+    const r = await api.get(`/scanner/timeline/history?date=${d}`)
+    const p = parseResponse(r)
+    if (p.success) {
+      dailyTrades.value = (p.data || []).filter((t: any) => t.action !== 'blocked')
+    }
+  } catch {} finally { dailyTradesLoading.value = false }
+}
 </script>
 
 <template>
@@ -62,18 +125,15 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
       <!-- 工具栏 -->
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <span class="ana-date-label">{{ dateLabel }}</span>
         <ElDatePicker v-model="dateRange" type="daterange" start-placeholder="开始" end-placeholder="结束" size="small" value-format="YYYY-MM-DD" style="width:220px" :disabled-date="(d: Date) => d > new Date()" />
         <ElButton size="small" type="primary" @click="fetchAnalysis" :loading="loading">刷新</ElButton>
-        <span class="ana-note">数据来自scanner_timeline已平仓记录</span>
       </div>
 
-      <div v-if="!analysisData && !loading" class="ana-empty">
-        <ElEmpty description="暂无分析数据，点击刷新加载" />
-      </div>
+      <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="点击刷新加载数据" /></div>
+      <div v-if="loading" class="ana-loading">加载中...</div>
 
-      <template v-if="analysisData">
-        <!-- KPI 指标卡 -->
+      <template v-if="analysisData && !loading">
+        <!-- KPI -->
         <div class="ana-kpis">
           <div class="kpi-card" :class="kpi.total_profit >= 0 ? 'kpi-up' : 'kpi-down'">
             <div class="kpi-label">累计盈亏</div>
@@ -83,74 +143,95 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
             <div class="kpi-label">胜率</div>
             <div class="kpi-val">{{ (kpi.win_rate || 0).toFixed(1) }}%</div>
           </div>
-          <div class="kpi-card kpi-neutral">
-            <div class="kpi-label">交易笔数</div>
-            <div class="kpi-val">{{ kpi.total_trades || 0 }}</div>
-          </div>
-          <div class="kpi-card" :class="(kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-up' : 'kpi-warn'">
-            <div class="kpi-label">盈亏比</div>
-            <div class="kpi-val">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</div>
-          </div>
-          <div class="kpi-card kpi-warn">
-            <div class="kpi-label">最大回撤</div>
-            <div class="kpi-val">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</div>
-          </div>
-          <div class="kpi-card kpi-neutral">
-            <div class="kpi-label">平均盈亏%</div>
-            <div class="kpi-val" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</div>
-          </div>
+          <div class="kpi-card kpi-neutral"><div class="kpi-label">交易笔数</div><div class="kpi-val">{{ kpi.total_trades || 0 }}</div></div>
+          <div class="kpi-card" :class="(kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-up' : 'kpi-warn'"><div class="kpi-label">盈亏比</div><div class="kpi-val">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</div></div>
+          <div class="kpi-card kpi-warn"><div class="kpi-label">最大回撤</div><div class="kpi-val">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</div></div>
+          <div class="kpi-card kpi-neutral"><div class="kpi-label">均盈亏%</div><div class="kpi-val" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</div></div>
         </div>
 
         <div class="ana-grid">
-          <!-- 左: 策略贡献 + 卖出原因 -->
+          <!-- 左栏 -->
+          <div class="ana-col">
+            <!-- 累计收益曲线 -->
+            <div class="ana-panel">
+              <div class="ana-sec">📈 每日盈亏 & 累计</div>
+              <VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" />
+              <div v-else class="ana-empty-sm">暂无数据</div>
+            </div>
+
+            <!-- 每日明细 -->
+            <div class="ana-panel">
+              <div class="ana-sec">📋 每日明细 <span class="ana-stat">点击展开</span></div>
+              <div v-if="!dailyDetail.length" class="ana-empty-sm">暂无数据</div>
+              <table class="ana-tbl" v-else>
+                <thead><tr><th>日期</th><th>笔数</th><th>胜率</th><th>盈亏</th></tr></thead>
+                <tbody>
+                  <template v-for="d in dailyDetail" :key="d.date">
+                    <tr class="dl-row" :class="d.profit >= 0 ? 'row-up' : 'row-down'" @click="showDayDetail(d.date)" style="cursor:pointer">
+                      <td>{{ d.date }} <span style="font-size:9px;color:var(--text-tertiary)">{{ selectedDay === d.date ? '▲' : '▼' }}</span></td>
+                      <td>{{ d.trades }}</td>
+                      <td :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</td>
+                      <td :class="d.profit >= 0 ? 'up' : 'down'">¥{{ d.profit.toLocaleString() }}</td>
+                    </tr>
+                    <tr v-if="selectedDay === d.date">
+                      <td colspan="4" style="padding:4px 8px;background:var(--bg-muted)">
+                        <div v-if="dailyTradesLoading" style="font-size:11px;color:var(--text-tertiary)">加载中...</div>
+                        <div v-else-if="!dailyTrades.length" style="font-size:11px;color:var(--text-tertiary)">无交易记录</div>
+                        <table v-else class="sub-tbl">
+                          <thead><tr><th>时间</th><th>方向</th><th>代码</th><th>名称</th><th>盈亏%</th><th>盈亏额</th></tr></thead>
+                          <tbody>
+                            <tr v-for="(t, i) in dailyTrades" :key="i">
+                              <td>{{ t.time }}</td>
+                              <td :class="t.action === 'buy' ? 'up' : t.action === 'sell' ? 'down' : ''">{{ t.action === 'buy' ? '买' : t.action === 'sell' ? '卖' : '⛔' }}</td>
+                              <td>{{ t.ts_code?.slice(0,6) }}</td>
+                              <td>{{ t.stock_name }}</td>
+                              <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(1) + '%' : '-' }}</td>
+                              <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount.toFixed(0) : '-' }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 右栏 -->
           <div class="ana-col">
             <!-- 策略贡献 -->
             <div class="ana-panel">
               <div class="ana-sec">🔄 策略贡献</div>
               <div v-if="!strategies.length" class="ana-empty-sm">暂无数据</div>
-              <div class="ana-table">
-                <div class="at-header"><span>策略</span><span>笔数</span><span>胜率</span><span>盈亏</span><span>均盈亏%</span></div>
-                <div v-for="s in strategies" :key="s.strategy" class="at-row" :class="s.profit >= 0 ? 'row-up' : 'row-down'">
-                  <span class="at-strat">{{ s.strategy }}</span>
-                  <span>{{ s.trades }}</span>
-                  <span :class="s.win_rate >= 50 ? 'up' : 'down'">{{ s.win_rate.toFixed(1) }}%</span>
-                  <span :class="s.profit >= 0 ? 'up' : 'down'">¥{{ s.profit.toLocaleString() }}</span>
-                  <span :class="s.avg_profit_pct >= 0 ? 'up' : 'down'">{{ s.avg_profit_pct.toFixed(2) }}%</span>
-                </div>
-              </div>
+              <table class="ana-tbl" v-else>
+                <thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead>
+                <tbody>
+                  <tr v-for="s in strategies" :key="s.strategy" :class="s.profit >= 0 ? 'row-up' : 'row-down'">
+                    <td class="td-strat">{{ s.strategy }}</td>
+                    <td>{{ s.trades }}</td>
+                    <td :class="s.win_rate >= 50 ? 'up' : 'down'">{{ s.win_rate.toFixed(1) }}%</td>
+                    <td :class="s.profit >= 0 ? 'up' : 'down'">¥{{ s.profit.toLocaleString() }}</td>
+                    <td :class="s.avg_profit_pct >= 0 ? 'up' : 'down'">{{ s.avg_profit_pct.toFixed(2) }}%</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             <!-- 卖出原因 -->
             <div class="ana-panel">
               <div class="ana-sec">📤 卖出原因</div>
               <div v-if="!sellReasons.length" class="ana-empty-sm">暂无数据</div>
-              <div class="reason-bars">
-                <div v-for="r in sellReasons" :key="r.reason" class="reason-row">
-                  <span class="reason-name">{{ r.reason }}</span>
-                  <div class="reason-bar-wrap">
-                    <div class="reason-bar" :class="r.profit >= 0 ? 'bar-up' : 'bar-down'" :style="{ width: (r.count / totalReasonCount * 100) + '%' }"></div>
-                  </div>
-                  <span class="reason-count">{{ r.count }}笔</span>
-                  <span class="reason-profit" :class="r.profit >= 0 ? 'up' : 'down'">¥{{ r.profit.toLocaleString() }}</span>
+              <div v-else class="reason-split">
+                <div class="reason-chart">
+                  <VChart v-if="sellReasonChart" :option="sellReasonChart" autoresize style="height:180px;width:100%" />
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 右: 月度收益 + 持仓 -->
-          <div class="ana-col">
-            <!-- 月度收益 -->
-            <div class="ana-panel">
-              <div class="ana-sec">📅 月度收益</div>
-              <div v-if="!monthly.length" class="ana-empty-sm">暂无数据</div>
-              <div class="monthly-list">
-                <div class="ml-header"><span>月份</span><span>盈亏</span><span>累计</span><span>笔数</span><span>胜率</span></div>
-                <div v-for="m in monthly" :key="m.month" class="ml-row" :class="m.profit >= 0 ? 'row-up' : 'row-down'">
-                  <span>{{ m.month }}</span>
-                  <span :class="m.profit >= 0 ? 'up' : 'down'">¥{{ m.profit.toLocaleString() }}</span>
-                  <span :class="m.cum_profit >= 0 ? 'up' : 'down'">¥{{ m.cum_profit.toLocaleString() }}</span>
-                  <span>{{ m.trades }}</span>
-                  <span :class="m.win_rate >= 50 ? 'up' : 'down'">{{ m.win_rate }}%</span>
+                <div class="reason-list">
+                  <div v-for="r in sellReasons" :key="r.reason" class="reason-row">
+                    <span class="reason-name">{{ r.reason }}</span>
+                    <span class="reason-count">{{ r.count }}笔</span>
+                    <span class="reason-profit" :class="r.profit >= 0 ? 'up' : 'down'">{{ r.profit >= 0 ? '+' : '' }}¥{{ r.profit.toLocaleString() }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -158,32 +239,35 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
             <!-- 当前持仓 -->
             <div class="ana-panel">
               <div class="ana-sec">💼 当前持仓 <span class="ana-stat">{{ positions.length }}只</span></div>
-              <div v-if="!positions.length" class="ana-empty-sm">空仓</div>
-              <div class="pos-list">
-                <div class="pos-header"><span>代码</span><span>名称</span><span>策略</span><span>盈亏%</span><span>市值</span></div>
-                <div v-for="p in positions" :key="p.ts_code" class="pos-row" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'">
-                  <span class="pos-code">{{ p.ts_code?.slice(0,6) }}</span>
-                  <span class="pos-name">{{ p.stock_name }}</span>
-                  <span class="pos-strat">{{ p.strategy }}</span>
-                  <span :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</span>
-                  <span>¥{{ (p.market_value || 0).toLocaleString() }}</span>
-                </div>
-              </div>
+              <div v-if="!positions.length" class="ana-empty-sm">空仓或scanner未运行</div>
+              <table class="ana-tbl" v-else>
+                <thead><tr><th>代码</th><th>名称</th><th>盈亏%</th><th>市值</th></tr></thead>
+                <tbody>
+                  <tr v-for="p in positions" :key="p.ts_code" :class="p.profit_pct >= 0 ? 'row-up' : 'row-down'">
+                    <td>{{ p.ts_code?.slice(0,6) }}</td>
+                    <td>{{ p.stock_name }}</td>
+                    <td :class="p.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct.toFixed(1) }}%</td>
+                    <td>¥{{ (p.market_value || 0).toLocaleString() }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-          </div>
-        </div>
 
-        <!-- 每日盈亏明细 -->
-        <div class="ana-panel" style="margin-top:8px">
-          <div class="ana-sec">📋 每日明细</div>
-          <div v-if="!analysisData?.daily_detail?.length" class="ana-empty-sm">暂无数据</div>
-          <div v-else class="daily-list">
-            <div class="dl-header"><span>日期</span><span>笔数</span><span>胜率</span><span>盈亏</span></div>
-            <div v-for="d in analysisData.daily_detail" :key="d.date" class="dl-row" :class="d.profit >= 0 ? 'row-up' : 'row-down'">
-              <span>{{ d.date }}</span>
-              <span>{{ d.trades }}</span>
-              <span :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</span>
-              <span :class="d.profit >= 0 ? 'up' : 'down'">¥{{ d.profit.toLocaleString() }}</span>
+            <!-- 月度 -->
+            <div class="ana-panel" v-if="monthly.length > 1">
+              <div class="ana-sec">📅 月度收益</div>
+              <table class="ana-tbl">
+                <thead><tr><th>月份</th><th>盈亏</th><th>累计</th><th>笔数</th><th>胜率</th></tr></thead>
+                <tbody>
+                  <tr v-for="m in monthly" :key="m.month" :class="m.profit >= 0 ? 'row-up' : 'row-down'">
+                    <td>{{ m.month }}</td>
+                    <td :class="m.profit >= 0 ? 'up' : 'down'">¥{{ m.profit.toLocaleString() }}</td>
+                    <td :class="m.cum_profit >= 0 ? 'up' : 'down'">¥{{ m.cum_profit.toLocaleString() }}</td>
+                    <td>{{ m.trades }}</td>
+                    <td :class="m.win_rate >= 50 ? 'up' : 'down'">{{ m.win_rate }}%</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -196,16 +280,15 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
 .ana-wrap { display: flex; flex-direction: column; gap: 8px; }
 .ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); }
 .ana-title { font-size: 14px; font-weight: 700; }
-.ana-date-label { font-size: 11px; color: var(--text-tertiary); background: var(--bg-muted); padding: 2px 8px; border-radius: 10px; }
-.ana-note { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
 .ana-empty { padding: 60px 0; text-align: center; }
 .ana-empty-sm { padding: 16px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }
+.ana-loading { padding: 40px 0; text-align: center; color: var(--text-tertiary); }
 
-/* KPI 卡片 */
+/* KPI */
 .ana-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.kpi-card { background: var(--bg-muted); border-radius: 6px; padding: 10px 12px; text-align: center; }
+.kpi-card { background: var(--bg-muted); border-radius: 6px; padding: 10px 8px; text-align: center; }
 .kpi-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; }
-.kpi-val { font-size: 16px; font-weight: 700; }
+.kpi-val { font-size: 15px; font-weight: 700; }
 .kpi-up { border-left: 3px solid var(--stock-up); }
 .kpi-down { border-left: 3px solid var(--stock-down); }
 .kpi-warn { border-left: 3px solid var(--el-color-warning); }
@@ -220,49 +303,34 @@ const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: 
 .ana-sec { font-size: 12px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 .ana-stat { font-size: 10px; color: var(--text-tertiary); font-weight: 400; }
 
-/* 表格 */
-.ana-table, .monthly-list, .pos-list, .daily-list { font-size: 11px; }
-.at-header, .ml-header, .pos-header, .dl-header { display: flex; gap: 4px; padding: 4px 0; font-size: 10px; color: var(--text-tertiary); font-weight: 600; border-bottom: 1px solid var(--border-light); }
-.at-row, .ml-row, .pos-row, .dl-row { display: flex; gap: 4px; padding: 3px 0; border-bottom: 1px solid var(--border-light); align-items: center; }
-.at-row:hover, .ml-row:hover, .pos-row:hover, .dl-row:hover { background: var(--bg-muted); }
-.row-up { border-left: 2px solid var(--stock-up); }
-.row-down { border-left: 2px solid var(--stock-down); }
+/* 表格 — 用table替代div-grid确保对齐 */
+.ana-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ana-tbl th { text-align: left; font-size: 10px; color: var(--text-tertiary); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border-light); }
+.ana-tbl td { padding: 3px 6px; border-bottom: 1px solid var(--border-light); }
+.ana-tbl tr:hover { background: var(--bg-muted); }
+.row-up > td { border-left: 2px solid var(--stock-up); }
+.row-down > td { border-left: 2px solid var(--stock-down); }
+.td-strat { font-weight: 600; }
 
-/* 策略表列宽 */
-.at-header span, .at-row span { min-width: 48px; }
-.at-strat { flex: 1; font-weight: 600; min-width: 60px; }
-.at-row span:not(.at-strat) { text-align: right; }
+/* 子表格(每日展开) */
+.sub-tbl { width: 100%; border-collapse: collapse; font-size: 10px; }
+.sub-tbl th { text-align: left; font-size: 9px; color: var(--text-tertiary); padding: 2px 4px; }
+.sub-tbl td { padding: 2px 4px; }
 
-/* 月度列宽 */
-.ml-header span, .ml-row span { flex: 1; text-align: right; }
-.ml-header span:first-child, .ml-row span:first-child { flex: 1.2; text-align: left; }
-
-/* 持仓列宽 */
-.pos-code { font-family: 'JetBrains Mono', monospace; min-width: 48px; }
-.pos-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pos-strat { font-size: 9px; color: var(--el-color-primary); min-width: 48px; }
-
-/* 卖出原因条 */
-.reason-bars { display: flex; flex-direction: column; gap: 4px; }
+/* 卖出原因 */
+.reason-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.reason-list { display: flex; flex-direction: column; gap: 4px; }
 .reason-row { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .reason-name { min-width: 48px; font-weight: 600; }
-.reason-bar-wrap { flex: 1; height: 8px; background: var(--bg-muted); border-radius: 4px; overflow: hidden; min-width: 60px; }
-.reason-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }
-.bar-up { background: var(--stock-up); opacity: 0.7; }
-.bar-down { background: var(--stock-down); opacity: 0.7; }
-.reason-count { font-size: 10px; color: var(--text-tertiary); min-width: 32px; }
-.reason-profit { font-weight: 600; min-width: 60px; text-align: right; }
+.reason-count { font-size: 10px; color: var(--text-tertiary); }
+.reason-profit { font-weight: 600; font-size: 11px; }
 
-/* 每日明细列宽 */
-.dl-header span, .dl-row span { flex: 1; text-align: right; }
-.dl-header span:first-child, .dl-row span:first-child { text-align: left; }
-
-/* 通用 */
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
 
 @media (max-width: 900px) {
   .ana-kpis { grid-template-columns: repeat(3, 1fr); }
   .ana-grid { grid-template-columns: 1fr; }
+  .reason-split { grid-template-columns: 1fr; }
 }
 </style>

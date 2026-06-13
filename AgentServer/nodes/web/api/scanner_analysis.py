@@ -66,16 +66,16 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         avg_loss = sum(losses) / len(losses) if losses else 0
         profit_loss_ratio = abs(avg_profit / avg_loss) if avg_loss != 0 else 99.99
         
-        # 最大回撤(累计收益序列)
-        cum = 0
-        peak = 0
+        # 最大回撤(基于profit_pct收益率序列)
+        cur_eq = 1.0  # 当前权益(1.0=100%起始)
+        eq_peak = 1.0  # 权益峰值
         max_dd = 0
-        for amt in profit_amounts:
-            cum += amt
-            if cum > peak:
-                peak = cum
-            if peak > 0:
-                dd = (peak - cum) / peak * 100
+        for pct in profits:
+            cur_eq *= (1 + pct / 100)  # 每笔交易后权益变化
+            if cur_eq > eq_peak:
+                eq_peak = cur_eq
+            if eq_peak > 0:
+                dd = (eq_peak - cur_eq) / eq_peak * 100
                 if dd > max_dd:
                     max_dd = dd
         
@@ -188,12 +188,12 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                 "win_rate": round(info["wins"] / info["trades"] * 100, 1) if info["trades"] else 0,
             })
         
-        # 7. 当前持仓
+        # 7. 当前持仓(实时优先,MongoDB补充)
         positions = []
         try:
             from nodes.web.api.scanner_shared import _scanner_instance
             scanner = _scanner_instance
-            if scanner and scanner._broker:
+            if scanner and hasattr(scanner, '_broker') and scanner._broker:
                 name_map = getattr(scanner, '_stock_name_map', {})
                 for p in scanner._broker.get_positions():
                     positions.append({
@@ -201,14 +201,34 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                         "stock_name": p.stock_name or name_map.get(p.ts_code, ""),
                         "strategy": _norm_strat(p.strategy),
                         "shares": p.total_qty,
-                        "cost_price": p.avg_cost,
-                        "current_price": p.current_price,
+                        "cost_price": round(p.avg_cost, 2),
+                        "current_price": round(p.current_price, 2),
                         "profit_pct": round(p.profit_pct, 2),
                         "profit_amount": round((p.current_price - p.avg_cost) * p.total_qty, 0),
                         "market_value": round(p.current_price * p.total_qty, 0),
                     })
         except Exception:
             pass
+        
+        # 实时positions为空时,从MongoDB补充
+        if not positions:
+            try:
+                async for doc in mongo_manager.db["broker_positions"].find():
+                    ts = doc.get("ts_code", "")
+                    name = doc.get("stock_name", "")
+                    cost = doc.get("avg_cost", 0) or 0
+                    cur = doc.get("current_price", 0) or 0
+                    qty = doc.get("total_qty", 0) or 0
+                    positions.append({
+                        "ts_code": ts, "stock_name": name,
+                        "strategy": _norm_strat(doc.get("strategy", "")),
+                        "shares": qty, "cost_price": round(cost, 2), "current_price": round(cur, 2),
+                        "profit_pct": round((cur - cost) / cost * 100, 2) if cost > 0 else 0,
+                        "profit_amount": round((cur - cost) * qty, 0),
+                        "market_value": round(cur * qty, 0),
+                    })
+            except Exception:
+                pass
         
         return {"success": True, "data": {
             "kpi": kpi,
