@@ -139,16 +139,34 @@ class StrategyScorer:
         return base
     
     def get_strategy_risk(self, strategy_key: str) -> Dict:
-        """获取策略风控参数(小数形式: 0.03=3%)"""
+        """获取策略风控参数(小数形式: 0.03=3%)
+        
+        【v2.9.92x】同时合并params中卖出相关的参数(与回测对齐)
+        旧bug: next_day_open_sell_pct/pullback_*等在params里但只合并riskParams，
+        导致实盘用3%默认值而回测是2%
+        """
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         cfg = self.get_effective_strategy_config(strategy_key)
         risk = dict(GLOBAL_RISK)
         risk.update(cfg.get("riskParams", {}))
+        # 【v2.9.92x】合并params中的卖出相关参数(与回测STRATEGY_PULLBACK_PARAMS对齐)
+        params = cfg.get("params", {})
+        sell_param_keys = [
+            "next_day_open_sell_pct",
+            "pullback_profit_lock_threshold",
+            "pullback_mid_fallback_pct",
+            "pullback_high_threshold",
+            "allow_after_10am",
+        ]
+        for k in sell_param_keys:
+            if k in params and k not in risk:
+                risk[k] = params[k]
         # 防御: 百分比形式(>1)自动转小数
-        if risk.get("stop_loss_pct", 0) > 1:
-            risk["stop_loss_pct"] = risk["stop_loss_pct"] / 100
-        if risk.get("take_profit_pct", 0) > 1:
-            risk["take_profit_pct"] = risk["take_profit_pct"] / 100
+        for pct_key in ["stop_loss_pct", "take_profit_pct", "next_day_open_sell_pct",
+                       "pullback_profit_lock_threshold", "pullback_mid_fallback_pct",
+                       "pullback_high_threshold"]:
+            if risk.get(pct_key, 0) > 1:
+                risk[pct_key] = risk[pct_key] / 100
         return risk
     
     # ==================== 策略筛选 ====================

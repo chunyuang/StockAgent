@@ -245,26 +245,31 @@ class PositionManager:
         return sell_reason, sell_price
     
     def _check_intraday_rules(self, pos, risk: Dict, today_open: float) -> Tuple:
-        """盘中冲高回落/利润保护/利润锁定/高开即卖/龙头低利润规则【v2.9.45提取, v2.9.64补齐利润锁定+龙头5天低利润】
+        """盘中冲高回落/利润保护/利润锁定/高开即卖/龙头低利润规则
         
-        v2.9.64变更: 补齐两个P0缺失卖出条件
-        - 利润锁定: 盘中冲高>=min_high_rise但从高点回撤>=pullback_pct→以close价卖出
-        - 龙头5天低利润: 龙头低吸持仓>=5天且利润<3%→提前退出
-        
-        Returns: (sell_reason, sell_price) or (None, price)
+        【v2.9.92x】从strategy_defaults读取参数(与回测STRATEGY_PULLBACK_PARAMS对齐)
+        旧: hardcoded 0.05/0.01 → 新: 从risk字典读取pullback_high_threshold/pullback_mid_fallback_pct
         """
         if today_open <= 0:
             return None, pos.current_price
         
         open_rise = (today_open / pos.avg_cost - 1) if pos.avg_cost > 0 else 0
         close_rise = pos.profit_pct / 100
-        next_day_sell_pct = risk.get("next_day_open_sell_pct", 0.03)
+        next_day_sell_pct = risk.get("next_day_open_sell_pct", 0.02)
         
-        # 冲高回落
+        # 【v2.9.92x】冲高回落参数从strategy_defaults读取(与回测对齐)
+        pullback_high = risk.get("pullback_high_threshold", 0.05)      # 默认5%
+        pullback_fallback = risk.get("pullback_mid_fallback_pct", 0.015)  # 默认1.5%(回测V65)
+        pullback_lock = risk.get("pullback_profit_lock_threshold", 0)  # 利润>=此值不触发冲高回落
+        
+        # 冲高回落(利润保护锁: 利润>=pullback_lock时不触发，让利润锁定/超时处理)
         if open_rise >= next_day_sell_pct and pos.current_price < today_open:
-            if open_rise >= 0.05:
+            # 利润保护锁: 浮盈>=pullback_lock时不触发冲高回落
+            if pullback_lock > 0 and close_rise >= pullback_lock:
+                pass  # 利润够高，不触发冲高回落
+            elif open_rise >= pullback_high:
                 return f"冲高回落(开涨{open_rise*100:.1f}%)", today_open
-            elif (today_open - pos.current_price) / today_open >= 0.01:
+            elif (today_open - pos.current_price) / today_open >= pullback_fallback:
                 return f"冲高回落(开涨{open_rise*100:.1f}%回落)", today_open
         
         # 利润保护

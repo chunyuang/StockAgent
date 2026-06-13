@@ -274,6 +274,101 @@ class SignalManager:
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, f"价格异常(price={sig.price})", sig)
             return False, "invalid_price"
+        
+        # 【v2.9.92x】策略级选股过滤(与回测params对齐)
+        eligible, filter_reason = self._check_strategy_params_filter(sig)
+        if not eligible:
+            return False, filter_reason
+        
+        return True, ""
+
+    def _check_strategy_params_filter(self, sig) -> tuple:
+        """【v2.9.92x】策略级选股过滤(与回测params对齐)
+        
+        A4: 首板换手率/市值限制
+        A5: 半路10点后禁止买入
+        A6: 龙头回调幅度限制
+        """
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+        from datetime import datetime
+        
+        strategy = getattr(sig, 'strategy', '') or ''
+        cfg = STRATEGY_CONFIGS.get(strategy, {})
+        params = cfg.get('params', {})
+        name = cfg.get('name', strategy)
+        
+        # A5: 半路追涨10点后禁止买入
+        if strategy == 'halfway_chase':
+            allow_after_10am = params.get('allow_after_10am', False)
+            if not allow_after_10am:
+                now = datetime.now()
+                if now.hour >= 10 and now.minute > 0:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        name, "半路追涨10点后禁止买入", sig)
+                    return False, "time_filter"
+        
+        # A4: 首板打板换手率/市值限制
+        if strategy == 'first_limit_up':
+            tr = getattr(sig, 'turnover_rate', 0) or 0
+            min_tr = params.get('min_turnover_rate', 0)
+            max_tr = params.get('max_turnover_rate', 999)
+            if min_tr > 0 and tr < min_tr:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, f"换手率{tr:.1f}%<{min_tr}%", sig)
+                return False, "turnover_filter"
+            if max_tr < 999 and tr > max_tr:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, f"换手率{tr:.1f}%>{max_tr}%", sig)
+                return False, "turnover_filter"
+            # 市值限制(从实时数据或MongoDB读取)
+            min_mcap = params.get('min_circulation_market_cap', 0)
+            max_mcap = params.get('max_circulation_market_cap', 999999)
+            if min_mcap > 0 or max_mcap < 999999:
+                circ_mv = getattr(sig, 'circ_mv', 0) or 0  # 流通市值(亿元)
+                if circ_mv <= 0:
+                    # 尝试从信号数据获取
+                    circ_mv = getattr(sig, 'circulation_market_cap', 0) or 0
+                if circ_mv > 0:
+                    if min_mcap > 0 and circ_mv < min_mcap:
+                        self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                            name, f"流通市值{circ_mv:.0f}亿<{min_mcap}亿", sig)
+                        return False, "mcap_filter"
+                    if max_mcap < 999999 and circ_mv > max_mcap:
+                        self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                            name, f"流通市值{circ_mv:.0f}亿>{max_mcap}亿", sig)
+                        return False, "mcap_filter"
+        
+        # A6: 龙头低吸回调幅度限制
+        if strategy == 'dragon_head':
+            # 从信号reason中提取回调幅度(或使用pct_chg)
+            pct = abs(getattr(sig, 'pct_chg', 0) or 0)
+            min_correction = params.get('min_correction_pct', 0) * 100  # 0.05 → 5%
+            max_correction = params.get('max_correction_pct', 1) * 100   # 0.22 → 22%
+            # 简化判断: 用跌幅近似回调幅度(负pct_chg=回调)
+            sig_pct = getattr(sig, 'pct_chg', 0) or 0
+            if sig_pct > 0:
+                # 龙头低吸应该是买跌的，正涨幅说明不是回调
+                pass  # 不过滤，可能是信号逻辑已经筛选
+            elif sig_pct < 0:
+                correction = abs(sig_pct)
+                if min_correction > 0 and correction < min_correction:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        name, f"回调{correction:.1f}%<{min_correction:.1f}%", sig)
+                    return False, "correction_filter"
+                if correction > max_correction:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        name, f"回调{correction:.1f}%>{max_correction:.1f}%", sig)
+                    return False, "correction_filter"
+        
+        # A4(续): 跌停翘板换手率限制
+        if strategy == 'limit_down_qiao':
+            tr = getattr(sig, 'turnover_rate', 0) or 0
+            min_tr = params.get('min_turnover_rate', 0)
+            if min_tr > 0 and tr < min_tr:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, f"换手率{tr:.1f}%<{min_tr}%", sig)
+                return False, "turnover_filter"
+        
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:
