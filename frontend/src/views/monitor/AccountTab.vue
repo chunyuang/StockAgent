@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject } from 'vue'
 import VChart from 'vue-echarts'
 import { useChartColors } from './useChartColors'
+import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 
 const c = useChartColors()
 const loading = ref(false)
 const accountData = ref<any>(null)
 const activeSection = ref('overview')
+
+// 获取父组件的activeTab和stockCode切换能力
+const monitorData = inject(SCANNER_MONITOR_KEY, null)
+const setActiveTab = (tab: string) => {
+  if (monitorData?.activeTab) {
+    monitorData.activeTab.value = tab
+  }
+}
 
 const fetchAccount = async () => {
   loading.value = true
@@ -79,7 +88,8 @@ const equityBreakdown = computed(() => {
 })
 
 const showStockDetail = (code: string) => {
-  window.open(`/monitor?tab=analysis&stock=${code}`, '_self')
+  // 切换到analysis Tab并设置stockCode
+  setActiveTab('analysis')
 }
 </script>
 
