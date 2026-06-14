@@ -222,8 +222,11 @@ async def get_scanner_status():
             }
         except Exception:
             pass
-    # 【v2.9.92p】scanner未运行时从MongoDB读真实账户数据(不再显示默认100万)
-    if not status.get("account") or status["account"].get("total_assets") == 1000000:
+    # 【v2.9.92q】scanner未运行时从MongoDB读真实账户数据
+    # 之前只检查total_assets==1000000，但broker可能残留上次运行的cash(如266673)
+    # 正确做法：scanner没运行时一律用MongoDB的broker_accounts(最权威)
+    scanner_not_running = not status.get("is_running", False)
+    if scanner_not_running or not status.get("account") or status["account"].get("total_assets") == 1000000:
         try:
             from core.managers import mongo_manager
             if mongo_manager.is_initialized:
@@ -395,6 +398,28 @@ async def get_timeline_history(date: str = None, days: int = 7):
 async def get_account():
     """获取账户信息(资金/持仓/盈亏)"""
     scanner = await _get_scanner()
+    # scanner未运行时从MongoDB读真实数据(broker内存数据不权威)
+    if not scanner._is_running:
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
+                if acct_doc and acct_doc.get("total_assets", 0) > 0:
+                    return {
+                        "success": True,
+                        "data": {
+                            "account_id": acct_doc.get("account_id", "default"),
+                            "total_assets": round(acct_doc.get("total_assets", 0), 2),
+                            "available_cash": round(acct_doc.get("available_cash", 0), 2),
+                            "market_value": round(acct_doc.get("market_value", 0), 2),
+                            "today_profit": round(acct_doc.get("today_profit", 0), 2),
+                            "total_profit": round(acct_doc.get("total_profit", 0), 2),
+                            "position_count": acct_doc.get("position_count", 0),
+                            "position_ratio": round(acct_doc.get("market_value", 0) / max(acct_doc.get("total_assets", 1), 1) * 100, 1),
+                        },
+                    }
+        except Exception:
+            pass
     if not scanner._broker:
         return {"success": True, "data": None}
     acct = scanner._broker.get_account()
