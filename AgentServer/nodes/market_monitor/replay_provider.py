@@ -52,6 +52,14 @@ class ReplayDataProvider:
         # 1. 日线数据
         daily_data = self._load_daily_data(td_int)
 
+        # ⚠️ 数据缺失检查
+        if not daily_data:
+            logger.warning(
+                f"[REPLAY] ❌ {trade_date} 无数据! "
+                f"MongoDB stock_daily_ak_full 中该日期0条记录。"
+                f"请先补全数据: python3 scripts/eastmoney_daily_bar.py"
+            )
+
         # 2. daily_basic补充PE/PB/换手率/流通市值
         self._enrich_daily_basic(td_int, daily_data)
 
@@ -197,3 +205,5 @@ class ReplayDataProvider:
         """清除缓存"""
         self._cache.clear()
         self._current_date = None
+
+# v2.9.92r: 数据缺失时返回空并记录warning
