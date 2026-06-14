@@ -338,7 +338,9 @@ async def start_scanner(req: ScannerStartRequest):
     
     # 后台启动(用run_in_executor避免阻塞事件循环)
     loop = asyncio.get_event_loop()
-    loop.create_task(scanner.start(trade_date=req.trade_date))
+    # 【v2.9.92s】replay模式下trade_date用replay_date，防止timeline写入错误的日期
+    effective_trade_date = req.trade_date or req.replay_date
+    loop.create_task(scanner.start(trade_date=effective_trade_date))
     return {"success": True, "data": {"message": "扫描器启动中..."}}
 
 
