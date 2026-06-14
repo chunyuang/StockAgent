@@ -282,7 +282,7 @@ export function useScannerMonitor() {
   }
 
   // ==================== 📌 模式切换/回放 ====================
-  function onModeChange(mode: string) { if (mode === 'replay') { /* 触发日期选择 */ } }
+  function onModeChange(mode: string) { if (mode === 'replay') { replayDateVisible.value = true } }
   async function confirmReplay() {
     if (!replayDateInput.value) { ElMessage.warning('请选择回放日期'); return }
     replayDate.value = replayDateInput.value.replace(/-/g, '')
