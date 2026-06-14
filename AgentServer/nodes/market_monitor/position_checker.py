@@ -558,9 +558,11 @@ class PositionChecker:
                 self.position_risk_levels.pop(pos.ts_code, None)
         
         # 强制持久化
+        # 【v2.9.92s】replay/dry_run模式不应覆盖MongoDB实盘数据
+        is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run') if hasattr(self, '_scanner') else False
         if self.broker:
             try:
-                await self.broker.save_state(force=True)
+                await self.broker.save_state(force=True, skip_if_virtual=is_virtual)
             except Exception as _e:
                 logger.debug(f"[CLEANUP] broker保存失败: {_e}")
             try:

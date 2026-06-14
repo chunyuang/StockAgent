@@ -117,7 +117,7 @@ class SimulatedBroker:
     LIMIT_RATIO_BJB = 0.30        # 北交所±30%
     LIMIT_RATIO_ST = 0.05         # ST股±5%
 
-    def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000):
+    def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000, virtual_mode: bool = False):
         self.account = Account(account_id=account_id, total_assets=initial_cash, available_cash=initial_cash)
         self.positions: Dict[str, Position] = {}
         self.orders: List[Order] = []
@@ -128,6 +128,7 @@ class SimulatedBroker:
         self._mongo_db = None  # MongoDB句柄(懒初始化)
         self._pending_save = False  # 标记有待保存的状态
         self._last_save_time = 0  # 上次保存时间(节流用)
+        self._virtual_mode = virtual_mode  # 【v2.9.92s】replay/dry_run模式标记，防止覆盖实盘数据
 
     # ==================== 持久化 ====================
 
@@ -153,7 +154,7 @@ class SimulatedBroker:
             skip_if_virtual: 如果是虚拟模式(replay/dry_run)，跳过保存防止覆盖实盘数据
         """
         # 【v2.9.92s】replay/dry_run模式的SimulatedBroker不应覆盖MongoDB实盘数据
-        if skip_if_virtual:
+        if skip_if_virtual or self._virtual_mode:
             logger.info("[BROKER] 跳过save_state: 虚拟模式(replay/dry_run)不应覆盖实盘数据")
             return True
         now = time.time()

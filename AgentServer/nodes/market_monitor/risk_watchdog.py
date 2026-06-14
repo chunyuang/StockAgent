@@ -631,8 +631,10 @@ class RiskWatchdog:
             result["positions_cleared"] = cleared
 
             # 持久化(post_sell_cleanup已做,此处兜底)
+            # 【v2.9.92s】replay/dry_run模式不应覆盖MongoDB实盘数据
+            is_virtual = getattr(scanner, '_trade_mode', '') in ('replay', 'dry_run')
             if not rp:
-                await scanner._broker.save_state(force=True)
+                await scanner._broker.save_state(force=True, skip_if_virtual=is_virtual)
             result["success"] = True
 
             logger.critical(
