@@ -132,6 +132,8 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
       "risk_free_rate": "float",
       "sentiment_position_map": {

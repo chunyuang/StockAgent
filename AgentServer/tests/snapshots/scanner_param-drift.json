@@ -2,7 +2,13 @@
   "start_date": "str",
   "end_date": "str",
   "drifts": [
-    "<empty_list>"
+    {
+      "level": "str",
+      "key": "str",
+      "old": "NoneType",
+      "new": "bool",
+      "severity": "str"
+    }
   ],
   "drift_count": "int",
   "high_severity": "int"

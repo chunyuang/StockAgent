@@ -1,14 +1,48 @@
 {
   "positions": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "industry": "str",
+      "current_price": "float",
+      "cost_price": "float",
+      "profit_pct": "float",
+      "profit_amount": "float",
+      "market_value": "float",
+      "position_pct": "float",
+      "dist_stop_loss": "float",
+      "dist_take_profit": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "volatility": "float",
+      "turnover_rate": "int",
+      "risk_score": "float",
+      "risk_level": "str",
+      "trailing_stop": {},
+      "total_qty": "int"
+    }
   ],
   "global": {
-    "total_assets": "int",
+    "total_assets": "float",
     "cash_ratio": "float",
     "position_ratio": "float",
-    "max_single_pct": "int",
-    "top_industry_concentration": "int",
-    "industry_exposure": {},
+    "max_single_pct": "float",
+    "top_industry_concentration": "float",
+    "industry_exposure": {
+      "矿物制品": "float",
+      "其他商业": "float",
+      "综合类": "float",
+      "化工原料": "float",
+      "建筑工程": "float",
+      "房产服务": "float",
+      "环境保护": "float",
+      "区域地产": "float",
+      "半导体": "float",
+      "装修装饰": "float",
+      "出版业": "float"
+    },
     "position_count": "int",
     "risk_summary": {
       "normal": "int",
