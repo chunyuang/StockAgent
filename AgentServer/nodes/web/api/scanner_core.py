@@ -206,8 +206,39 @@ async def get_scanner_status():
             status["positions"] = pos_list  # 覆盖数量为完整持仓数组
             status["position_count"] = len(pos_list)  # 数量移到新字段
         else:
-            status["positions"] = []
-            status["position_count"] = 0
+            # 【v2.9.92s】scanner未运行时broker内存为空，从MongoDB读取持仓
+            scanner_not_running = not status.get("is_running", False)
+            if scanner_not_running:
+                try:
+                    from core.managers import mongo_manager
+                    if mongo_manager.is_initialized:
+                        pos_docs = await mongo_manager.db["broker_positions"].find(
+                            {"account_id": "default"}
+                        ).to_list(length=50)
+                        if pos_docs:
+                            status["positions"] = [{
+                                "ts_code": p.get("ts_code", ""),
+                                "stock_name": p.get("stock_name", ""),
+                                "strategy": p.get("strategy", ""),
+                                "shares": p.get("total_qty", 0),
+                                "available_qty": p.get("available_qty", 0),
+                                "cost_price": p.get("avg_cost", 0),
+                                "current_price": p.get("current_price", 0),
+                                "profit_pct": round(p.get("profit_pct", 0), 2),
+                                "profit_amount": round((p.get("current_price", 0) - p.get("avg_cost", 0)) * p.get("total_qty", 0), 2),
+                                "market_value": round(p.get("current_price", 0) * p.get("total_qty", 0), 2),
+                                "stop_loss_pct": 3.0,
+                                "take_profit_pct": 12.0,
+                                "stop_loss_price": round(p.get("avg_cost", 0) * 0.97, 2),
+                                "take_profit_price": round(p.get("avg_cost", 0) * 1.12, 2),
+                                "risk_level": "normal",
+                            } for p in pos_docs]
+                            status["position_count"] = len(pos_docs)
+                except Exception:
+                    pass
+            if not status.get("positions"):
+                status["positions"] = []
+                status["position_count"] = 0
     except Exception:
         status["position_count"] = status.get("positions", 0)  # fallback: 保留原数字
     # 账户信息(完整对象)
