@@ -57,14 +57,15 @@ def main():
         from nodes.data_sync.node import DataSyncNode
         node = DataSyncNode()
         
-    elif node_type == NodeType.MCP:
-        from nodes.mcp.node import MCPNode
-        node = MCPNode()
-        
-    elif node_type == NodeType.INFERENCE:
-        from nodes.inference.node import InferenceNode
-        max_tasks = int(os.environ.get("MAX_CONCURRENT_TASKS", 5))
-        node = InferenceNode(max_concurrent_tasks=max_tasks)
+    # 已移除: MCP/Inference 节点 (未启用已清理)
+    # elif node_type == NodeType.MCP:
+    #     from nodes.mcp.node import MCPNode
+    #     node = MCPNode()
+    #
+    # elif node_type == NodeType.INFERENCE:
+    #     from nodes.inference.node import InferenceNode
+    #     max_tasks = int(os.environ.get("MAX_CONCURRENT_TASKS", 5))
+    #     node = InferenceNode(max_concurrent_tasks=max_tasks)
     
     elif node_type == NodeType.LISTENER:
         print("❌ Listener 节点已彻底废弃(V54)，请使用 Web 节点内置的 MarketScanner")
