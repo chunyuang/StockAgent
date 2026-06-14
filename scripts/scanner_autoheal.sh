@@ -84,25 +84,8 @@ except:
 
 if [ "$START_OK" = "true" ]; then
     log "✅ 扫描器启动成功"
-elif echo "$START_RESULT" | grep -q '非交易时间'; then
-    log "ℹ️ 非交易时间，启动被拒绝(正常行为)"
-    exit 0
-    # 等待2秒后验证
-    sleep 2
-    VERIFY=$(curl -sf "$API_BASE/scanner/status" 2>/dev/null | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    data = d.get('data', d)
-    print('true' if data.get('is_running', False) else 'false')
-except:
-    print('false')
-" 2>/dev/null || echo "false")
-    if [ "$VERIFY" = "true" ]; then
-        log "✅ 验证通过，扫描循环已激活"
-    else
-        log "⚠️ 启动后验证失败，扫描循环可能未激活"
-    fi
+elif echo "$START_RESULT" | grep -q '已在运行中'; then
+    log "ℹ️ 扫描器已在运行中"
 else
     log "❌ 扫描器启动失败: $START_RESULT"
     exit 1

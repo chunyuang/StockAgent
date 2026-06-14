@@ -304,20 +304,12 @@ async def get_scanner_status():
 async def start_scanner(req: ScannerStartRequest):
     """启动扫描(后台线程初始化, 立即返回)
     
-    【v2.9.92b】非交易时间拒绝启动(除非replay模式)，防止产生假数据
+    【v2.9.92s】移除非交易时间启动限制
+    之前v2.9.92b加了启动拒绝防止假数据，但根因已修(broker._virtual_mode + 数据完整性检查)
+    而且阻碍了盘前准备(8:00-9:00无法启动)、收盘后调试等正常使用
+    scanner内部scan_loop已有完整的phase门控，非交易时间不会执行交易
     """
     from nodes.web.api import scanner_shared
-    from nodes.market_monitor.market_phase import MarketPhase
-
-    # 非交易时间拒绝启动(除非replay模式)
-    if not req.replay_date:
-        phase = MarketPhase.classify()
-        if not MarketPhase.is_in_trading(phase) and phase not in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
-            return {
-                "success": False,
-                "data": {"message": f"非交易时间({phase})，拒绝启动。请使用replay模式或等到交易时间。"},
-                "phase": phase,
-            }
 
     if scanner_shared._scanner_instance is None or (
         req.trade_mode != scanner_shared._scanner_instance._trade_mode
