@@ -118,7 +118,8 @@ class ScannerInitializer:
         self._replay_provider = None
         self._gm_broker = None
 
-        self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
+        is_virtual = trade_mode in (self.MODE_DRY_RUN, self.MODE_REPLAY)
+        self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash, virtual_mode=is_virtual)
 
         if self._dry_run:
             logger.info("[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
