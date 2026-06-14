@@ -107,8 +107,8 @@ audit_file() {
         vmodels=$(grep -oP 'v-model="(\w+)' "$file" 2>/dev/null | grep -oP '"\K\w+' | sort -u || true)
         for vm in $vmodels; do
             if ! grep -qE "(const\s+${vm}\s*=|ref.*${vm}|reactive.*${vm})" "$file" 2>/dev/null; then
-                if ! grep -rqE "(const\s+${vm}\s*=|ref.*${vm})" "${FRONTEND_DIR}/views/monitor/composables/" --include="*.ts" 2>/dev/null; then
-                    file_report="${file_report}\n- ⚠️ v-model=\"${vm}\" 但ref未定义"
+                if ! grep -rqE "(const\s+${vm}\s*=|ref.*${vm})" "${FRONTEND_DIR}/views/monitor/useScannerMonitor.ts" "${FRONTEND_DIR}/views/monitor/scannerMonitorInject.ts" "${FRONTEND_DIR}/views/monitor/composables/" --include="*.ts" 2>/dev/null; then
+                    file_report="${file_report}\n- ⚠️ v-model=\"${vm}\" 但ref未定义(本文件+composables均未找到)"
                     ((issues++)) || true
                 fi
             fi
