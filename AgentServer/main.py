@@ -17,7 +17,7 @@ StockAgent 统一入口
     NODE_TYPE=data_sync python main.py
     
     # 启动推理节点 (可启动多个)
-    NODE_TYPE=inference MAX_CONCURRENT_TASKS=10 python main.py
+
     
     # 启动监听节点
     NODE_TYPE=listener python main.py
@@ -58,20 +58,7 @@ def main():
         node = DataSyncNode()
         
     # 已移除: MCP/Inference 节点 (未启用已清理)
-    # elif node_type == NodeType.MCP:
-    #     from nodes.mcp.node import MCPNode
-    #     node = MCPNode()
     #
-    # elif node_type == NodeType.INFERENCE:
-    #     from nodes.inference.node import InferenceNode
-    #     max_tasks = int(os.environ.get("MAX_CONCURRENT_TASKS", 5))
-    #     node = InferenceNode(max_concurrent_tasks=max_tasks)
-    
-    elif node_type == NodeType.LISTENER:
-        print("❌ Listener 节点已彻底废弃(V54)，请使用 Web 节点内置的 MarketScanner")
-        print("   启动方式: NODE_TYPE=web python main.py")
-        print("   API: http://localhost:8000/api/v1/scanner/*")
-        sys.exit(1)
     
     elif node_type == NodeType.BACKTEST:
         from nodes.backtest_engine.node import BacktestNode

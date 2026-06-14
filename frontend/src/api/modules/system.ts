@@ -156,91 +156,6 @@ export async function updateUserPreferences(prefs: UserPreferences): Promise<{ m
 export async function getNetValueHistory(accountId: string, days: number = 90): Promise<{ success: boolean; data: any }> {
   return api.get(`/trading/performance/net-value`, { params: { account_id: accountId, days } })
 }
-
-// ==================== 调度器 API ====================
-
-/** 调度器状态响应 */
-export interface SchedulerStatus {
-  is_running: boolean
-  account_id: string
-  schedule_times: Record<string, string>
-  modules_ready: Record<string, boolean>
-  data_alerts: { critical: number; warning: number; info: number }
-  last_run?: string
-  jobs?: SchedulerJobInfo[]
-}
-
-/** 调度任务信息 */
-export interface SchedulerJobInfo {
-  name: string
-  description: string
-  schedule: string
-  last_run: string | null
-  last_result: {
-    success: boolean
-    count?: number
-    duration_ms?: number
-    error?: string
-  } | null
-  next_run?: string
-  status: 'idle' | 'running' | 'error'
-}
-
-/** 调度历史记录 */
-export interface ScheduleHistoryRecord {
-  trade_date: string
-  phase: string
-  success: boolean
-  steps: any[]
-  errors: any[]
-  started_at: string
-  finished_at: string
-}
-
-/** 数据告警 */
-export interface DataAlert {
-  id: string
-  severity: 'critical' | 'warning' | 'info'
-  message: string
-  timestamp: string
-  source: string
-}
-
-/** 获取调度器状态 */
-export async function getSchedulerStatus(): Promise<{ success: boolean; data: SchedulerStatus }> {
-  return api.get('/scheduler/status')
-}
-
-/** 启动调度器 */
-export async function startScheduler(accountId?: string, config?: Record<string, any>): Promise<{ success: boolean; message: string; status: SchedulerStatus }> {
-  return api.post('/scheduler/start', { account_id: accountId, config })
-}
-
-/** 停止调度器 */
-export async function stopScheduler(force: boolean = false): Promise<{ success: boolean; message: string; status: SchedulerStatus }> {
-  return api.post('/scheduler/stop', { force })
-}
-
-/** 手动触发阶段 */
-export async function triggerPhase(phase: 'premarket' | 'intraday' | 'postmarket' | 'full', tradeDate?: string, accountId?: string): Promise<{ success: boolean; phase: string; trade_date: string; result: any; message: string }> {
-  return api.post(`/scheduler/trigger/${phase}`, { trade_date: tradeDate, account_id: accountId })
-}
-
-/** 获取数据告警列表 */
-export async function getDataAlerts(severity?: string): Promise<{ success: boolean; data: DataAlert[]; total: number }> {
-  return api.get('/scheduler/alerts', { params: severity ? { severity } : {} })
-}
-
-/** 清除数据告警 */
-export async function clearDataAlerts(beforeDate?: string): Promise<{ success: boolean; message: string }> {
-  return api.delete('/scheduler/alerts', { params: beforeDate ? { before_date: beforeDate } : {} })
-}
-
-/** 获取调度历史 */
-export async function getScheduleHistory(days: number = 7): Promise<{ success: boolean; data: ScheduleHistoryRecord[]; total: number }> {
-  return api.get('/scheduler/history', { params: { days } })
-}
-
 export default {
   getRiskConfig,
   saveRiskConfig,
@@ -253,12 +168,4 @@ export default {
   saveStrategyRiskConfig,
   updateUserPreferences,
   getNetValueHistory,
-  // 调度器
-  getSchedulerStatus,
-  startScheduler,
-  stopScheduler,
-  triggerPhase,
-  getDataAlerts,
-  clearDataAlerts,
-  getScheduleHistory,
 }

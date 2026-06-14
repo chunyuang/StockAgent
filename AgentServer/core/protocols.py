@@ -19,9 +19,6 @@ class NodeType(str, Enum):
     """节点类型"""
     WEB = "web"
     DATA_SYNC = "data_sync"
-    MCP = "mcp"
-    INFERENCE = "inference"
-    LISTENER = "listener"
     BACKTEST = "backtest"
 
 
@@ -65,7 +62,6 @@ class NodeInfo(BaseModel):
     status: str = "online"  # online, busy, offline
     last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
-    # 负载信息 (Inference 节点)
     current_tasks: int = 0
     max_tasks: int = 5
     
@@ -93,7 +89,7 @@ class AgentTask(BaseModel):
     """
     Agent 任务消息
     
-    从 Web 节点派发到 Inference 节点的任务。
+    从 Web 节点派发的任务。
     所有任务必须包含 trace_id。
     """
     # 任务标识
@@ -119,7 +115,7 @@ class AgentResponse(BaseModel):
     """
     Agent 响应消息
     
-    从 Inference 节点返回到 Web 节点的结果。
+    任务执行结果。
     """
     # 关联信息
     task_id: str
@@ -196,216 +192,11 @@ class AnalysisResult(BaseModel):
     risks: List[str] = Field(default_factory=list)
 
 
-# ==================== LangGraph 状态模型 (V3.0) ====================
-
-
-class AnalysisConflict(BaseModel):
-    """分析冲突记录"""
-    conflict_type: str = Field(description="冲突类型，如 '基本面vs技术面'")
-    description: str = Field(description="冲突描述")
-    resolution: str = Field(description="调和结论")
-
-
-class ConfidenceScore(BaseModel):
-    """置信度评分"""
-    data_completeness: float = Field(default=50, ge=0, le=100, description="数据完整性 0-100")
-    opinion_consistency: float = Field(default=50, ge=0, le=100, description="意见一致性 0-100")
-    overall: float = Field(default=50, ge=0, le=100, description="综合置信度 0-100")
-
-
-class MCPToolCall(BaseModel):
-    """MCP 工具调用记录"""
-    tool: str = Field(description="工具名称")
-    query: str = Field(description="查询描述")
-    target_conflict: str = Field(default="", description="针对的矛盾类型")
-    expected_evidence: str = Field(default="", description="期望获取的证据")
-    result: Optional[Dict[str, Any]] = Field(default=None, description="执行结果")
-    success: bool = Field(default=False, description="是否成功")
-
-
-class StructuredSummary(BaseModel):
-    """结构化精简摘要"""
-    fundamental_core: str = Field(default="", description="基本面核心结论 (50字内)")
-    technical_core: str = Field(default="", description="技术面核心结论 (50字内)")
-    sentiment_core: str = Field(default="", description="舆情核心结论 (50字内)")
-
-
-class ReasoningStep(BaseModel):
-    """决策链步骤"""
-    step_id: int = Field(description="步骤编号")
-    node_name: str = Field(description="节点名称")
-    action: str = Field(description="执行动作")
-    reasoning: str = Field(description="推理过程")
-    result_summary: str = Field(default="", description="结果摘要")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class RoundSummary(BaseModel):
-    """
-    每轮分析的决策摘要
-    
-    用于跨轮次记忆，让 Supervisor 知道上一轮的问题和本轮的改进
-    """
-    round_id: int = Field(description="轮次编号 (1=初始分析, 2+=补充分析)")
-    
-    # 该轮的分析结论
-    fundamental_conclusion: str = Field(default="", description="基本面结论")
-    technical_conclusion: str = Field(default="", description="技术面结论") 
-    sentiment_conclusion: str = Field(default="", description="舆情结论")
-    
-    # 该轮发现的问题
-    conflicts_found: List[str] = Field(default_factory=list, description="发现的矛盾点")
-    confidence_score: float = Field(default=50, description="该轮置信度")
-    
-    # 该轮的决策
-    decision: str = Field(default="", description="该轮决策")
-    unresolved_issues: List[str] = Field(default_factory=list, description="未解决的问题")
-    
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class SupplementaryData(BaseModel):
-    """
-    补充数据 (来自 MCP 搜索)
-    
-    与初始数据 (initial_data) 区分，用于增量分析
-    """
-    source: str = Field(description="数据来源 (如 get_stock_daily_ak_full, get_news_sentiment)")
-    target_conflict: str = Field(default="", description="针对的矛盾类型")
-    content: str = Field(description="数据内容摘要")
-    raw_data: Optional[Dict[str, Any]] = Field(default=None, description="原始数据")
-    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-class StockAnalysisState(BaseModel):
-    """
-    股票分析状态 (LangGraph State) V3.2
-    
-    增强特性：
-    - 结构化精简摘要
-    - MCP 工具调用记录
-    - 完整决策链追踪
-    - 跨轮次记忆 (reasoning_steps)
-    - 初始数据与补充数据分离
-    """
-    # ====== 追踪信息 ======
-    trace_id: str = Field(default_factory=lambda: uuid.uuid4().hex, description="分布式追踪ID")
-    
-    # ====== 输入参数 ======
-    ts_code: str = Field(description="股票代码")
-    task_id: str = Field(description="任务ID")
-    
-    # ====== 数据采集结果 (初始数据) ======
-    stock: Optional[Dict[str, Any]] = Field(default=None, description="股票基本信息")
-    stock_name: str = Field(default="", description="股票名称")
-    daily_data: List[Dict[str, Any]] = Field(default_factory=list, description="日线数据")
-    fina_data: List[Dict[str, Any]] = Field(default_factory=list, description="财务指标数据")
-    
-    # ====== 补充数据 (V3.2 新增) ======
-    supplementary_data: List[SupplementaryData] = Field(
-        default_factory=list, 
-        description="MCP 搜索返回的补充数据"
-    )
-    
-    # ====== 三方分析结果 ======
-    fundamental_res: str = Field(default="", description="基本面分析结果")
-    technical_res: str = Field(default="", description="技术面分析结果")
-    sentiment_res: str = Field(default="", description="舆情分析结果")
-    
-    # ====== 首轮分析结果备份 (V3.2 新增) ======
-    initial_fundamental_res: str = Field(default="", description="首轮基本面分析")
-    initial_technical_res: str = Field(default="", description="首轮技术面分析")
-    initial_sentiment_res: str = Field(default="", description="首轮舆情分析")
-    
-    # ====== 结构化精简 (V3.1 新增) ======
-    structured_summary: StructuredSummary = Field(
-        default_factory=StructuredSummary, 
-        description="各维度核心结论精简"
-    )
-    
-    # ====== Supervisor 输出 ======
-    analysis_conflicts: List[AnalysisConflict] = Field(default_factory=list, description="逻辑冲突列表")
-    confidence_score: ConfidenceScore = Field(default_factory=ConfidenceScore, description="置信度评分")
-    final_decision: str = Field(default="", description="最终决策")
-    decision_reason: str = Field(default="", description="决策理由")
-    
-    # ====== MCP 搜索结果 (V3.1 新增) ======
-    mcp_tool_calls: List[MCPToolCall] = Field(default_factory=list, description="MCP 工具调用记录")
-    mcp_evidence: List[Dict[str, Any]] = Field(default_factory=list, description="MCP 补充证据")
-    
-    # ====== 决策链追踪 (V3.1 新增) ======
-    reasoning_chain: List[ReasoningStep] = Field(default_factory=list, description="完整决策链")
-    
-    # ====== 跨轮次记忆 (V3.2 新增) ======
-    reasoning_steps: List[RoundSummary] = Field(
-        default_factory=list, 
-        description="每轮分析的决策摘要，用于 Supervisor 判断矛盾是否解决"
-    )
-    
-    # ====== 最终输出 ======
-    signal: str = Field(default="hold", description="投资信号")
-    confidence: float = Field(default=0.5, ge=0, le=1, description="置信度")
-    summary: str = Field(default="", description="综合摘要")
-    scores: Dict[str, int] = Field(default_factory=dict, description="各维度评分")
-    risks: List[str] = Field(default_factory=list, description="风险提示")
-    
-    # ====== 控制流 ======
-    retry_count: int = Field(default=0, description="重试次数")
-    needs_refinement: bool = Field(default=False, description="是否需要补充数据")
-    refinement_queries: List[Dict[str, Any]] = Field(default_factory=list, description="需要补充的查询列表")
-    error: Optional[str] = Field(default=None, description="错误信息")
-    
-    def add_reasoning_step(self, node_name: str, action: str, reasoning: str, result_summary: str = "") -> None:
-        """添加决策链步骤"""
-        step = ReasoningStep(
-            step_id=len(self.reasoning_chain) + 1,
-            node_name=node_name,
-            action=action,
-            reasoning=reasoning,
-            result_summary=result_summary,
-        )
-        self.reasoning_chain.append(step)
-    
-    def save_round_summary(self) -> None:
-        """保存当前轮次的决策摘要"""
-        round_id = len(self.reasoning_steps) + 1
-        
-        summary = RoundSummary(
-            round_id=round_id,
-            fundamental_conclusion=self.structured_summary.fundamental_core,
-            technical_conclusion=self.structured_summary.technical_core,
-            sentiment_conclusion=self.structured_summary.sentiment_core,
-            conflicts_found=[c.description for c in self.analysis_conflicts],
-            confidence_score=self.confidence_score.overall if self.confidence_score else 50,
-            decision=self.final_decision,
-            unresolved_issues=[
-                c.description for c in self.analysis_conflicts 
-                if "未解决" in c.resolution or "需进一步" in c.resolution
-            ],
-        )
-        self.reasoning_steps.append(summary)
-    
-    def get_previous_issues(self) -> List[str]:
-        """获取上一轮未解决的问题"""
-        if not self.reasoning_steps:
-            return []
-        last_round = self.reasoning_steps[-1]
-        return last_round.unresolved_issues + last_round.conflicts_found
-    
-    def is_refinement_round(self) -> bool:
-        """是否为补充分析轮次"""
-        return self.retry_count > 0
-    
-    class Config:
-        """Pydantic 配置"""
-        extra = "allow"  # 允许额外字段
-
-
-# ==================== 策略监听 (Listener Node) ====================
+# ==================== 策略监听 ====================
 
 
 class StrategyType(str, Enum):
-    """策略类型（只保留核心5个策略）
+    """策略类型（核心4个活跃策略）
     
     活跃策略:
     - LIMIT_OPEN = "limit_open"           # 涨停开板
@@ -413,9 +204,8 @@ class StrategyType(str, Enum):
     - LEADING_DRAGON = "leading_dragon"   # 龙头战法（龙头低吸）
     - FIRST_BOARD = "first_board"         # 首板打板
     
-    已停用（保留枚举定义不影响，数据库中旧配置兼容）:
+    已停用（保留枚举定义，数据库中旧配置兼容）:
     - MA5_BUY = "ma5_buy"                 # 5日线低吸（回测表现差，已移除）
-    - LIMIT_OPEN 同时支持跌停翘板，但默认不启用
     - VOLUME_SURGE = "volume_surge"       # 放量突破（预留）
     - MA_CROSS = "ma_cross"               # 均线交叉（预留）
     - CUSTOM = "custom"                   # 自定义策略
@@ -433,8 +223,6 @@ class StrategyType(str, Enum):
 class StrategySubscription(BaseModel):
     """
     策略订阅配置
-    
-    用于 Listener 节点监听市场数据并触发预警。
     """
     # 基础信息
     subscription_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
@@ -521,29 +309,7 @@ class MarketSnapshot(BaseModel):
     limit_down_count: int = Field(default=0, description="跌停家数")
 
 
-# ==================== 工具调用 (MCP) ====================
-
-
-class ToolRequest(BaseModel):
-    """MCP 工具调用请求"""
-    message_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    trace_id: str
-    tool_name: str
-    arguments: Dict[str, Any] = Field(default_factory=dict)
-    timeout: int = 30
-
-
-class ToolResponse(BaseModel):
-    """MCP 工具调用响应"""
-    request_id: str
-    success: bool
-    result: Optional[Any] = None
-    error: Optional[str] = None
-    execution_time_ms: float = 0
-
-
 # ==================== 兼容性别名 ====================
-# 保持向后兼容
 
 TaskMessage = AgentTask
 ResultMessage = AgentResponse
