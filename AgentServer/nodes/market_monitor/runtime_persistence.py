@@ -517,8 +517,9 @@ class RuntimePersistence:
     @staticmethod
     async def _persist_sell_state(scanner) -> None:
         """持久化broker状态+运行时快照"""
+        is_virtual = getattr(scanner, '_trade_mode', '') in ('replay', 'dry_run')
         try:
-            await scanner._broker.save_state(force=True)
+            await scanner._broker.save_state(force=True, skip_if_virtual=is_virtual)
         except Exception as _e:
             logger.warning(f"[SCANNER] 卖出后broker状态持久化失败: {_e}")
         try:
@@ -777,9 +778,11 @@ class RuntimePersistence:
         broker = scanner._broker
 
         # 强制保存当前状态(跳过节流)
+        # 【v2.9.92s】replay/dry_run模式不应把虚拟数据覆盖到MongoDB实盘数据
+        is_virtual = getattr(scanner, '_trade_mode', '') in ('replay', 'dry_run')
         if broker:
             try:
-                await broker.save_state(force=True)
+                await broker.save_state(force=True, skip_if_virtual=is_virtual)
             except Exception as _e:
                 logger.warning(f"[SCANNER] 停止时broker状态持久化失败: {_e}")
             await self.save_runtime_snapshot(force=True)
@@ -1108,8 +1111,9 @@ class RuntimePersistence:
         # 1. Broker日终结算+状态持久化
         if self.broker:
             self.broker.daily_settlement(trade_date)
+        is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run')
         try:
-            await self.broker.save_state()
+            await self.broker.save_state(skip_if_virtual=is_virtual)
         except Exception as _e:
             logger.warning(f"[SCANNER] 盘后结算broker状态持久化失败: {_e}")
         logger.info("[SCANNER] 收盘自动结算+持久化完成")
@@ -1146,9 +1150,10 @@ class RuntimePersistence:
 
     async def persist_scan_result(self) -> None:
         """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""
+        is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run')
         try:
             if self.broker:
-                saved = await self.broker.save_state()
+                saved = await self.broker.save_state(skip_if_virtual=is_virtual)
                 logger.info(f"[SCAN] save_state={saved} positions={len(self.broker.positions)} orders={len(self.broker.orders)}")
             await self._scanner._save_timeline()
             await self._scanner._save_runtime_snapshot(force=False)
