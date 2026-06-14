@@ -53,9 +53,9 @@ class ReviewState(BaseWorkflowState):
 
 class StockAnalysisState(BaseWorkflowState):
     """
-    股票分析工作流状态
+    股票深度分析工作流状态 (独立于已移除的inference模块)
     
-    用于个股深度分析。
+    用于复盘工作流中的个股深度分析。
     """
     ts_code: str
     stock_name: Optional[str]

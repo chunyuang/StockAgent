@@ -8,8 +8,8 @@ core.managers.live — 实盘交易模块
 ═══════════════════════════════════════
 
 🟢 活跃使用 (有外部引用):
-  - risk_checker: DailyScheduler 使用 (1处)
-  - signal_pusher: DailyScheduler + Scanner 使用 (2处)
+  - risk_checker: 风控检查器
+  - signal_pusher: 信号推送器 (Scanner使用)
 
 🟡 内部依赖 (仅被同目录其他模块引用):
   - paper_trading_compat: 被 daily_rebalance_report/risk_alert/nav_tracker 引用

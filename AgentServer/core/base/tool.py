@@ -27,24 +27,21 @@ class BaseTool(ABC, Generic[InputT, OutputT]):
     """
     工具基类
     
-    所有 MCP 工具必须继承此类。
-    
     Example:
-        class GetStockBasicInput(BaseModel):
-            ts_code: str
+        class MyInput(BaseModel):
+            code: str
         
-        class GetStockBasicOutput(ToolResult):
+        class MyOutput(ToolResult):
             data: dict
         
-        class GetStockBasicTool(BaseTool[GetStockBasicInput, GetStockBasicOutput]):
-            name = "get_stock_basic"
-            description = "获取股票基础信息"
-            input_model = GetStockBasicInput
-            output_model = GetStockBasicOutput
+        class MyTool(BaseTool[MyInput, MyOutput]):
+            name = "my_tool"
+            description = "示例工具"
+            input_model = MyInput
+            output_model = MyOutput
             
-            async def execute(self, input: GetStockBasicInput) -> GetStockBasicOutput:
-                data, _ = await data_source_manager.get_stock_basic(input.ts_code)
-                return GetStockBasicOutput(data=data)
+            async def execute(self, input: MyInput) -> MyOutput:
+                return MyOutput(data={})
     """
     
     name: str

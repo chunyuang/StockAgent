@@ -6,7 +6,7 @@ SignalDispatcher — 统一信号分发器
 - 现在: 所有信号经SignalDispatcher统一分发, 支持多通道(飞书/交易网关/GUI/Redis)
 
 设计原则:
-1. 单一出口: 无论信号来源(Scanner/DailyScheduler/手动), 都经此分发
+1. 单一出口: 无论信号来源(Scanner/手动), 都经此分发
 2. 通道解耦: 新增通道只需注册handler, 不修改信号生产逻辑
 3. 可靠投递: handler异常不影响其他通道
 4. 信号去重: 同一ts_code+strategy在信号有效期内不重复推送
@@ -55,7 +55,7 @@ class DispatchSignal:
     extra: Dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0                 # time.time()
     expires_at: float = 0.0                 # 过期时间 (0=不过期)
-    source: str = "scanner"                 # 来源: scanner/scheduler/manual
+    source: str = "scanner"                 # 来源: scanner/manual
 
     @property
     def is_expired(self) -> bool:
