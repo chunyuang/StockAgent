@@ -145,8 +145,17 @@ class SimulatedBroker:
             logger.warning(f"[BROKER] MongoDB连接失败: {e}")
             return False
 
-    async def save_state(self, force: bool = False) -> None:
-        """持久化当前状态到MongoDB(带节流: 30秒内不重复保存, force=True跳过节流)"""
+    async def save_state(self, force: bool = False, skip_if_virtual: bool = False) -> None:
+        """持久化当前状态到MongoDB(带节流: 30秒内不重复保存, force=True跳过节流)
+        
+        Args:
+            force: 跳过节流，强制保存
+            skip_if_virtual: 如果是虚拟模式(replay/dry_run)，跳过保存防止覆盖实盘数据
+        """
+        # 【v2.9.92s】replay/dry_run模式的SimulatedBroker不应覆盖MongoDB实盘数据
+        if skip_if_virtual:
+            logger.info("[BROKER] 跳过save_state: 虚拟模式(replay/dry_run)不应覆盖实盘数据")
+            return True
         now = time.time()
         if not force and now - self._last_save_time < 30:
             logger.debug(f"[BROKER] save_state节流: {now - self._last_save_time:.0f}s < 30s")
