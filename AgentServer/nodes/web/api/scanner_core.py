@@ -427,11 +427,14 @@ async def get_timeline_history(date: str = None, days: int = 7):
         
         if date:
             # 指定日期
-            query = {"account_id": account_id, "trade_date": date}
+            # 【v2.9.95修复】trade_date在MongoDB中可能是int或string, 需兼容两种类型
+            date_int = int(date) if date.isdigit() else date
+            query = {"account_id": account_id, "trade_date": {"$in": [date, date_int]}}
         else:
             # 最近N天
             start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-            query = {"account_id": account_id, "trade_date": {"$gte": start_date}}
+            start_date_int = int(start_date)
+            query = {"account_id": account_id, "$or": [{"trade_date": {"$gte": start_date}}, {"trade_date": {"$gte": start_date_int}}]}
         
         items = []
         async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("time", 1):

@@ -20,6 +20,7 @@ interface CoreState {
 
 export function useAutoTradeMonitor(core: CoreState) {
   const autoTrades = ref<any[]>([])
+  const opsDate = ref('')
   const paramCompare = ref<any>(null)
   const paramCompareLoading = ref(false)
   const scanConfig = ref<any>(null)
@@ -58,7 +59,9 @@ export function useAutoTradeMonitor(core: CoreState) {
 
   async function fetchAutoTrades() {
     try {
-      const r = await api.get(`${scannerApi}/auto-trades?limit=50`)
+      let url = `${scannerApi}/auto-trades?limit=50`
+      if (opsDate.value) url += `&date=${opsDate.value.replace(/-/g, '')}`
+      const r = await api.get(url)
       const p = parseResponse(r)
       if (p.success) autoTrades.value = p.data || []
     } catch { /* ignore */ }
@@ -103,7 +106,7 @@ export function useAutoTradeMonitor(core: CoreState) {
   })
 
   return {
-    autoTrades, paramCompare, paramCompareLoading,
+    autoTrades, opsDate, paramCompare, paramCompareLoading,
     scanConfig, scanConfigLoading,
     pnlOption,
     updatePnlHistory, fetchPerformanceHistory,

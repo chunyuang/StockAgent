@@ -15,6 +15,8 @@ const c = useChartColors().value
 const loading = ref(false)
 const accountData = ref<any>(null)
 const activeSection = ref('overview')
+const accountDate = ref('')
+const today = new Date().toISOString().slice(0, 10)
 
 // 切换section时滚动到顶部
 watch(activeSection, () => {
@@ -35,7 +37,12 @@ const setActiveTab = (tab: string) => {
 const fetchAccount = async () => {
   loading.value = true
   try {
-    const res = await fetch('/api/v1/scanner/analysis?period=30d').then(r => r.json())
+    let url = '/scanner/analysis?period=30d'
+    if (accountDate.value) {
+      const d = accountDate.value.replace(/-/g, '')
+      url = `/scanner/analysis?start_date=${d}&end_date=${d}`
+    }
+    const res = await fetch(url).then(r => r.json())
     accountData.value = { analysis: res.data || {} }
   } catch (e) { console.error(e) }
   loading.value = false
@@ -57,6 +64,8 @@ const toggleDetail = async (code: string) => {
 }
 
 onMounted(fetchAccount)
+
+watch(accountDate, () => { fetchAccount() })
 
 const acc = computed(() => accountData.value?.analysis?.account || {})
 const riskMonitor = computed(() => accountData.value?.analysis?.risk_monitor || {})
@@ -108,6 +117,10 @@ const posPie = computed(() => {
     </div>
 
     <!-- KPI -->
+    <div class="at-kpi-header">
+      <span class="at-kpi-title">💼 账户</span>
+      <ElDatePicker v-model="accountDate" type="date" placeholder="今日" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" :clearable="true" />
+    </div>
     <div class="at-kpi">
       <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">{{ fmt(totalAssets) }}</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">{{ fmt(availableCash) }}</div></div>
@@ -271,6 +284,8 @@ const posPie = computed(() => {
 .at-alert { padding: 5px 10px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.3); border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: #e6a23c; }
 
 /* KPI - compact single row */
+.at-kpi-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.at-kpi-title { font-size: 14px; font-weight: 700; }
 .at-kpi { display: flex; gap: 2px; margin-bottom: 8px; flex-wrap: wrap; }
 .at-kpi-c { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 4px; padding: 3px 8px; display: flex; align-items: baseline; gap: 3px; }
 .at-kpi-l { font-size: 10px; color: var(--text-tertiary); }

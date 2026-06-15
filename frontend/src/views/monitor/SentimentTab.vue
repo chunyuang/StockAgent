@@ -97,16 +97,16 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
       <template v-else-if="sentimentMode === 'intraday' && !isIntradayFallback">
         <!-- 涨停/跌停柱状图 -->
         <div class="intraday-panel">
-          <div class="ip-title">🔴 涨停 / 🟢 跌停 <span class="ip-sub">(5min采样)</span></div>
+          <div class="ip-title">🔴 涨停 / 🔵 跌停 <span class="ip-sub">(5min采样)</span></div>
           <div class="ip-chart" style="height:170px">
             <div class="sc-y-axis"><span>{{ intradayBarData.maxVal }}</span><span>{{ Math.round(intradayBarData.maxVal / 2) }}</span><span>0</span></div>
             <div class="sc-chart-body">
               <svg class="sc-svg" :viewBox="`0 0 ${intradayBarData.svgWidth} 100`" preserveAspectRatio="none">
                 <line x1="0" y1="50" :x2="intradayBarData.svgWidth" y2="50" stroke="var(--border-default)" stroke-width="0.3" stroke-dasharray="2,2" />
                 <g v-for="(bar, i) in intradayBarData.bars" :key="'u'+i"><rect :x="bar.x" :y="100 - bar.limitUpH" :width="bar.barW" :height="bar.limitUpH" fill="rgba(245,108,108,0.65)" rx="1" /></g>
-                <g v-for="(bar, i) in intradayBarData.bars" :key="'d'+i"><rect :x="bar.x + bar.barW * 0.35" :y="100 - bar.limitDownH" :width="bar.barW * 0.55" :height="bar.limitDownH" fill="rgba(103,194,58,0.55)" rx="1" /></g>
+                <g v-for="(bar, i) in intradayBarData.bars" :key="'d'+i"><rect :x="bar.x + bar.barW * 0.35" :y="100 - bar.limitDownH" :width="bar.barW * 0.55" :height="bar.limitDownH" fill="rgba(64,158,255,0.55)" rx="1" /></g>
               </svg>
-              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#f56c6c">■ 涨停</span> <span style="color:#67c23a;margin-left:6px">■ 跌停</span></div>
+              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#f56c6c">■ 涨停</span> <span style="color:#409eff;margin-left:6px">■ 跌停</span></div>
             </div>
           </div>
           <div class="sc-x-labels"><span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
