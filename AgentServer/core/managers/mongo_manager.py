@@ -26,7 +26,36 @@ class MongoManager(BaseManager):
     - 连接池管理 (默认 max_pool_size=100)
     - 索引自动创建
     - 高性能批量写入
+    - trade_date 自动归一化 (string→int)
     """
+    
+    # trade_date 应为 int 的集合白名单
+    # 这些集合在查询时依赖 int 类型的 trade_date 做比较($gte/$lte/$in)
+    _TRADE_DATE_INT_COLLECTIONS = frozenset({
+        "stock_daily_ak_full", "daily_basic", "limit_list", "broker_orders",
+        "broker_positions", "scanner_timeline", "scan_traces", "sentiment_scores",
+        "index_daily", "moneyflow_industry", "moneyflow_concept",
+        "sector_ranking", "daily_stats", "market_analysis", "trade_cal",
+    })
+    
+    @staticmethod
+    def _normalize_trade_date(doc: dict) -> dict:
+        """将文档中的 trade_date 从 string 归一化为 int
+        
+        MongoDB 中 trade_date 统一存储为 int(YYYYMMDD), 但外部数据源
+        (AKShare/Tushare/东方财富) 和前端参数传入的往往是 string。
+        在写入时自动归一化, 避免后续查询时 string!=int 静默失败。
+        """
+        td = doc.get("trade_date")
+        if td is None:
+            return doc
+        if isinstance(td, int):
+            return doc  # 已经是 int
+        if isinstance(td, str):
+            s = td.replace("-", "").replace("/", "")
+            if s.isdigit() and len(s) == 8:
+                doc["trade_date"] = int(s)
+        return doc
     
     def __init__(self):
         super().__init__()
@@ -248,6 +277,9 @@ class MongoManager(BaseManager):
         now = datetime.now(timezone.utc)
         for doc in documents:
             doc["created_at"] = now
+            # trade_date 归一化: string → int
+            if collection in self._TRADE_DATE_INT_COLLECTIONS:
+                self._normalize_trade_date(doc)
         result = await self._db[collection].insert_many(documents)
         return [str(id) for id in result.inserted_ids]
     
@@ -284,6 +316,16 @@ class MongoManager(BaseManager):
         """更新单条文档"""
         self._ensure_initialized()
         
+        # trade_date 归一化: filter 和 $set 中的 trade_date
+        if collection in self._TRADE_DATE_INT_COLLECTIONS:
+            self._normalize_trade_date(filter)
+            # 归一化 $set 中的 trade_date
+            if "$set" in update:
+                self._normalize_trade_date(update["$set"])
+            # 归一化裸 update (会被下面包装为 $set)
+            elif not any(k.startswith("$") for k in update.keys()):
+                self._normalize_trade_date(update)
+        
         # 检查是否包含任何 MongoDB 更新操作符
         has_operator = any(key.startswith("$") for key in update.keys())
         
@@ -308,6 +350,14 @@ class MongoManager(BaseManager):
     ) -> int:
         """更新多条文档"""
         self._ensure_initialized()
+        
+        # trade_date 归一化
+        if collection in self._TRADE_DATE_INT_COLLECTIONS:
+            self._normalize_trade_date(filter)
+            if "$set" in update:
+                self._normalize_trade_date(update["$set"])
+            elif not any(k.startswith("$") for k in update.keys()):
+                self._normalize_trade_date(update)
         
         # 检查是否包含任何 MongoDB 更新操作符
         has_operator = any(key.startswith("$") for key in update.keys())
