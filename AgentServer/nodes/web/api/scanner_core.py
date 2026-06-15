@@ -39,8 +39,34 @@ async def get_all_scanner_data():
     signals_data = scanner.get_signals()
     _fill_stock_names(signals_data, scanner)
     
-    # 持仓
+    # 持仓【v2.9.93】scanner.get_positions() 是主路径（字段最全）,
+    # 但增加一道 broker_positions 一致性检查：如果二者持仓 ts_code 集合不一致，
+    # 说明 scanner 内存被 scanner_timeline 污染 (P0事故 6/15) —— fallback 到 broker 真相源。
     positions_data = scanner.get_positions()
+    try:
+        from nodes.web.api.scanner_analysis import _compute_positions_from_broker
+        from core.managers import mongo_manager
+        if mongo_manager.db is not None:
+            account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+            broker_positions = await _compute_positions_from_broker(mongo_manager.db, account_id)
+            broker_codes = {p.get("ts_code") for p in broker_positions}
+            scanner_codes = {p.get("ts_code") for p in positions_data}
+            if broker_codes != scanner_codes:
+                # 不一致: 幽灵持仓警报 — 切为 broker 真相源 (代价: 丢失部分字段)
+                ghost = scanner_codes - broker_codes
+                missing = broker_codes - scanner_codes
+                try:
+                    from loguru import logger
+                    logger.warning(
+                        f"[/scanner/all] 持仓 drift! scanner={len(scanner_codes)} broker={len(broker_codes)} "
+                        f"幽灵(scanner独有)={ghost} 丢失(broker独有)={missing} —— fallback 到 broker_positions"
+                    )
+                except Exception:
+                    pass
+                positions_data = broker_positions
+    except Exception:
+        # 一致性检查失败 不影响主路径
+        pass
     _fill_stock_names(positions_data, scanner)
     
     # 时间线
