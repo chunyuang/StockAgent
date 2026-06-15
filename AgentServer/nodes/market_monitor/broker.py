@@ -874,6 +874,9 @@ class SimulatedBroker:
             pos.available_qty = pos.total_qty
             pos.today_buy_qty = 0
 
+        # 【v2.9.95f】重置当日拒绝缓存，允许次日重新尝试
+        self._today_rejected.clear()
+
         # 重算账户
         self._recalc_account()
         self.account.today_profit = 0
