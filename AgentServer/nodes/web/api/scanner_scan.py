@@ -776,10 +776,11 @@ async def get_premarket_status(date: str = None):
                 # 尝试取今天数据, 无则取最近交易日
                 target_date = today
                 docs = []
-                async for doc in db["stock_daily_ak_full"].find(
-                    {"trade_date": int(today)},
+                # 【v2.9.92s】stock_daily_ak_full的trade_date可能是string或int格式
+                for doc in db["stock_daily_ak_full"].find(
+                    {"trade_date": {"$in": [today, int(today)]}},
                     {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
-                ):
+                ).limit(6000):
                     docs.append(doc)
                 
                 if not docs:
@@ -788,10 +789,11 @@ async def get_premarket_status(date: str = None):
                     )
                     if latest:
                         target_date = str(latest["trade_date"])
-                        async for doc in db["stock_daily_ak_full"].find(
-                            {"trade_date": int(target_date)},
+                        # 用\$in同时查string和int格式
+                        for doc in db["stock_daily_ak_full"].find(
+                            {"trade_date": {"$in": [target_date, int(target_date) if target_date.isdigit() else target_date]}},
                             {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
-                        ):
+                        ).limit(6000):
                             docs.append(doc)
                 
                 if docs:
@@ -994,6 +996,62 @@ async def get_premarket_status(date: str = None):
             if s not in strategy_map:
                 strategy_map[s] = []
             strategy_map[s].append(c)
+        
+        # 【v2.9.92s】scanner运行但竞价候选为空时(行情缓存未就绪)，从MongoDB补充
+        if not candidates:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    db = mongo_manager.db
+                    today = datetime.now().strftime("%Y%m%d")
+                    # 找最近有数据的交易日
+                    target_date = today
+                    query = {"trade_date": {"$in": [today, int(today)]}}
+                    daily_count = db["stock_daily_ak_full"].count_documents(query)
+                    if daily_count == 0:
+                        latest = db["stock_daily_ak_full"].find_one({}, sort=[("trade_date", -1)], projection={"trade_date": 1})
+                        if latest:
+                            target_date = latest["trade_date"]
+                    
+                    query = {"trade_date": {"$in": [str(target_date), int(target_date)] if str(target_date).isdigit() else [target_date]}}
+                    import pandas as pd
+                    docs = list(db["stock_daily_ak_full"].find(query, {"ts_code": 1, "pct_chg": 1}).limit(6000))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if 'pct_chg' in df.columns:
+                            # 半路追涨: 3-7%
+                            hc = df[(df['pct_chg'] >= 3) & (df['pct_chg'] <= 7)].nlargest(15, 'pct_chg')
+                            for _, row in hc.iterrows():
+                                tc = row.get('ts_code', '')
+                                c = {"ts_code": tc, "stock_name": scanner._stock_name_map.get(tc, ''),
+                                     "strategy": "halfway_chase", "pct_chg": round(row.get('pct_chg', 0), 2),
+                                     "signal_status": "preview", "reason": f"涨{row.get('pct_chg',0):.1f}%"}
+                                candidates.append(c)
+                                strategy_map.setdefault("halfway_chase", []).append(c)
+                            # 首板: >=9.9%
+                            fu = df[df['pct_chg'] >= 9.9].nlargest(10, 'pct_chg')
+                            for _, row in fu.iterrows():
+                                tc = row.get('ts_code', '')
+                                c = {"ts_code": tc, "stock_name": scanner._stock_name_map.get(tc, ''),
+                                     "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
+                                     "signal_status": "preview", "reason": f"涨停{row.get('pct_chg',0):.1f}%"}
+                                candidates.append(c)
+                                strategy_map.setdefault("first_limit_up", []).append(c)
+                        # 补充market_snapshot
+                        if 'pct_chg' in df.columns:
+                            pcts = df['pct_chg'].dropna()
+                            if len(pcts) > 0:
+                                market_snapshot["up_count"] = int((pcts > 0).sum())
+                                market_snapshot["down_count"] = int((pcts < 0).sum())
+                                market_snapshot["flat_count"] = int((pcts == 0).sum())
+                                market_snapshot["limit_up_count"] = int((pcts >= 9.9).sum())
+                                market_snapshot["limit_down_count"] = int((pcts <= -9.9).sum())
+                                market_snapshot["avg_pct_chg"] = round(float(pcts.mean()), 2)
+                                market_snapshot["total_stocks"] = len(docs)
+                                market_snapshot["data_date"] = str(target_date)
+            except Exception as e:
+                import logging
+                logging.getLogger("api.scanner").debug(f"[premarket] MongoDB回退失败: {e}")
         
         # ===== 策略分组统计 =====
         strategy_groups = []

@@ -62,8 +62,9 @@ export function usePremarketMonitor() {
       let r = await api.get(url)
       let p = parseResponse(r)
       // 【v2.9.83修复】premarket-status可能因scanner未运行返回空数据(candidates=[]且market_snapshot={})
+      // 【v2.9.92s扩展】竞价时段scanner运行但行情缓存未就绪也返回candidates=[]
       // 自动回退到debug/premarket-sim获取完整MongoDB数据
-      if (!useDebug && p.success && p.data && (!p.data.candidates?.length && !p.data.market_snapshot?.up_count)) {
+      if (!useDebug && p.success && p.data && (!p.data.candidates?.length)) {
         url = `${scannerApi}/debug/premarket-sim${dateParam ? '?' + dateParam : ''}`
         r = await api.get(url)
         p = parseResponse(r)
