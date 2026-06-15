@@ -27,6 +27,8 @@ export function useScanTraceMonitor() {
 
   // 按小时分组+折叠
   const scanHourCollapse = ref<Record<string, boolean>>({})
+  // 【v2.9.95】全天执行摘要(buys/blocked/block_reasons)
+  const executionSummary = ref<any>(null)
 
   const scanHistoryByHour = computed(() => {
     if (!scanHistory.value.length) return []
@@ -88,8 +90,11 @@ export function useScanTraceMonitor() {
       const p = parseResponse(r)
       if (p.success && p.data?.length) {
         scanHistory.value = p.data
+        // 【v2.9.95】保存全天执行摘要
+        executionSummary.value = (r as any)?.execution_summary || null
       } else {
         scanHistory.value = []
+        executionSummary.value = null
       }
     } catch { scanHistory.value = [] }
     finally { scanHistoryLoading.value = false }
@@ -170,15 +175,26 @@ export function useScanTraceMonitor() {
 
   const layerDesc = (layer: string, data: any): string => {
     const descs: Record<string, (d: any) => string> = {
+      // 【v2.9.95c】优先看 passed/rejected 数字而不是 applied，因为很多层根本没 applied 字段
       L1_force_empty: (d) => d === true || d?.applied ? '✅ 未触发空仓(涨停多/跌停少)' : '⛔ 触发强制空仓',
       L2_special_period: (d) => d === true || d?.applied ? '✅ 非特殊时期,仓位系数100%' : '⚠️ 特殊时期,降低仓位',
       L3_sentiment: (d) => typeof d === 'string' ? d : d?.applied ? `✅ 情绪筛选通过` : '⛔ 情绪不达标',
-      L4_premarket: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 盘前预选通过' : '⛔ 盘前预选未通过',
-      L5_auction: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 竞价过滤通过' : '⛔ 竞价异常排除',
-      L6_strategy: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 策略量能达标' : '⛔ 不满足策略条件',
-      L7_ranking: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 排名靠前入选' : '⛔ 排名靠后淘汰',
-      L8_position: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 仓位允许开仓' : '⛔ 仓位已满/超限',
-      L9_execute: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 执行确认' : '⛔ 执行被拒',
+      L4_premarket: (d) => typeof d === 'string' ? d : (Number(d?.rejected||0) === 0 && Number(d?.output||0) > 0) ? `✅ 盘前预选通过 入${d.input}出${d.output}` : (Number(d?.rejected||0) > 0 ? `🔍 盘前过滤 入${d.input}出${d.output}(剔除${d.rejected}只)` : '⛔ 盘前预选未通过'),
+      L5_auction: (d) => typeof d === 'string' ? d : (Number(d?.rejected||0) === 0 && Number(d?.output||0) > 0) ? `✅ 竞价过滤通过 入${d.input}出${d.output}` : (Number(d?.rejected||0) > 0 ? `🔍 竞价过滤 入${d.input}出${d.output}(剔除${d.rejected}只)` : '⛔ 竞价异常排除'),
+      L6_strategy: (d) => typeof d === 'string' ? d : (Number(d?.rejected||0) === 0 && Number(d?.output||0) > 0) ? `✅ 策略量能达标 入${d.input}出${d.output}` : (Number(d?.rejected||0) > 0 ? `🔍 策略筛选 入${d.input}出${d.output}(剔除${d.rejected}只)` : '⛔ 不满足策略条件'),
+      L7_ranking: (d) => typeof d === 'string' ? d : (Number(d?.rejected||0) === 0 && Number(d?.output||0) > 0) ? `✅ 排名靠前入选 入${d.input}出${d.output}` : (Number(d?.rejected||0) > 0 ? `🔍 综合排序 入${d.input}出${d.output}(剔除${d.rejected}只)` : '⛔ 排名靠后淘汰'),
+      L8_position: (d) => typeof d === 'string' ? d : (Number(d?.rejected||0) === 0 && Number(d?.output||0) > 0) ? `✅ 仓位允许开仓 入${d.input}出${d.output}` : (Number(d?.rejected||0) > 0 ? `⚠️ 仓位限制 入${d.input}出${d.output}(剔除${d.rejected}只)` : '⛔ 仓位已满/超限'),
+      // 【v2.9.95c修复】L9 是"输出层"——通过的就是本轮可执行信号数, 不是"被拒"
+      L9_execute: (d) => {
+        if (typeof d === 'string') return d
+        if (!d || typeof d !== 'object') return ''
+        const i = Number(d.input || 0)
+        const o = Number(d.output || d.passed || 0)
+        const r = Number(d.rejected || 0)
+        if (i === 0) return '⏭️ 本轮无候选进入执行层'
+        if (r > 0) return `⚠️ 有${r}个信号被拒绝(可能因已满仓/风控熔断/额度不足) 入${i}出${o}`
+        return `✅ 本轮生成${o}个可买信号进入执行(实际成交还要看候选追踪栏的执行状态)`
+      },
     }
     const fn = descs[layer]
     if (fn) try { return fn(data) } catch { /* fallback */ }
@@ -276,6 +292,7 @@ export function useScanTraceMonitor() {
     scanTraceDate, scanTraceFilter, scanTraceLoadingMore,
     selectedScanIdx, scanHistory, scanHistoryByHour, scanHistoryLoading,
     scanHourCollapse, scanTraceHasData,
+    executionSummary,
     layerDebugVisible, layerDebugData, layerDebugLoading,
     // 兼容
     scanTraceVisible, scanTraceData, scanTraceCode,

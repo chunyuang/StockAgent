@@ -889,6 +889,16 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                     sigs.sort(key=lambda s: getattr(s, 'pct_chg', 0) or 0, reverse=True)
                     filtered.extend(sigs[:remaining_slots])
                     removed += len(sigs) - remaining_slots
+                    # 【v2.9.95d】为被板块集中度过滤剔除的信号写 timeline
+                    for dropped_sig in sigs[remaining_slots:]:
+                        try:
+                            self._add_timeline_log("blocked", dropped_sig.ts_code,
+                                getattr(dropped_sig, 'stock_name', ''),
+                                getattr(dropped_sig, 'strategy_name', ''),
+                                f"同行业「{ind}」已选{remaining_slots}只信号,本只被集中度过滤剔除",
+                                dropped_sig)
+                        except Exception:
+                            pass
             
             if removed > 0:
                 logger.info(f"[FILTER] 板块集中度: 移除{removed}只同行业过多信号(每行业≤{sector_top_n}只)")

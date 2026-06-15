@@ -20,7 +20,21 @@ const {
   layerDebugVisible, layerDebugData, scanTraceVisible, scanTraceData,
   signalStatusTag, formatLayerTrace, formatDecisionDetail, factorLabel,
   fetchScanTraceDates,
+  // v2.9.95: 全天执行摘要
+  executionSummary,
 } = m
+
+// v2.9.95: 执行摘要格式化
+const execSummaryDisplay = computed(() => {
+  const es = unref(executionSummary)
+  if (!es) return null
+  const reasons = Object.entries(es.block_reasons || {}).map(([reason, count]) => `${reason}×${count}`)
+  return {
+    buys: es.buys || 0,
+    blocked: es.blocked || 0,
+    reasonsText: reasons.length ? `(${reasons.join(', ')})` : ''
+  }
+})
 
 // scanTraceCode accessed from inject, used in template via {{ scanTraceCode }}
 // @ts-expect-error vue-tsc TS6133 false positive — used in template
@@ -53,20 +67,27 @@ onMounted(async () => {
       <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">该日暂无扫描记录</div>
       <div v-else>
         <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
+        <!-- 【v2.9.95】全天执行摘要横幅 -->
+        <div v-if="execSummaryDisplay" class="exec-summary-banner">
+          <span class="es-label">今日执行</span>
+          <span class="es-item es-buy">{{ execSummaryDisplay.buys }}成交</span>
+          <span class="es-item es-block">{{ execSummaryDisplay.blocked }}拦截</span>
+          <span v-if="execSummaryDisplay.reasonsText" class="es-reasons">{{ execSummaryDisplay.reasonsText }}</span>
+        </div>
         <div class="scan-hours">
           <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
             <div class="sc-hour-header" @click="toggleScanHour(group.hour)">
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
               <span class="sc-hour-label">{{ group.hour }}:00</span>
               <span class="sc-hour-count">{{ group.items.length }}条</span>
-              <span v-if="group.collapsed" class="sc-hour-summary">最新 {{ group.items[0]?.summary?.passed || 0 }}只通过</span>
+              <span v-if="group.collapsed" class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → {{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交 · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
               <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">
                 <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
-                <span class="sc-stats" :title="`全市场扫描${s.summary?.total_candidates || s.candidates || 0}只 → 通过9层筛选${s.summary?.passed || s.signals || 0}只 → 实际买入${s.buys || 0}只`">
-                  <span class="ss-all">{{ s.summary?.total_candidates || s.candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || s.signals || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.buys || 0) > 0 ? 'has-buy' : ''">{{ s.buys || 0 }}</span>
+                <span class="sc-stats" :title="`全市场${s.summary?.total_candidates || 0}只 → 通过${s.summary?.passed || 0}只 → 成交${s.exec?.bought || 0}只 · 拦截${s.exec?.blocked || 0}次`">
+                  <span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
                 </span>
               </div>
             </div>
@@ -110,13 +131,32 @@ onMounted(async () => {
           <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
           <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
           <div class="et-wrap">
-            <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-item" :class="sig.final_status === 'passed' ? 'et-pass' : 'et-fail'">
-              <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px;min-width:28px;padding:0 2px">{{ strategyCN(sig.strategy) }}</ElTag>
-              <span class="code">{{ sig.ts_code }}</span>
-              <span class="name">{{ sig.stock_name }}</span>
-              <span :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg ?? 0).toFixed(1) }}%</span>
-              <span v-if="sig.final_status === 'passed'" class="et-ok">✅</span>
-              <span v-else class="et-no">❌{{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}</span>
+            <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-item" :class="[sig.final_status === 'passed' ? 'et-pass' : 'et-fail', sig.execution_status ? 'et-' + sig.execution_status : '']">
+              <!-- 【v2.9.95c】两行布局: 上行=股票信息, 下行=执行状态 -->
+              <div class="et-row1">
+                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid et-strategy" effect="dark">{{ strategyCN(sig.strategy) }}</ElTag>
+                <span class="et-code">{{ sig.ts_code }}</span>
+                <span class="et-name">{{ sig.stock_name || '-' }}</span>
+                <span class="et-pct" :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg ?? 0).toFixed(2) }}%</span>
+                <span v-if="sig.price" class="et-price">¥{{ Number(sig.price).toFixed(2) }}</span>
+              </div>
+              <div class="et-row2">
+                <span v-if="sig.execution_status === 'bought'" class="et-exec et-bought">
+                  <span class="et-icon">✅</span><span class="et-text">已成交 · {{ sig.execution_desc || '买入成功' }}</span>
+                </span>
+                <span v-else-if="sig.execution_status === 'blocked'" class="et-exec et-blocked">
+                  <span class="et-icon">🚫</span><span class="et-text">未成交 · {{ sig.execution_desc || '被拦截' }}</span>
+                </span>
+                <span v-else-if="sig.execution_status === 'pending'" class="et-exec et-pending">
+                  <span class="et-icon">⏳</span><span class="et-text">未触发 · {{ sig.execution_desc || '通过筛选但未买入' }}</span>
+                </span>
+                <span v-else-if="sig.final_status === 'passed'" class="et-exec et-pending">
+                  <span class="et-icon">✅</span><span class="et-text">通过筛选</span>
+                </span>
+                <span v-else class="et-exec et-rejected">
+                  <span class="et-icon">❌</span><span class="et-text">被淘汰于第{{ String(sig.rejection_layer || '?').replace(/^L/, 'L') }}层 · {{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}<span v-if="sig.rejection_reason"> · {{ sig.rejection_reason }}</span></span>
+                </span>
+              </div>
             </div>
           </div>
           <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
@@ -252,13 +292,33 @@ onMounted(async () => {
 
 .fn-reject { color: var(--stock-up); font-size: 11px; }
 
-.et-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px; }
+.et-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 4px; }
 
-.et-item { display: flex; align-items: center; gap: 3px; padding: 2px 5px; font-size: 11px; border-radius: 3px; }
+/* 【v2.9.95c】候选追踪卡片: 两行布局，股票信息 + 执行状态 */
+.et-item { display: flex; flex-direction: column; gap: 3px; padding: 6px 10px; font-size: 12px; border-radius: 5px; border: 1px solid transparent; transition: background 0.15s; }
+.et-item:hover { background: var(--bg-hover); }
+.et-item.et-pass { background: rgba(0,180,42,0.04); border-color: rgba(0,180,42,0.15); }
+.et-item.et-fail { background: rgba(245,63,63,0.03); border-color: rgba(245,63,63,0.12); opacity: 0.85; }
+.et-item.et-bought { background: rgba(245,108,108,0.08); border-color: rgba(245,108,108,0.3); }
+.et-item.et-blocked { background: rgba(230,162,60,0.06); border-color: rgba(230,162,60,0.2); }
 
-.et-item.et-pass { background: rgba(0,180,42,0.05); }
+.et-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.et-row2 { padding-left: 4px; }
+.et-strategy { font-size: 10px !important; min-width: 56px; padding: 0 4px !important; height: 18px !important; line-height: 18px !important; flex-shrink: 0; }
+.et-code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
+.et-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.et-pct { font-weight: 700; flex-shrink: 0; min-width: 56px; text-align: right; }
+.et-pct.up { color: var(--stock-up, #f56c6c); }
+.et-pct.down { color: var(--stock-down, #67c23a); }
+.et-price { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
 
-.et-item.et-fail { background: rgba(245,63,63,0.04); }
+.et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 1.4; }
+.et-exec .et-icon { flex-shrink: 0; }
+.et-exec .et-text { color: var(--text-primary); }
+.et-exec.et-bought .et-text { color: var(--stock-up, #f56c6c); font-weight: 600; }
+.et-exec.et-blocked .et-text { color: #e6a23c; font-weight: 500; }
+.et-exec.et-pending .et-text { color: var(--text-secondary); }
+.et-exec.et-rejected .et-text { color: var(--text-tertiary); }
 
 .et-ok { color: var(--stock-up); flex-shrink: 0; }
 
@@ -277,6 +337,27 @@ onMounted(async () => {
 .rs-count { min-width: 40px; text-align: right; font-weight: 600; }
 
 .load-more-hint { text-align: center; padding: 8px 0; }
+
+/* ========== v2.9.95 执行摘要 + 状态标签 ========== */
+.exec-summary-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+.es-label { font-weight: 600; color: var(--text-secondary); }
+.es-item { font-weight: 600; }
+.es-buy { color: var(--stock-up, #f56c6c); }
+.es-block { color: var(--stock-down, #67c23a); }
+.es-reasons { color: var(--text-tertiary); font-size: 10px; }
+.ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
+.et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
+/* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
 
 .scan-chip.debug { border-style: dashed; opacity: 0.85; }
 

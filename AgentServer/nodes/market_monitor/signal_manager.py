@@ -146,6 +146,12 @@ class SignalManager:
                 existing_keys.add(key)
                 added.append(sig)
             else:
+                # 【v2.9.95d】为"信号已存在被静默跳过"补 timeline，否则前端看不到原因
+                try:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        sig.strategy_name, "信号已在进行中, 本轮不重复下单", sig)
+                except Exception:
+                    pass
                 for s in self.active_signals:
                     if s.ts_code + "|" + s.strategy == key:
                         s.price = sig.price

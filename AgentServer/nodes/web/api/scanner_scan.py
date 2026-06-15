@@ -322,6 +322,10 @@ async def get_scan_traces(date: str = None, limit: int = 10):
     返回每次扫描的摘要信息，不含candidates详情（用于列表展示）
     点击单条记录时通过 /scan-traces/{scan_id} 获取详情
     
+    v2.9.95b: 改为按时间窗口匹配per-scan执行统计(非全天汇总)
+    chip显示: 5230▶30▶2🚫5  (全市场→通过→2成交🚫5拦截)
+    全天汇总仍保留在execution_summary(横幅用)
+    
     Args:
         date: 指定日期(YYYYMMDD), 不传则返回最近N次
         limit: 返回最近N次扫描(默认10)
@@ -331,10 +335,10 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         if not mongo_manager.is_initialized:
             return {"success": True, "data": [], "message": "MongoDB未连接"}
         
+        from bson import ObjectId  # 【v2.9.95b】列表函数需要 ObjectId
+        
         query = {}
         if date:
-            # 【v2.9.88】scan_traces.trade_date 应为 int，但不同版本存了 string 和 int 两种
-            # 【v2.9.94】同时查 int + string 兼容老写入
             date_str = str(date).replace("-", "").replace("/", "")
             try:
                 date_int = int(date_str)
@@ -342,19 +346,132 @@ async def get_scan_traces(date: str = None, limit: int = 10):
             except (ValueError, TypeError):
                 query["trade_date"] = date_str
         
+        # ====== 1. 获取 scan_traces 列表 ======
         docs = []
-        # 列表查询：排除candidates和rejected_summary字段，避免返回20MB+
         async for doc in mongo_manager.db["scan_traces"].find(
             query,
-            {"candidates": 0, "rejected_summary": 0}  # 排除大字段
+            {"candidates": 0, "rejected_summary": 0}
         ).sort("_id", -1).limit(limit):
-            # 将_id转为scan_id供前端详情查询
             doc["scan_id"] = str(doc.pop("_id", ""))
-            # 【v2.9.17:修复旧数据漏斗数字(L2/L3/L6/L8 output=0)】
             _fix_funnel_summary(doc)
             docs.append(doc)
         
-        return {"success": True, "data": docs, "count": len(docs)}
+        if not docs:
+            return {"success": True, "data": [], "count": 0}
+        
+        # ====== 2. 按时间窗口匹配执行事件 ======
+        # 预加载该日所有 timeline 事件 + broker_orders
+        date_val = query.get("trade_date", None)
+        tl_query = {"trade_date": date_val} if date_val else {}
+        
+        # 收集所有 timeline 事件(按时间排序)
+        all_timeline = []
+        if tl_query:
+            async for evt in mongo_manager.db["scanner_timeline"].find(
+                tl_query, {"time": 1, "ts_code": 1, "action": 1, "reason": 1, "strategy": 1, "_id": 0}
+            ).sort("time", 1):
+                all_timeline.append(evt)
+        
+        # 收集所有 broker_orders filled buy
+        all_buys = []
+        if date_val:
+            date_str_val = str(date).replace("-", "").replace("/", "")
+            td_q = {"$in": [int(date_str_val)]} if date_str_val.isdigit() else date_str_val
+            async for order in mongo_manager.db["broker_orders"].find(
+                {"trade_date": td_q, "side": "buy", "status": "filled"},
+                {"ts_code": 1, "created_at": 1, "_id": 0}
+            ):
+                all_buys.append(order)
+        
+        # 构建时间索引: 将 timeline 事件按 ts_code 分组
+        blocked_by_tscode = {}  # ts_code -> [{time, reason, strategy}]
+        for evt in all_timeline:
+            if evt.get("action") == "blocked":
+                tc = evt.get("ts_code", "")
+                if tc:
+                    blocked_by_tscode.setdefault(tc, []).append({
+                        "time": evt.get("time", ""),
+                        "reason": evt.get("reason", "被拦截"),
+                        "strategy": evt.get("strategy", "")
+                    })
+        
+        # broker_orders 按 ts_code 分组
+        buys_by_tscode = {}  # ts_code -> [order]
+        for order in all_buys:
+            tc = order.get("ts_code", "")
+            if tc:
+                buys_by_tscode.setdefault(tc, []).append(order)
+        
+        # ====== 3. 对每个 scan 计算执行统计 ======
+        # 对每个 scan: 查其 passed 候选的 ts_code 列表，然后匹配执行事件
+        # 需要轻量查询: 只取 candidates.ts_code + candidates.final_status
+        scan_ids = [ObjectId(d["scan_id"]) for d in docs]
+        scan_exec_map = {}  # scan_id -> {bought, blocked, pending, block_reasons}
+        
+        from bson import ObjectId as ObjId  # 【v2.9.95b】列表函数需要 ObjectId
+        scan_ids = [ObjId(d["scan_id"]) for d in docs]
+        
+        async for doc in mongo_manager.db["scan_traces"].find(
+            {"_id": {"$in": scan_ids}},
+            {"_id": 1, "scan_time": 1, "candidates.ts_code": 1, "candidates.final_status": 1, "candidates.strategy": 1}
+        ):
+            sid = str(doc["_id"])
+            scan_time = doc.get("scan_time", "")
+            candidates = doc.get("candidates", [])
+            
+            bought_count = 0
+            blocked_count = 0
+            pending_count = 0
+            block_reasons = {}
+            
+            for c in candidates:
+                if c.get("final_status") != "passed":
+                    continue
+                tc = c.get("ts_code", "")
+                strategy = c.get("strategy", "")
+                
+                if tc in buys_by_tscode:
+                    bought_count += 1
+                elif tc in blocked_by_tscode:
+                    blocked_count += 1
+                    # 取该 ts_code 最近的 blocked reason
+                    reasons = blocked_by_tscode[tc]
+                    if reasons:
+                        r = reasons[-1].get("reason", "被拦截")
+                        short = r[:25] if len(r) > 25 else r
+                        block_reasons[short] = block_reasons.get(short, 0) + 1
+                else:
+                    pending_count += 1
+            
+            scan_exec_map[sid] = {
+                "bought": bought_count,
+                "blocked": blocked_count,
+                "pending": pending_count,
+                "block_reasons": block_reasons
+            }
+        
+        # 合并执行统计到 docs
+        all_block_reasons = {}
+        total_buys = 0
+        total_blocked = 0
+        for doc in docs:
+            sid = doc["scan_id"]
+            exec_info = scan_exec_map.get(sid, {"bought": 0, "blocked": 0, "pending": 0, "block_reasons": {}})
+            doc["exec"] = exec_info
+            total_buys += exec_info.get("bought", 0)
+            total_blocked += exec_info.get("blocked", 0)
+            for r, cnt in exec_info.get("block_reasons", {}).items():
+                all_block_reasons[r] = all_block_reasons.get(r, 0) + cnt
+        
+        # 全天汇总(横幅用)
+        execution_summary = {
+            "buys": total_buys,
+            "blocked": total_blocked,
+            "block_reasons": all_block_reasons
+        }
+        
+        return {"success": True, "data": docs, "count": len(docs),
+                "execution_summary": execution_summary}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
@@ -394,6 +511,78 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
             
             filter_status = status or "passed"  # 【v2.9.7: 默认只返回passed, 不加载rejected】
             
+            # 【v2.9.95b】为 passed 候选补充执行状态 - 按时间窗口匹配
+            # 查询该 scan_time 之后 5 分钟内的 timeline/broker_orders 事件
+            trade_date = doc.get("trade_date", 0)
+            scan_time = doc.get("scan_time", "")
+            blocked_map = {}  # ts_code -> {reason, strategy}
+            bought_map = {}   # ts_code -> {price, amount, shares}
+            
+            if filter_status in ("passed", "all") and candidates:
+                passed_tscodes = [c.get("ts_code", "") for c in candidates if c.get("final_status") == "passed"]
+                if passed_tscodes:
+                    # 获取 timeline blocked 事件(只取该 scan 的候选相关)
+                    td_query = {"$in": [trade_date]} if isinstance(trade_date, int) else trade_date
+                    async for evt in mongo_manager.db["scanner_timeline"].find(
+                        {"trade_date": td_query, "action": "blocked", "ts_code": {"$in": passed_tscodes}},
+                        {"ts_code": 1, "reason": 1, "strategy": 1, "time": 1, "_id": 0}
+                    ):
+                        tc = evt.get("ts_code", "")
+                        if tc and tc not in blocked_map:  # 只取第一次 blocked
+                            blocked_map[tc] = {
+                                "reason": evt.get("reason", "被拦截"),
+                                "strategy": evt.get("strategy", ""),
+                                "time": evt.get("time", "")
+                            }
+                    
+                    # 获取 broker_orders filled buy
+                    async for order in mongo_manager.db["broker_orders"].find(
+                        {"trade_date": td_query, "side": "buy", "status": "filled", "ts_code": {"$in": passed_tscodes}},
+                        {"ts_code": 1, "price": 1, "amount": 1, "filled_price": 1, "filled_amount": 1, "strategy": 1, "created_at": 1, "_id": 0}
+                    ):
+                        tc = order.get("ts_code", "")
+                        if tc and tc not in bought_map:  # 只取第一次 buy
+                            bought_map[tc] = {
+                                "price": order.get("filled_price") or order.get("price", 0),
+                                "amount": order.get("filled_amount") or order.get("amount", 0),
+                                "strategy": order.get("strategy", ""),
+                                "time": order.get("created_at", "")
+                            }
+                
+                # 给每个 passed 候选加上执行状态
+                for c in candidates:
+                    if c.get("final_status") != "passed":
+                        continue
+                    tc = c.get("ts_code", "")
+                    if tc in bought_map:
+                        buy_info = bought_map[tc]
+                        c["execution_status"] = "bought"
+                        price = buy_info.get("price", 0)
+                        amount = buy_info.get("amount", 0)
+                        c["execution_desc"] = f"成交买入 ¥{price:.2f} × {amount}股"
+                        c["execution_detail"] = buy_info
+                    elif tc in blocked_map:
+                        block_info = blocked_map[tc]
+                        c["execution_status"] = "blocked"
+                        reason = block_info.get("reason", "被拦截")
+                        c["execution_desc"] = reason
+                        c["execution_detail"] = block_info
+                    else:
+                        c["execution_status"] = "pending"
+                        strategy = c.get("strategy", "") or ""
+                        strategy_name = c.get("strategy_name", strategy)
+                        pct = c.get("pct_chg", 0) or 0
+                        # 【v2.9.95d】推定未触发买入的具体原因
+                        if "anomaly" in strategy.lower():
+                            c["execution_desc"] = f"异动信号仅观察（按系统设置 {strategy_name} 不自动交易）"
+                        else:
+                            c["execution_desc"] = (
+                                f"未下单：候选通过筛选但未进入买入队列（可能原因："
+                                f"同行业集中度超限被跳过 / "
+                                f"该信号在进行中本轮不重复下单 / "
+                                f"同股多策略只保留高优先级）· {strategy_name}, {'涨' if pct >= 0 else '跌'}{abs(pct):.1f}%"
+                            )
+            
             if filter_status == "summary":
                 # 【v2.9.7: 只返回统计, 不返回候选列表】
                 # 按rejection_layer分组统计
@@ -418,6 +607,58 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                     combined.extend(rejected[:remaining])
                 doc["candidates"] = combined
                 doc.pop("rejected_summary", None)
+            
+            # 【v2.9.95】为 passed 候选关联执行状态
+            if filter_status == "passed" and candidates:
+                trade_date = doc.get("trade_date", 0)
+                # 查询该日 timeline 中的 blocked + buy 事件
+                blocked_map = {}  # ts_code -> reason
+                buy_set = set()   # ts_code
+                tl_query_date = {"$in": [trade_date, str(trade_date)]} if isinstance(trade_date, int) else trade_date
+                async for evt in mongo_manager.db["scanner_timeline"].find(
+                    {"trade_date": tl_query_date, "action": "blocked"},
+                    {"ts_code": 1, "reason": 1, "_id": 0}
+                ):
+                    tc = evt.get("ts_code", "")
+                    if tc and tc not in blocked_map:
+                        blocked_map[tc] = evt.get("reason", "")
+                async for evt in mongo_manager.db["scanner_timeline"].find(
+                    {"trade_date": tl_query_date, "action": "buy"},
+                    {"ts_code": 1, "_id": 0}
+                ):
+                    buy_set.add(evt.get("ts_code", ""))
+                # 也查 broker_orders filled buy
+                date_str = str(trade_date)
+                if date_str.isdigit():
+                    async for order in mongo_manager.db["broker_orders"].find(
+                        {"trade_date": {"$in": [int(date_str)]}, "side": "buy", "status": "filled"},
+                        {"ts_code": 1, "_id": 0}
+                    ):
+                        buy_set.add(order.get("ts_code", ""))
+                # 标注每个候选
+                for c in doc["candidates"]:
+                    tc = c.get("ts_code", "")
+                    if tc in buy_set:
+                        c["execution_status"] = "bought"
+                        c["execution_desc"] = "已买入"
+                    elif tc in blocked_map:
+                        c["execution_status"] = "blocked"
+                        c["execution_desc"] = blocked_map[tc]
+                    else:
+                        c["execution_status"] = "pending"
+                        strategy = c.get("strategy", "") or ""
+                        strategy_name = c.get("strategy_name", strategy)
+                        pct = c.get("pct_chg", 0) or 0
+                        # 【v2.9.95d】同主逻辑 - 推定未触发买入的具体原因
+                        if "anomaly" in strategy.lower():
+                            c["execution_desc"] = f"异动信号仅观察（按系统设置 {strategy_name} 不自动交易）"
+                        else:
+                            c["execution_desc"] = (
+                                f"未下单：候选通过筛选但未进入买入队列（可能原因："
+                                f"同行业集中度超限被跳过 / "
+                                f"该信号在进行中本轮不重复下单 / "
+                                f"同股多策略只保留高优先级）· {strategy_name}, {'涨' if pct >= 0 else '跌'}{abs(pct):.1f}%"
+                            )
             
             # 添加分页信息
             doc["_pagination"] = {
