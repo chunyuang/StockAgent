@@ -13,7 +13,7 @@ const m = useScannerMonitorInject()
 // 解构需要的变量(从inject对象)
 const {
   loading, isRunning, dryRun, circuitBreakerPaused,
-  autoTrades, scanConfig, scanConfigLoading,
+  autoTrades, opsDate, scanConfig, scanConfigLoading,
   timeline, orders, historyData, historyDate, historyLoading,
   manualTrade, manualQuote,
   cumulativePnl,
@@ -34,7 +34,12 @@ const {
   <div class="mm-tab-content">
     <div class="mm-tab-scroll">
       <!-- 自动交易操作流 -->
-      <div class="st">🤖 自动交易操作流 <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton></div>
+      <div class="st">🤖 自动交易操作流
+        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">
+          <ElDatePicker v-model="opsDate" type="date" placeholder="今日" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" :clearable="true" />
+          <ElButton size="small" @click="fetchAutoTrades" style="padding:2px 8px;font-size:11px">🔄</ElButton>
+        </div>
+      </div>
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
         <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因</span></div>

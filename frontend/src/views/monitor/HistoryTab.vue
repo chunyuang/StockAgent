@@ -76,7 +76,19 @@ const historyClosedPositions = computed(() => {
   }
   return result.sort((a: any, b: any) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
 })
-const displayClosedPositions = computed(() => historyData.value.length ? historyClosedPositions.value : closedPositions.value)
+const displayClosedPositions = computed(() => {
+  // When viewing a specific date, only show positions closed ON that date
+  // Don't fall back to all-time closedPositions for non-trading days
+  if (historyData.value.length) {
+    return historyClosedPositions.value
+  }
+  // Only show closedPositions for "today" mode (no date selected)
+  // If a specific non-trading date was selected but returned no data, show empty
+  if (historyDate.value && !historyData.value.length) {
+    return []
+  }
+  return closedPositions.value
+})
 
 // 平仓汇总统计
 const closedStats = computed(() => {
