@@ -917,7 +917,7 @@ async def get_trade_log(days: int = 30, format: str = "json"):
             return {"success": True, "data": []}
         
         account_id = scanner._broker.account.account_id
-        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        start_date = int((datetime.now() - timedelta(days=days)).strftime("%Y%m%d"))
         
         orders = []
         async for doc in mongo_manager.db["broker_orders"].find({

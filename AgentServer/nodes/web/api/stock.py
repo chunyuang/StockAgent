@@ -133,9 +133,9 @@ async def get_stock_daily_ak_full(
     filter_query = {"ts_code": ts_code.upper()}
     
     if start_date:
-        filter_query["trade_date"] = {"$gte": start_date}
+        filter_query["trade_date"] = {"$gte": int(start_date.replace("-", "").replace("/", ""))}
     if end_date:
-        filter_query.setdefault("trade_date", {})["$lte"] = end_date
+        filter_query.setdefault("trade_date", {})["$lte"] = int(end_date.replace("-", "").replace("/", ""))
     
     records = await mongo_manager.find_many(
         C.STOCK_DAILY,
