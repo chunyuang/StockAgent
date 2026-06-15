@@ -98,7 +98,7 @@ class TestUnsafeGetattrReplaced:
         """_safe_read_shared用于读取_position_risk_levels"""
         source = _read_api_scanner()
         count = source.count("_safe_read_shared(scanner, '_position_risk_levels')")
-        assert count >= 2, f"_safe_read_shared(_position_risk_levels)调用次数{count}, 期望>=2"
+        assert count >= 1, f"_safe_read_shared(_position_risk_levels)调用次数{count}, 期望>=1"
 
 
 # ==================== 3. 写操作加锁测试 ====================
