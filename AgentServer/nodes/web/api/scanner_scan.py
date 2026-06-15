@@ -808,7 +808,7 @@ async def set_trailing_stop(ts_code: str, request: Request):
                 
                 result_data = {"ts_code": ts_code, **trailing[ts_code]}
         else:
-            trailing = scanner._trailing_stops
+            trailing = _safe_read_shared(scanner, '_trailing_stops')
             
             if ts_code not in trailing:
                 positions = scanner._broker.get_positions() if scanner._broker else []
