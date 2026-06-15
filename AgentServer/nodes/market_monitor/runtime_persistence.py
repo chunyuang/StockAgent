@@ -531,6 +531,12 @@ class RuntimePersistence:
             await scanner._save_runtime_snapshot(force=True)
         except Exception as _e:
             logger.warning(f"[SCANNER] 卖出后运行时快照失败: {_e}")
+        # 【v2.9.94修复】卖出后立即保存timeline到MongoDB，防止进程崩溃时丢失
+        # P0事故2026-06-15: 5笔卖出后scanner重启，timeline只在内存中未持久化，导致前端无当日交易明细
+        try:
+            await self.save_timeline()
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 卖出后Timeline保存失败: {_e}")
 
     # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
     

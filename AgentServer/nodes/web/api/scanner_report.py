@@ -36,11 +36,17 @@ async def get_daily_report():
     """每日复盘报告 — scanner运行时取实时数据,否则从MongoDB聚合"""
     scanner = await _get_scanner()
     # 检查scanner是否真正在运行(有真实持仓或今天的timeline记录)
+    # 【v2.9.94修复】增加账户有效性检查: scanner重启后timeline可能非空但broker状态无效(total_assets=0)
     has_live = False
     try:
         if scanner._broker is not None:
             positions = scanner._broker.get_positions()
-            has_live = len(positions) > 0 or (hasattr(scanner, '_timeline') and len(scanner._timeline) > 0)
+            acct = scanner._broker.get_account()
+            # 有效条件: 有持仓 OR (有timeline AND 账户状态有效)
+            has_live = len(positions) > 0 or (
+                hasattr(scanner, '_timeline') and len(scanner._timeline) > 0
+                and acct.total_assets > 0  # 账户必须有效(重启后timeline加载了但broker未恢复)
+            )
     except Exception:
         pass
     
@@ -346,7 +352,7 @@ async def get_historical_review(date: str = None):
         return {"success": True, "data": {
             "date": date,
             "buys": [{"ts_code": b.get("ts_code"), "stock_name": b.get("stock_name", ""), "strategy": b.get("strategy", ""), "price": b.get("filled_price", 0), "qty": b.get("filled_qty", 0), "time": b.get("fill_time", "")} for b in buys],
-            "sells": [{"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", "")} for s in sells],
+            "sells": [{"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", ""), "profit_pct": s.get("profit_pct", 0), "profit_amount": s.get("profit_amount", 0)} for s in sells],
             "strategy_summary": strategy_summary,
             "scan_stats": {"scan_count": scan_count, "debug_scan_count": debug_count, "total_signals": total_passed, "buy_count": len(buys), "sell_count": len(sells)},
             "funnel_summary": {k: dict(v) for k, v in funnel_agg.items()},
