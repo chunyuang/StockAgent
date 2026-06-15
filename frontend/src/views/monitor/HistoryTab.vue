@@ -20,7 +20,20 @@ import { computed, ref } from 'vue'
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
-const displaySource = computed(() => historyData.value.length ? historyData.value : timeline.value)
+// 非交易日保护: 选了日期但API无数据 → 不fallback到今日数据
+const isHistoricalMode = computed(() => {
+  // 选了日期 且 不是今天 → 历史模式
+  if (!historyDate.value) return false
+  const today = new Date().toISOString().slice(0, 10)
+  return historyDate.value !== today
+})
+
+const displaySource = computed(() => {
+  if (historyData.value.length) return historyData.value
+  // 历史模式但API无数据 → 返回空(非交易日/无数据)
+  if (isHistoricalMode.value) return []
+  return timeline.value
+})
 
 const filteredTimeline = computed(() => {
   const src = displaySource.value
@@ -38,11 +51,21 @@ const tlStats = computed(() => {
 })
 
 const displayOrders = computed(() => {
-  const source = historyData.value.length ? historyOrders.value : orders.value
+  let source
+  if (historyData.value.length) {
+    source = historyOrders.value
+  } else if (isHistoricalMode.value) {
+    source = [] // 非交易日/无数据 → 不fallback
+  } else {
+    source = orders.value
+  }
   return source.filter((o: any) => o.status === 'filled' || o.filled_qty > 0)
 })
 
 const historyClosedPositions = computed(() => {
+  // 历史模式但API无数据 → 直接返回空
+  if (isHistoricalMode.value && !historyData.value.length) return []
+  
   const source = historyData.value.length ? historyData.value : timeline.value
   const result: any[] = []
   const openBuys = new Map<string, any[]>()
@@ -77,16 +100,9 @@ const historyClosedPositions = computed(() => {
   return result.sort((a: any, b: any) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
 })
 const displayClosedPositions = computed(() => {
-  // When viewing a specific date, only show positions closed ON that date
-  // Don't fall back to all-time closedPositions for non-trading days
-  if (historyData.value.length) {
-    return historyClosedPositions.value
-  }
-  // Only show closedPositions for "today" mode (no date selected)
-  // If a specific non-trading date was selected but returned no data, show empty
-  if (historyDate.value && !historyData.value.length) {
-    return []
-  }
+  // 历史模式但API无数据 → 返回空(非交易日/无数据)
+  if (isHistoricalMode.value && !historyData.value.length) return []
+  if (historyData.value.length) return historyClosedPositions.value
   return closedPositions.value
 })
 
