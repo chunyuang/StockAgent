@@ -600,20 +600,31 @@ async def _daily_report_from_mongo():
                 funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
     funnel_summary = {k: dict(v) for k, v in funnel_agg.items()} or None
     
-    # 5. 账户概算(从broker_state或推算)
+    # 5. 账户概算(从broker_accounts读取，不再返回全0)
+    # 【v2.9.94修复】之前返回全0导致前端显示异常，现在从broker_accounts集合读取
+    account_info = {"total_assets": 0, "available_cash": 0, "market_value": 0,
+                     "today_profit": 0, "total_profit": 0, "position_ratio": 0}
+    try:
+        acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
+        if acct_doc:
+            account_info = {
+                "total_assets": round(acct_doc.get("total_assets", 0) or 0, 2),
+                "available_cash": round(acct_doc.get("available_cash", 0) or 0, 2),
+                "market_value": round(acct_doc.get("market_value", 0) or 0, 2),
+                "today_profit": round(sum(s.get("profit_amount", 0) or 0 for s in sells), 2),
+                "total_profit": round(acct_doc.get("total_profit", 0) or 0, 2),
+                "position_ratio": round((acct_doc.get("market_value", 0) or 0) / max(acct_doc.get("total_assets", 1), 1) * 100, 1),
+            }
+    except Exception:
+        account_info["today_profit"] = round(sum(s.get("profit_amount", 0) or 0 for s in sells), 2)
+    
+    # 计算成交金额
     total_sell_amount = sum((s.get("filled_price", 0) or 0) * (s.get("filled_qty", 0) or 0) for s in sells)
     total_buy_amount = sum((b.get("filled_price", 0) or 0) * (b.get("filled_qty", 0) or 0) for b in buys)
     
     report = {
         "date": datetime.now().strftime("%Y-%m-%d"),
-        "account": {
-            "total_assets": 0,  # 需要scanner运行时才精确
-            "available_cash": 0,
-            "market_value": 0,
-            "today_profit": round(sum(s.get("profit_amount", 0) or 0 for s in sells), 2),
-            "total_profit": 0,
-            "position_ratio": 0,
-        },
+        "account": account_info,
         "positions": {
             "count": 0,  # 需要scanner运行时才精确
             "strategy_summary": dict(strategy_summary),
