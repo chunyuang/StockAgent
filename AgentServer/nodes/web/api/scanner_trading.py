@@ -22,6 +22,22 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["交易/买卖/熔断/结算"])
 
 
+def _format_trade_time_display(trade_date: str, time_str: str) -> str:
+    """【v2.9.94】统一格式化交易时间显示为 'YYYY-MM-DD HH:MM:SS'
+
+    为了避免买入日/卖出日不同于当前扫描日时前端误以为两者同天，
+    这里严格反映该订单本身的 trade_date，该项需要从 broker_orders 推送到前端。
+    """
+    if not time_str:
+        return ""
+    td = str(trade_date or "").strip()
+    if len(td) == 8 and td.isdigit():
+        return f"{td[0:4]}-{td[4:6]}-{td[6:8]} {time_str}"
+    if len(td) == 10 and td.count("-") == 2:
+        return f"{td} {time_str}"
+    return time_str
+
+
 @router.post("/trade")
 async def manual_trade(req: ManualTradeRequest):
     """手动交易(买入/卖出)
@@ -312,10 +328,11 @@ async def get_trade_detail(ts_code: str, date: str = None):
                 continue
             if item.get("action") == "buy" and not detail["buy"]:
                 raw_time = item.get("time", "")
+                td_str = str(item.get("trade_date", "") or target_date or "")
                 detail["buy"] = {
                     "time": raw_time,
-                    "time_display": f"{date_label} {raw_time}" if date_label and raw_time else raw_time,
-                    "trade_date": item.get("trade_date", ""),
+                    "time_display": _format_trade_time_display(td_str, raw_time),
+                    "trade_date": td_str,
                     "price": item.get("price", 0),
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
@@ -325,10 +342,11 @@ async def get_trade_detail(ts_code: str, date: str = None):
                 }
             elif item.get("action") == "sell" and not detail["sell"]:
                 raw_time = item.get("time", "")
+                td_str = str(item.get("trade_date", "") or target_date or "")
                 detail["sell"] = {
                     "time": raw_time,
-                    "time_display": f"{date_label} {raw_time}" if date_label and raw_time else raw_time,
-                    "trade_date": item.get("trade_date", ""),
+                    "time_display": _format_trade_time_display(td_str, raw_time),
+                    "trade_date": td_str,
                     "price": item.get("price", 0),
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
@@ -353,12 +371,11 @@ async def get_trade_detail(ts_code: str, date: str = None):
                 ).sort("time", 1):
                     if doc.get("action") == "buy" and not detail["buy"]:
                         doc_date = str(doc.get("trade_date", ""))
-                        doc_label = doc_date[4:] if len(doc_date) == 8 else doc_date
                         raw_time = doc.get("time", "")
                         detail["buy"] = {
                             "time": raw_time,
-                            "time_display": f"{doc_label} {raw_time}" if doc_label and raw_time else raw_time,
-                            "trade_date": doc.get("trade_date", ""),
+                            "time_display": _format_trade_time_display(doc_date, raw_time),
+                            "trade_date": doc_date,
                             "price": doc.get("price", 0),
                             "shares": doc.get("shares", 0),
                             "reason": doc.get("reason", ""),
@@ -368,12 +385,11 @@ async def get_trade_detail(ts_code: str, date: str = None):
                         }
                     elif doc.get("action") == "sell" and not detail["sell"]:
                         doc_date = str(doc.get("trade_date", ""))
-                        doc_label = doc_date[4:] if len(doc_date) == 8 else doc_date
                         raw_time = doc.get("time", "")
                         detail["sell"] = {
                             "time": raw_time,
-                            "time_display": f"{doc_label} {raw_time}" if doc_label and raw_time else raw_time,
-                            "trade_date": doc.get("trade_date", ""),
+                            "time_display": _format_trade_time_display(doc_date, raw_time),
+                            "trade_date": doc_date,
                             "price": doc.get("price", 0),
                             "shares": doc.get("shares", 0),
                             "reason": doc.get("reason", ""),
@@ -440,26 +456,38 @@ async def get_trade_detail(ts_code: str, date: str = None):
     detail["orders"] = orders
     
     # 5. 如果买入信息缺失,从订单中补充
+    # 【v2.9.94】补全 trade_date / fill_time / time_display，避免买入卖出跨日时前端误导
     if not detail["buy"] and orders:
         buy_order = next((o for o in orders if o["side"] == "buy"), None)
         if buy_order:
+            buy_td = buy_order.get("trade_date") or ""
+            buy_td_str = str(buy_td) if buy_td else ""
+            buy_time = buy_order.get("fill_time") or buy_order.get("create_time") or ""
+            # 格式化：如果 trade_date 是 8 位数字，贴上属于当天的未来日期。 'YYYY-MM-DD HH:MM:SS' 格式
+            buy_display = _format_trade_time_display(buy_td_str, buy_time)
             detail["buy"] = {
-                "time": buy_order.get("create_time", ""),
-                "price": buy_order.get("filled_price", 0),
-                "shares": buy_order.get("filled_qty", 0),
+                "time": buy_time,
+                "time_display": buy_display,
+                "trade_date": buy_td_str,
+                "price": buy_order.get("filled_price", 0) or buy_order.get("price", 0),
+                "shares": buy_order.get("filled_qty", 0) or buy_order.get("quantity", 0),
                 "reason": buy_order.get("reason", ""),
                 "strategy": buy_order.get("strategy", ""),
-                "stock_name": "",
+                "stock_name": buy_order.get("stock_name", ""),
                 "decision_detail": {},
             }
     
     # 5b. 如果仍无买入信息,从卖出的decision_detail推断(cost_price)
+    # 【v2.9.94】补全 trade_date / time_display。幽灵买入没有真实日期，用卖出日期为占位，加 inferred 标记
     if not detail["buy"] and detail["sell"]:
         sell_dd = detail["sell"].get("decision_detail", {})
         cost_price = sell_dd.get("cost_price", 0)
         if cost_price > 0:
+            sell_td = detail["sell"].get("trade_date", "")
             detail["buy"] = {
                 "time": "(历史记录)",
+                "time_display": f"{_format_trade_time_display(sell_td, '')} 之前".strip() if sell_td else "(历史记录)",
+                "trade_date": sell_td,
                 "price": cost_price,
                 "shares": detail["sell"].get("shares", 0),
                 "reason": detail["sell"].get("reason", "").split("(")[0].strip() if detail["sell"].get("reason") else "",
@@ -470,19 +498,29 @@ async def get_trade_detail(ts_code: str, date: str = None):
             }
     
     # 6. 如果卖出信息缺失,从订单中补充
+    # 【v2.9.94】补全 trade_date / time_display
     if not detail["sell"] and orders:
         sell_order = next((o for o in orders if o["side"] == "sell"), None)
         if sell_order:
             profit_pct = 0
-            if detail["buy"] and detail["buy"].get("price") and sell_order.get("filled_price"):
-                profit_pct = (sell_order["filled_price"] - detail["buy"]["price"]) / detail["buy"]["price"] * 100
+            if detail["buy"] and detail["buy"].get("price") and (sell_order.get("filled_price") or sell_order.get("price")):
+                sell_px = sell_order.get("filled_price") or sell_order.get("price")
+                profit_pct = (sell_px - detail["buy"]["price"]) / detail["buy"]["price"] * 100
+            sell_td = sell_order.get("trade_date") or ""
+            sell_td_str = str(sell_td) if sell_td else ""
+            sell_time = sell_order.get("fill_time") or sell_order.get("create_time") or ""
+            sell_display = _format_trade_time_display(sell_td_str, sell_time)
             detail["sell"] = {
-                "time": sell_order.get("create_time", ""),
-                "price": sell_order.get("filled_price", 0),
-                "shares": sell_order.get("filled_qty", 0),
+                "time": sell_time,
+                "time_display": sell_display,
+                "trade_date": sell_td_str,
+                "price": sell_order.get("filled_price", 0) or sell_order.get("price", 0),
+                "shares": sell_order.get("filled_qty", 0) or sell_order.get("quantity", 0),
                 "reason": sell_order.get("reason", ""),
                 "strategy": sell_order.get("strategy", ""),
+                "stock_name": sell_order.get("stock_name", ""),
                 "profit_pct": profit_pct,
+                "profit_amount": sell_order.get("profit_amount", 0),
                 "decision_detail": {},
             }
     
