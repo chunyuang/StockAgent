@@ -114,6 +114,7 @@ class LiveFilterPipeline:
         # 情绪状态缓存
         self._sentiment_score = 50.0
         self._sentiment_period = "chaos"
+        self._last_intraday_dimensions = None  # v2.9.95: 盘中7维明细
 
     # ========================================================================
     # 主入口
@@ -218,16 +219,50 @@ class LiveFilterPipeline:
                 logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{len(dropped)}只")
                 l3_drop_count = len(dropped)
 
+        # ── v2.9.95: L3详情文本(包含公式标识) ────────
+        intra_dims = getattr(self, '_last_intraday_dimensions', None)
+        formula_tag = "7dim盘中" if intra_dims else "5dim盘后"
         result.layer_details["L3_sentiment"] = (
             f"情绪={score:.0f}分→{period}, 仓位系数={sentiment_ratio:.0%}"
             + (f", 过滤半路追涨{l3_drop_count}只(冰点<40分暂停)" if l3_drop_count else "")
-            + f" | 公式: 涨停-跌停+大盘×10+50 | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
+            + f" | 公式: {formula_tag} | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
         )
-        result.layer_details["L3_sentiment_data"] = {
-            "score": round(score, 1), "period": period,
+        
+        # ── v2.9.95: L3_sentiment_data结构化扩展 ────────
+        # 旧: 仅{score, period, position_ratio, l3_drop_count} 4字段
+        # 新: 增加7个维度字段, 前端直接读取不再正则解析文本
+        l3_data = {
+            "score": round(score, 1),
+            "period": period,
             "position_ratio": round(sentiment_ratio, 3),
             "l3_drop_count": l3_drop_count,
+            "formula": "7dim" if intra_dims else "5dim",
         }
+        
+        if intra_dims:
+            # 盘中7维: 直接从IntradaySentimentCalculator获取全部维度
+            l3_data.update({
+                "limit_up": intra_dims.get("limit_up", 0),
+                "limit_down": intra_dims.get("limit_down", 0),
+                "up_down_ratio": intra_dims.get("up_down_ratio", 0),
+                "momentum": intra_dims.get("momentum", 0),
+                "broken": intra_dims.get("broken", 0),
+                "broken_rate": intra_dims.get("broken_rate", 0),
+                "today_premium": intra_dims.get("today_premium", 0),
+            })
+        else:
+            # 盘后5维: 从EmotionCycleManager结果中提取可用的维度
+            l3_data.update({
+                "limit_up": 0,    # 盘后模式无实时数据, 设为0(前端用sentiment_scores补)
+                "limit_down": 0,
+                "up_down_ratio": 0,
+                "momentum": 0,
+                "broken": 0,
+                "broken_rate": 0,
+                "today_premium": 0,
+            })
+        
+        result.layer_details["L3_sentiment_data"] = l3_data
         return ratio
 
     def _apply_filter_layer(
@@ -661,19 +696,35 @@ class LiveFilterPipeline:
         """
         计算市场情绪 → 仓位系数
         
-        【V50:统一使用emotion_cycle_manager,不再自己计算】
-        原问题：live_filter_pipeline与emotion_cycle.py各自计算情绪,
-        公式不同(简化vs五维评分)、阈值不同、仓位乘数不同,
-        导致实盘行为不一致。
+        【v2.9.95重构】三级策略:
+        1. 盘中(有realtime_data>100只): 使用IntradaySentimentCalculator 7维公式
+        2. 盘后/历史: 使用EmotionCycleManager 5维公式
+        3. 异常fallback: 简化公式(涨停-跌停+50)
+        
+        旧问题: 盘中也走EmotionCycleManager, 其3/5维度全天固定(zt_premium/
+        max_continue/up_down_ratio读历史数据), 导致盘中score/period几乎不变。
+        6/12全天2413个点全走fallback→score仅57-61, period永远是differentiation。
         """
-        # 兼容: 优先从market_monitor导入, fallback到listener(旧路径)
+        # ── 优先级1: 盘中7维实时公式 ────────────────────
+        if realtime_data and len(realtime_data) > 100:
+            try:
+                from .intraday_sentiment import intraday_calculator
+                result = await intraday_calculator.calculate(trade_date, realtime_data)
+                # 保存维度明细供_apply_L3_sentiment写入L3_sentiment_data
+                self._last_intraday_dimensions = result.dimensions
+                return result.position_ratio, result.score, result.period_en
+            except Exception as e:
+                logger.error(f"[L3] IntradaySentimentCalculator失败: {e}", exc_info=True)
+                # 不直接fallback到简化公式, 先试EmotionCycleManager
+        
+        # ── 优先级2: EmotionCycleManager 5维公式 ──────
+        self._last_intraday_dimensions = None  # 标记非盘中模式
+        
         try:
             from .emotion_cycle import emotion_cycle_manager
         except ImportError:
             from ..listener.strategies.emotion_cycle import emotion_cycle_manager
         
-        # 构建limit_stocks dict供emotion_cycle使用
-        # 【v2.9.89优化】同时传入realtime_data的pct_chg供日内涨跌比计算
         limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
             for code, data in realtime_data.items():
@@ -684,7 +735,6 @@ class LiveFilterPipeline:
                     elif pct <= -9.5:
                         limit_stocks[code] = {"limit_type": "D", "pct_chg": pct}
                     else:
-                        # 【v2.9.89】非涨跌停也记录pct_chg, 供计算实时涨跌比
                         limit_stocks[code] = {"limit_type": "normal", "pct_chg": pct}
         
         try:
@@ -694,43 +744,34 @@ class LiveFilterPipeline:
             score = emotion.score
             phase = emotion.phase.value
             ratio = emotion.position_multiplier
+            return ratio, score, phase
         except Exception as e:
-            logger.warning(f"[L3] emotion_cycle调用失败, fallback简化计算: {e}")
-            # Fallback: 简化计算
-            limit_up = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
-            limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
-            score = (limit_up - limit_down) + 50
-            score = max(0, min(100, score))
-            # 【v2.9.87修复】Fallback 4阶段映射(与emotion_cycle._calc_sentiment_score对齐)
-            # 旧bug: 3阶段(rising/chaos/bearish)缺失分化期,55-70分走了chaos(0.5仓位)
-            # 应为4阶段: rising/differentiation/chaos/bearish → 1.0/0.7/0.5/0.3
-            # 【v2.9.84修复】Fallback仓位系数从strategy_defaults读取,不再硬编码
-            # 旧值: 1.0/0.5/0.25 → 与strategy_defaults(1.0/0.7/0.5/0.3)不一致
-            # 分化期(55-70)缺失: 55-70走了chaos(0.5), 应走differentiation(0.7)
-            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-            spm = GLOBAL_RISK.get("sentiment_position_map", {})
-            # 【V75-审计修复】优先读运行时覆盖,确保strategy-config API修改后立即生效
-            try:
-                from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
-                if _overrides_loaded and _override_global_risk:
-                    override_spm = _override_global_risk.get("sentiment_position_map", {})
-                    if override_spm:
-                        spm = {**spm, **override_spm}
-            except Exception:
-                pass
-            if score >= 70:
-                phase = "rising"
-                ratio = spm.get("rising", 1.0)
-            elif score >= 55:
-                phase = "differentiation"
-                ratio = spm.get("differentiation", 0.7)
-            elif score >= 40:
-                phase = "chaos"
-                ratio = spm.get("chaos", 0.5)
-            else:
-                phase = "bearish"
-                ratio = spm.get("bearish", 0.3)
-
+            logger.error(f"[L3] EmotionCycleManager失败, fallback简化: {e}", exc_info=True)
+        
+        # ── 优先级3: 简化fallback(最后手段) ───────────
+        limit_up = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
+        limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
+        score = (limit_up - limit_down) + 50
+        score = max(0, min(100, score))
+        
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        spm = GLOBAL_RISK.get("sentiment_position_map", {})
+        try:
+            from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+            if _overrides_loaded and _override_global_risk:
+                override_spm = _override_global_risk.get("sentiment_position_map", {})
+                if override_spm:
+                    spm = {**spm, **override_spm}
+        except Exception:
+            pass
+        if score >= 70:
+            phase, ratio = "rising", spm.get("rising", 1.0)
+        elif score >= 55:
+            phase, ratio = "differentiation", spm.get("differentiation", 0.7)
+        elif score >= 40:
+            phase, ratio = "chaos", spm.get("chaos", 0.5)
+        else:
+            phase, ratio = "bearish", spm.get("bearish", 0.3)
         return ratio, score, phase
     # ========================================================================
     # L4: 盘前预选
