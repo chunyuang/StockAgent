@@ -32,8 +32,14 @@
       "sells": "int",
       "wins": "int",
       "win_rate": "float",
-      "pnl": "int",
-      "strategy_stats": {},
+      "pnl": "float",
+      "strategy_stats": {
+        "halfway_chase": {
+          "trades": "int",
+          "win_rate": "float",
+          "pnl": "float"
+        }
+      },
       "sentiment": "str",
       "sentiment_score": "int"
     }
@@ -57,7 +63,7 @@
         "level": "str",
         "key": "str",
         "old": "NoneType",
-        "new": "float",
+        "new": "int",
         "severity": "str"
       }
     ],
