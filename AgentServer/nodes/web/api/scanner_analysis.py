@@ -44,16 +44,23 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
             stock_name = p.get("stock_name", "")
             strategy = p.get("strategy", "")
 
-            # 最新收盘价 (fallback 到成本价)
-            cur_price = float(p.get("current_price") or 0) or avg_cost
-            try:
-                latest = await db["stock_daily_ak_full"].find_one(
-                    {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
-                )
-                if latest and latest.get("close"):
-                    cur_price = float(latest["close"])
-            except Exception:
-                pass
+            # 【v2.9.94】现价优先级: broker_positions.current_price (实时, scanner定期刷) > stock_daily_ak_full.close (历史)
+            # 原逻辑错误: 之前用历史 close 覆盖了实时价，导致买入当天仓位现价显示为昨日close
+            # P0 事故 2026-06-15: 13:39 买入 10 只(成本为涨停价), 前端错误显示为昨日close→伪造“破止损-9.4%”
+            broker_cur = float(p.get("current_price") or 0)
+            if broker_cur > 0:
+                cur_price = broker_cur
+            else:
+                # broker_positions 的 current_price 未初始化才 fallback 到历史 close
+                cur_price = avg_cost
+                try:
+                    latest = await db["stock_daily_ak_full"].find_one(
+                        {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
+                    )
+                    if latest and latest.get("close"):
+                        cur_price = float(latest["close"])
+                except Exception:
+                    pass
 
             profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
 
