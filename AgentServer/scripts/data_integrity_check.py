@@ -133,20 +133,23 @@ def main():
     # ============================================
     print("\n## 3. broker_orders vs broker_positions 一致性")
     
-    orders_buy = set()
-    orders_sell = set()
+    # 使用净数量计算（修复set逻辑bug：买卖都有不代表净仓为0）
+    from collections import defaultdict
+    net_qty = defaultdict(int)
     for o in db['broker_orders'].find({"account_id": "default"}):
         tc = o.get('ts_code', '')
-        if o.get('side') == 'buy':
-            orders_buy.add(tc)
-        elif o.get('side') == 'sell':
-            orders_sell.add(tc)
+        side = o.get('side', '')
+        qty = o.get('filled_qty', 0) or o.get('quantity', 0)
+        if side == 'buy':
+            net_qty[tc] += qty
+        elif side == 'sell':
+            net_qty[tc] -= qty
     
+    net_holding = {k for k, v in net_qty.items() if v > 0}
     positions_set = set()
     for p in db['broker_positions'].find({"account_id": "default"}):
         positions_set.add(p.get('ts_code'))
     
-    net_holding = orders_buy - orders_sell
     missing = net_holding - positions_set
     extra = positions_set - net_holding
     
@@ -157,7 +160,7 @@ def main():
         issues.append(f"🟡 幽灵持仓: positions有但orders无: {extra}")
         print(f"  🟡 幽灵持仓: {extra}")
     else:
-        print(f"  ✅ 持仓一致 (orders买{len(orders_buy)}卖{len(orders_sell)}, positions{len(positions_set)})")
+        print(f"  ✅ 持仓一致 (net_holding={len(net_holding)}, positions={len(positions_set)})")
     
     # ============================================
     # 4. 过时pending_sells清理
