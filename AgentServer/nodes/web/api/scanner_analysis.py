@@ -11,6 +11,119 @@ STRAT_MAP = {"halfway_chase": "半路追涨", "first_limit": "首板打板", "dr
 def _norm_strat(s):
     return STRAT_MAP.get(s, s or "未知")
 
+
+async def _compute_positions_from_broker(db, account_id: str = "default") -> list:
+    """【v2.9.93b】从 broker_positions 计算持仓详情(含止损/止盈/风控状态)
+
+    唯一真相源: broker_positions。不依赖 scanner_timeline / scanner._timeline。
+    抽出独立函数为了:
+      1. 复用: AccountTab/AnalysisTab/dashboard 等多处能共享同一逻辑
+      2. 可测试: 可以独立单元测试，不需要拉起整个 API
+      3. 隔离升级: 以后依赖资料变更时只需改这一函数
+
+    返回 positions列表，每个条目包含：
+      ts_code, stock_name, strategy, shares, cost_price, current_price,
+      profit_pct, profit_amount, market_value, stop_loss_price, stop_loss_pct,
+      take_profit_price, stop_loss_status (safe/near/broken), stop_loss_desc,
+      risk_monitor_active, risk_monitor_desc
+    """
+    positions: list = []
+    try:
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+    except Exception:
+        GLOBAL_RISK, STRATEGY_CONFIGS = {}, {}
+
+    try:
+        pos_cursor = db["broker_positions"].find({"account_id": account_id})
+        async for p in pos_cursor:
+            qty = p.get("total_qty") or p.get("quantity") or 0
+            if qty <= 0:
+                continue
+            tc = p.get("ts_code", "")
+            avg_cost = float(p.get("avg_cost") or p.get("cost_price") or 0)
+            stock_name = p.get("stock_name", "")
+            strategy = p.get("strategy", "")
+
+            # 最新收盘价 (fallback 到成本价)
+            cur_price = float(p.get("current_price") or 0) or avg_cost
+            try:
+                latest = await db["stock_daily_ak_full"].find_one(
+                    {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
+                )
+                if latest and latest.get("close"):
+                    cur_price = float(latest["close"])
+            except Exception:
+                pass
+
+            profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
+
+            # 止损价/止盈价
+            strat_en = strategy
+            for k_, v_ in STRATEGY_CONFIGS.items():
+                if v_.get("display_name") == strategy or k_ == strategy:
+                    strat_en = k_
+                    break
+            strat_cfg = STRATEGY_CONFIGS.get(strat_en, {})
+            sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
+            stop_loss_price = round(avg_cost * (1 - sl_pct), 2)
+            tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07))
+            take_profit_price = round(avg_cost * (1 + tp_pct), 2)
+
+            stop_loss_status = "safe"
+            stop_loss_desc = ""
+            if cur_price <= stop_loss_price:
+                stop_loss_status = "broken"
+                stop_loss_desc = f"已跌破止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)，当前亏{profit_pct:.1f}%"
+            elif cur_price <= stop_loss_price * 1.05:
+                stop_loss_status = "near"
+                stop_loss_desc = f"接近止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)"
+
+            risk_monitor_active = False
+            risk_monitor_desc = ""
+            try:
+                from nodes.web.api.scanner_shared import _scanner_instance
+                if _scanner_instance and _scanner_instance._is_running:
+                    risk_monitor_active = (
+                        _scanner_instance._risk_running
+                        and _scanner_instance._risk_thread
+                        and _scanner_instance._risk_thread.is_alive()
+                    )
+                    if not risk_monitor_active:
+                        risk_monitor_desc = "风控线程未运行，止损不会自动执行"
+                else:
+                    risk_monitor_desc = "扫描器未启动，持仓无人监控"
+            except Exception:
+                risk_monitor_desc = "无法获取风控状态"
+
+            positions.append({
+                "ts_code": tc,
+                "stock_name": stock_name,
+                "strategy": _norm_strat(strategy),
+                "shares": qty,
+                "cost_price": round(avg_cost, 2),
+                "current_price": round(cur_price, 2),
+                "profit_pct": round(profit_pct, 2),
+                "profit_amount": round((cur_price - avg_cost) * qty, 0),
+                "market_value": round(cur_price * qty, 0),
+                "stop_loss_price": stop_loss_price,
+                "stop_loss_pct": round(sl_pct * 100, 1),
+                "take_profit_price": take_profit_price,
+                "stop_loss_status": stop_loss_status,
+                "stop_loss_desc": stop_loss_desc,
+                "risk_monitor_active": risk_monitor_active,
+                "risk_monitor_desc": risk_monitor_desc,
+            })
+    except Exception as e:
+        import traceback
+        try:
+            from loguru import logger
+            logger.warning(f"[ANALYSIS] _compute_positions_from_broker 失败: {e}\n{traceback.format_exc()}")
+        except Exception:
+            pass
+
+    return positions
+
+
 def _date_filter(start_date: str = None, end_date: str = None):
     """生成兼容int/string的trade_date过滤条件"""
     if not start_date and not end_date:
@@ -202,101 +315,8 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         # 7. 当前持仓【v2.9.93修复】改以broker_positions为唯一真相源，不再从scanner_timeline累加推算
         # P0事故：2026-06-15 scanner_timeline被污染(旧load_timeline回退到历史日重写today)后，虚合出13只幽灵持仓。
         # broker_positions / broker_orders 是唯一真实成交源，优先读这个。
-        positions = []
-        try:
-            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
-        except Exception:
-            GLOBAL_RISK, STRATEGY_CONFIGS = {}, {}
-        try:
-            account_id_default = "default"
-            # 从 broker_positions 读真实持仓
-            pos_cursor = mongo_manager.db["broker_positions"].find(
-                {"account_id": account_id_default}
-            )
-            async for p in pos_cursor:
-                qty = p.get("total_qty") or p.get("quantity") or 0
-                if qty <= 0:
-                    continue
-                tc = p.get("ts_code", "")
-                avg_cost = float(p.get("avg_cost") or p.get("cost_price") or 0)
-                stock_name = p.get("stock_name", "")
-                strategy = p.get("strategy", "")
-
-                # 取最新收盘价作为当前价
-                cur_price = float(p.get("current_price") or 0) or avg_cost
-                try:
-                    latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
-                        {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
-                    )
-                    if latest and latest.get("close"):
-                        cur_price = float(latest["close"])
-                except Exception:
-                    pass
-
-                profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
-
-                # 止损价/止盈价
-                strat_en = strategy
-                for k_, v_ in STRATEGY_CONFIGS.items():
-                    if v_.get("display_name") == strategy or k_ == strategy:
-                        strat_en = k_
-                        break
-                strat_cfg = STRATEGY_CONFIGS.get(strat_en, {})
-                sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
-                stop_loss_price = round(avg_cost * (1 - sl_pct), 2)
-                tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07))
-                take_profit_price = round(avg_cost * (1 + tp_pct), 2)
-
-                stop_loss_status = "safe"
-                stop_loss_desc = ""
-                if cur_price <= stop_loss_price:
-                    stop_loss_status = "broken"
-                    stop_loss_desc = f"已跌破止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)，当前亏{profit_pct:.1f}%"
-                elif cur_price <= stop_loss_price * 1.05:
-                    stop_loss_status = "near"
-                    stop_loss_desc = f"接近止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)"
-
-                risk_monitor_active = False
-                risk_monitor_desc = ""
-                try:
-                    from nodes.web.api.scanner_shared import _scanner_instance
-                    if _scanner_instance and _scanner_instance._is_running:
-                        risk_monitor_active = (
-                            _scanner_instance._risk_running
-                            and _scanner_instance._risk_thread
-                            and _scanner_instance._risk_thread.is_alive()
-                        )
-                        if not risk_monitor_active:
-                            risk_monitor_desc = "风控线程未运行，止损不会自动执行"
-                    else:
-                        risk_monitor_desc = "扫描器未启动，持仓无人监控"
-                except Exception:
-                    risk_monitor_desc = "无法获取风控状态"
-
-                positions.append({
-                    "ts_code": tc,
-                    "stock_name": stock_name,
-                    "strategy": _norm_strat(strategy),
-                    "shares": qty,
-                    "cost_price": round(avg_cost, 2),
-                    "current_price": round(cur_price, 2),
-                    "profit_pct": round(profit_pct, 2),
-                    "profit_amount": round((cur_price - avg_cost) * qty, 0),
-                    "market_value": round(cur_price * qty, 0),
-                    "stop_loss_price": stop_loss_price,
-                    "stop_loss_pct": round(sl_pct * 100, 1),
-                    "take_profit_price": take_profit_price,
-                    "stop_loss_status": stop_loss_status,
-                    "stop_loss_desc": stop_loss_desc,
-                    "risk_monitor_active": risk_monitor_active,
-                    "risk_monitor_desc": risk_monitor_desc,
-                })
-        except Exception as e:
-            import traceback
-            try:
-                logger.warning(f"[ANALYSIS] 读取broker_positions失败: {e}\n{traceback.format_exc()}")
-            except Exception:
-                pass
+        # 【v2.9.93b重构】抽出 _compute_positions_from_broker 独立函数，方便复用+测试
+        positions = await _compute_positions_from_broker(mongo_manager.db)
 
         return {"success": True, "data": {
             "kpi": kpi,
