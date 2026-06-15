@@ -129,6 +129,7 @@ class SimulatedBroker:
         self._pending_save = False  # 标记有待保存的状态
         self._last_save_time = 0  # 上次保存时间(节流用)
         self._virtual_mode = virtual_mode  # 【v2.9.92s】replay/dry_run模式标记，防止覆盖实盘数据
+        self._today_rejected: set = set()  # 【v2.9.95f】当日已拒绝的ts_code去重缓存，避免同一股同日重复下单
 
     # ==================== 持久化 ====================
 
@@ -203,6 +204,17 @@ class SimulatedBroker:
         """【v2.9.57提取】持久化持仓到MongoDB"""
         positions_docs = []
         for ts_code, pos in self.positions.items():
+            # 【v2.9.95f】买入时写入止损价/止盈价，确保scanner崩溃后止损监控不失效
+            stop_loss_pct = GLOBAL_RISK.get("stop_loss_pct", 0.03) if GLOBAL_RISK else 0.03
+            take_profit_pct = GLOBAL_RISK.get("take_profit_pct", 0.07) if GLOBAL_RISK else 0.07
+            try:
+                from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+                strat_cfg = STRATEGY_CONFIGS.get(pos.strategy, {})
+                stop_loss_pct = strat_cfg.get("stop_loss_pct", stop_loss_pct)
+                take_profit_pct = strat_cfg.get("take_profit_pct", take_profit_pct)
+            except Exception:
+                pass
+
             positions_docs.append({
                 "account_id": self.account.account_id,
                 "ts_code": ts_code,
@@ -214,6 +226,8 @@ class SimulatedBroker:
                 "profit_pct": pos.profit_pct,
                 "today_buy_qty": pos.today_buy_qty,
                 "strategy": pos.strategy,
+                "stop_loss_price": round(pos.avg_cost * (1 - stop_loss_pct), 2),
+                "take_profit_price": round(pos.avg_cost * (1 + take_profit_pct), 2),
             })
 
         # Upsert持仓(避免并发重复)
@@ -484,6 +498,11 @@ class SimulatedBroker:
         """拒绝委托并记录【v2.9.48:从place_order提取】"""
         order.status = OrderStatus.REJECTED
         order.reason = reason
+        # 【v2.9.95f】去重: 同一ts_code同日已拒绝过则不再写入orders列表(防止786条重复rejected堆积)
+        reject_key = f"{order.ts_code}:{order.side.value}"
+        if reject_key in self._today_rejected:
+            return False, reason, order  # 已拒绝过，不再append
+        self._today_rejected.add(reject_key)
         self.orders.append(order)
         return False, reason, order
 
