@@ -18,7 +18,7 @@
       "take_profit_price": "float",
       "volatility": "float",
       "turnover_rate": "int",
-      "risk_score": "float",
+      "risk_score": "int",
       "risk_level": "str",
       "trailing_stop": {},
       "total_qty": "int"
@@ -32,14 +32,9 @@
     "top_industry_concentration": "float",
     "industry_exposure": {
       "矿物制品": "float",
-      "其他商业": "float",
-      "综合类": "float",
       "化工原料": "float",
-      "建筑工程": "float",
-      "房产服务": "float",
-      "环境保护": "float",
       "区域地产": "float",
-      "半导体": "float",
+      "环境保护": "float",
       "装修装饰": "float",
       "出版业": "float"
     },

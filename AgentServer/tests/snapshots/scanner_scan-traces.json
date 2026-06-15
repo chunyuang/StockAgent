@@ -88,10 +88,22 @@
         "L5_auction": "str",
         "L6_strategy": "str",
         "L7_ranking": "str",
+        "L8_ma60": "str",
         "L8_position": "str"
       },
-      "scan_id": "str"
+      "scan_id": "str",
+      "exec": {
+        "bought": "int",
+        "blocked": "int",
+        "pending": "int",
+        "block_reasons": {}
+      }
     }
   ],
-  "count": "int"
+  "count": "int",
+  "execution_summary": {
+    "buys": "int",
+    "blocked": "int",
+    "block_reasons": {}
+  }
 }

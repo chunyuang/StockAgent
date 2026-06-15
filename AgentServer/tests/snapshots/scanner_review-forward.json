@@ -15,7 +15,11 @@
     }
   ],
   "strategy_switches": [
-    "<empty_list>"
+    {
+      "strategy": "str",
+      "action": "str",
+      "reason": "str"
+    }
   ],
   "drift_warnings": [
     "<empty_list>"
