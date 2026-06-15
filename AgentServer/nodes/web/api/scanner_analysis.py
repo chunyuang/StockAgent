@@ -199,47 +199,31 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                 "win_rate": round(info["wins"] / info["trades"] * 100, 1) if info["trades"] else 0,
             })
         
-        # 7. 当前持仓(从scanner_timeline推算: buy累计-sell累计)
+        # 7. 当前持仓【v2.9.93修复】改以broker_positions为唯一真相源，不再从scanner_timeline累加推算
+        # P0事故：2026-06-15 scanner_timeline被污染(旧load_timeline回退到历史日重写today)后，虚合出13只幽灵持仓。
+        # broker_positions / broker_orders 是唯一真实成交源，优先读这个。
         positions = []
         try:
-            # 从timeline汇总每只股票的净持仓
-            holdings = {}  # ts_code -> {qty, total_cost, name, strategy}
-            # FIX1: positions也受日期过滤
-            pos_query = {"action": {"$in": ["buy", "sell"]}}
-            if df:
-                pos_query = {"$and": [pos_query, df]} if "$or" in df else {"action": {"$in": ["buy", "sell"]}, **df}
-            async for doc in mongo_manager.db["scanner_timeline"].find(pos_query).sort([("trade_date", 1), ("time", 1)]):
-                tc = doc.get("ts_code", "")
-                if not tc:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+        except Exception:
+            GLOBAL_RISK, STRATEGY_CONFIGS = {}, {}
+        try:
+            account_id_default = "default"
+            # 从 broker_positions 读真实持仓
+            pos_cursor = mongo_manager.db["broker_positions"].find(
+                {"account_id": account_id_default}
+            )
+            async for p in pos_cursor:
+                qty = p.get("total_qty") or p.get("quantity") or 0
+                if qty <= 0:
                     continue
-                action = doc.get("action")
-                shares = doc.get("shares", 0) or 0
-                price = doc.get("price", 0) or doc.get("filled_price", 0) or 0
-                
-                if tc not in holdings:
-                    holdings[tc] = {"qty": 0, "total_cost": 0, "name": doc.get("stock_name", ""), "strategy": doc.get("strategy", ""), "trades": 0}
-                
-                if action == "buy":
-                    holdings[tc]["qty"] += shares
-                    holdings[tc]["total_cost"] += shares * price
-                    holdings[tc]["strategy"] = doc.get("strategy", holdings[tc]["strategy"])
-                    holdings[tc]["trades"] += 1
-                elif action == "sell":
-                    # 用买入均价减成本(不是卖出价)
-                    avg_before = holdings[tc]["total_cost"] / holdings[tc]["qty"] if holdings[tc]["qty"] > 0 else 0
-                    holdings[tc]["qty"] -= shares
-                    if holdings[tc]["qty"] > 0:
-                        holdings[tc]["total_cost"] = holdings[tc]["qty"] * avg_before
-                    else:
-                        holdings[tc]["total_cost"] = 0
-            
-            # 获取最新价格(从daily_basic或current)
-            for tc, h in holdings.items():
-                if h["qty"] <= 0:
-                    continue
-                avg_cost = h["total_cost"] / h["qty"] if h["qty"] > 0 else 0
-                # 尝试获取当前价格
-                cur_price = avg_cost  # 默认用成本价
+                tc = p.get("ts_code", "")
+                avg_cost = float(p.get("avg_cost") or p.get("cost_price") or 0)
+                stock_name = p.get("stock_name", "")
+                strategy = p.get("strategy", "")
+
+                # 取最新收盘价作为当前价
+                cur_price = float(p.get("current_price") or 0) or avg_cost
                 try:
                     latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
                         {"ts_code": tc}, {"close": 1}, sort=[("trade_date", -1)]
@@ -248,25 +232,21 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                         cur_price = float(latest["close"])
                 except Exception:
                     pass
-                
+
                 profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0
-                
-                # 【v2.9.92n】止损状态 + 风控标注
-                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
-                strat_key = h.get("strategy", "")
-                # 反查策略英文key(前端可能存中文)
-                strat_en = strat_key
-                for k, v in STRATEGY_CONFIGS.items():
-                    if v.get("display_name") == strat_key or k == strat_key:
-                        strat_en = k
+
+                # 止损价/止盈价
+                strat_en = strategy
+                for k_, v_ in STRATEGY_CONFIGS.items():
+                    if v_.get("display_name") == strategy or k_ == strategy:
+                        strat_en = k_
                         break
                 strat_cfg = STRATEGY_CONFIGS.get(strat_en, {})
                 sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
                 stop_loss_price = round(avg_cost * (1 - sl_pct), 2)
                 tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.07))
                 take_profit_price = round(avg_cost * (1 + tp_pct), 2)
-                
-                # 止损状态
+
                 stop_loss_status = "safe"
                 stop_loss_desc = ""
                 if cur_price <= stop_loss_price:
@@ -275,43 +255,49 @@ async def get_analysis(start_date: str = None, end_date: str = None):
                 elif cur_price <= stop_loss_price * 1.05:
                     stop_loss_status = "near"
                     stop_loss_desc = f"接近止损价{stop_loss_price:.2f}(-{sl_pct*100:.0f}%)"
-                
-                # 风控状态(从scanner_status获取)
+
                 risk_monitor_active = False
                 risk_monitor_desc = ""
                 try:
                     from nodes.web.api.scanner_shared import _scanner_instance
                     if _scanner_instance and _scanner_instance._is_running:
-                        risk_monitor_active = _scanner_instance._risk_running and _scanner_instance._risk_thread and _scanner_instance._risk_thread.is_alive()
+                        risk_monitor_active = (
+                            _scanner_instance._risk_running
+                            and _scanner_instance._risk_thread
+                            and _scanner_instance._risk_thread.is_alive()
+                        )
                         if not risk_monitor_active:
                             risk_monitor_desc = "风控线程未运行，止损不会自动执行"
                     else:
                         risk_monitor_desc = "扫描器未启动，持仓无人监控"
                 except Exception:
                     risk_monitor_desc = "无法获取风控状态"
-                
+
                 positions.append({
                     "ts_code": tc,
-                    "stock_name": h["name"],
-                    "strategy": _norm_strat(h["strategy"]),
-                    "shares": h["qty"],
+                    "stock_name": stock_name,
+                    "strategy": _norm_strat(strategy),
+                    "shares": qty,
                     "cost_price": round(avg_cost, 2),
                     "current_price": round(cur_price, 2),
                     "profit_pct": round(profit_pct, 2),
-                    "profit_amount": round((cur_price - avg_cost) * h["qty"], 0),
-                    "market_value": round(cur_price * h["qty"], 0),
-                    # 【v2.9.92n】止损+风控标注
+                    "profit_amount": round((cur_price - avg_cost) * qty, 0),
+                    "market_value": round(cur_price * qty, 0),
                     "stop_loss_price": stop_loss_price,
                     "stop_loss_pct": round(sl_pct * 100, 1),
                     "take_profit_price": take_profit_price,
-                    "stop_loss_status": stop_loss_status,  # safe/near/broken
+                    "stop_loss_status": stop_loss_status,
                     "stop_loss_desc": stop_loss_desc,
                     "risk_monitor_active": risk_monitor_active,
                     "risk_monitor_desc": risk_monitor_desc,
                 })
-        except Exception:
-            pass
-        
+        except Exception as e:
+            import traceback
+            try:
+                logger.warning(f"[ANALYSIS] 读取broker_positions失败: {e}\n{traceback.format_exc()}")
+            except Exception:
+                pass
+
         return {"success": True, "data": {
             "kpi": kpi,
             "strategy_contrib": strategy_contrib,

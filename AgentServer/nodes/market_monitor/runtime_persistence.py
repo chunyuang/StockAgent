@@ -600,44 +600,10 @@ class RuntimePersistence:
             logger.warning(f"[DAILY] 飞书日报推送失败: {_e}")
         logger.info(f"[DAILY] {summary}")
     
-    async def load_timeline(self) -> None:
-        """从MongoDB加载时间线(启动时恢复)"""
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")  # 【v2.9.92f修复】用scanner._trade_date避免跨天写入
-            account_id = self.broker.account.account_id if self.broker else "default"
-            scanner = self._scanner
-            
-            # 优先查当天，无数据则回退数据最多的最近交易日
-            query = {"account_id": account_id, "trade_date": today}
-            count = await mongo_manager.db["scanner_timeline"].count_documents(query)
-            if count < 3:
-                pipeline = [
-                    {"$match": {"account_id": account_id}},
-                    {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1}},
-                    {"$limit": 1}
-                ]
-                result = await mongo_manager.db["scanner_timeline"].aggregate(pipeline).to_list(1)
-                if result:
-                    fallback_date = result[0]["_id"]
-                    logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
-                    query = {"account_id": account_id, "trade_date": fallback_date}
-            
-            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("time", 1)
-            
-            async for doc in cursor:
-                doc.pop("_id", None)
-                doc.pop("account_id", None)
-                doc.pop("trade_date", None)
-                scanner._timeline.append(doc)
-            
-            if scanner._timeline:
-                logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条")
-        except Exception as e:
-            logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
+    # 【v2.9.93】删除：原此处定义的旧版 load_timeline 会覆盖 L389 的 v2.9.92f 修复版本，
+    # 导致回退逻辑（fallback到"数据最多"的历史日）重新生效，把6/9旧timeline以今天的trade_date回写到数据库。
+    # 真正生效的版本在 L389："只加载今天的数据，不回退到历史日期"。
+    # P0事故记录：2026-06-15 08:30 启动时回退到6/9，污染scanner_timeline 1218条。
 
     # ==================== 数据加载方法【v2.9.32从scanner提取】 ====================
 
