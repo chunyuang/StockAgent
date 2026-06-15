@@ -368,9 +368,14 @@ class RuntimePersistence:
     def _build_trace_doc(self, filter_result, passed_candidates: List, rejected_summary: List) -> Dict:
         """构建链路追踪文档【v2.9.56从save_scan_traces提取】"""
         today = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")  # 【v2.9.92f修复】用scanner._trade_date避免跨天写入
+        # 【v2.9.94】统一 trade_date 为 int，与API查询划一致(避免出现string混入)
+        try:
+            today_int = int(today)
+        except (ValueError, TypeError):
+            today_int = today
         is_trading_day = datetime.now().weekday() < 5
         trace_doc = {
-            "trade_date": today,
+            "trade_date": today_int,
             "scan_time": datetime.now().isoformat(),
             "account_id": self.broker.account.account_id if self.broker else "default",
             "is_debug": not is_trading_day,
