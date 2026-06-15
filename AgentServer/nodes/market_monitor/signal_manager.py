@@ -22,6 +22,13 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from nodes.market_monitor.scanner import ScanSignal
 
+# 【v2.9.94】A7 流动性过滤用到 GLOBAL_RISK，之前未 import 导致 NameError。
+# 事故时间2026-06-15 13:32:08，scan #8 首次产生信号走到 A7 过滤行崩溃 → scan_loop 死三分钟。
+try:
+    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+except Exception:
+    GLOBAL_RISK = {}
+
 logger = logging.getLogger("signal_manager")
 
 

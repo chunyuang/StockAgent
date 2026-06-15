@@ -333,9 +333,14 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         
         query = {}
         if date:
-            # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用int查询
-            date_int = int(date.replace("-", "").replace("/", "")) if isinstance(date, str) else int(date)
-            query["trade_date"] = date_int
+            # 【v2.9.88】scan_traces.trade_date 应为 int，但不同版本存了 string 和 int 两种
+            # 【v2.9.94】同时查 int + string 兼容老写入
+            date_str = str(date).replace("-", "").replace("/", "")
+            try:
+                date_int = int(date_str)
+                query["trade_date"] = {"$in": [date_int, date_str]}
+            except (ValueError, TypeError):
+                query["trade_date"] = date_str
         
         docs = []
         # 列表查询：排除candidates和rejected_summary字段，避免返回20MB+
@@ -452,7 +457,12 @@ async def get_execution_quality(date: str = None):
             import datetime
             date = datetime.datetime.now().strftime("%Y%m%d")
         
-        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        date_str = str(date).replace("-", "").replace("/", "")
+        try:
+            date_int = int(date_str)
+            date_filter = {"$in": [date_int, date_str]}
+        except (ValueError, TypeError):
+            date_filter = date_str
         
         # 从broker_orders聚合
         total_orders = 0
@@ -461,7 +471,7 @@ async def get_execution_quality(date: str = None):
         slippages = []
         delays = []
         
-        async for doc in db["broker_orders"].find({"trade_date": date_int}):
+        async for doc in db["broker_orders"].find({"trade_date": date_filter}):
             total_orders += 1
             if doc.get("status") == "filled":
                 filled_orders += 1
