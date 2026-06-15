@@ -136,7 +136,7 @@ def main():
     # 使用净数量计算（修复set逻辑bug：买卖都有不代表净仓为0）
     from collections import defaultdict
     net_qty = defaultdict(int)
-    for o in db['broker_orders'].find({"account_id": "default"}):
+    for o in db['broker_orders'].find({"account_id": "default", "status": "filled"}):
         tc = o.get('ts_code', '')
         side = o.get('side', '')
         qty = o.get('filled_qty', 0) or o.get('quantity', 0)
