@@ -18,6 +18,16 @@ from core.constants import C
 from core.managers import mongo_manager, theme_manager, redis_manager
 from .auth import require_admin, CurrentUser
 
+
+def _int_date(d) -> int:
+    """将日期参数统一为int(YYYYMMDD)，兼容 '20260612'/'2026-06-12'/int"""
+    if isinstance(d, int):
+        return d
+    if d is None:
+        return None
+    s = str(d).replace("-", "").replace("/", "")
+    return int(s) if s.isdigit() else None
+
 router = APIRouter(prefix="/market", tags=["Market Analysis"])
 
 # 数据源切换时间点 (18:00)
@@ -46,6 +56,8 @@ def _should_use_realtime_data() -> bool:
 
 
 async def _get_index_data_from_mongodb(trade_date: Optional[str] = None) -> Dict[str, Any]:
+    """从 MongoDB 获取指数数据"""
+    td_int = _int_date(trade_date)
     """
     从 MongoDB 的 index_daily 表获取指数数据
     
@@ -142,9 +154,10 @@ async def get_market_overview(
 
 async def _get_hot_sectors(trade_date: str) -> List[str]:
     """获取热门板块"""
+    td_int = _int_date(trade_date)
     hot_sectors_data = await mongo_manager.find_many(
         "sector_ranking",
-        {"trade_date": trade_date, "ranking_type": "industry_top"},
+        {"trade_date": {"$in": [td_int, trade_date]}, "ranking_type": "industry_top"},
         sort=[("rank", 1)],
         limit=5,
         projection={"name": 1, "_id": 0},
@@ -159,10 +172,11 @@ async def _get_market_overview_from_mongodb(trade_date: Optional[str] = None) ->
     指数数据从 index_daily 表获取
     涨跌统计从 daily_stats 表获取
     """
-    # 构建查询条件
+    td_int = _int_date(trade_date)
+    # 构建查询条件 — 兼容 int/string trade_date
     query = {}
-    if trade_date:
-        query["trade_date"] = trade_date
+    if td_int:
+        query["trade_date"] = {"$in": [td_int, trade_date]}
     
     # 获取 daily_stats (涨跌统计)
     stats = await mongo_manager.find_one(
@@ -235,7 +249,7 @@ async def get_latest_market_data() -> Dict[str, Any]:
     # 获取最新的 market_analysis
     latest_analysis = await mongo_manager.find_one(
         "market_analysis",
-        {"trade_date": trade_date},
+        {"trade_date": {"$in": [td_int, trade_date]}},
     )
     
     # 构建响应 - 使用 EMA 平滑后的情绪分数保持一致
@@ -390,7 +404,7 @@ async def get_sector_ranking(
     # 直接从 sector_ranking 表获取当日预排序数据
     day_data = await mongo_manager.find_many(
         "sector_ranking",
-        {"trade_date": trade_date, "ranking_type": ranking_type},
+        {"trade_date": {"$in": [_int_date(trade_date), trade_date]}, "ranking_type": ranking_type},
         projection={"rank": 1, "ts_code": 1, "name": 1, "pct_change": 1, "net_amount": 1, "lead_stock": 1, "_id": 0},
         sort=[("rank", 1)],  # 按排名升序
     )

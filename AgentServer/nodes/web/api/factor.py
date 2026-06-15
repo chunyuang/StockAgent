@@ -116,11 +116,15 @@ async def _get_merged_stock_data(ts_code: str, trade_date: str) -> dict:
         {"daily": {...}, "daily_basic": {...}, "stock_name": "..."}
     """
     result = {"daily": None, "daily_basic": None, "stock_name": ""}
+    
+    # trade_date兼容int/string( MongoDB存的是int)
+    td_int = int(trade_date.replace("-", "").replace("/", "")) if trade_date else None
+    td_query = {"$in": [td_int, trade_date]} if td_int else trade_date
 
     # 1. 查 stock_daily_ak_full
     daily = await mongo_manager.find_one(
         C.STOCK_DAILY,
-        {"ts_code": ts_code, "trade_date": trade_date},
+        {"ts_code": ts_code, "trade_date": td_query},
     )
     if daily:
         daily.pop("_id", None)
@@ -129,7 +133,7 @@ async def _get_merged_stock_data(ts_code: str, trade_date: str) -> dict:
     # 2. 查 daily_basic
     daily_basic = await mongo_manager.find_one(
         C.DAILY_BASIC,
-        {"ts_code": ts_code, "trade_date": trade_date},
+        {"ts_code": ts_code, "trade_date": td_query},
     )
     if daily_basic:
         daily_basic.pop("_id", None)
