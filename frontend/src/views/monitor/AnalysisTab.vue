@@ -277,7 +277,7 @@ async function showStockDetail(tsCode: string) {
 
 <style scoped lang="scss">
 .ana-wrap { display: flex; flex-direction: column; gap: 8px; }
-.ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); }
+.ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); flex-wrap: nowrap; }
 .ana-title { font-size: 14px; font-weight: 700; }
 .ana-empty { padding: 60px 0; text-align: center; }
 .ana-empty-sm { padding: 16px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }

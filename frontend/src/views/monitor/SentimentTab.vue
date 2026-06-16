@@ -279,6 +279,7 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
 </template>
 
 <style scoped lang="scss">
+.review-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: nowrap; }
 .intraday-panel { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
 .ip-title { padding: 6px 10px; font-size: 12px; font-weight: 700; background: var(--bg-secondary); border-bottom: 1px solid var(--border-default); }
 .ip-sub { font-weight: normal; color: var(--text-tertiary); font-size: 10px; }

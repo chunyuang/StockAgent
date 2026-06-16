@@ -1,3 +1,4 @@
+import { formatTradeDate } from '@/utils/scanner'
 <template>
   <div class="signal-trace-panel">
     <div class="panel-header">
@@ -7,7 +8,7 @@
           <el-option
             v-for="t in traceList"
             :key="t._id"
-            :label="`${t.trade_date} ${t.scan_time?.substring(11,19) || ''}`"
+            :label="`${formatTradeDate(t.trade_date)} ${t.scan_time?.substring(11,19) || ''}`"
             :value="t._id"
           />
         </el-select>

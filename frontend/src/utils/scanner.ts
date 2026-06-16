@@ -128,3 +128,21 @@ export function normalizePct(v: number | undefined, fallback: number = 3): numbe
 export function formatSlTp(v: number | undefined, fallback: number = 3): string {
   return normalizePct(v, fallback).toFixed(1) + '%'
 }
+
+
+/** 格式化交易日期: 20260617 → "06-17", "2026-06-17" → "06-17" */
+export function formatTradeDate(d: string | number | undefined): string {
+  if (!d) return '-'
+  const s = String(d).replace(/-/g, '')
+  if (s.length >= 8) return s.slice(4, 6) + '-' + s.slice(6, 8)
+  if (s.length >= 4) return s.slice(0, 2) + '-' + s.slice(2, 4)
+  return s
+}
+
+/** 格式化完整日期: 20260617 → "2026-06-17" */
+export function formatFullDate(d: string | number | undefined): string {
+  if (!d) return '-'
+  const s = String(d).replace(/-/g, '')
+  if (s.length >= 8) return s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8)
+  return s
+}
