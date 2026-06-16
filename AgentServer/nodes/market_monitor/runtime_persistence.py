@@ -302,12 +302,10 @@ class RuntimePersistence:
             ghosts_skipped = 0
             for item in scanner._timeline:
                 action = item.get("action", "")
-                # buy/sell 必须有 broker_orders 对应
-                if action in ("buy", "sell") and real_keys:
-                    key = (item.get("ts_code", ""), item.get("time", ""), action)
-                    if key not in real_keys:
-                        ghosts_skipped += 1
-                        continue
+                # 【v2.9.97c】buy/sell 不再写入 scanner_timeline (broker_orders 是唯一真相源)
+                # 只保留 blocked/其他决策日志
+                if action in ("buy", "sell"):
+                    continue
                 doc = dict(item)
                 doc["account_id"] = account_id
                 doc["trade_date"] = today
@@ -444,14 +442,48 @@ class RuntimePersistence:
             
             cursor = mongo_manager.db["scanner_timeline"].find(query).sort("time", 1)
             
+            # 【v2.9.97c】只加载blocked等决策日志, buy/sell从broker_orders恢复
+            blocked_count = 0
             async for doc in cursor:
+                action = doc.get("action", "")
+                if action in ("buy", "sell"):
+                    continue  # buy/sell 不再从 scanner_timeline 加载
                 doc.pop("_id", None)
                 doc.pop("account_id", None)
                 doc.pop("trade_date", None)
                 scanner._timeline.append(doc)
+                blocked_count += 1
+            
+            # 【v2.9.97c】从broker_orders恢复buy/sell时间线(唯一真相源)
+            buy_sell_count = 0
+            try:
+                today_int = int(today) if today.isdigit() else today
+                async for doc in mongo_manager.db["broker_orders"].find(
+                    {"account_id": account_id, "status": "filled", "trade_date": {"$in": [today, today_int]}}
+                ).sort("fill_time", 1):
+                    side = doc.get("side", "")
+                    if side not in ("buy", "sell"):
+                        continue
+                    scanner._timeline.append({
+                        "time": doc.get("fill_time", "") or doc.get("create_time", ""),
+                        "action": side,
+                        "ts_code": doc.get("ts_code", ""),
+                        "stock_name": doc.get("stock_name", ""),
+                        "strategy": doc.get("strategy", ""),
+                        "shares": doc.get("filled_qty", 0) or doc.get("quantity", 0),
+                        "price": doc.get("filled_price", 0) or doc.get("price", 0),
+                        "reason": doc.get("reason", ""),
+                        "profit_pct": doc.get("profit_pct"),
+                        "profit_amount": doc.get("profit_amount"),
+                        "decision_detail": doc.get("decision_detail", {}),
+                        "source": doc.get("source", "auto"),
+                    })
+                    buy_sell_count += 1
+            except Exception as _e:
+                logger.debug(f"[SCAN] 从broker_orders恢复时间线失败: {_e}")
             
             if scanner._timeline:
-                logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条")
+                logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条 (blocked={blocked_count}, buy/sell={buy_sell_count})")
         except Exception as e:
             logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
 
