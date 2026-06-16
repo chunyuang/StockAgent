@@ -162,13 +162,13 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         
         db = mongo_manager.db
         
-        # 1. 从scanner_timeline获取卖出记录(含profit)
+        # 1. 【v2.9.97】从 broker_orders 获取卖出记录(唯一真相源, 不再读 scanner_timeline)
         df = _date_filter(start_date, end_date)
-        tl_match = {"action": "sell"}
+        sell_match = {"side": "sell", "status": "filled"}
         if df:
-            tl_match = {"$and": [{"action": "sell"}, df]} if "$or" in df else {"action": "sell", **df}
+            sell_match = {"$and": [{"side": "sell", "status": "filled"}, df]} if "$or" in df else {"side": "sell", "status": "filled", **df}
         
-        sells = await db["scanner_timeline"].find(tl_match).sort([("trade_date", 1), ("time", 1)]).to_list(5000)
+        sells = await db["broker_orders"].find(sell_match).sort([("trade_date", 1), ("fill_time", 1)]).to_list(5000)
         
         # 2. 计算KPI
         total_trades = len(sells)
@@ -451,10 +451,10 @@ async def get_stock_detail(ts_code: str):
         
         db = mongo_manager.db
         
-        # 获取该股票所有交易记录
-        records = await db["scanner_timeline"].find(
-            {"ts_code": ts_code, "action": {"$in": ["buy", "sell"]}}
-        ).sort([("trade_date", 1), ("time", 1)]).to_list(100)
+        # 【v2.9.97】从 broker_orders 获取该股票交易记录(唯一真相源)
+        records = await db["broker_orders"].find(
+            {"ts_code": ts_code, "status": "filled"}
+        ).sort([("trade_date", 1), ("fill_time", 1)]).to_list(100)
         
         if not records:
             return {"success": False, "message": f"无{ts_code}交易记录"}
@@ -472,11 +472,11 @@ async def get_stock_detail(ts_code: str):
         last_sell_date = None
         
         for r in records:
-            action = r.get("action")
-            shares = r.get("shares", 0) or 0
-            price = r.get("price", 0) or 0
+            action = r.get("side") or r.get("action")  # broker_orders用side, timeline用action
+            shares = r.get("filled_qty", 0) or r.get("shares", 0) or 0
+            price = r.get("filled_price", 0) or r.get("price", 0) or 0
             td = str(r.get("trade_date", ""))
-            t = r.get("time", "")
+            t = r.get("fill_time", "") or r.get("time", "")
             
             trades.append({
                 "date": f"{td[:4]}-{td[4:6]}-{td[6:]}" if len(td) == 8 else td,
