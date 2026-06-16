@@ -393,7 +393,11 @@ async def get_weekly_report(date: str = None):
         daily_stats = {}
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date_int, "$lte": end_date_int},
+            # 【v2.9.97f】兼容 trade_date int/string 格式
+            "$or": [
+                {"trade_date": {"$gte": start_date_int, "$lte": end_date_int}},
+                {"trade_date": {"$gte": str(start_date_int), "$lte": str(end_date_int)}},
+            ],
             "status": "filled",
         }).sort("trade_date", 1):
             td = doc.get("trade_date", "")
@@ -450,7 +454,10 @@ async def get_weekly_report(date: str = None):
         # 【v2.9.86修复】broker_orders.trade_date是int，范围查询必须用int
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date_int, "$lte": end_date_int},
+            "$or": [
+                {"trade_date": {"$gte": start_date_int, "$lte": end_date_int}},
+                {"trade_date": {"$gte": str(start_date_int), "$lte": str(end_date_int)}},
+            ],
             "status": "filled",
             "side": "sell",
         }):
