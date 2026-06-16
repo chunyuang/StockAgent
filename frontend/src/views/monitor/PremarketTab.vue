@@ -7,7 +7,8 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElTag, ElDatePicker, ElMessage } from 'element-plus'
+import { ElButton, ElTag, ElMessage } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { api } from '@/api'
 
 const m = useScannerMonitorInject()
@@ -84,7 +85,7 @@ onMounted(() => {
           <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
-          <ElDatePicker v-model="premarketDate" type="date" size="small" value-format="YYYY-MM-DD" style="width:130px" @change="fetchPremarketData" />
+          <UnifiedDateBar @change="(_d: string) => { premarketDate = _d; fetchPremarketData() }" />
           <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
           <ElButton size="small" type="primary" @click="runPremarketScan" :loading="premarketScanRunning" title="手动运行一次盘前竞价扫描(L4+L5+L6全市场)">⚡ 扫描</ElButton>
           <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; premarketDebugUserToggled = true; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>

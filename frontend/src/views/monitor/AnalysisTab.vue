@@ -6,7 +6,8 @@ import { useChartColors } from './useChartColors'
  * 含: 日收益率、累计收益、绩效雷达、盈亏分布、交易占比、卖出原因、月度收益、策略贡献、持仓
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElDatePicker, ElEmpty, ElDialog } from 'element-plus'
+import { ElButton, ElEmpty, ElDialog } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
@@ -22,31 +23,26 @@ const c = useChartColors().value
 const m = useScannerMonitorInject()
 const { activeTab } = m
 const loading = ref(false)
-const dateRange = ref<[string, string] | null>(null)
+const selectedDate = ref(new Date().toISOString().slice(0, 10))
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
 
-function defaultDateRange(): [string, string] {
-  const now = new Date()
-  const week = new Date(now.getTime() - 7 * 86400000)
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
-  return [fmt(week), fmt(now)]
-}
+// date managed by UnifiedDateBar
 
 async function fetchAnalysis() {
   loading.value = true
   try {
-    let url = '/scanner/analysis'
-    const dr = dateRange.value
-    if (dr && dr[0] && dr[1]) url += `?start_date=${dr[0].replace(/-/g, '')}&end_date=${dr[1].replace(/-/g, '')}`
-    const r = await api.get(url)
+    const d = selectedDate.value.replace(/-/g, '')
+    const r = await api.get(`/scanner/analysis?date=${d}`)
     const p = parseResponse(r)
     if (p.success) analysisData.value = p.data
+    // 同步获取当日交易
+    try { const r2 = await api.get(`/unified/trades?date=${d}`); const p2 = parseResponse(r2); if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {}
   } catch (e) { console.error('[Analysis]', e) }
   finally { loading.value = false }
 }
 
-onMounted(() => { if (!dateRange.value) dateRange.value = defaultDateRange(); fetchAnalysis() })
+onMounted(() => { fetchAnalysis() })
 watch(activeTab, (t) => { if (t === 'analysis') fetchAnalysis() })
 
 const kpi = computed(() => analysisData.value?.kpi || {})
@@ -131,7 +127,7 @@ async function showStockDetail(tsCode: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <ElDatePicker v-model="dateRange" type="daterange" start-placeholder="开始" end-placeholder="结束" size="small" value-format="YYYY-MM-DD" style="width:220px" :disabled-date="(d: Date) => d > new Date()" />
+        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
         <ElButton size="small" type="primary" @click="fetchAnalysis" :loading="loading">刷新</ElButton>
       </div>
 

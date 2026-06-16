@@ -5,7 +5,8 @@
  */
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElDatePicker } from 'element-plus'
+import { ElButton } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 
@@ -103,7 +104,7 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
         <button :class="['review-tab', sentimentMode === 'daily' ? 'active' : '']" @click="sentimentMode = 'daily'; fetchSentimentData()">📊 日线</button>
         <button :class="['review-tab', sentimentMode === 'weekly' ? 'active' : '']" @click="sentimentMode = 'weekly'; fetchSentimentData()">📅 周线</button>
         <button :class="['review-tab', sentimentMode === 'monthly' ? 'active' : '']" @click="sentimentMode = 'monthly'; fetchSentimentData()">📆 月线</button>
-        <ElDatePicker v-model="sentimentDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchSentimentData" :teleported="false" />
+        <UnifiedDateBar @change="(_d: string) => { sentimentDate = _d; fetchSentimentData() }" />
         <ElButton size="small" @click="fetchSentimentData" :loading="sentimentLoading">🔄</ElButton>
       </div>
 
