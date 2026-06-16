@@ -271,7 +271,9 @@ class RuntimePersistence:
     # ==================== 时间线持久化 ====================
     
     async def save_timeline(self) -> None:
-        """保存时间线到MongoDB(追加模式, 不删除历史)"""
+        """保存时间线到MongoDB(追加模式, 不删除历史)
+        【v2.9.96e】 buy/sell 事件需与 broker_orders 对账, 避免保存幽灵记录
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
@@ -281,17 +283,46 @@ class RuntimePersistence:
             if not scanner._timeline:
                 return
             
+            account_id = self.broker.account.account_id if self.broker else "default"
+            
+            # 【v2.9.96e】收集当日真实订单key, 过滤幽灵 buy/sell
+            real_keys = set()
+            try:
+                today_int = int(today) if today.isdigit() else today
+                async for o in mongo_manager.db["broker_orders"].find(
+                    {"account_id": account_id, "trade_date": {"$in": [today, today_int]}},
+                    {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "_id": 0}
+                ):
+                    t = o.get("fill_time") or o.get("create_time", "")
+                    real_keys.add((o.get("ts_code", ""), t, o.get("side", "")))
+            except Exception as _e:
+                logger.debug(f"[SCAN] 取real_keys失败(不阻断保存): {_e}")
+            
             docs = []
+            ghosts_skipped = 0
             for item in scanner._timeline:
+                action = item.get("action", "")
+                # buy/sell 必须有 broker_orders 对应
+                if action in ("buy", "sell") and real_keys:
+                    key = (item.get("ts_code", ""), item.get("time", ""), action)
+                    if key not in real_keys:
+                        ghosts_skipped += 1
+                        continue
                 doc = dict(item)
-                doc["account_id"] = self.broker.account.account_id if self.broker else "default"
+                doc["account_id"] = account_id
                 doc["trade_date"] = today
                 docs.append(doc)
+            
+            if ghosts_skipped > 0:
+                logger.info(f"[SCAN] save_timeline过滤幽灵交易: {ghosts_skipped}条")
+            
+            if not docs:
+                return
             
             # 去重
             existing_keys = set()
             async for doc in mongo_manager.db["scanner_timeline"].find(
-                {"account_id": docs[0]["account_id"], "trade_date": today},
+                {"account_id": account_id, "trade_date": today},
                 {"time": 1, "ts_code": 1, "action": 1, "_id": 0}
             ):
                 existing_keys.add(f"{doc.get('time','')}|{doc.get('ts_code','')}|{doc.get('action','')}")

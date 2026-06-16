@@ -405,12 +405,15 @@ async def get_timeline():
 
 
 @router.get("/timeline/history")
-async def get_timeline_history(date: str = None, days: int = 7):
+async def get_timeline_history(date: str = None, days: int = 7, source: str = "reconciled"):
     """获取历史交易时间线
     
     Args:
         date: 指定日期(YYYYMMDD), 不传则返回最近N天
         days: 返回最近N天(默认7)
+        source: 数据源策略 (v2.9.96e)
+          - 'reconciled' (默认): buy/sell仅返回有broker_orders对应的真实交易, blocked原样返回
+          - 'all': 返回所有timeline记录(含可能的幽灵/调试记录, 仅供审计)
     """
     scanner = await _get_scanner()
     try:
@@ -444,6 +447,43 @@ async def get_timeline_history(date: str = None, days: int = 7):
             doc.pop("_id", None)
             doc.pop("account_id", None)
             items.append(doc)
+        
+        # 【v2.9.96e】对账过滤: 对 buy/sell 只保留有 broker_orders 对应的真实交易
+        if source == "reconciled" and items:
+            # 收集所需查询的日期
+            trade_dates = set()
+            for item in items:
+                td = item.get("trade_date")
+                if td is not None:
+                    trade_dates.add(td)
+                    if isinstance(td, str) and td.isdigit():
+                        trade_dates.add(int(td))
+                    elif isinstance(td, int):
+                        trade_dates.add(str(td))
+            
+            if trade_dates:
+                real_keys = set()
+                async for o in mongo_manager.db["broker_orders"].find(
+                    {"account_id": account_id, "trade_date": {"$in": list(trade_dates)}},
+                    {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "trade_date": 1, "_id": 0}
+                ):
+                    t = o.get("fill_time") or o.get("create_time", "")
+                    real_keys.add((str(o.get("trade_date", "")), o.get("ts_code", ""), t, o.get("side", "")))
+                
+                filtered = []
+                ghost_count = 0
+                for item in items:
+                    action = item.get("action", "")
+                    if action in ("buy", "sell"):
+                        key = (str(item.get("trade_date", "")), item.get("ts_code", ""), item.get("time", ""), action)
+                        if key not in real_keys:
+                            ghost_count += 1
+                            continue
+                    filtered.append(item)
+                
+                if ghost_count > 0:
+                    logger.info(f"[timeline/history] 对账过滤幽灵交易: {ghost_count}条 (date={date}, days={days})")
+                items = filtered
         
         return {"success": True, "data": _fill_stock_names(items, scanner), "count": len(items)}
     except Exception as e:
