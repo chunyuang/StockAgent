@@ -4,11 +4,64 @@
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取】
  */
+import { ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import SystemHealth from './SystemHealth.vue'
 import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber, ElDatePicker } from 'element-plus'
 
 const m = useScannerMonitorInject()
+
+// 【v2.9.96】展开决策详情
+const expandedOrderIds = ref<Set<string>>(new Set())
+function toggleTradeExpand(orderId: string) {
+  if (expandedOrderIds.value.has(orderId)) expandedOrderIds.value.delete(orderId)
+  else expandedOrderIds.value.add(orderId)
+  expandedOrderIds.value = new Set(expandedOrderIds.value) // trigger reactivity
+}
+function layerStatusIcon(layer: any): string {
+  if (!layer || (typeof layer === 'object' && Object.keys(layer).length === 0)) return '⚪'
+  const detail = layer.detail || layer
+  // L1强制空仓: triggered=true表示禁止下单
+  if (detail.triggered === true) return '⛔'
+  if (detail.applied === false) return '⏭️'
+  return '✅'
+}
+function formatLayerName(key: string): string {
+  const map: Record<string, string> = {
+    L1_force_empty: 'L1·强制空仓判断',
+    L2_special_period: 'L2·特殊时期(月末/季末)',
+    L3_sentiment: 'L3·情绪周期映射',
+    L4_premarket: 'L4·盘前过滤(ST/退市/次新/低流动)',
+    L5_auction: 'L5·竞价过滤',
+    L6_strategy: 'L6·策略筛选',
+    L7_ranking: 'L7·候选排序去重',
+    L8_ma60: 'L8·大盘MA60',
+    L8_position: 'L8·总仓位/单票上限',
+    L9_sector: 'L9·行业集中度',
+  }
+  return map[key] || key
+}
+function formatLayerDetail(key: string, layer: any): string {
+  if (!layer) return '无数据'
+  const detail = layer.detail || layer
+  if (typeof detail !== 'object' || Object.keys(detail).length === 0) return '未触发/无数据'
+  // 提取关键字段
+  const parts: string[] = []
+  for (const [k, v] of Object.entries(detail)) {
+    if (v === undefined || v === null || v === '' || k === 'applied') continue
+    if (typeof v === 'object') continue
+    parts.push(`${k}=${v}`)
+  }
+  return parts.join(' · ') || JSON.stringify(detail)
+}
+function fmtPct(v: any, digits = 1): string {
+  if (v === undefined || v === null || v === '') return '-'
+  return (Number(v) * 100).toFixed(digits) + '%'
+}
+function fmt(v: any, digits = 2): string {
+  if (v === undefined || v === null || v === '') return '-'
+  return Number(v).toFixed(digits)
+}
 
 // 解构需要的变量(从inject对象)
 const {
@@ -42,18 +95,103 @@ const {
       </div>
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
-        <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因</span></div>
-        <div v-for="t in autoTrades" :key="t.order_id" class="at-row" :class="{ 'auto-trade': t.source === 'auto', 'manual-trade': t.source === 'manual' }">
-          <span class="tl-time">{{ t.time }}</span>
-          <span><ElTag size="small" :type="t.source === 'auto' ? 'primary' : 'warning'" style="font-size:10px">{{ t.source === 'auto' ? '🤖自动' : '✋手动' }}</ElTag></span>
-          <span class="tl-action" :class="t.side === 'buy' ? 'buy' : 'sell'">{{ t.side === 'buy' ? '买' : '卖' }}</span>
-          <span class="code">{{ t.ts_code }}</span>
-          <span class="name">{{ t.stock_name }}</span>
-          <span>{{ t.quantity }}股</span>
-          <span>¥{{ Number(t.price || 0).toFixed(2) }}</span>
-          <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
-          <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
-        </div>
+        <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因/详情</span></div>
+        <template v-for="t in autoTrades" :key="t.order_id">
+          <div class="at-row" :class="{ 'auto-trade': t.source === 'auto', 'manual-trade': t.source === 'manual' }">
+            <span class="tl-time">{{ t.time }}</span>
+            <span><ElTag size="small" :type="t.source === 'auto' ? 'primary' : 'warning'" style="font-size:10px">{{ t.source === 'auto' ? '🤖自动' : '✋手动' }}</ElTag></span>
+            <span class="tl-action" :class="t.side === 'buy' ? 'buy' : 'sell'">{{ t.side === 'buy' ? '买' : '卖' }}</span>
+            <span class="code">{{ t.ts_code }}</span>
+            <span class="name">{{ t.stock_name }}</span>
+            <span>{{ t.quantity }}股</span>
+            <span>¥{{ Number(t.price || 0).toFixed(2) }}</span>
+            <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
+            <span class="reason-cell">
+              <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
+              <ElButton v-if="t.decision_trace && Object.keys(t.decision_trace).length" size="small" link
+                class="trace-toggle" @click="toggleTradeExpand(t.order_id)">
+                {{ expandedOrderIds.has(t.order_id) ? '▽ 收起' : '▶ 详情' }}
+              </ElButton>
+            </span>
+          </div>
+          <!-- 完整决策轨迹展开 -->
+          <div v-if="expandedOrderIds.has(t.order_id) && t.decision_trace" class="trace-detail">
+            <div class="trace-grid">
+              <!-- 行情快照 -->
+              <div class="trace-block" v-if="t.decision_trace.market_data">
+                <div class="tb-title">📊 行情快照</div>
+                <div class="tb-kv">
+                  <span>价格</span><b>¥{{ fmt(t.decision_trace.market_data.price) }} → 成交¥{{ fmt(t.decision_trace.market_data.filled_price) }}</b>
+                  <span>涨幅</span><b :class="(t.decision_trace.market_data.pct_chg||0)>=0?'up':'down'">{{ fmt(t.decision_trace.market_data.pct_chg, 2) }}%</b>
+                  <span>量比</span><b>{{ fmt(t.decision_trace.market_data.volume_ratio, 2) }}</b>
+                  <span>换手率</span><b>{{ fmt(t.decision_trace.market_data.turnover_rate, 1) }}%</b>
+                  <span v-if="t.decision_trace.market_data.is_limit_up">封板</span><b v-if="t.decision_trace.market_data.is_limit_up" class="up">涨停</b>
+                  <span v-if="t.decision_trace.market_data.limit_up_count">连板</span><b v-if="t.decision_trace.market_data.limit_up_count">{{ t.decision_trace.market_data.limit_up_count }}板</b>
+                  <span>开/高/低</span><b>{{ fmt(t.decision_trace.market_data.open) }}/{{ fmt(t.decision_trace.market_data.high) }}/{{ fmt(t.decision_trace.market_data.low) }}</b>
+                  <span>流通市值</span><b>{{ t.decision_trace.market_data.circ_mv ? (Number(t.decision_trace.market_data.circ_mv)/10000).toFixed(0) + '亿' : '-' }}</b>
+                </div>
+              </div>
+              <!-- 选股参数 -->
+              <div class="trace-block" v-if="t.decision_trace.selection_params">
+                <div class="tb-title">📋 选股参数(当前策略)</div>
+                <div class="tb-kv">
+                  <template v-for="(v, k) in t.decision_trace.selection_params" :key="k">
+                    <template v-if="v !== null && v !== undefined && v !== '' && k !== 'strategy'">
+                      <span>{{ k }}</span><b>{{ v }}</b>
+                    </template>
+                  </template>
+                </div>
+              </div>
+              <!-- 风控参数 -->
+              <div class="trace-block" v-if="t.decision_trace.risk_params">
+                <div class="tb-title">🛡️ 风控参数</div>
+                <div class="tb-kv">
+                  <span>止损</span><b class="down">{{ fmtPct(t.decision_trace.risk_params.stop_loss_pct) }}</b>
+                  <span>止盈</span><b class="up">{{ fmtPct(t.decision_trace.risk_params.take_profit_pct) }}</b>
+                  <template v-if="t.decision_trace.risk_params.trailing_stop_pct"><span>追踪止损</span><b>{{ fmtPct(t.decision_trace.risk_params.trailing_stop_pct) }}</b></template>
+                  <template v-if="t.decision_trace.risk_params.max_hold_days"><span>最大持有</span><b>{{ t.decision_trace.risk_params.max_hold_days }}天</b></template>
+                  <template v-if="t.decision_trace.risk_params.slippage_pct"><span>滑点</span><b>{{ fmtPct(t.decision_trace.risk_params.slippage_pct, 2) }}</b></template>
+                  <template v-if="t.decision_trace.risk_params.hold_protection_threshold !== undefined"><span>持有保护</span><b>{{ fmtPct(t.decision_trace.risk_params.hold_protection_threshold) }}</b></template>
+                </div>
+              </div>
+              <!-- L1-L9逐层轨迹 -->
+              <div class="trace-block trace-block-wide" v-if="t.decision_trace.layers">
+                <div class="tb-title">🔍 9层筛选决策轨迹</div>
+                <div class="layer-list">
+                  <div v-for="(layer, key) in t.decision_trace.layers" :key="key" class="layer-row">
+                    <span class="layer-icon">{{ layerStatusIcon(layer) }}</span>
+                    <span class="layer-name">{{ formatLayerName(String(key)) }}</span>
+                    <span class="layer-detail">{{ formatLayerDetail(String(key), layer) }}</span>
+                  </div>
+                </div>
+              </div>
+              <!-- 情绪上下文 -->
+              <div class="trace-block" v-if="t.decision_trace.sentiment">
+                <div class="tb-title">🌡️ 情绪上下文</div>
+                <div class="tb-kv">
+                  <span>情绪期</span><b>{{ t.decision_trace.sentiment.phase_name || t.decision_trace.sentiment.period }}</b>
+                  <span>评分</span><b>{{ fmt(t.decision_trace.sentiment.score, 0) }}/100</b>
+                  <span>仓位系数</span><b>{{ fmtPct(t.decision_trace.sentiment.position_ratio_factor, 0) }}</b>
+                </div>
+              </div>
+              <!-- 账户上下文 -->
+              <div class="trace-block" v-if="t.decision_trace.account_context">
+                <div class="tb-title">💰 账户上下文</div>
+                <div class="tb-kv">
+                  <span>买入金额</span><b>¥{{ fmt(t.decision_trace.account_context.buy_amount, 0) }}({{ t.decision_trace.account_context.buy_shares }}股)</b>
+                  <span>可用现金</span><b>¥{{ fmt(t.decision_trace.account_context.available_cash_before, 0) }}</b>
+                  <span>总资产</span><b>¥{{ fmt(t.decision_trace.account_context.total_assets_before, 0) }}</b>
+                  <span>持仓数</span><b>{{ t.decision_trace.account_context.position_count_before }}→{{ (t.decision_trace.account_context.position_count_before||0)+1 }}/{{ t.decision_trace.account_context.max_positions }}</b>
+                  <span>仓位比例</span><b>{{ fmtPct(t.decision_trace.account_context.calculated_position_ratio) }}·上限{{ fmtPct(t.decision_trace.account_context.max_position_ratio) }}</b>
+                  <span>单票上限</span><b>{{ fmtPct(t.decision_trace.account_context.single_position_cap) }}</b>
+                  <template v-if="t.decision_trace.account_context.circuit_breaker">
+                    <span>熔断器</span><b :class="t.decision_trace.account_context.circuit_breaker.paused?'down':''">{{ t.decision_trace.account_context.circuit_breaker.paused ? '⚠️暂停' : '✅正常' }} · 连亏{{ t.decision_trace.account_context.circuit_breaker.consecutive_losses }}</b>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- 扫描器配置 -->
@@ -170,6 +308,46 @@ const {
 .at-row.auto-trade { background: rgba(22,119,255,0.03); }
 
 .at-row.manual-trade { background: rgba(250,173,20,0.03); }
+
+/* 【v2.9.96】决策详情展开 */
+.reason-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.reason-cell > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.trace-toggle { font-size: 11px !important; padding: 0 4px !important; flex: none; }
+.trace-detail {
+  background: var(--bg-tertiary, rgba(0,0,0,0.02));
+  border-left: 3px solid var(--el-color-primary);
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.trace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+.trace-block { background: var(--bg-secondary, rgba(255,255,255,0.6)); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; }
+.trace-block-wide { grid-column: 1 / -1; }
+.tb-title { font-weight: 600; font-size: 12px; color: var(--el-color-primary); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px dashed var(--border-default); }
+.tb-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 11px; }
+.tb-kv > span { color: var(--text-tertiary); }
+.tb-kv > b { font-weight: 600; word-break: break-all; }
+.tb-kv > b.up { color: var(--el-color-danger); }
+.tb-kv > b.down { color: var(--el-color-success); }
+.layer-list { display: flex; flex-direction: column; gap: 3px; }
+.layer-row {
+  display: grid;
+  grid-template-columns: 22px 200px 1fr;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  align-items: center;
+}
+.layer-row:hover { background: rgba(22,119,255,0.05); }
+.layer-icon { font-size: 14px; text-align: center; }
+.layer-name { font-weight: 600; color: var(--text-secondary); }
+.layer-detail { color: var(--text-tertiary); word-break: break-all; }
 
 .ops-grid {
   display: flex;
