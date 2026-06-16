@@ -72,9 +72,17 @@ class StrategyScorer:
         for ts_code, rt in realtime_data.items():
             row = {"ts_code": ts_code}
             row["pct_chg"] = rt.get("pct_chg", 0)
-            row["volume_ratio"] = rt.get("volume_ratio", 0)
-            row["turnover_rate"] = rt.get("turnover_rate", 0)
-            row["circ_mv"] = rt.get("circ_mv", 0)
+            row["volume_ratio"] = rt.get("volume_ratio", 0) or 0
+            row["turnover_rate"] = rt.get("turnover_rate", 0) or 0
+            # circ_mv: 众多名称; float_mv是元(腾讯/东财)/万元(MongoDB) - 统一转成万元
+            cm = rt.get("circ_mv")
+            if cm is None or cm == 0:
+                fm = rt.get("float_mv") or 0
+                if fm > 1e7:  # 大于1000万个元 → 单位是元，除1万
+                    cm = fm / 10000.0
+                else:
+                    cm = fm  # 已是万元
+            row["circ_mv"] = cm or 0
             row["open"] = rt.get("open", 0)
             row["high"] = rt.get("high", 0)
             row["low"] = rt.get("low", 0)
@@ -241,17 +249,71 @@ class StrategyScorer:
         vr = float(row.get('volume_ratio') or 0)
         tr = float(row.get('turnover_rate') or 0)
         lbc = int(row.get('limit_up_count', 0))
+        circ_mv = float(row.get('circ_mv') or 0)
+        op = float(row.get('open') or 0)
+        pc = float(row.get('pre_close') or 0)
+        cl = float(row.get('close') or 0)
+        hi = float(row.get('high') or 0)
+        ma5 = float(row.get('ma5') or 0)
+        rsi6 = float(row.get('rsi_6') or 0)
+        is_st = 'ST' in row.get('stock_name', '')
+
+        # 计算开盘涨幅 / 高点涨幅 / 偏离MA5
+        opening_pct = ((op - pc) / pc * 100) if op and pc else 0
+        high_pct = ((hi - pc) / pc * 100) if hi and pc else 0
+        ma5_diff_pct = ((cl - ma5) / ma5 * 100) if cl and ma5 else 0
+        # circ_mv 单位为万元; 转成亿元显示
+        circ_yi = circ_mv / 10000.0 if circ_mv else 0
+
+        flags = []
+        if is_st:
+            flags.append("⚠️ST")
+        if rsi6 > 80:
+            flags.append(f"RSI{rsi6:.0f}超买")
+        elif 0 < rsi6 < 20:
+            flags.append(f"RSI{rsi6:.0f}超卖")
 
         if strategy_key == 'halfway_chase':
-            reason = f"涨{pct:.1f}% 量比{vr:.1f} 换手{tr:.1f}%{' ⚠️ST' if 'ST' in row.get('stock_name','') else ''}"
+            parts = [f"涨{pct:.1f}%"]
+            if vr > 0: parts.append(f"量比{vr:.2f}倍")
+            if tr > 0: parts.append(f"换手{tr:.1f}%")
+            if opening_pct: parts.append(f"开{opening_pct:+.1f}%")
+            if circ_yi > 0: parts.append(f"流通{circ_yi:.0f}亿")
+            if ma5_diff_pct: parts.append(f"{'高于' if ma5_diff_pct > 0 else '低于'}MA5·{abs(ma5_diff_pct):.1f}%")
+            reason = " ".join(parts)
         elif strategy_key == 'first_limit_up':
-            reason = f"首板涨停 封单强 炸板{lbc}次"
+            parts = ["首板涨停"]
+            if opening_pct: parts.append(f"竞价{opening_pct:+.1f}%")
+            if vr > 0: parts.append(f"量比{vr:.2f}倍")
+            if tr > 0: parts.append(f"换手{tr:.1f}%")
+            if circ_yi > 0: parts.append(f"流通{circ_yi:.0f}亿")
+            parts.append(f"炸板{lbc}次")
+            reason = " ".join(parts)
         elif strategy_key == 'dragon_head':
-            reason = f"{lbc}连板龙头 回调{pct:.1f}%"
+            pullback = float(row.get('pullback_pct') or 0)
+            parts = [f"{lbc}连板龙头"]
+            if pullback:
+                parts.append(f"回调{pullback*100:.1f}%")
+            else:
+                parts.append(f"走势{pct:+.1f}%")
+            if tr > 0: parts.append(f"换手{tr:.1f}%")
+            if circ_yi > 0: parts.append(f"流通{circ_yi:.0f}亿")
+            reason = " ".join(parts)
         elif strategy_key == 'limit_down_qiao':
-            reason = f"跌停撬板 反弹{pct:.1f}%"
+            parts = ["跌停撬板", f"反弹{pct:+.1f}%"]
+            if high_pct and high_pct > pct:
+                parts.append(f"高{high_pct:+.1f}%回落")
+            if vr > 0: parts.append(f"量比{vr:.2f}倍")
+            if tr > 0: parts.append(f"换手{tr:.1f}%")
+            reason = " ".join(parts)
         else:
-            reason = f"{strategy_name} 涨{pct:.1f}%"
+            reason = f"{strategy_name} 涨{pct:+.1f}%"
+
+        if flags:
+            reason += " " + " ".join(flags)
+        # 附加L6策略池筛选率
+        if candidates_after and candidates_before:
+            reason += f" · 池{candidates_after}/{candidates_before}"
 
         return ScanSignal(
             ts_code=ts_code,
@@ -268,7 +330,11 @@ class StrategyScorer:
             scan_time=datetime.now().strftime("%H:%M:%S"),
             factors={k: row.get(k, 0) for k in
                      ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
-                      "ma5", "rsi_6", "is_limit_up", "limit_up_count"]
+                      "ma5", "rsi_6", "is_limit_up", "limit_up_count",
+                      "open", "high", "low", "close", "pre_close",
+                      "opening_pct_chg", "pullback_pct", "first_limit_up",
+                      "limit_up_yesterday", "limit_down_yesterday", "macd",
+                      "boll_upper", "atr", "fear_greed_index"]
                      if k in row.index},
             layer_trace={
                 "L6_strategy": {
@@ -320,7 +386,7 @@ class StrategyScorer:
                 signal_type="buy", price=price,
                 pct_chg=pct_chg, volume_ratio=0,
                 turnover_rate=turnover, is_limit_up=False,
-                reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
+                reason=f"涨停炸板·开板{open_times}次 现价¥{price:.2f} 涨{pct_chg:+.1f}% 换手{turnover:.1f}%",
             )
         return None
 
@@ -337,7 +403,7 @@ class StrategyScorer:
                 signal_type="buy", price=price,
                 pct_chg=pct_chg, volume_ratio=0,
                 turnover_rate=turnover, is_limit_up=True,
-                reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
+                reason=f"强势涨停·{limit_times}连板 封单{fd_amount/10000:.1f}亿 现价¥{price:.2f} 换手{turnover:.1f}%",
             )
         return None
 
@@ -356,7 +422,7 @@ class StrategyScorer:
                     signal_type="buy", price=price,
                     pct_chg=pct_chg, volume_ratio=0,
                     turnover_rate=turnover, is_limit_up=False,
-                    reason=f"5分钟涨{price_change_pct:.1f}%",
+                    reason=f"5分钟急拉{price_change_pct:+.1f}% 现价¥{price:.2f} 涨{pct_chg:+.1f}% 换手{turnover:.1f}%",
                 )
         return None
 
