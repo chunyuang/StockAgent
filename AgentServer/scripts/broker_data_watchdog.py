@@ -172,6 +172,7 @@ def check_timeline_ghost_trades(db, account_id: str = "default", date: str = Non
     ):
         t = o.get("fill_time") or o.get("create_time", "")
         real_keys.add((o.get("ts_code", ""), t, o.get("side", "")))
+    # 【v2.9.96i】明确排除 rolled_back 订单(status=='rolled_back' 已被上面过滤, 这里是可读性注释)
     
     ghosts = []
     for t in db.scanner_timeline.find(
