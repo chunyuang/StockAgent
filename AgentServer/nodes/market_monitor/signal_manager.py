@@ -483,6 +483,152 @@ class SignalManager:
                 sig.strategy_name, f"下单失败: {msg}", sig)
             logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
 
+    def _build_decision_trace(self, sig, shares, position_ratio, max_amount, acct, adjusted_price) -> dict:
+        """构建完整决策轨迹: 选股参数+风控参数+L1-L9+情绪+仓位+账户【v2.9.96】"""
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        scanner = self._scanner
+        strategy_key = sig.strategy or ''
+        cfg = STRATEGY_CONFIGS.get(strategy_key, {})
+        params = cfg.get('params', {})
+        risk_params = cfg.get('riskParams', {})
+        layer_trace = getattr(sig, 'layer_trace', {}) or {}
+        sentiment = self.current_sentiment or {}
+        sent_score = sentiment.get('score', 50)
+        sent_period = sentiment.get('period', 'chaos')
+        factors = getattr(sig, 'factors', {}) or {}
+        
+        return {
+            "version": "v2.9.96",
+            "stock": {
+                "ts_code": sig.ts_code,
+                "stock_name": sig.stock_name,
+                "strategy": strategy_key,
+                "strategy_name": sig.strategy_name,
+                "scan_time": sig.scan_time,
+            },
+            "market_data": {
+                "price": sig.price,
+                "filled_price": adjusted_price,
+                "pct_chg": sig.pct_chg,
+                "volume_ratio": sig.volume_ratio,
+                "turnover_rate": sig.turnover_rate,
+                "is_limit_up": sig.is_limit_up,
+                "limit_up_count": sig.limit_up_count,
+                "open": factors.get("open"),
+                "high": factors.get("high"),
+                "low": factors.get("low"),
+                "pre_close": factors.get("pre_close"),
+                "circ_mv": factors.get("circ_mv"),
+                "ma5": factors.get("ma5"),
+                "rsi_6": factors.get("rsi_6"),
+            },
+            "selection_params": {
+                "strategy": strategy_key,
+                "min_rise_pct": params.get("min_rise_pct"),
+                "max_rise_pct": params.get("max_rise_pct"),
+                "min_volume_ratio": params.get("min_volume_ratio"),
+                "max_volume_ratio": params.get("max_volume_ratio"),
+                "min_turnover_rate": params.get("min_turnover_rate"),
+                "max_turnover_rate": params.get("max_turnover_rate"),
+                "min_circulation_market_cap": params.get("min_circulation_market_cap"),
+                "max_circulation_market_cap": params.get("max_circulation_market_cap"),
+                "max_open_rise_pct": params.get("max_open_rise_pct"),
+                "min_close_rise_pct": params.get("min_close_rise_pct"),
+                "allow_after_10am": params.get("allow_after_10am"),
+                "opening_pct_min": params.get("opening_pct_min"),
+                "opening_pct_max": params.get("opening_pct_max"),
+                "min_consecutive_limit": params.get("min_consecutive_limit"),
+                "min_correction_pct": params.get("min_correction_pct"),
+                "max_correction_pct": params.get("max_correction_pct"),
+                "next_day_open_sell_pct": params.get("next_day_open_sell_pct"),
+            },
+            "risk_params": {
+                "stop_loss_pct": risk_params.get("stop_loss_pct"),
+                "take_profit_pct": risk_params.get("take_profit_pct"),
+                "trailing_stop_pct": risk_params.get("trailing_stop_pct"),
+                "max_hold_days": risk_params.get("max_hold_days"),
+                "slippage_pct": risk_params.get("slippage_pct"),
+                "hold_protection_threshold": risk_params.get("hold_protection_threshold"),
+            },
+            "layers": {
+                "L1_force_empty": layer_trace.get("L1_force_empty", {}),
+                "L2_special_period": layer_trace.get("L2_special_period", {}),
+                "L3_sentiment": layer_trace.get("L3_sentiment", {}),
+                "L4_premarket": layer_trace.get("L4_premarket", {}),
+                "L5_auction": layer_trace.get("L5_auction", {}),
+                "L6_strategy": layer_trace.get("L6_strategy", {}),
+                "L7_ranking": layer_trace.get("L7_ranking", {}),
+                "L8_ma60": layer_trace.get("L8_ma60", {}),
+                "L8_position": layer_trace.get("L8_position", {}),
+                "L9_sector": layer_trace.get("L9_sector", {}),
+            },
+            "sentiment": {
+                "score": sent_score,
+                "period": sent_period,
+                "phase_name": {"rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}.get(sent_period, sent_period),
+                "position_ratio_factor": position_ratio,
+            },
+            "account_context": {
+                "available_cash_before": round(acct.available_cash, 2),
+                "total_assets_before": round(acct.total_assets, 2),
+                "position_count_before": len(self.broker.get_positions()) if self.broker else 0,
+                "max_positions": scanner.MAX_POSITIONS,
+                "max_position_ratio": GLOBAL_RISK.get("max_position_ratio", 0.7),
+                "single_position_cap": GLOBAL_RISK.get("max_single_position_ratio", 0.35),
+                "calculated_position_ratio": position_ratio,
+                "max_amount": round(max_amount, 2),
+                "buy_amount": round(adjusted_price * shares, 2),
+                "buy_shares": shares,
+                "circuit_breaker": {
+                    "paused": self.circuit_breaker.get("trading_paused", False),
+                    "consecutive_losses": self.circuit_breaker.get("consecutive_losses", 0),
+                    "today_trades": self.circuit_breaker.get("today_trades", 0),
+                    "today_losses": self.circuit_breaker.get("today_losses", 0),
+                },
+            },
+        }
+
+    def _format_decision_reason(self, sig, trace: dict) -> str:
+        """从决策轨迹构建一行简要reason(详细信息在decision_trace JSON中)【v2.9.96】"""
+        parts = [sig.reason or ""]
+        sp = trace.get("selection_params", {})
+        rp = trace.get("risk_params", {})
+        sent = trace.get("sentiment", {})
+        acct_ctx = trace.get("account_context", {})
+        
+        # 选股参数(关键阈值)
+        sel_parts = []
+        if sp.get("min_volume_ratio") is not None:
+            vr = sig.volume_ratio or 0
+            sel_parts.append(f"量比{vr:.2f}\u2208[{sp['min_volume_ratio']},{sp.get('max_volume_ratio',9)}]")
+        if sp.get("min_turnover_rate") is not None:
+            tr = sig.turnover_rate or 0
+            sel_parts.append(f"换手{tr:.1f}\u2208[{sp['min_turnover_rate']},{sp.get('max_turnover_rate',999)}]")
+        if sp.get("min_circulation_market_cap") is not None:
+            cm = (sig.factors or {}).get('circ_mv', 0) / 10000 if (sig.factors or {}).get('circ_mv') else 0
+            sel_parts.append(f"流通{cm:.0f}亿\u2208[{sp['min_circulation_market_cap']},{sp.get('max_circulation_market_cap',999)}]亿")
+        if sel_parts:
+            parts.append("📋选股·" + " ".join(sel_parts))
+        
+        # 风控参数
+        if rp.get("stop_loss_pct") is not None:
+            risk_bits = [f"止损{abs(rp['stop_loss_pct'])*100:.1f}%", f"止盈{rp.get('take_profit_pct',0)*100:.0f}%"]
+            if rp.get("trailing_stop_pct"):
+                risk_bits.append(f"追踪{rp['trailing_stop_pct']*100:.0f}%")
+            if rp.get("max_hold_days"):
+                risk_bits.append(f"持{rp['max_hold_days']}天")
+            parts.append("🛡️风控·" + "/".join(risk_bits))
+        
+        # 情绪+仓位
+        if sent.get("phase_name"):
+            parts.append(f"🌡️{sent['phase_name']}{sent.get('score',0):.0f}分·仓位系数{(sent.get('position_ratio_factor',0) or 0)*100:.0f}%")
+        
+        # 账户
+        if acct_ctx.get("buy_shares"):
+            parts.append(f"💰{acct_ctx['buy_shares']}股¥{acct_ctx.get('buy_amount',0):.0f} 持仓{acct_ctx.get('position_count_before',0)+1}/{acct_ctx.get('max_positions',10)}")
+        
+        return " | ".join(p for p in parts if p)
+
     def _calc_buy_shares(self, sig: ScanSignal, max_amount: float) -> Optional[int]:
         """计算买入股数(含科创板200股门槛)"""
         if sig.ts_code.startswith('688'):

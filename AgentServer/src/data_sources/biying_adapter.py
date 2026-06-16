@@ -73,6 +73,9 @@ class BiyingAdapter(AsyncDataSourceAdapter):
         self._daily_calls = 0
         self._daily_limit = 200
         self._daily_reset_date = None
+        # 【v2.9.96】429熔断器: 收到证书当日超限(101错)后立即休息
+        # 避免每次都走TokenBucket等待12s却拿到429
+        self._throttled_until_date = None
 
     @property
     def licence(self):
@@ -150,6 +153,10 @@ class BiyingAdapter(AsyncDataSourceAdapter):
         if not self._check_daily_limit():
             return {"error": "daily_limit_exceeded"}
 
+        # 【v2.9.96】429熔断检查: 证书超限期间不走TokenBucket
+        if self._throttled_until_date and date.today() <= self._throttled_until_date:
+            return {"error": "throttled", "detail": "证书当日超限, 明日重试"}
+
         await self._bucket.wait_and_acquire()
 
         url = f"{self.BASE_URL}{path}/{self._licence}"
@@ -161,6 +168,10 @@ class BiyingAdapter(AsyncDataSourceAdapter):
                 else:
                     text = await resp.text()
                     logger.warning(f"[BIYING] HTTP {resp.status}: {path} → {text[:100]}")
+                    # 【v2.9.96】检测证书超限 → 设置熔断至当天末
+                    if resp.status == 429 or "超限" in text or "101:" in text:
+                        self._throttled_until_date = date.today()
+                        logger.warning(f"[BIYING] 证书超限, 熔断至{date.today()}末, 明日自动恢复")
                     return {"error": f"HTTP {resp.status}", "detail": text[:200]}
         except asyncio.TimeoutError:
             logger.warning(f"[BIYING] 超时: {path}")
