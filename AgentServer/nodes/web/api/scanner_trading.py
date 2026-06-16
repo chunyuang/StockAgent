@@ -345,11 +345,77 @@ async def get_trade_detail(ts_code: str, date: str = None):
         "signal": None,    # 当前信号状态
     }
     
-    # 1. 从内存时间线查找买入/卖出记录(只查target_date)
+    # 【v2.9.97c】数据源优先级: broker_orders(唯一真相) > 内存timeline(含decision_detail) > scanner_timeline(仅补充decision_detail)
+    # Step 1: 从 broker_orders 获取基础买入/卖出数据(最可靠)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            account_id = "default"
+            try:
+                if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+                    account_id = scanner._broker.account.account_id
+            except Exception:
+                pass
+            query = {"account_id": account_id, "ts_code": ts_code, "status": "filled"}
+            if target_date and str(target_date).isdigit():
+                td_int = int(target_date)
+                query["trade_date"] = {"$in": [str(target_date), td_int]}
+            async for doc in mongo_manager.db["broker_orders"].find(query).sort("fill_time", 1):
+                side = doc.get("side", "")
+                if side == "buy" and not detail["buy"]:
+                    doc_date = str(doc.get("trade_date", ""))
+                    raw_time = doc.get("fill_time", "") or doc.get("create_time", "")
+                    detail["buy"] = {
+                        "time": raw_time,
+                        "time_display": _format_trade_time_display(doc_date, raw_time),
+                        "trade_date": doc_date,
+                        "price": doc.get("filled_price", 0) or doc.get("price", 0),
+                        "shares": doc.get("filled_qty", 0) or doc.get("quantity", 0),
+                        "reason": doc.get("reason", ""),
+                        "strategy": doc.get("strategy", ""),
+                        "stock_name": doc.get("stock_name", ""),
+                        "decision_detail": doc.get("decision_detail", {}),
+                    }
+                elif side == "sell" and not detail["sell"]:
+                    doc_date = str(doc.get("trade_date", ""))
+                    raw_time = doc.get("fill_time", "") or doc.get("create_time", "")
+                    detail["sell"] = {
+                        "time": raw_time,
+                        "time_display": _format_trade_time_display(doc_date, raw_time),
+                        "trade_date": doc_date,
+                        "price": doc.get("filled_price", 0) or doc.get("price", 0),
+                        "shares": doc.get("filled_qty", 0) or doc.get("quantity", 0),
+                        "reason": doc.get("reason", ""),
+                        "strategy": doc.get("strategy", ""),
+                        "stock_name": doc.get("stock_name", ""),
+                        "profit_pct": doc.get("profit_pct", 0),
+                        "profit_amount": doc.get("profit_amount", 0),
+                        "decision_detail": doc.get("decision_detail", {}),
+                    }
+    except Exception:
+        pass
+
+    # Step 2: 从内存 timeline 补充 decision_detail(broker_orders可能没有)
     for item in scanner._timeline:
-        if item.get("ts_code") == ts_code:
+        if item.get("ts_code") != ts_code:
+            continue
+        item_date = str(item.get("trade_date", ""))
+        if target_date and item_date and item_date != target_date:
+            continue
+        dd = item.get("decision_detail", {})
+        if not dd:
+            continue
+        if item.get("action") == "buy" and detail["buy"] and not detail["buy"].get("decision_detail"):
+            detail["buy"]["decision_detail"] = dd
+        elif item.get("action") == "sell" and detail["sell"] and not detail["sell"].get("decision_detail"):
+            detail["sell"]["decision_detail"] = dd
+
+    # Step 3: 如果 broker_orders 未命中, 再从内存 timeline fallback
+    if not detail["buy"] or not detail["sell"]:
+        for item in scanner._timeline:
+            if item.get("ts_code") != ts_code:
+                continue
             item_date = str(item.get("trade_date", ""))
-            # 只匹配当天的记录
             if target_date and item_date and item_date != target_date:
                 continue
             if item.get("action") == "buy" and not detail["buy"]:
@@ -382,49 +448,31 @@ async def get_trade_detail(ts_code: str, date: str = None):
                     "profit_amount": item.get("profit_amount", 0),
                     "decision_detail": item.get("decision_detail", {}),
                 }
-    
-    # 1b. 从MongoDB历史时间线补充(跨session数据, 按target_date过滤)
-    if not detail["buy"] or not detail["sell"]:
+
+    # Step 4: scanner_timeline 仅补充 decision_detail (不再作为 buy/sell 主源)
+    if (detail["buy"] and not detail["buy"].get("decision_detail")) or \
+       (detail["sell"] and not detail["sell"].get("decision_detail")):
         try:
             from core.managers import mongo_manager
             if mongo_manager.is_initialized:
-                account_id = scanner._broker.account.account_id if scanner._broker else "default"
+                account_id = "default"
+                try:
+                    if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+                        account_id = scanner._broker.account.account_id
+                except Exception:
+                    pass
                 query = {"account_id": account_id, "ts_code": ts_code}
-                if target_date:
-                    query["trade_date"] = {"$in": [str(target_date), int(target_date)]} if str(target_date).isdigit() else str(target_date)
-                async for doc in mongo_manager.db["scanner_timeline"].find(
-                    query
-                ).sort("time", 1):
-                    if doc.get("action") == "buy" and not detail["buy"]:
-                        doc_date = str(doc.get("trade_date", ""))
-                        raw_time = doc.get("time", "")
-                        detail["buy"] = {
-                            "time": raw_time,
-                            "time_display": _format_trade_time_display(doc_date, raw_time),
-                            "trade_date": doc_date,
-                            "price": doc.get("price", 0),
-                            "shares": doc.get("shares", 0),
-                            "reason": doc.get("reason", ""),
-                            "strategy": doc.get("strategy", ""),
-                            "stock_name": doc.get("stock_name", ""),
-                            "decision_detail": doc.get("decision_detail", {}),
-                        }
-                    elif doc.get("action") == "sell" and not detail["sell"]:
-                        doc_date = str(doc.get("trade_date", ""))
-                        raw_time = doc.get("time", "")
-                        detail["sell"] = {
-                            "time": raw_time,
-                            "time_display": _format_trade_time_display(doc_date, raw_time),
-                            "trade_date": doc_date,
-                            "price": doc.get("price", 0),
-                            "shares": doc.get("shares", 0),
-                            "reason": doc.get("reason", ""),
-                            "strategy": doc.get("strategy", ""),
-                            "stock_name": doc.get("stock_name", ""),
-                            "profit_pct": doc.get("profit_pct", 0),
-                            "profit_amount": doc.get("profit_amount", 0),
-                            "decision_detail": doc.get("decision_detail", {}),
-                        }
+                if target_date and str(target_date).isdigit():
+                    td_int = int(target_date)
+                    query["trade_date"] = {"$in": [str(target_date), td_int]}
+                async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("time", 1):
+                    dd = doc.get("decision_detail", {})
+                    if not dd:
+                        continue
+                    if doc.get("action") == "buy" and detail["buy"] and not detail["buy"].get("decision_detail"):
+                        detail["buy"]["decision_detail"] = dd
+                    elif doc.get("action") == "sell" and detail["sell"] and not detail["sell"].get("decision_detail"):
+                        detail["sell"]["decision_detail"] = dd
         except Exception:
             pass
     
@@ -623,46 +671,25 @@ async def export_trade_log():
         if mongo_manager.is_initialized and scanner._broker:
             account_id = scanner._broker.account.account_id if scanner._broker else "default"
             existing_keys = {(r["ts_code"], r.get("time", "")) for r in rows if r.get("ts_code")}
-            # 从scanner_timeline补充
-            async for doc in mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id}
-            ).sort("time", 1):
-                key = (doc.get("ts_code", ""), doc.get("time", ""))
-                if key in existing_keys:
-                    continue  # 去重(内存数据优先)
-                rows.append({
-                    "time": doc.get("time", ""),
-                    "action": doc.get("action", ""),
-                    "ts_code": doc.get("ts_code", ""),
-                    "stock_name": doc.get("stock_name", ""),
-                    "strategy": doc.get("strategy", ""),
-                    "shares": doc.get("shares", ""),
-                    "price": doc.get("price", ""),
-                    "reason": doc.get("reason", ""),
-                    "profit_pct": doc.get("profit_pct", ""),
-                    "profit_amount": doc.get("profit_amount", ""),
-                })
-                existing_keys.add(key)
-            # 从broker_orders补充
+            # 【v2.9.97c】从broker_orders补充(唯一真相源, 替代scanner_timeline)
             async for doc in mongo_manager.db["broker_orders"].find(
-                {"account_id": account_id}
+                {"account_id": account_id, "status": "filled"}
             ).sort("create_time", 1):
-                key = (doc.get("ts_code", ""), doc.get("create_time", ""))
+                key = (doc.get("ts_code", ""), doc.get("fill_time", "") or doc.get("create_time", ""))
                 if key in existing_keys:
                     continue
                 rows.append({
-                    "time": doc.get("create_time", ""),
+                    "time": doc.get("fill_time", "") or doc.get("create_time", ""),
                     "action": doc.get("side", ""),
                     "ts_code": doc.get("ts_code", ""),
                     "stock_name": doc.get("stock_name", ""),
                     "strategy": doc.get("strategy", ""),
-                    "shares": doc.get("filled_qty", ""),
-                    "price": doc.get("filled_price", ""),
+                    "shares": doc.get("filled_qty", "") or doc.get("quantity", ""),
+                    "price": doc.get("filled_price", "") or doc.get("price", ""),
                     "reason": doc.get("reason", ""),
                     "profit_pct": doc.get("profit_pct", ""),
                     "profit_amount": doc.get("profit_amount", ""),
                 })
-                existing_keys.add(key)
     except Exception:
         pass  # MongoDB不可用不影响已有数据导出
     
@@ -688,54 +715,23 @@ async def get_trade_audit():
     """
     scanner = await _get_scanner()
     
-    # 收集所有交易过的股票
+    # 【v2.9.97c】数据源: broker_orders 为唯一真相源, 内存timeline 仅补充decision_detail
     traded_stocks = {}
-    for item in scanner._timeline:
-        ts_code = item.get("ts_code", "")
-        if not ts_code:
-            continue
-        if ts_code not in traded_stocks:
-            traded_stocks[ts_code] = {
-                "ts_code": ts_code,
-                "stock_name": item.get("stock_name", ""),
-                "strategy": item.get("strategy", ""),
-                "buy_time": "", "buy_price": 0, "buy_reason": "",
-                "buy_detail": None,
-                "sell_time": "", "sell_price": 0, "sell_reason": "",
-                "sell_detail": None,
-                "profit_pct": None,
-                "status": "持仓中",
-            }
-        
-        entry = traded_stocks[ts_code]
-        if item.get("action") == "buy":
-            entry["buy_time"] = item.get("time", "")
-            entry["buy_price"] = item.get("price", 0)
-            entry["buy_reason"] = item.get("reason", "")
-            entry["buy_detail"] = item.get("decision_detail")
-        elif item.get("action") == "sell":
-            entry["sell_time"] = item.get("time", "")
-            entry["sell_price"] = item.get("price", 0)
-            entry["sell_reason"] = item.get("reason", "")
-            entry["sell_detail"] = item.get("decision_detail")
-            entry["profit_pct"] = item.get("profit_pct")
-            entry["status"] = "已卖出"
-    
-    # 标记当前持仓
-    for p in scanner._broker.get_positions():
-        if p.ts_code in traded_stocks:
-            traded_stocks[p.ts_code]["status"] = f"持仓中 {p.profit_pct:+.1f}%"
-    
-    # 补充历史数据(从MongoDB scanner_timeline)
+    # Step 1: 从 broker_orders 获取基础交易数据
     try:
         from core.managers import mongo_manager
         if mongo_manager.is_initialized:
-            account_id = scanner._broker.account.account_id if scanner._broker else "default"
-            async for doc in mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id}
-            ).sort("time", 1):
+            account_id = "default"
+            try:
+                if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+                    account_id = scanner._broker.account.account_id
+            except Exception:
+                pass
+            async for doc in mongo_manager.db["broker_orders"].find(
+                {"account_id": account_id, "status": "filled"}
+            ).sort("fill_time", 1):
                 ts_code = doc.get("ts_code", "")
-                if not ts_code or ts_code in traded_stocks:
+                if not ts_code:
                     continue
                 if ts_code not in traded_stocks:
                     traded_stocks[ts_code] = {
@@ -747,20 +743,78 @@ async def get_trade_audit():
                         "sell_time": "", "sell_price": 0, "sell_reason": "",
                         "sell_detail": None,
                         "profit_pct": None,
-                        "status": "已卖出",
+                        "status": "持仓中",
                     }
                 entry = traded_stocks[ts_code]
-                if doc.get("action") == "buy" and not entry["buy_time"]:
-                    entry["buy_time"] = doc.get("time", "")
-                    entry["buy_price"] = doc.get("price", 0)
+                side = doc.get("side", "")
+                if side == "buy":
+                    entry["buy_time"] = doc.get("fill_time", "") or doc.get("create_time", "")
+                    entry["buy_price"] = doc.get("filled_price", 0) or doc.get("price", 0)
                     entry["buy_reason"] = doc.get("reason", "")
                     entry["buy_detail"] = doc.get("decision_detail")
-                elif doc.get("action") == "sell" and not entry["sell_time"]:
-                    entry["sell_time"] = doc.get("time", "")
-                    entry["sell_price"] = doc.get("price", 0)
+                elif side == "sell":
+                    entry["sell_time"] = doc.get("fill_time", "") or doc.get("create_time", "")
+                    entry["sell_price"] = doc.get("filled_price", 0) or doc.get("price", 0)
                     entry["sell_reason"] = doc.get("reason", "")
                     entry["sell_detail"] = doc.get("decision_detail")
                     entry["profit_pct"] = doc.get("profit_pct")
+                    entry["status"] = "已卖出"
+    except Exception:
+        pass
+
+    # Step 2: 从内存 timeline 补充 decision_detail (broker_orders 可能没有)
+    for item in scanner._timeline:
+        ts_code = item.get("ts_code", "")
+        if not ts_code or ts_code not in traded_stocks:
+            continue
+        dd = item.get("decision_detail")
+        if not dd:
+            continue
+        entry = traded_stocks[ts_code]
+        if item.get("action") == "buy" and not entry.get("buy_detail"):
+            entry["buy_detail"] = dd
+            if not entry["buy_time"]:
+                entry["buy_time"] = item.get("time", "")
+                entry["buy_price"] = item.get("price", 0)
+                entry["buy_reason"] = item.get("reason", "")
+        elif item.get("action") == "sell" and not entry.get("sell_detail"):
+            entry["sell_detail"] = dd
+            if not entry["sell_time"]:
+                entry["sell_time"] = item.get("time", "")
+                entry["sell_price"] = item.get("price", 0)
+                entry["sell_reason"] = item.get("reason", "")
+                entry["profit_pct"] = item.get("profit_pct")
+                entry["status"] = "已卖出"
+    
+    # 标记当前持仓
+    for p in scanner._broker.get_positions():
+        if p.ts_code in traded_stocks:
+            traded_stocks[p.ts_code]["status"] = f"持仓中 {p.profit_pct:+.1f}%"
+    
+    # Step 3: scanner_timeline 仅补充 decision_detail (不再作为主源)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            account_id = "default"
+            try:
+                if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+                    account_id = scanner._broker.account.account_id
+            except Exception:
+                pass
+            async for doc in mongo_manager.db["scanner_timeline"].find(
+                {"account_id": account_id}
+            ).sort("time", 1):
+                ts_code = doc.get("ts_code", "")
+                if not ts_code or ts_code not in traded_stocks:
+                    continue
+                dd = doc.get("decision_detail")
+                if not dd:
+                    continue
+                entry = traded_stocks[ts_code]
+                if doc.get("action") == "buy" and not entry.get("buy_detail"):
+                    entry["buy_detail"] = dd
+                elif doc.get("action") == "sell" and not entry.get("sell_detail"):
+                    entry["sell_detail"] = dd
     except Exception:
         pass
     

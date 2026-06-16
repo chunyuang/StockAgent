@@ -443,47 +443,43 @@ async def get_timeline_history(date: str = None, days: int = 7, source: str = "r
             query = {"account_id": account_id, "$or": [{"trade_date": {"$gte": start_date}}, {"trade_date": {"$gte": start_date_int}}]}
         
         items = []
+        # 【v2.9.97c】scanner_timeline 只含 blocked 等决策日志; buy/sell 从 broker_orders 读取
+        # Step 1: 从 scanner_timeline 读 blocked 等非交易记录
         async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("time", 1):
             doc.pop("_id", None)
             doc.pop("account_id", None)
-            items.append(doc)
+            # 只取非 buy/sell 记录(blocked等)
+            if doc.get("action") not in ("buy", "sell"):
+                items.append(doc)
         
-        # 【v2.9.96e】对账过滤: 对 buy/sell 只保留有 broker_orders 对应的真实交易
-        if source == "reconciled" and items:
-            # 收集所需查询的日期
-            trade_dates = set()
-            for item in items:
-                td = item.get("trade_date")
-                if td is not None:
-                    trade_dates.add(td)
-                    if isinstance(td, str) and td.isdigit():
-                        trade_dates.add(int(td))
-                    elif isinstance(td, int):
-                        trade_dates.add(str(td))
-            
-            if trade_dates:
-                real_keys = set()
-                async for o in mongo_manager.db["broker_orders"].find(
-                    {"account_id": account_id, "trade_date": {"$in": list(trade_dates)}},
-                    {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "trade_date": 1, "_id": 0}
-                ):
-                    t = o.get("fill_time") or o.get("create_time", "")
-                    real_keys.add((str(o.get("trade_date", "")), o.get("ts_code", ""), t, o.get("side", "")))
-                
-                filtered = []
-                ghost_count = 0
-                for item in items:
-                    action = item.get("action", "")
-                    if action in ("buy", "sell"):
-                        key = (str(item.get("trade_date", "")), item.get("ts_code", ""), item.get("time", ""), action)
-                        if key not in real_keys:
-                            ghost_count += 1
-                            continue
-                    filtered.append(item)
-                
-                if ghost_count > 0:
-                    logger.info(f"[timeline/history] 对账过滤幽灵交易: {ghost_count}条 (date={date}, days={days})")
-                items = filtered
+        # Step 2: 从 broker_orders 读 buy/sell (唯一真相源)
+        bo_query = {"account_id": account_id, "status": "filled"}
+        if date:
+            bo_query["trade_date"] = {"$in": [date, date_int]}
+        else:
+            bo_query["$or"] = [{"trade_date": {"$gte": start_date}}, {"trade_date": {"$gte": start_date_int}}]
+        async for doc in mongo_manager.db["broker_orders"].find(bo_query).sort("fill_time", 1):
+            side = doc.get("side", "")
+            if side not in ("buy", "sell"):
+                continue
+            items.append({
+                "time": doc.get("fill_time", "") or doc.get("create_time", ""),
+                "action": side,
+                "ts_code": doc.get("ts_code", ""),
+                "stock_name": doc.get("stock_name", ""),
+                "strategy": doc.get("strategy", ""),
+                "shares": doc.get("filled_qty", 0) or doc.get("quantity", 0),
+                "price": doc.get("filled_price", 0) or doc.get("price", 0),
+                "reason": doc.get("reason", ""),
+                "profit_pct": doc.get("profit_pct"),
+                "profit_amount": doc.get("profit_amount"),
+                "trade_date": str(doc.get("trade_date", "")),
+                "source": doc.get("source", "auto"),
+                "decision_detail": doc.get("decision_detail", {}),
+            })
+        
+        # 按时间排序
+        # 【v2.9.97c】reconcile逻辑不再需要: buy/sell直接从broker_orders读,已确保真实
         
         return {"success": True, "data": _fill_stock_names(items, scanner), "count": len(items)}
     except Exception as e:
@@ -502,6 +498,10 @@ async def get_account():
             if mongo_manager.is_initialized:
                 acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
                 if acct_doc and acct_doc.get("total_assets", 0) > 0:
+                    # 【v2.9.97c】position_count 从 broker_positions 实查, 不信任 broker_accounts 的缓存值
+                    pos_count = await mongo_manager.db["broker_positions"].count_documents(
+                        {"account_id": "default", "total_qty": {"$gt": 0}}
+                    )
                     return {
                         "success": True,
                         "data": {
@@ -511,7 +511,7 @@ async def get_account():
                             "market_value": round(acct_doc.get("market_value", 0), 2),
                             "today_profit": round(acct_doc.get("today_profit", 0), 2),
                             "total_profit": round(acct_doc.get("total_profit", 0), 2),
-                            "position_count": acct_doc.get("position_count", 0),
+                            "position_count": pos_count,
                             "position_ratio": round(acct_doc.get("market_value", 0) / max(acct_doc.get("total_assets", 1), 1) * 100, 1),
                         },
                     }

@@ -364,13 +364,32 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         date_val = query.get("trade_date", None)
         tl_query = {"trade_date": date_val} if date_val else {}
         
-        # 收集所有 timeline 事件(按时间排序)
+        # 【v2.9.97c】收集所有事件: scanner_timeline(blocked) + broker_orders(buy/sell)
         all_timeline = []
         if tl_query:
             async for evt in mongo_manager.db["scanner_timeline"].find(
                 tl_query, {"time": 1, "ts_code": 1, "action": 1, "reason": 1, "strategy": 1, "_id": 0}
             ).sort("time", 1):
-                all_timeline.append(evt)
+                # 只取非 buy/sell (blocked等)
+                if evt.get("action") not in ("buy", "sell"):
+                    all_timeline.append(evt)
+        # 补充 broker_orders 中的 buy/sell
+        if date_val:
+            date_str_val = str(date).replace("-", "").replace("/", "")
+            td_q = {"$in": [int(date_str_val), date_str_val]} if date_str_val.isdigit() else date_str_val
+            async for order in mongo_manager.db["broker_orders"].find(
+                {"trade_date": td_q, "status": "filled"},
+                {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "strategy": 1, "reason": 1, "_id": 0}
+            ).sort("fill_time", 1):
+                side = order.get("side", "")
+                if side in ("buy", "sell"):
+                    all_timeline.append({
+                        "time": order.get("fill_time", "") or order.get("create_time", ""),
+                        "ts_code": order.get("ts_code", ""),
+                        "action": side,
+                        "strategy": order.get("strategy", ""),
+                        "reason": order.get("reason", ""),
+                    })
         
         # 收集所有 broker_orders filled buy (用 fill_time 做时间窗口匹配)
         all_buys = []
@@ -674,19 +693,20 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                     tc = evt.get("ts_code", "")
                     if tc and tc not in blocked_map:
                         blocked_map[tc] = evt.get("reason", "")
+                # 【v2.9.97c】buy_set 只从 broker_orders 读取(scanner_timeline不再写buy)
+                date_str = str(trade_date)
+                if date_str.isdigit():
+                    async for order in mongo_manager.db["broker_orders"].find(
+                        {"trade_date": {"$in": [int(date_str), date_str]}, "side": "buy", "status": "filled"},
+                        {"ts_code": 1, "_id": 0}
+                    ):
+                        buy_set.add(order.get("ts_code", ""))
+                # 也查 scanner_timeline 历史遗留的 buy 记录(兼容旧数据)
                 async for evt in mongo_manager.db["scanner_timeline"].find(
                     {"trade_date": tl_query_date, "action": "buy"},
                     {"ts_code": 1, "_id": 0}
                 ):
                     buy_set.add(evt.get("ts_code", ""))
-                # 也查 broker_orders filled buy
-                date_str = str(trade_date)
-                if date_str.isdigit():
-                    async for order in mongo_manager.db["broker_orders"].find(
-                        {"trade_date": {"$in": [int(date_str)]}, "side": "buy", "status": "filled"},
-                        {"ts_code": 1, "_id": 0}
-                    ):
-                        buy_set.add(order.get("ts_code", ""))
                 # 标注每个候选
                 for c in doc["candidates"]:
                     tc = c.get("ts_code", "")
