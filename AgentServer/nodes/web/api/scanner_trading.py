@@ -202,6 +202,32 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
             "data": {"signals": 0, "positions": 0},
             "message": f"扫描失败: {str(e)}",
         }
+
+
+@router.post("/premarket-scan")
+async def trigger_premarket_scan():
+    """手动触发一次盘前竞价扫描(L4+L5+L6全市场)
+    
+    使用场景:
+    - 9:00-9:25 预选今日侯选股
+    - 手动触发重新扫描(不依赖scan_loop)
+    """
+    from datetime import datetime
+    scanner = await _get_scanner()
+    trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
+    try:
+        n = await scanner.premarket_scan(trade_date)
+        return {
+            "success": True,
+            "data": {
+                "signals": n,
+                "total_active_signals": len(scanner._active_signals),
+                "trade_date": trade_date,
+            },
+        }
+    except Exception as e:
+        logger.error(f"[API] premarket_scan失败: {e}")
+        return {"success": False, "data": {"signals": 0}, "message": f"竞价扫描失败: {str(e)}"}
     
     signals_count = len(scanner.get_signals())
     positions_count = len(scanner.get_positions())

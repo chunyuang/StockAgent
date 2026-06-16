@@ -91,9 +91,22 @@ class ScanLoopRunner:
         await asyncio.sleep(60)
 
     async def _handle_premarket_phase(self, trade_date: str) -> None:
-        """盘前竞价阶段【v2.9.55从_scan_loop提取】"""
+        """盘前竞价阶段【v2.9.55从_scan_loop提取】
+        
+        9:00-9:15: 仅检查持仓跳空 (premarket_auction)
+        9:15-9:25: 运行全市场竞价扫描 (premarket_scan) 生成今日候选
+        """
+        from datetime import datetime
+        ct = datetime.now().strftime("%H:%M")
+        # 持仓跳空检查(轻量)
         await self._premarket_auction(trade_date)
-        await asyncio.sleep(120)
+        # 竞价窗口全市场扫描(重要!)
+        if "09:15" <= ct < "09:30":
+            try:
+                await self.premarket_scan(trade_date)
+            except Exception as e:
+                logger.error(f"[SCAN-LOOP] 竞价扫描异常: {e}")
+        await asyncio.sleep(60 if "09:15" <= ct < "09:30" else 120)
 
     @staticmethod
     def _scan_loop_phase_sleep(phase) -> int:

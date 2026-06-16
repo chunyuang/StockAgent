@@ -580,13 +580,88 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         logger.info("[SCANNER] 持仓加载完成")
 
     async def _check_premarket_auction(self, trade_date: str) -> None:
-        """竞价预选检查【v2.9.55从premarket_prepare提取】"""
+        """竞价预选检查【v2.9.55从premarket_prepare提取】
+        
+        9:00-9:15: 仅检查持仓跳空
+        9:15-9:30: 运行premarket_scan生成今日全市场候选
+        """
         now = datetime.now()
         ct = now.strftime("%H:%M")
         if "09:15" <= ct <= "09:30":
             await self._runtime_persistence.premarket_auction()
+            # 启动时如果在竞价窗口, 立即运行一次premarket_scan
+            try:
+                await self.premarket_scan(trade_date)
+            except Exception as e:
+                logger.warning(f"[SCANNER] 启动时premarket_scan失败: {e}")
         else:
             logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
+
+    async def premarket_scan(self, trade_date: str) -> int:
+        """盘前竞价扫描【9:00-9:25用】
+        
+        运行L4(盘前预选)+L5(竞价过滤)+L6(策略量能)生成今日竞价候选。
+        不执行交易, 仅生成预览信号供premarket-status API返回。
+        
+        与scan_once区别:
+        - 不检测异动(detect_anomalies)
+        - 不执行交易(不进入下单环节)
+        - 不检查持仓止损
+        - 只生成信号+过滤运算
+        
+        Returns:
+            生成的预览候选数
+        """
+        import time
+        from datetime import datetime
+        t0 = time.time()
+        scan_time = datetime.now().strftime("%H:%M:%S")
+        logger.info(f"[PREMARKET-SCAN] 开始竞价扫描 {scan_time}")
+        
+        try:
+            # Step 1: 获取实时行情(force=True忽略交易时间检查)
+            realtime_data = await self._fetch_realtime_batch(force=True)
+            if not realtime_data:
+                logger.warning("[PREMARKET-SCAN] 实时数据为空, 跳过")
+                return 0
+            
+            # Step 2: 补充auction_pct字段(竞价阶段: open=auction_price)
+            for ts_code, rt in realtime_data.items():
+                op = rt.get("open", 0)
+                pc = rt.get("pre_close", 0)
+                if op and pc and pc > 0:
+                    rt["opening_pct_chg"] = round((op - pc) / pc * 100, 2)
+                    rt["auction_price"] = op
+                    rt["auction_pct"] = rt["opening_pct_chg"]
+            
+            # Step 3: 合并日级因子+实时数据
+            self._update_name_map(realtime_data)
+            merged_df = self._merge_factors(realtime_data)
+            if merged_df is None or len(merged_df) == 0:
+                logger.warning("[PREMARKET-SCAN] 合并后数据为空")
+                return 0
+            
+            # Step 4: 运行策略筛选
+            new_signals = await self._apply_strategies(merged_df, trade_date)
+            if not new_signals:
+                logger.info("[PREMARKET-SCAN] 无策略信号")
+                return 0
+            
+            # Step 5: 运行筛选管道(L1-L9)
+            new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
+            
+            # Step 6: 增量更新信号(使之出premarket-status API)
+            await self._update_signals(new_signals, scan_time)
+            
+            elapsed = time.time() - t0
+            logger.info(f"[PREMARKET-SCAN] 完成: {len(realtime_data)}只 | "
+                       f"{len(new_signals)}信号 | {len(self._active_signals)}总信号 | {elapsed:.1f}秒")
+            return len(new_signals)
+        except Exception as e:
+            logger.error(f"[PREMARKET-SCAN] 扫描异常: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return 0
 
     async def _load_stock_list(self) -> None:
         """加载全市场代码 — 委托给RuntimePersistence【v2.9.32提取】"""
