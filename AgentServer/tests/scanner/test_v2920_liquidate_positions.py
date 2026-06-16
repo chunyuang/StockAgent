@@ -70,8 +70,8 @@ class TestLiquidatePositionsExtraction:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute_force_empty":
                 lines = node.end_lineno - node.lineno + 1
-                # 应该很短(只有委托调用)
-                assert lines <= 5, f"_execute_force_empty应有≤5行(委托),实际{lines}行"
+                # 应该很短(委托+冷却期逻辑)
+                assert lines <= 20, f"_execute_force_empty应有≤20行(委托+冷却期),实际{lines}行"
 
 
 class TestT1ComplianceFix:

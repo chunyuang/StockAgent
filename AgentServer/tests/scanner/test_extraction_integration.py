@@ -77,7 +77,7 @@ class TestAnomalyDetection:
         signals = scorer.detect_anomalies(realtime, [], prev_cache)
         assert len(signals) == 1
         assert signals[0].strategy == "anomaly_surge"
-        assert "5分钟涨" in signals[0].reason
+        assert "5分钟急拉" in signals[0].reason
 
     def test_detect_anomalies_skip_existing_signal(self):
         """已有信号的股票不再生成异动信号"""
