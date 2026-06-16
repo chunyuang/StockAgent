@@ -11,6 +11,11 @@ import { parseResponse } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
 
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+}
+
 // 接收核心状态的接口
 interface CoreState {
   totalPnl: { value: number }
@@ -41,17 +46,17 @@ export function useAutoTradeMonitor(core: CoreState) {
         core.perfData.value = p.data.map((s: any) => ({ time: (s.timestamp || s.date || '').substring(5, 16), net_value: s.net_value || s.total_assets / 1000000, drawdown: s.drawdown_pct || 0 }))
         return
       }
-      // fallback: from timeline
-      const tl = await api.get(`${scannerApi}/timeline/history?days=30`)
-      const tp = parseResponse(tl)
-      if (tp.success && tp.data?.length > 0) {
+      // fallback: from unified trades (v2.9.97)
+      const ut = await api.get(`/unified/trades?date=${todayStr()}`)
+      const up = parseResponse(ut)
+      if (up.success && up.data?.trades?.length > 0) {
         let nav = 1.0, peak = 1.0
-        core.perfData.value = tp.data.map((item: any) => {
+        core.perfData.value = up.data.trades.filter((t: any) => t.side === 'sell').map((item: any) => {
           const profitAmount = item.profit_amount || 0
           nav *= (1 + profitAmount / (1000000 * nav))
           peak = Math.max(peak, nav)
           const dd = nav < peak ? (nav / peak - 1) * 100 : 0
-          return { time: (item.date || item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
+          return { time: (item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
         })
       }
     } catch { /* ignore */ }
