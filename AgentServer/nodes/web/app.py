@@ -235,6 +235,9 @@ def create_app() -> FastAPI:
     app.include_router(factor_router, prefix="/api/v1", tags=["因子管理"])
     from .api.admin_db import router as admin_db_router
     app.include_router(admin_db_router, prefix="/api/v1", tags=["数据库管理"])
+    # 【v2.9.97】统一数据层 - 8个UI共用
+    from .api.unified import router as unified_router
+    app.include_router(unified_router, prefix="/api/v1", tags=["统一数据层"])
 
 
     
