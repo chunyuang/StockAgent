@@ -31,6 +31,19 @@ const blockedCount = computed(() =>
   (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'blocked' || c.signal_status === 'skipped').length
 )
 
+// 检测盘前数据是否为历史回放(非今日)
+const todayStrPM = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+const isHistoricalPremarket = computed(() => {
+  const dd = premarketMarketSnapshot.value?.data_date
+  if (!dd) return false
+  return String(dd) !== todayStrPM
+})
+const historicalDateLabel = computed(() => {
+  const dd = String(premarketMarketSnapshot.value?.data_date || '')
+  if (dd.length === 8) return `${dd.slice(4,6)}/${dd.slice(6,8)}数据`
+  return '历史数据'
+})
+
 // 非交易时间自动加载最近交易日盘前数据
 onMounted(() => {
   if (premarketStatus.value === 'off' && !premarketDebugMode.value) {
@@ -46,7 +59,7 @@ onMounted(() => {
       <div class="pm-status-bar">
         <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
         <div class="pm-status-text">
-          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束 · 查看当日预选', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
+          <div class="pm-status-title">{{ isHistoricalPremarket ? '📋 历史回放 · ' + historicalDateLabel : ({active: '竞价进行中', ended: '竞价已结束 · 查看当日预选', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
           <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
