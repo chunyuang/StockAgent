@@ -11,6 +11,28 @@ FORCE_START="${1:-}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $LOG_PREFIX $*"; }
 
+# 0. 清理孤儿进程(端口占用问题)
+# 如果systemd服务crash-loop因为port 8000被旧进程占用,
+# 需要先杀掉占用端口的进程
+PORT_PID=$(fuser 8000/tcp 2>/dev/null | tr -d ' ')
+if [ -n "$PORT_PID" ]; then
+    # 检查这个PID是不是systemd管理的
+    SERVICE_PID=$(systemctl show stockagent-backend --property=MainPID --value 2>/dev/null || echo "0")
+    if [ "$PORT_PID" != "$SERVICE_PID" ] && [ "$PORT_PID" != "0" ]; then
+        log "🔪 发现孤儿进程 PID=$PORT_PID 占用端口8000(服务PID=$SERVICE_PID), 终止中..."
+        kill -9 "$PORT_PID" 2>/dev/null || true
+        sleep 2
+        # 验证端口已释放
+        if fuser 8000/tcp > /dev/null 2>&1; then
+            log "❌ 端口8000仍被占用, 强制清理"
+            fuser -k 8000/tcp 2>/dev/null || true
+            sleep 2
+        else
+            log "✅ 孤儿进程已终止, 端口8000已释放"
+        fi
+    fi
+fi
+
 # 1. 检查后端进程存活
 if ! pgrep -f 'python.*main.py' > /dev/null 2>&1; then
     log "❌ 后端进程不存在，尝试启动 systemd 服务"
@@ -21,6 +43,23 @@ if ! pgrep -f 'python.*main.py' > /dev/null 2>&1; then
         exit 1
     fi
     log "✅ 后端进程启动成功"
+fi
+
+# 1.5 检查 systemd 服务是否 crash-looping
+SERVICE_STATUS=$(systemctl is-active stockagent-backend.service 2>/dev/null || echo "unknown")
+if [ "$SERVICE_STATUS" = "failed" ] || [ "$SERVICE_STATUS" = "activating" ]; then
+    log "⚠️ 服务状态: $SERVICE_STATUS (可能crash-loop), 重启服务"
+    # 先确保端口没有孤儿进程
+    fuser -k 8000/tcp 2>/dev/null || true
+    sleep 2
+    systemctl restart stockagent-backend.service
+    sleep 8
+    SERVICE_STATUS2=$(systemctl is-active stockagent-backend.service 2>/dev/null || echo "unknown")
+    if [ "$SERVICE_STATUS2" != "active" ]; then
+        log "❌ 服务重启后仍不健康: $SERVICE_STATUS2"
+        exit 1
+    fi
+    log "✅ 服务重启成功"
 fi
 
 # 2. 检查 API 可达性
