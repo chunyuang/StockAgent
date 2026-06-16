@@ -126,6 +126,7 @@ async function showStockDetail(tsCode: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
+        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 

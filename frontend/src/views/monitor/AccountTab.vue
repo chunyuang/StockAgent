@@ -131,6 +131,7 @@ const posPie = computed(() => {
     <!-- KPI -->
     <div class="at-kpi-header">
       <span class="at-kpi-title">💼 账户</span>
+      <UnifiedDateBar @change="onDateChange" />
       <ElButton size="small" @click="fetchKpi" :loading="loading">🔄</ElButton>
     </div>
     <div class="at-kpi">
