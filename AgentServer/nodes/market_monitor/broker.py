@@ -65,6 +65,7 @@ class Order:
     source: str = "auto"     # auto=自动交易 / manual=手动下单
     profit_pct: float = 0.0
     profit_amount: float = 0.0
+    decision_trace: dict = field(default_factory=dict)  # 【v2.9.96】完整决策轨迹: 选股参数+风控参数+L1-L9+情绪+仓位
 
 
 @dataclass
@@ -269,6 +270,7 @@ class SimulatedBroker:
                 "profit_pct": o.profit_pct,
                 "profit_amount": o.profit_amount,
                 "source": o.source,
+                "decision_trace": o.decision_trace if hasattr(o, 'decision_trace') else {},
             }
             for o in self.orders if o.trade_date == today
         ]
@@ -361,6 +363,7 @@ class SimulatedBroker:
                 status=OrderStatus(doc.get("status", "filled")),
                 strategy=doc.get("strategy", ""),
                 reason=doc.get("reason", ""),
+                decision_trace=doc.get("decision_trace", {}),
                 trade_date=str(doc.get("trade_date", today)),
                 create_time=doc.get("create_time", ""),
                 source=doc.get("source", "auto"),

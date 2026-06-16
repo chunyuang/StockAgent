@@ -372,82 +372,134 @@ async def get_scan_traces(date: str = None, limit: int = 10):
             ).sort("time", 1):
                 all_timeline.append(evt)
         
-        # 收集所有 broker_orders filled buy
+        # 收集所有 broker_orders filled buy (用 fill_time 做时间窗口匹配)
         all_buys = []
         if date_val:
             date_str_val = str(date).replace("-", "").replace("/", "")
             td_q = {"$in": [int(date_str_val)]} if date_str_val.isdigit() else date_str_val
             async for order in mongo_manager.db["broker_orders"].find(
                 {"trade_date": td_q, "side": "buy", "status": "filled"},
-                {"ts_code": 1, "created_at": 1, "_id": 0}
+                {"ts_code": 1, "fill_time": 1, "create_time": 1, "_id": 0}
             ):
                 all_buys.append(order)
         
-        # 构建时间索引: 将 timeline 事件按 ts_code 分组
-        blocked_by_tscode = {}  # ts_code -> [{time, reason, strategy}]
-        for evt in all_timeline:
-            if evt.get("action") == "blocked":
-                tc = evt.get("ts_code", "")
-                if tc:
-                    blocked_by_tscode.setdefault(tc, []).append({
-                        "time": evt.get("time", ""),
-                        "reason": evt.get("reason", "被拦截"),
-                        "strategy": evt.get("strategy", "")
-                    })
-        
-        # broker_orders 按 ts_code 分组
-        buys_by_tscode = {}  # ts_code -> [order]
-        for order in all_buys:
-            tc = order.get("ts_code", "")
-            if tc:
-                buys_by_tscode.setdefault(tc, []).append(order)
-        
-        # ====== 3. 对每个 scan 计算执行统计 ======
-        # 对每个 scan: 查其 passed 候选的 ts_code 列表，然后匹配执行事件
-        # 需要轻量查询: 只取 candidates.ts_code + candidates.final_status
-        scan_ids = [ObjectId(d["scan_id"]) for d in docs]
-        scan_exec_map = {}  # scan_id -> {bought, blocked, pending, block_reasons}
-        
-        from bson import ObjectId as ObjId  # 【v2.9.95b】列表函数需要 ObjectId
+        # ====== 3. 对每个 scan 计算执行统计 (修复: 按时间窗口匹配, 避免重复计) ======
+        # 【v2.9.96修复】旧逻辑把 ts_code → orders 全局分组, 导致每个scan的passed候选只要
+        # 当天买过就+1, 实际4笔成交被算成139笔。
+        # 新逻辑: 每个 scan 用 [上次scan_time, 当前scan_time] 时间窗口匹配 fill_time
+        from bson import ObjectId as ObjId
         scan_ids = [ObjId(d["scan_id"]) for d in docs]
         
+        # 取所有 scan 的时间, 按时间排序
+        scan_full_docs = []
         async for doc in mongo_manager.db["scan_traces"].find(
             {"_id": {"$in": scan_ids}},
             {"_id": 1, "scan_time": 1, "candidates.ts_code": 1, "candidates.final_status": 1, "candidates.strategy": 1}
         ):
+            scan_full_docs.append(doc)
+        
+        # 按 scan_time 升序排
+        def _parse_scan_time(d):
+            st = d.get("scan_time", "")
+            try:
+                # ISO格式 2026-06-16T11:15:17.787444
+                if "T" in st:
+                    return st.split("T")[1][:8]  # HH:MM:SS
+                return str(st)[:8]
+            except Exception:
+                return ""
+        scan_full_docs.sort(key=_parse_scan_time)
+        
+        # 时间线事件按 (ts_code, time) 索引
+        blocked_events = []  # [(time, ts_code, reason, strategy)]
+        for evt in all_timeline:
+            if evt.get("action") == "blocked":
+                blocked_events.append((
+                    evt.get("time", ""),
+                    evt.get("ts_code", ""),
+                    evt.get("reason", "被拦截"),
+                    evt.get("strategy", ""),
+                ))
+        
+        # broker_orders 时间索引
+        buy_events = []  # [(time, ts_code)]
+        for order in all_buys:
+            t = order.get("fill_time") or order.get("create_time", "")
+            buy_events.append((t, order.get("ts_code", "")))
+        
+        # 【v2.9.96】每笔成交只能归属一个 scan: 优先匹配该 scan candidates 含该 ts_code 的
+        scan_full_docs.sort(key=_parse_scan_time)  # 升序: 老到新
+        
+        # 预构建: scan_id -> {tc: passed} 字典
+        scan_passed_map = {}
+        for doc in scan_full_docs:
             sid = str(doc["_id"])
-            scan_time = doc.get("scan_time", "")
+            tcset = set()
+            for c in doc.get("candidates", []):
+                if c.get("final_status") == "passed":
+                    tcset.add(c.get("ts_code", ""))
+            scan_passed_map[sid] = tcset
+        
+        def _attribute(t, tc):
+            """找最匹配的scan: 在 scan_time<=t 范围内, 优先 ts_code 在 passed 列表里的最近scan."""
+            # 收集所有 scan_time <= t 的scan
+            candidates = [(_parse_scan_time(d), str(d["_id"])) for d in scan_full_docs if _parse_scan_time(d) <= t]
+            if not candidates:
+                return None
+            # 优先匹配 passed 含 tc 的, 取最近的
+            with_tc = [(st, sid) for st, sid in candidates if tc in scan_passed_map.get(sid, set())]
+            if with_tc:
+                return with_tc[-1][1]  # 最近的
+            # 否则取最近的 scan
+            return candidates[-1][1]
+        
+        buy_to_scan = {}
+        for buy_t, tc in buy_events:
+            buy_to_scan[(buy_t, tc)] = _attribute(buy_t, tc)
+        
+        blocked_to_scan = {}
+        for idx, (b_t, tc, r, _s) in enumerate(blocked_events):
+            blocked_to_scan[idx] = _attribute(b_t, tc)
+        
+        # 2. 反向构建: scan_id -> bought_codes_set, blocked_events
+        sid_to_bought = {}
+        for (buy_t, tc), sid in buy_to_scan.items():
+            if sid:
+                sid_to_bought.setdefault(sid, set()).add(tc)
+        
+        sid_to_blocked = {}  # sid -> [(tc, reason)]
+        for idx, sid in blocked_to_scan.items():
+            if sid:
+                _t, tc, r, _strat = blocked_events[idx]
+                sid_to_blocked.setdefault(sid, []).append((tc, r))
+        
+        # 3. 对每个 scan 计算
+        scan_exec_map = {}
+        for doc in scan_full_docs:
+            sid = str(doc["_id"])
             candidates = doc.get("candidates", [])
+            passed_codes = set(c.get("ts_code", "") for c in candidates if c.get("final_status") == "passed")
             
-            bought_count = 0
-            blocked_count = 0
-            pending_count = 0
+            # 该scan归属的成交
+            bought_in_scan = sid_to_bought.get(sid, set())
+            bought_count = len(bought_in_scan & passed_codes)
+            
+            # 该scan归属的blocked, 且ts_code在passed候选里
             block_reasons = {}
-            
-            for c in candidates:
-                if c.get("final_status") != "passed":
-                    continue
-                tc = c.get("ts_code", "")
-                strategy = c.get("strategy", "")
-                
-                if tc in buys_by_tscode:
-                    bought_count += 1
-                elif tc in blocked_by_tscode:
+            blocked_count = 0
+            for tc, r in sid_to_blocked.get(sid, []):
+                if tc in passed_codes:
                     blocked_count += 1
-                    # 取该 ts_code 最近的 blocked reason
-                    reasons = blocked_by_tscode[tc]
-                    if reasons:
-                        r = reasons[-1].get("reason", "被拦截")
-                        short = r[:25] if len(r) > 25 else r
-                        block_reasons[short] = block_reasons.get(short, 0) + 1
-                else:
-                    pending_count += 1
+                    short = r[:25] if len(r) > 25 else r
+                    block_reasons[short] = block_reasons.get(short, 0) + 1
+            
+            pending_count = max(len(passed_codes) - bought_count - blocked_count, 0)
             
             scan_exec_map[sid] = {
                 "bought": bought_count,
                 "blocked": blocked_count,
                 "pending": pending_count,
-                "block_reasons": block_reasons
+                "block_reasons": block_reasons,
             }
         
         # 合并执行统计到 docs

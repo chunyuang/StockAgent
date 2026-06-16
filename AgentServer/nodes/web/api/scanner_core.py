@@ -498,67 +498,87 @@ async def get_account():
 # ==================== 手动交易 ====================
 
 
+# 【v2.9.96】limit-pools 内存缓存(60秒TTL): 避免必盈被反复调用
+_limit_pools_cache = {"data": None, "ts": 0}
+_LIMIT_POOLS_TTL = 60  # 秒
+
 @router.get("/limit-pools")
 async def get_limit_pools():
     """获取今日涨停/跌停/炸板池
     
     非开盘时间优先从MongoDB limit_list读取(历史数据), 
     开盘时间从必盈实时接口获取。
-    """
-    scanner = await _get_scanner()
     
-    try:
-        # 判断是否交易时间
-        from core.settings import settings
-        now = datetime.now()
-        is_trading = (now.hour >= 9 and now.hour < 15) or (now.hour == 9 and now.minute >= 15)
-        
-        # 非交易时间或必盈不可用: 从MongoDB回退
-        if not is_trading or not scanner._data_router:
-            return await _limit_pools_from_mongo()
-        
-        biying = scanner._data_router._sources.get("biying")
-        if not biying:
-            return await _limit_pools_from_mongo()
-        
-        today = now.strftime("%Y-%m-%d")
-        
-        limit_ups = await biying.get_limit_up_pool(today)
-        limit_downs = await biying.get_limit_down_pool(today)
-        brokens = await biying.get_broken_board_pool(today)
-        
-        # 必盈返回空则回退MongoDB
-        if not limit_ups and not limit_downs and not brokens:
-            return await _limit_pools_from_mongo()
-        
-        def to_list(items):
-            result = []
-            for item in items:
-                d = item if isinstance(item, dict) else item.__dict__ if hasattr(item, '__dict__') else {}
-                result.append({
-                    "ts_code": d.get("ts_code", ""),
-                    "name": d.get("name", ""),
-                    "close": d.get("close", 0),
-                    "pct_chg": d.get("pct_chg", 0),
-                    "limit_times": d.get("limit_times", 0),
-                    "open_times": d.get("open_times", 0),
-                    "fd_amount": round(d.get("fd_amount", 0) / 1000, 0),  # 千元→万元
-                    "turnover": d.get("turnover_ratio", 0),
-                    "first_time": d.get("first_time", ""),
-                    "industry": d.get("industry", ""),
-                })
-            return result
-        
-        return {
-            "success": True,
-            "data": {
-                "limit_up": to_list(limit_ups),
-                "limit_down": to_list(limit_downs),
-                "broken": to_list(brokens),
+    【v2.9.96】60秒内存缓存防止反复打必盈API(超限会卡30秒)
+    """
+    import time as _time
+    # 优先返回缓存
+    if _limit_pools_cache["data"] and _time.time() - _limit_pools_cache["ts"] < _LIMIT_POOLS_TTL:
+        return _limit_pools_cache["data"]
+    
+    async def _build_result():
+        scanner = await _get_scanner()
+        try:
+            from core.settings import settings
+            now = datetime.now()
+            is_trading = (now.hour >= 9 and now.hour < 15) or (now.hour == 9 and now.minute >= 15)
+            
+            # 非交易时间或必盈不可用: 从MongoDB回退
+            if not is_trading or not scanner._data_router:
+                return await _limit_pools_from_mongo()
+            
+            biying = scanner._data_router._sources.get("biying")
+            if not biying:
+                return await _limit_pools_from_mongo()
+            
+            # 【v2.9.96】429熔断短路: 必盈被熔断则直接走MongoDB
+            if getattr(biying, '_throttled_until_date', None):
+                from datetime import date as _date
+                if _date.today() <= biying._throttled_until_date:
+                    return await _limit_pools_from_mongo()
+            
+            today = now.strftime("%Y-%m-%d")
+            limit_ups = await biying.get_limit_up_pool(today)
+            limit_downs = await biying.get_limit_down_pool(today)
+            brokens = await biying.get_broken_board_pool(today)
+            
+            if not limit_ups and not limit_downs and not brokens:
+                return await _limit_pools_from_mongo()
+            
+            def to_list(items):
+                result = []
+                for item in items:
+                    d = item if isinstance(item, dict) else item.__dict__ if hasattr(item, '__dict__') else {}
+                    result.append({
+                        "ts_code": d.get("ts_code", ""),
+                        "name": d.get("name", ""),
+                        "close": d.get("close", 0),
+                        "pct_chg": d.get("pct_chg", 0),
+                        "limit_times": d.get("limit_times", 0),
+                        "open_times": d.get("open_times", 0),
+                        "fd_amount": round(d.get("fd_amount", 0) / 1000, 0),
+                        "turnover": d.get("turnover_ratio", 0),
+                        "first_time": d.get("first_time", ""),
+                        "industry": d.get("industry", ""),
+                    })
+                return result
+            
+            return {
+                "success": True,
+                "data": {
+                    "limit_up": to_list(limit_ups),
+                    "limit_down": to_list(limit_downs),
+                    "broken": to_list(brokens),
+                }
             }
-        }
-    except Exception as e:
-        return await _limit_pools_from_mongo()
+        except Exception:
+            return await _limit_pools_from_mongo()
+    
+    result = await _build_result()
+    # 写入缓存
+    _limit_pools_cache["data"] = result
+    _limit_pools_cache["ts"] = _time.time()
+    return result
 
 
 async def _limit_pools_from_mongo():

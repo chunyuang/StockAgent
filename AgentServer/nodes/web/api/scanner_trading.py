@@ -1065,6 +1065,7 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                     "source": getattr(o, 'source', 'auto'),
                     "trade_date": o.trade_date,
                     "order_id": o.order_id,
+                    "decision_trace": getattr(o, 'decision_trace', {}),
                 })
         
         # 历史日期 或 今日scanner未运行: 从MongoDB读取
@@ -1096,6 +1097,7 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                             "order_id": o.get("order_id", ""),
                             "profit_pct": o.get("profit_pct"),
                             "profit_amount": o.get("profit_amount"),
+                            "decision_trace": o.get("decision_trace", {}),
                         })
             except Exception as e:
                 logger.error(f"[auto-trades] MongoDB读取失败: {e}")
