@@ -170,9 +170,16 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         
         sells = await db["broker_orders"].find(sell_match).sort([("trade_date", 1), ("fill_time", 1)]).to_list(5000)
         
+        # 【v2.9.97e】也查买入数量, total_trades = 完整成交笔数(buy+sell)
+        buy_match = {"side": "buy", "status": "filled"}
+        if df:
+            buy_match = {"$and": [{"side": "buy", "status": "filled"}, df]} if "$or" in df else {"side": "buy", "status": "filled", **df}
+        buy_count = await db["broker_orders"].count_documents(buy_match)
+        
         # 2. 计算KPI
-        total_trades = len(sells)
-        if total_trades == 0:
+        sell_count = len(sells)
+        total_trades = buy_count + sell_count  # 完整成交笔数
+        if sell_count == 0 and buy_count == 0:
             return {"success": True, "data": _empty_result()}
         
         profits = [s.get("profit_pct", 0) or 0 for s in sells]
@@ -181,7 +188,7 @@ async def get_analysis(start_date: str = None, end_date: str = None):
         losses = [p for p in profits if p < 0]
         
         total_profit = sum(profit_amounts)
-        win_rate = len(wins) / total_trades * 100 if total_trades > 0 else 0
+        win_rate = len(wins) / sell_count * 100 if sell_count > 0 else 0
         avg_profit = sum(wins) / len(wins) if wins else 0
         avg_loss = sum(losses) / len(losses) if losses else 0
         # FIX4: 盈亏比用profit_amount均值比(和回测一致)
@@ -336,7 +343,7 @@ async def get_analysis(start_date: str = None, end_date: str = None):
             # 【v2.9.92n】全局风控监控状态
             "risk_monitor": _get_risk_monitor_status(),
             # 【v2.9.92o】账户信息(直接从MongoDB读，不依赖scanner运行)
-            "account": await _get_account_from_mongo(),
+            "account": (await _get_account_from_mongo()) or {"account_id": "default", "total_assets": 0, "available_cash": 0, "market_value": 0, "total_cost": 0, "total_profit": 0, "position_count": 0, "position_ratio": 0},
         }}
     except Exception as e:
         import traceback
@@ -438,6 +445,8 @@ def _empty_result():
         "kpi": {"total_trades": 0, "total_profit": 0, "win_rate": 0, "profit_loss_ratio": 0, "max_drawdown": 0, "avg_profit_pct": 0, "avg_win_pct": 0, "avg_loss_pct": 0},
         "strategy_contrib": [], "sell_reasons": [], "monthly": [], "daily_detail": [], "positions": [],
         "date_range": "",
+        "account": {"account_id": "default", "total_assets": 0, "available_cash": 0, "market_value": 0, "total_cost": 0, "total_profit": 0, "position_count": 0, "position_ratio": 0},
+        "risk_monitor": {"scanner_alive": False, "scan_loop_active": False, "risk_thread_alive": False, "status": "unknown", "desc": "scanner未运行"},
     }
 
 
