@@ -20,6 +20,12 @@ import { computed, ref } from 'vue'
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
+// 检测 timeline 是否包含历史回放数据(trade_date != today)
+const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+const hasHistoricalFallback = computed(() => {
+  return timeline.value.some((t: any) => t._historical_fallback || (t.trade_date && String(t.trade_date) !== todayStr))
+})
+
 // 非交易日保护: 选了日期但API无数据 → 不fallback到今日数据
 const isHistoricalMode = computed(() => {
   // 选了日期 且 不是今天 → 历史模式
@@ -124,7 +130,7 @@ const closedStats = computed(() => {
         <div class="ht-toolbar-left">
           <span class="ht-title">📜 交易历史</span>
           <span v-if="historyData.length" class="ht-badge">{{ historyDate }} 回放 · {{ historyData.length }}条</span>
-          <span v-else-if="timeline.length" class="ht-badge">今日 · {{ timeline.length }}条</span>
+          <span v-else-if="timeline.length" class="ht-badge">{{ hasHistoricalFallback ? '历史回放' : '今日' }} · {{ timeline.length }}条</span>
           <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" class="ht-pnl">{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
         </div>
         <div class="ht-toolbar-right">

@@ -105,7 +105,10 @@ async def get_all_scanner_data():
                     async for doc in cursor:
                         doc.pop("_id", None)
                         doc.pop("account_id", None)
-                        doc.pop("trade_date", None)
+                        # 不删trade_date! 前端需要用它判断是否今天的数据
+                        # 旧数据(trade_date!=today)显示时标注为历史回放
+                        if doc.get("trade_date") and str(doc.get("trade_date")) != today_str:
+                            doc["_historical_fallback"] = True
                         timeline_data.append(doc)
         except Exception:
             pass
