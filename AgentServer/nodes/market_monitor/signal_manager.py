@@ -226,6 +226,31 @@ class SignalManager:
         if self.dry_run:
             self._handle_dry_run(signals)
             return
+        # 【v2.9.96】交易时间闸锁: 只能在交易时段下单(MORNING/AFTERNOON/LATE_TRADING)
+        # 事故案例 6/16 9:28: 手动 scan_once(force=True) 穿越了交易时段检查,
+        # 生成了10笔未开盘时的"实际交易". 这里是下单环节的最后一道防线!
+        try:
+            from nodes.market_monitor.market_phase import MarketPhase
+            phase = MarketPhase.classify()
+            trading_phases = {MarketPhase.MORNING, MarketPhase.AFTERNOON, MarketPhase.LATE_TRADING}
+            if phase not in trading_phases:
+                for sig in signals:
+                    sig.signal_status = "blocked"
+                    sig.layer_trace = sig.layer_trace or {}
+                    sig.layer_trace["execution"] = {
+                        "mode": "non_trading_hours",
+                        "reason": f"当前阶段={phase}, 非交易时间不执行真实下单",
+                        "phase": phase,
+                    }
+                    try:
+                        self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                            sig.strategy_name, f"非交易时间({phase}), 不下单", sig)
+                    except Exception:
+                        pass
+                logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
+                return
+        except Exception as _e:
+            logger.debug(f"[EXEC] 交易时间闸锁检查异常仅记录: {_e}")
         for sig in signals:
             eligible, reason = self._check_signal_eligibility(sig)
             if not eligible:
