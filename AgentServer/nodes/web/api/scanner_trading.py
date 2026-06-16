@@ -1118,3 +1118,72 @@ async def get_auto_trades(date: str = None, limit: int = 50):
         return {"success": True, "data": [], "message": str(e)}
 
 
+
+
+@router.post("/reconcile-timeline")
+async def reconcile_timeline():
+    """【v2.9.96d】对账: 清理 scanner._timeline 与 MongoDB scanner_timeline 中
+    不在 broker_orders 里的"幽灵"buy/sell记录。
+    
+    场景: 手动回滚 broker_orders 后, timeline 残留导致前端显示假交易。
+    """
+    try:
+        scanner = _get_scanner_instance()
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未连接"}
+        
+        from datetime import datetime
+        today = datetime.now().strftime("%Y%m%d")
+        today_int = int(today)
+        db = mongo_manager.db
+        
+        # 1. 收集真实订单key (ts_code, time, side)
+        real_keys = set()
+        async for o in db["broker_orders"].find(
+            {"trade_date": {"$in": [today_int, today]}},
+            {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "_id": 0}
+        ):
+            t = o.get("fill_time") or o.get("create_time", "")
+            real_keys.add((o.get("ts_code", ""), t, o.get("side", "")))
+        
+        # 2. 删除 MongoDB 里的幽灵 timeline
+        deleted_mongo = 0
+        ghost_keys = set()
+        async for t in db["scanner_timeline"].find(
+            {"trade_date": {"$in": [today_int, today]}, "action": {"$in": ["buy", "sell"]}},
+            {"ts_code": 1, "time": 1, "action": 1, "_id": 1}
+        ):
+            key = (t.get("ts_code", ""), t.get("time", ""), t.get("action", ""))
+            if key not in real_keys:
+                await db["scanner_timeline"].delete_one({"_id": t["_id"]})
+                deleted_mongo += 1
+                ghost_keys.add(key)
+        
+        # 3. 清理 scanner._timeline 内存
+        cleaned_memory = 0
+        if scanner and hasattr(scanner, '_timeline'):
+            new_timeline = []
+            for item in scanner._timeline:
+                action = item.get("action", "")
+                if action in ("buy", "sell"):
+                    key = (item.get("ts_code", ""), item.get("time", ""), action)
+                    if key not in real_keys:
+                        cleaned_memory += 1
+                        continue
+                new_timeline.append(item)
+            scanner._timeline.clear()
+            scanner._timeline.extend(new_timeline)
+        
+        return {
+            "success": True,
+            "data": {
+                "real_orders": len(real_keys),
+                "ghost_timeline_mongo_deleted": deleted_mongo,
+                "ghost_timeline_memory_cleaned": cleaned_memory,
+                "ghost_keys": [list(k) for k in ghost_keys][:20],
+            },
+        }
+    except Exception as e:
+        import traceback
+        return {"success": False, "message": str(e), "trace": traceback.format_exc()}
