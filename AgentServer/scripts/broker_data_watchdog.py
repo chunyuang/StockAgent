@@ -155,6 +155,66 @@ def check_future_time(db) -> dict[str, Any]:
     return {"future_count": future_count, "issues": issues}
 
 
+def check_timeline_ghost_trades(db, account_id: str = "default", date: str = None, auto_clean: bool = False) -> dict[str, Any]:
+    """【v2.9.96f】检测【幽灵交易】: scanner_timeline 中的 buy/sell 记录必须能在 broker_orders 中找到对应
+    
+    根因: 手动回滚 broker_orders 后 timeline 未同步清理, 导致前端显示不存在的交易.
+    多个 Tab 受影响: 成交订单/已平仓/交易历史/每日明细/累计PnL
+    """
+    issues = []
+    target_date = date or today_str()
+    target_int = int(target_date) if target_date.isdigit() else target_date
+    
+    real_keys = set()
+    for o in db.broker_orders.find(
+        {"account_id": account_id, "trade_date": {"$in": [target_date, target_int]}, "status": "filled"},
+        {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "_id": 0}
+    ):
+        t = o.get("fill_time") or o.get("create_time", "")
+        real_keys.add((o.get("ts_code", ""), t, o.get("side", "")))
+    
+    ghosts = []
+    for t in db.scanner_timeline.find(
+        {"account_id": account_id, "trade_date": {"$in": [target_date, target_int]}, "action": {"$in": ["buy", "sell"]}},
+        {"ts_code": 1, "time": 1, "action": 1, "stock_name": 1, "strategy": 1, "price": 1, "_id": 1}
+    ):
+        key = (t.get("ts_code", ""), t.get("time", ""), t.get("action", ""))
+        if key not in real_keys:
+            ghosts.append(t)
+    
+    cleaned = 0
+    if ghosts and auto_clean:
+        ghost_ids = [g["_id"] for g in ghosts]
+        result = db.scanner_timeline.delete_many({"_id": {"$in": ghost_ids}})
+        cleaned = result.deleted_count
+    
+    if ghosts:
+        samples = [
+            {"time": g.get("time"), "action": g.get("action"), "ts_code": g.get("ts_code"),
+             "stock_name": g.get("stock_name", ""), "strategy": g.get("strategy", "")}
+            for g in ghosts[:5]
+        ]
+        issues.append({
+            "level": "P1",
+            "type": "ghost_trade_in_timeline",
+            "count": len(ghosts),
+            "cleaned": cleaned,
+            "date": target_date,
+            "samples": samples,
+            "msg": (f"scanner_timeline 中有 {len(ghosts)} 条 buy/sell 记录在 broker_orders 中找不到对应 (date={target_date}). "
+                   f"可能手动回滚后未同步清理. " + 
+                   (f"【已自动清理 {cleaned} 条】" if auto_clean else "调用 POST /scanner/reconcile-timeline 或加 --auto-clean-ghost 修复.")),
+        })
+    
+    return {
+        "date": target_date,
+        "real_orders": len(real_keys),
+        "ghost_count": len(ghosts),
+        "cleaned": cleaned,
+        "issues": issues,
+    }
+
+
 def check_memory_db_drift(threshold_pct: float = 10.0) -> dict[str, Any]:
     """检测 D: scanner 内存 vs MongoDB scanner_timeline 当天数 drift"""
     issues = []
@@ -185,6 +245,8 @@ def main() -> int:
     parser.add_argument("--account", default="default")
     parser.add_argument("--mongo-uri", default="mongodb://localhost:27017/")
     parser.add_argument("--db", default="stock_agent")
+    parser.add_argument("--auto-clean-ghost", action="store_true", help="【v2.9.96f】自动清理幽灵 timeline 交易")
+    parser.add_argument("--check-date", default=None, help="【v2.9.96f】检查指定日期(YYYYMMDD), 默认今天")
     args = parser.parse_args()
 
     client = MongoClient(args.mongo_uri)
@@ -195,6 +257,7 @@ def main() -> int:
         "checks": {
             "broker": check_broker(db, account_id=args.account),
             "future_time": check_future_time(db),
+            "timeline_ghost": check_timeline_ghost_trades(db, account_id=args.account, date=args.check_date, auto_clean=args.auto_clean_ghost),
             "memory_drift": check_memory_db_drift(args.threshold_pct),
         },
     }
@@ -218,6 +281,9 @@ def main() -> int:
         print(f"  broker 检查: 现持仓 {b.get('checked_positions', 0)} 只 / 总涵盖 {b.get('checked_codes_total', 0)} 只股票")
         ft = report["checks"]["future_time"]
         print(f"  未来时间穿越: {ft.get('future_count', 0)} 条")
+        tg = report["checks"]["timeline_ghost"]
+        cleaned_str = f" (已清理 {tg.get('cleaned', 0)})" if tg.get('cleaned', 0) > 0 else ""
+        print(f"  幽灵交易检查(date={tg.get('date','')}): real={tg.get('real_orders',0)} ghost={tg.get('ghost_count',0)}{cleaned_str}")
         print()
         if not all_issues:
             print("✅ 全部一致，无 drift")
