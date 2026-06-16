@@ -5,9 +5,10 @@
  * 【v2.9.74: 从MarketMonitorView提取(254行)】
  * 【v2.9.75: 提取计算属性, 消除TS7006/TS7053错误】
  */
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElTag, ElDatePicker } from 'element-plus'
+import { ElButton, ElTag, ElDatePicker, ElMessage } from 'element-plus'
+import { api } from '@/api'
 
 const m = useScannerMonitorInject()
 
@@ -30,6 +31,26 @@ const executedCount = computed(() =>
 const blockedCount = computed(() =>
   (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'blocked' || c.signal_status === 'skipped').length
 )
+
+// 手动触发盘前扫描
+const premarketScanRunning = ref(false)
+async function runPremarketScan() {
+  premarketScanRunning.value = true
+  try {
+    const r: any = await api.post('/scanner/premarket-scan', {})
+    if (r?.data?.success) {
+      const n = r.data.data?.signals || 0
+      ElMessage.success(`扫描完成: 生成 ${n} 个信号`)
+      await fetchPremarketData()
+    } else {
+      ElMessage.warning(r?.data?.message || '扫描失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('扫描异常: ' + (e?.message || e))
+  } finally {
+    premarketScanRunning.value = false
+  }
+}
 
 // 检测盘前数据是否为历史回放(非今日)
 const todayStrPM = new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -65,6 +86,7 @@ onMounted(() => {
         <div class="pm-status-actions">
           <ElDatePicker v-model="premarketDate" type="date" size="small" value-format="YYYY-MM-DD" style="width:130px" @change="fetchPremarketData" />
           <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
+          <ElButton size="small" type="primary" @click="runPremarketScan" :loading="premarketScanRunning" title="手动运行一次盘前竞价扫描(L4+L5+L6全市场)">⚡ 扫描</ElButton>
           <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; premarketDebugUserToggled = true; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>
           <button :class="['pm-mode-btn', premarketGroupMode === 'strategy' ? 'active' : '']" @click="premarketGroupMode = 'strategy'">按策略</button>
           <button :class="['pm-mode-btn', premarketGroupMode === 'list' ? 'active' : '']" @click="premarketGroupMode = 'list'">列表</button>
