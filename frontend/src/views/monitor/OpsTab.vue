@@ -7,7 +7,8 @@
 import { ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import SystemHealth from './SystemHealth.vue'
-import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber, ElDatePicker } from 'element-plus'
+import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
 
@@ -89,7 +90,7 @@ const {
       <!-- 自动交易操作流 -->
       <div class="st">🤖 自动交易操作流
         <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">
-          <ElDatePicker v-model="opsDate" type="date" placeholder="今日" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" :clearable="true" />
+          <UnifiedDateBar @change="(_d: string) => { opsDate = _d }" />
           <ElButton size="small" @click="fetchAutoTrades" style="padding:2px 8px;font-size:11px">🔄</ElButton>
         </div>
       </div>
@@ -245,11 +246,11 @@ const {
 
       <!-- 交易时间线 -->
       <div class="st" style="margin-top:16px">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
-        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton></div>
+        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><!-- historyDate removed, using opsDate from UnifiedDateBar --><ElButton size="small" @click="historyDate = opsDate; loadHistory()" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton></div>
       </div>
       <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
       <div v-else class="ops-timeline">
-        <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
+        <div v-if="historyData.length" class="history-tag">📜 {{ opsDate }} 历史回放 ({{ historyData.length }}条)</div>
         <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct ?? 0).toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount ?? 0).toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
       </div>
 

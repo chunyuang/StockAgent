@@ -8,7 +8,8 @@
  * Props: review composable的展开状态 + 策略映射
  * Emits: fetchReviewData, runBacktest, saveParamSnapshot
  */
-import { ElDatePicker, ElButton, ElTag } from 'element-plus'
+import { ElButton, ElTag } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import FactorEffectSection from './components/FactorEffectSection.vue'
 
 defineProps<{
@@ -63,7 +64,7 @@ const emit = defineEmits<{
           <button :class="['review-tab', reviewTab === 'weekly' ? 'active' : '']" @click="emit('update:reviewTab', 'weekly'); emit('fetchReviewData')">📅 周复盘</button>
           <button :class="['review-tab', reviewTab === 'monthly' ? 'active' : '']" @click="emit('update:reviewTab', 'monthly'); emit('fetchReviewData')">📆 月复盘</button>
         </div>
-        <ElDatePicker :modelValue="reviewDate" type="date" size="small" value-format="YYYY-MM-DD" @update:modelValue="emit('update:reviewDate', $event); emit('fetchReviewData')" />
+        <UnifiedDateBar @change="(_d: string) => { emit('update:reviewDate', _d); emit('fetchReviewData') }" />
         <ElButton size="small" @click="emit('fetchReviewData')" :loading="reviewLoading">🔄</ElButton>
       </div>
 

@@ -6,7 +6,8 @@
  */
 import { computed, unref, onMounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElDatePicker, ElTag } from 'element-plus'
+import { ElButton, ElTag } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
 
@@ -58,7 +59,7 @@ onMounted(async () => {
     <div class="mm-tab-scroll">
       <!-- 顶部: 扫描历史列表(单行紧凑) -->
       <div class="st">📡 扫描历史
-        <ElDatePicker v-model="scanTraceDate" type="date" placeholder="选择日期查看" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" :cell-class-name="scanDateCellClass" :teleported="false" @change="fetchScanHistory" />
+        <UnifiedDateBar @change="(_d: string) => { scanTraceDate = _d; fetchScanHistory() }" />
         <ElButton v-if="scanTraceDate" size="small" @click="scanTraceDate='';scanHistory=[];scanTraceDetail=null" :loading="scanHistoryLoading">✕ 清除</ElButton>
         <span class="text-tertiary" style="font-size:11px;margin-left:auto">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · <span style="color:var(--el-color-primary)">●</span>交易日 <span style="color:#e6a23c">●</span>调试</span>
       </div>
