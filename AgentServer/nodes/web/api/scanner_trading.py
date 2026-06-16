@@ -1029,34 +1029,76 @@ async def get_auto_trades(date: str = None, limit: int = 50):
     返回带source标记的订单列表
     
     Args:
-        date: 指定日期(YYYYMMDD)
+        date: 指定日期(YYYYMMDD), 不传则返回全部今日记录
         limit: 最大返回数
+    
+    数据源优先级:
+    1. 当日且scanner运行中 → 内存orders(最实时)
+    2. 其他情况 → MongoDB broker_orders(历史真相源)
     """
     try:
-        scanner = _get_scanner_instance()
-        if not scanner:
-            return {"success": True, "data": []}
+        from datetime import datetime
+        today_str = datetime.now().strftime("%Y%m%d")
+        target_date = date or today_str
+        is_today = (target_date == today_str)
         
         trades = []
-        for o in scanner._broker.orders if scanner._broker else []:
-            if o.status.value != "filled":
-                continue
-            if date and o.trade_date != date:
-                continue
-            trades.append({
-                "time": o.fill_time or o.create_time,
-                "ts_code": o.ts_code,
-                "stock_name": o.stock_name,
-                "side": o.side.value,
-                "quantity": o.filled_qty,
-                "price": o.filled_price,
-                "amount": o.filled_price * o.filled_qty,
-                "strategy": o.strategy,
-                "reason": o.reason,
-                "source": getattr(o, 'source', 'auto'),
-                "trade_date": o.trade_date,
-                "order_id": o.order_id,
-            })
+        scanner = _get_scanner_instance()
+        
+        # 今日 + scanner运行中: 优先用内存orders(最实时状态)
+        if is_today and scanner and scanner._broker:
+            for o in scanner._broker.orders:
+                if o.status.value != "filled":
+                    continue
+                if date and o.trade_date != date:
+                    continue
+                trades.append({
+                    "time": o.fill_time or o.create_time,
+                    "ts_code": o.ts_code,
+                    "stock_name": o.stock_name,
+                    "side": o.side.value,
+                    "quantity": o.filled_qty,
+                    "price": o.filled_price,
+                    "amount": o.filled_price * o.filled_qty,
+                    "strategy": o.strategy,
+                    "reason": o.reason,
+                    "source": getattr(o, 'source', 'auto'),
+                    "trade_date": o.trade_date,
+                    "order_id": o.order_id,
+                })
+        
+        # 历史日期 或 今日scanner未运行: 从MongoDB读取
+        if not trades:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    db = mongo_manager.db
+                    # 兼容string和int两种格式
+                    target_int = int(target_date) if target_date.isdigit() else target_date
+                    query = {
+                        "trade_date": {"$in": [target_date, target_int]},
+                        "status": "filled",
+                    }
+                    cursor = db["broker_orders"].find(query).sort("create_time", -1).limit(limit * 2)
+                    async for o in cursor:
+                        trades.append({
+                            "time": o.get("fill_time") or o.get("create_time", ""),
+                            "ts_code": o.get("ts_code", ""),
+                            "stock_name": o.get("stock_name", ""),
+                            "side": o.get("side", ""),
+                            "quantity": o.get("filled_qty", 0) or o.get("quantity", 0),
+                            "price": o.get("filled_price", 0) or o.get("price", 0),
+                            "amount": (o.get("filled_price", 0) or 0) * (o.get("filled_qty", 0) or 0),
+                            "strategy": o.get("strategy", ""),
+                            "reason": o.get("reason", ""),
+                            "source": o.get("source", "auto"),
+                            "trade_date": str(o.get("trade_date", "")),
+                            "order_id": o.get("order_id", ""),
+                            "profit_pct": o.get("profit_pct"),
+                            "profit_amount": o.get("profit_amount"),
+                        })
+            except Exception as e:
+                logger.error(f"[auto-trades] MongoDB读取失败: {e}")
         
         # 按时间倒序
         trades.sort(key=lambda x: x.get("time", ""), reverse=True)
