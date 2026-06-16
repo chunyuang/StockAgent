@@ -10,13 +10,17 @@ import { useChartColors } from './useChartColors'
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { GLOBAL_RISK } from '@/config/strategyDefaults'
+import { useUnifiedData } from './composables/useUnifiedData'
 
 const c = useChartColors().value
 const loading = ref(false)
-const accountData = ref<any>(null)
+const kpiData = ref<any>(null)  // KPI/账户资金(仍从/analysis获取)
 const activeSection = ref('overview')
 const accountDate = ref('')
 const today = new Date().toISOString().slice(0, 10)
+
+// 【v2.9.97d】统一数据层: 持仓从 unified 读取(唯一真相源)
+const unified = useUnifiedData()
 
 // 切换section时滚动到顶部
 watch(activeSection, () => {
@@ -34,16 +38,23 @@ const setActiveTab = (tab: string) => {
   }
 }
 
-const fetchAccount = async () => {
+const fetchKpi = async () => {
   loading.value = true
   try {
+    // KPI和账户资金仍从 /analysis 获取(unified没有这些)
     let url = '/api/v1/scanner/analysis?period=30d'
     if (accountDate.value) {
       const d = accountDate.value.replace(/-/g, '')
       url = `/api/v1/scanner/analysis?start_date=${d}&end_date=${d}`
     }
     const res = await fetch(url).then(r => r.json())
-    accountData.value = { analysis: res.data || {} }
+    kpiData.value = res.data || {}
+    // 同步unified日期
+    if (accountDate.value) {
+      unified.setDate(accountDate.value.replace(/-/g, ''))
+    } else {
+      unified.setDate('today')
+    }
   } catch (e) { console.error(e) }
   loading.value = false
 }
@@ -63,13 +74,16 @@ const toggleDetail = async (code: string) => {
   detailLoading.value = false
 }
 
-onMounted(fetchAccount)
+onMounted(fetchKpi)
 
-watch(accountDate, () => { fetchAccount() })
+watch(accountDate, () => { fetchKpi() })
 
-const acc = computed(() => accountData.value?.analysis?.account || {})
-const riskMonitor = computed(() => accountData.value?.analysis?.risk_monitor || {})
-const positions = computed(() => (accountData.value?.analysis?.positions || []).slice().sort((a: any, b: any) => (a.profit_pct || 0) - (b.profit_pct || 0)))
+const acc = computed(() => kpiData.value?.account || {})
+const riskMonitor = computed(() => kpiData.value?.risk_monitor || {})
+const positions = computed(() => {
+  // 【v2.9.97d】持仓统一从 unified 获取(唯一真相源: broker_positions)
+  return (unified.positions.value || []).slice().sort((a: any, b: any) => (a.profit_pct || 0) - (b.profit_pct || 0))
+})
 const totalAssets = computed(() => acc.value.total_assets || 0)
 const availableCash = computed(() => acc.value.available_cash || 0)
 const marketValue = computed(() => acc.value.market_value || positions.value.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
