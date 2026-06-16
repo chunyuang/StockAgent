@@ -1104,7 +1104,16 @@ async def get_auto_trades(date: str = None, limit: int = 50):
         
         # 按时间倒序
         trades.sort(key=lambda x: x.get("time", ""), reverse=True)
-        return {"success": True, "data": trades[:limit]}
+        # 【v2.9.96c】按 order_id 去重: scanner 重启/Hot reload 可能导致内存 orders 重复
+        seen_ids = set()
+        deduped = []
+        for t in trades:
+            oid = t.get("order_id") or f"{t.get('time')}-{t.get('ts_code')}-{t.get('side')}-{t.get('quantity')}"
+            if oid in seen_ids:
+                continue
+            seen_ids.add(oid)
+            deduped.append(t)
+        return {"success": True, "data": deduped[:limit]}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
