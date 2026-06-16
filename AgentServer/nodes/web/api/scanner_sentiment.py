@@ -523,3 +523,37 @@ async def get_market_sentiment_detail(date: str = None):
         return {"success": False, "message": str(e)}
 
 
+@router.get("/sentiment-live-log")
+async def get_sentiment_live_log(limit: int = 50):
+    """【v2.9.96h】盘中情绪实时计算日志
+    
+    返回 scanner 运行过程中每次情绪计算的快照(时间、得分、周期、净倒仓、涨跌停、连板、涨跌比、溢价、炸板).
+    供 SentimentTab 展示“近 N 次计算日志”面板.
+    
+    环形缓冲 maxlen=300 (在 emotion_cycle.py __init__ 中初始化).
+    只记录实时模式(limit_stocks!=None), 避免夜间调用污染.
+    """
+    scanner = await _get_scanner()
+    try:
+        # 【v2.9.96h】直接读全局单例 emotion_cycle_manager (不依赖 filter_pipeline)
+        from nodes.market_monitor.emotion_cycle import emotion_cycle_manager as emotion
+        if not emotion:
+            return {"success": True, "data": {"logs": [], "count": 0, "reason": "emotion_cycle_not_initialized"}}
+        
+        log = getattr(emotion, '_compute_log', None)
+        if log is None:
+            return {"success": True, "data": {"logs": [], "count": 0, "reason": "no_compute_log"}}
+        
+        # 返回最近 N 条(逆序, 最新在前)
+        items = list(log)
+        items.reverse()
+        items = items[:max(1, min(limit, 300))]
+        
+        return _sanitize({"success": True, "data": {
+            "logs": items,
+            "count": len(items),
+            "total_buffer": len(log),
+        }})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+

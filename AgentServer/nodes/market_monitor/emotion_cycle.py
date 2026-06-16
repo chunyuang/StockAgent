@@ -142,6 +142,21 @@ class EmotionCycleManager:
     
     def __init__(self):
         self._cache: Dict[str, EmotionScore] = {}
+        # 【v2.9.96h】盘中实时计算日志环形缓冲 (最近 N 条) 供前端 API 读取
+        from collections import deque
+        self._compute_log: deque = deque(maxlen=300)  # 约5小时(每次扫描~1次, 5s间隔)
+
+    @staticmethod
+    def _phase_to_chinese(phase) -> str:
+        """EmotionPhase 枚举 转 中文周期名【v2.9.96h】"""
+        m = {
+            'rising': '高潮', 'differentiation': '分化',
+            'chaos': '震荡', 'bearish': '冰点',
+            'RISING': '高潮', 'DIFFERENTIATION': '分化',
+            'CHAOS': '震荡', 'BEARISH': '冰点',
+        }
+        v = phase.value if hasattr(phase, 'value') else str(phase)
+        return m.get(v, v)
     
     async def calculate_daily_emotion(
         self,
@@ -178,6 +193,32 @@ class EmotionCycleManager:
             'today_premium': factors.get('zt_premium', 0.0),
             'trade_date': trade_date,
         }
+        # 【v2.9.96h】只在实时模式(limit_stocks!=None)记录日志, 避免夜审污染
+        if limit_stocks is not None:
+            from datetime import datetime
+            self._compute_log.append({
+                'time': datetime.now().strftime('%H:%M:%S'),
+                'trade_date': trade_date,
+                'score': round(score, 1),
+                'phase': phase.value,
+                'phase_label': self._phase_to_chinese(phase),
+                'position_ratio': result.position_multiplier,
+                'limit_up': factors.get('limit_up_count', 0),
+                'limit_down': factors.get('limit_down_count', 0),
+                'max_continue': factors.get('max_continue_limit', 0),
+                'up_down_ratio': round(factors.get('up_down_ratio', 0.0), 3),
+                'zt_premium': round(factors.get('zt_premium', 0.0), 2),
+                'broken': factors.get('broken_count', 0),
+                'broken_rate': round(factors.get('broken_rate', 0.0), 1),
+                # 5维拆解
+                'breakdown': {
+                    'limit_up_score': min(30, factors.get('limit_up_count', 0)),
+                    'limit_down_score': max(0, 20 - factors.get('limit_down_count', 0) * 2),
+                    'max_continue_score': min(20, factors.get('max_continue_limit', 0) * 2),
+                    'up_down_score': int(factors.get('up_down_ratio', 0.0) * 15),
+                    'zt_premium_score': min(15, max(0, int(factors.get('zt_premium', 0.0)))),
+                },
+            })
 
         logger.info(f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
             f"涨停={factors['limit_up_count']}, 跌停={factors['limit_down_count']}, "
