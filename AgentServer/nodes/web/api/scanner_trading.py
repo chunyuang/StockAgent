@@ -1002,7 +1002,8 @@ async def get_trade_log(days: int = 30, format: str = "json"):
         orders = []
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date},
+            # 【v2.9.97e】兼容 trade_date int/string 格式
+            "$or": [{"trade_date": {"$gte": start_date}}, {"trade_date": {"$gte": str(start_date)}}],
             "status": "filled",
         }).sort("trade_date", -1).limit(500):
             doc.pop("_id", None)

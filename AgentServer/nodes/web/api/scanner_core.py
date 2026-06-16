@@ -518,7 +518,20 @@ async def get_account():
         except Exception:
             pass
     if not scanner._broker:
-        return {"success": True, "data": None}
+        # 【v2.9.97e】Broker未初始化时返回空账户(而非None, 避免前端崩溃)
+        return {
+            "success": True,
+            "data": {
+                "account_id": "default",
+                "total_assets": 0,
+                "available_cash": 0,
+                "market_value": 0,
+                "today_profit": 0,
+                "total_profit": 0,
+                "position_count": 0,
+                "position_ratio": 0,
+            },
+        }
     acct = scanner._broker.get_account()
     return {
         "success": True,

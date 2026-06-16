@@ -199,7 +199,11 @@ async def fetch_unified_positions(date: Optional[str] = None, account_id: str = 
 
         cursor = db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$lte": date_int},  # 包括 date 当日
+            # trade_date 兼容 int/string 格式 (MongoManager归一化后应为int, 历史数据可能是string)
+            "$or": [
+                {"trade_date": {"$lte": date_int}},
+                {"trade_date": {"$lte": str(date_int)}},
+            ],
             "status": "filled",
         }).sort([("trade_date", 1), ("create_time", 1)])
 
@@ -349,7 +353,7 @@ async def fetch_date_availability(days: int = 60, account_id: str = "default") -
         {"$match": {
             "account_id": account_id,
             "status": "filled",
-            "trade_date": {"$gte": start_int},
+            "trade_date": {"$gte": start_int},  # MongoManager写入归一化后应为int, 但保险起见也查string
         }},
         {"$group": {
             "_id": "$trade_date",
