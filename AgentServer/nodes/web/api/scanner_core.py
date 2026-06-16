@@ -781,6 +781,137 @@ async def reset_account():
     return {"success": True, "data": {"message": "账户已重置"}}
 
 
+@router.post("/rollback-today-orders")
+async def rollback_today_orders(reason: str = "手动回滚今日订单"):
+    """【v2.9.96i】回滚今日所有 filled 订单
+    
+    与 /reset 区别: /reset 是全量重置(删除所有历史订单).
+    本接口只回滚今日, 保留历史订单.
+    
+    同步处理:
+    1. broker_orders 今日 status=filled → rolled_back
+    2. broker_positions 今日中产生的持仓 → 重算不包含今日变化
+    3. scanner_timeline 今日 buy/sell → 删除
+    4. broker_accounts 代码作为是否需要重算 (现金应该倒滑今日交易)
+    
+    使用场景: 非交易时段误下单 / scanner bug 产生错误订单 / 手动测试后清理
+    """
+    from datetime import datetime
+    scanner = await _get_scanner()
+    if not scanner._broker:
+        raise HTTPException(400, "Broker未初始化")
+    
+    today = datetime.now().strftime("%Y%m%d")
+    today_int = int(today)
+    account_id = scanner._broker.account.account_id
+    rollback_at = datetime.now().isoformat()
+    
+    summary = {"orders_rolled_back": 0, "timeline_cleaned": 0, "cash_credit": 0.0, "cash_debit": 0.0}
+    
+    try:
+        if not await scanner._broker._ensure_mongo():
+            raise HTTPException(500, "MongoDB不可用")
+        db = scanner._broker._mongo_db
+        
+        # 1. 计算今日资金变动 (为了重算 cash)
+        net_cash_change = 0.0  # 买出现金, 卖入现金
+        async for o in db.broker_orders.find({
+            "account_id": account_id, 
+            "trade_date": {"$in": [today, today_int]},
+            "status": "filled"
+        }):
+            qty = o.get("filled_qty") or o.get("quantity") or 0
+            price = o.get("filled_price") or o.get("price") or 0
+            amount = qty * price
+            comm = o.get("commission", 0) or 0
+            tax = o.get("stamp_tax", 0) or 0
+            if o.get("side") == "buy":
+                net_cash_change += amount + comm   # 买出
+                summary["cash_credit"] += amount + comm
+            elif o.get("side") == "sell":
+                net_cash_change -= (amount - comm - tax)  # 卖入
+                summary["cash_debit"] += amount - comm - tax
+        
+        # 2. 标记今日订单为 rolled_back
+        result = await db.broker_orders.update_many(
+            {"account_id": account_id, "trade_date": {"$in": [today, today_int]}, "status": "filled"},
+            {"$set": {
+                "status": "rolled_back",
+                "rolled_back": True,
+                "rolled_back_at": rollback_at,
+                "rolled_back_reason": reason,
+                "filled_status_original": "filled",
+            }}
+        )
+        summary["orders_rolled_back"] = result.modified_count
+        
+        # 3. 清理今日 timeline buy/sell
+        result2 = await db.scanner_timeline.delete_many({
+            "account_id": account_id, 
+            "trade_date": {"$in": [today, today_int]},
+            "action": {"$in": ["buy", "sell"]}
+        })
+        summary["timeline_cleaned"] = result2.deleted_count
+        
+        # 4. 清理今日中产生的今日买入持仓 (today_buy_qty>0 的或 buy_date=今天 的仅今日交易)
+        # 这里简化: 只处理 broker_orders 重算后净为0的股票
+        from collections import defaultdict
+        net_qty = defaultdict(int)
+        async for o in db.broker_orders.find(
+            {"account_id": account_id, "status": "filled"},
+            {"ts_code": 1, "side": 1, "filled_qty": 1, "quantity": 1}
+        ):
+            tc = o.get("ts_code", "")
+            if not tc: continue
+            qty = o.get("filled_qty") or o.get("quantity") or 0
+            if o.get("side") == "buy":
+                net_qty[tc] += qty
+            elif o.get("side") == "sell":
+                net_qty[tc] -= qty
+        # 对净量<=0 的在 broker_positions 中删除
+        cleared = 0
+        for tc in list(net_qty.keys()):
+            if net_qty[tc] <= 0:
+                r = await db.broker_positions.delete_one({"account_id": account_id, "ts_code": tc})
+                if r.deleted_count > 0: cleared += 1
+        summary["positions_cleared"] = cleared
+        
+        # 5. 重算 broker_accounts 现金
+        # 原现金 + 今日净变化(反向) = 回滚后现金
+        acc = await db.broker_accounts.find_one({"account_id": account_id})
+        if acc:
+            new_cash = (acc.get("available_cash", 0) or 0) + net_cash_change  # 反向倒滑
+            await db.broker_accounts.update_one(
+                {"account_id": account_id},
+                {"$set": {
+                    "available_cash": new_cash,
+                    "updated_at": rollback_at,
+                    "rollback_at": rollback_at,
+                    "rollback_reason": reason,
+                }}
+            )
+            # 同步到内存
+            scanner._broker.account.available_cash = new_cash
+            summary["cash_after_rollback"] = new_cash
+        
+        # 6. 清理内存 _timeline 中今日 buy/sell
+        try:
+            scanner._timeline = [t for t in scanner._timeline 
+                if not (t.get("action") in ("buy", "sell") and 
+                       str(t.get("trade_date", "")) == today)]
+            # 同步重载 positions 到内存
+            scanner._broker.positions = {tc: p for tc, p in scanner._broker.positions.items() if net_qty.get(tc, 0) > 0}
+        except Exception:
+            pass
+        
+        logger.warning(f"[ROLLBACK] {reason}: {summary}")
+        return {"success": True, "data": {"message": "今日订单已回滚", "summary": summary}}
+    
+    except Exception as e:
+        logger.error(f"[ROLLBACK] 失败: {e}", exc_info=True)
+        return {"success": False, "message": str(e), "summary": summary}
+
+
 # ==================== 交易审查详情 ====================
 
 

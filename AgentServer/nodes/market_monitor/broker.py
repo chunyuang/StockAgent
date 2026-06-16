@@ -41,6 +41,7 @@ class OrderStatus(Enum):
     PARTIAL = "partial"     # 部分成交
     REJECTED = "rejected"   # 已拒绝
     CANCELED = "canceled"   # 已撤单
+    ROLLED_BACK = "rolled_back"  # 【v2.9.96i】已回滚(人为后枢, 本位订单不计入成交)
 
 
 @dataclass

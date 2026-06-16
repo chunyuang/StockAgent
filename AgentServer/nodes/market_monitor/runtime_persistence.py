@@ -921,7 +921,8 @@ class RuntimePersistence:
                     from collections import defaultdict
                     holdings = defaultdict(lambda: {"qty": 0, "total_cost": 0, "name": "", "strategy": ""})
                     async for doc in mongo_manager.db["broker_orders"].find(
-                        {"account_id": scanner._broker.account.account_id}
+                        {"account_id": scanner._broker.account.account_id,
+                         "status": {"$in": ["filled", "partial"]}}
                     ):
                         tc = doc.get("ts_code", "")
                         side = doc.get("side", "")
@@ -960,7 +961,7 @@ class RuntimePersistence:
                             upsert=True,
                         )
                         # 也加到内存
-                        from common.models.position import Position
+                        from nodes.market_monitor.broker import Position
                         scanner._broker.positions[tc] = Position(
                             ts_code=tc,
                             stock_name=h["name"],
