@@ -43,11 +43,11 @@ emit('change', selectedDate.value, dateForApi.value)
       :disabled-date="disabledDate"
       :cell-class-name="dateCellClass"
       :clearable="false"
-      style="width: 140px"
+      style="width: 130px"
       @update:modelValue="onDateChange"
     />
     <button class="nav-btn" @click="nextDay" :disabled="isToday" title="后一天">▶</button>
-    <button class="today-btn" @click="goToday" :disabled="isToday">今天</button>
+    <button class="today-btn" :class="{ active: isToday }" @click="goToday" :disabled="isToday">今天</button>
   </div>
 </template>
 
@@ -55,19 +55,23 @@ emit('change', selectedDate.value, dateForApi.value)
 .unified-date-bar {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 .nav-btn, .today-btn {
   border: 1px solid #dcdfe6;
   background: #fff;
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 1px 7px;
   font-size: 12px;
   cursor: pointer;
   color: #606266;
   line-height: 22px;
+  height: 24px;
+  transition: all 0.15s;
 }
-.nav-btn:hover, .today-btn:hover {
+.nav-btn:hover, .today-btn:hover:not(:disabled) {
   color: #409eff;
   border-color: #c6e2ff;
   background: #ecf5ff;
@@ -75,17 +79,18 @@ emit('change', selectedDate.value, dateForApi.value)
 .nav-btn:disabled, .today-btn:disabled {
   color: #c0c4cc;
   cursor: not-allowed;
-  background: #fff;
+  background: #f5f7fa;
   border-color: #e4e7ed;
 }
-.today-btn {
-  font-weight: 500;
-  margin-left: 4px;
+.today-btn.active {
+  color: #409eff;
+  border-color: #409eff;
+  font-weight: 600;
 }
 </style>
 
 <style>
-/* 交易日染色 (非scoped, ElDatePicker内部需要) */
+/* 交易日染色 (全局, ElDatePicker内部需要) */
 .el-date-table td.date-has-trades .el-date-table-cell {
   background: #e1f3d8 !important;
   color: #67c23a !important;

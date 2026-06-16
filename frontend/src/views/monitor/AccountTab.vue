@@ -6,7 +6,6 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
-import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
@@ -74,7 +73,8 @@ const toggleDetail = async (code: string) => {
 
 onMounted(fetchKpi)
 
-// 日期变更由UnifiedDateBar的onDateChange处理
+// 【v2.9.97g】监听全局日期变更
+watch(() => unified.currentDate.value, () => { fetchKpi() })
 
 const acc = computed(() => kpiData.value?.account || {})
 const riskMonitor = computed(() => kpiData.value?.risk_monitor || {})
@@ -131,7 +131,7 @@ const posPie = computed(() => {
     <!-- KPI -->
     <div class="at-kpi-header">
       <span class="at-kpi-title">💼 账户</span>
-      <UnifiedDateBar @change="onDateChange" />
+      <ElButton size="small" @click="fetchKpi" :loading="loading">🔄</ElButton>
     </div>
     <div class="at-kpi">
       <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">{{ fmt(totalAssets) }}</div></div>

@@ -7,7 +7,6 @@ import { useChartColors } from './useChartColors'
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
-import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
@@ -127,8 +126,7 @@ async function showStockDetail(tsCode: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
-        <ElButton size="small" type="primary" @click="fetchAnalysis" :loading="loading">刷新</ElButton>
+        <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 
       <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="点击刷新加载数据" /></div>

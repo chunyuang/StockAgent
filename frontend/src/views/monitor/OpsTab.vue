@@ -8,7 +8,6 @@ import { ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import SystemHealth from './SystemHealth.vue'
 import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber } from 'element-plus'
-import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
 
@@ -89,10 +88,7 @@ const {
     <div class="mm-tab-scroll">
       <!-- 自动交易操作流 -->
       <div class="st">🤖 自动交易操作流
-        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">
-          <UnifiedDateBar @change="(_d: string) => { opsDate = _d }" />
-          <ElButton size="small" @click="fetchAutoTrades" style="padding:2px 8px;font-size:11px">🔄</ElButton>
-        </div>
+        <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton>
       </div>
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
@@ -246,7 +242,7 @@ const {
 
       <!-- 交易时间线 -->
       <div class="st" style="margin-top:16px">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
-        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><!-- historyDate removed, using opsDate from UnifiedDateBar --><ElButton size="small" @click="historyDate = opsDate; loadHistory()" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton></div>
+        <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElButton size="small" @click="loadHistory" :loading="historyLoading">📜 回放</ElButton></div>
       </div>
       <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
       <div v-else class="ops-timeline">
