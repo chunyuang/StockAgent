@@ -37,10 +37,10 @@ const setActiveTab = (tab: string) => {
 const fetchAccount = async () => {
   loading.value = true
   try {
-    let url = '/scanner/analysis?period=30d'
+    let url = '/api/v1/scanner/analysis?period=30d'
     if (accountDate.value) {
       const d = accountDate.value.replace(/-/g, '')
-      url = `/scanner/analysis?start_date=${d}&end_date=${d}`
+      url = `/api/v1/scanner/analysis?start_date=${d}&end_date=${d}`
     }
     const res = await fetch(url).then(r => r.json())
     accountData.value = { analysis: res.data || {} }
