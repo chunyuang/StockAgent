@@ -222,7 +222,12 @@ class PositionManager:
             high_price = trailing.get("high_price", pos.avg_cost)
             trailing_pct = trailing.get("trailing_stop_pct", 0)
             profit_at_high = (high_price / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
-            reason = f"追踪止损(最高{high_price:.2f}→{trailing_pct*100:.0f}%回撤, 曾盈{profit_at_high:.1f}%)"
+            current_profit = pos.profit_pct or 0
+            reason = (
+                f"追踪止损·价{pos.current_price:.2f}≤追踪{trailing_stop_price:.2f} "
+                f"最高{high_price:.2f}({profit_at_high:+.1f}%) "
+                f"回撤{trailing_pct*100:.0f}% 现盈{current_profit:+.1f}%"
+            )
             return reason, trailing_stop_price, True
         
         return None, pos.current_price, False
@@ -243,12 +248,29 @@ class PositionManager:
         # 固定止损/止盈
         if pos.profit_pct <= stop_loss_pct:
             if today_open and today_open > 0 and today_open < stop_loss_price:
-                sell_reason = f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})"
+                # 跳空止损: 今日开盘价低于止损价
+                gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+                sell_reason = (
+                    f"跳空止损·开{today_open:.2f}<止损{stop_loss_price:.2f} "
+                    f"成本{pos.avg_cost:.2f} 跳空{gap_pct:+.1f}% "
+                    f"浮亏{pos.profit_pct:+.1f}%"
+                )
                 sell_price = today_open
             else:
-                sell_reason = f"止损 {pos.profit_pct:.1f}%"
+                # 普通止损
+                qty = getattr(pos, 'total_qty', 0) or getattr(pos, 'shares', 0) or 0
+                loss_amt = (pos.current_price - pos.avg_cost) * qty if qty else 0
+                sell_reason = (
+                    f"止损·价{pos.current_price:.2f}<止损{stop_loss_price:.2f} "
+                    f"亏{pos.profit_pct:+.1f}% ¥{loss_amt:+.0f}"
+                )
         elif pos.profit_pct >= take_profit_pct:
-            sell_reason = f"止盈 {pos.profit_pct:.1f}%"
+            qty = getattr(pos, 'total_qty', 0) or getattr(pos, 'shares', 0) or 0
+            profit_amt = (pos.current_price - pos.avg_cost) * qty if qty else 0
+            sell_reason = (
+                f"止盈·价{pos.current_price:.2f} 盈{pos.profit_pct:+.1f}% "
+                f"¥{profit_amt:+.0f}"
+            )
         
         # 冲高回落/利润保护/高开即卖
         if not sell_reason and pos.avg_cost > 0:
@@ -282,13 +304,19 @@ class PositionManager:
             if pullback_lock > 0 and close_rise >= pullback_lock:
                 pass  # 利润够高，不触发冲高回落
             elif open_rise >= pullback_high:
-                return f"冲高回落(开涨{open_rise*100:.1f}%)", today_open
+                fall_pct = (today_open - pos.current_price) / today_open * 100
+                return (f"冲高回落·开涨{open_rise*100:+.1f}%(超阈{pullback_high*100:.0f}%) "
+                        f"回落{fall_pct:.1f}% 现盈{close_rise*100:+.1f}%"), today_open
             elif (today_open - pos.current_price) / today_open >= pullback_fallback:
-                return f"冲高回落(开涨{open_rise*100:.1f}%回落)", today_open
+                fall_pct = (today_open - pos.current_price) / today_open * 100
+                return (f"冲高回落·开涨{open_rise*100:+.1f}% 回落{fall_pct:.1f}%(超阈{pullback_fallback*100:.1f}%) "
+                        f"现盈{close_rise*100:+.1f}%"), today_open
         
         # 利润保护
         if open_rise >= 0.02 and close_rise >= 0.02 and pos.current_price < today_open:
-            return f"利润保护(收涨{close_rise*100:.1f}%)", pos.current_price
+            fall_pct = (today_open - pos.current_price) / today_open * 100
+            return (f"利润保护·开涨{open_rise*100:+.1f}% 现涨{close_rise*100:+.1f}% "
+                    f"回落{fall_pct:.1f}%"), pos.current_price
         
         # 【v2.9.64新增】利润锁定: 盘中冲高>=6%但从高点回撤>=2.5%→以close价卖出
         # 与sell_signal_checker.check_intraday_profit_lock对齐
@@ -300,7 +328,8 @@ class PositionManager:
         if open_rise >= next_day_sell_pct:
             strategy_name = pos.strategy
             if strategy_name in ('first_limit_up', '首板打板'):
-                return f"高开即卖(开涨{open_rise*100:.1f}%)", today_open
+                return (f"高开即卖·开涨{open_rise*100:+.1f}%(超阈{next_day_sell_pct*100:.0f}%) "
+                        f"首板锁利 现盈{close_rise*100:+.1f}%"), today_open
         
         # 【v2.9.64新增】龙头5天低利润: 龙头低吸持仓5天+利润<3%→提前退出
         dragon_reason = self._check_dragon_head_early_exit(pos, risk)

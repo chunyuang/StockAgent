@@ -291,21 +291,47 @@ class SignalManager:
             sig.signal_status = "skipped"
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, "已有持仓, 跳过", sig)
-            logger.info(f"[EXEC] {sig.ts_code} 已有持仓, 跳过")
+            existing = next((p for p in self.broker.get_positions() if p.ts_code == sig.ts_code), None)
+            if existing:
+                pos_pct = getattr(existing, 'profit_pct', 0) or 0
+                pos_qty = getattr(existing, 'total_qty', 0) or 0
+                block_reason = (
+                    f"已持仓·{sig.ts_code} {pos_qty}股 现盈{pos_pct:+.1f}% "
+                    f"({existing.strategy or ''}策略持有中)"
+                )
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, block_reason, sig)
+                logger.info(f"[EXEC] {block_reason}")
+            else:
+                logger.info(f"[EXEC] {sig.ts_code} 已有持仓, 跳过")
             return False, "duplicate"
         # 熔断检查(checked inline, 不await)
         cb = self.circuit_breaker
         if cb.get("trading_paused", False):
+            pause_reason = cb.get("pause_reason", "未知")
+            today_trades = cb.get("today_trades", 0)
+            today_losses = cb.get("today_losses", 0)
+            consecutive = cb.get("consecutive_losses", 0)
+            block_reason = (
+                f"风控熔断·{pause_reason} "
+                f"今日交易{today_trades}笔(亏损{today_losses}笔) "
+                f"连亏{consecutive}笔"
+            )
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                sig.strategy_name, "风控熔断中, 暂停买入", sig)
-            logger.info(f"[EXEC] 风控熔断, 跳过买入")
+                sig.strategy_name, block_reason, sig)
+            logger.info(f"[EXEC] {block_reason}")
             return False, "circuit_breaker"
         # 最大持仓数
         MAX_POSITIONS = scanner.MAX_POSITIONS
         if self.broker and len(self.broker.get_positions()) >= MAX_POSITIONS:
+            curr_count = len(self.broker.get_positions())
+            block_reason = (
+                f"持仓已满·{curr_count}/{MAX_POSITIONS}只 "
+                f"无法新增{sig.ts_code}({sig.strategy_name})"
+            )
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                sig.strategy_name, f"已达最大持仓{MAX_POSITIONS}只", sig)
-            logger.info(f"[EXEC] 已达最大持仓{MAX_POSITIONS}, 跳过")
+                sig.strategy_name, block_reason, sig)
+            logger.info(f"[EXEC] {block_reason}")
             return False, "max_positions"
         # 价格异常
         if sig.price <= 0:
@@ -341,8 +367,13 @@ class SignalManager:
             if not allow_after_10am:
                 now = datetime.now()
                 if now.hour >= 10 and now.minute > 0:
+                    block_reason = (
+                        f"时间过滤·半路追涨10点后禁止 "
+                        f"当前{now.strftime('%H:%M')} "
+                        f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
+                    )
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        name, "半路追涨10点后禁止买入", sig)
+                        name, block_reason, sig)
                     return False, "time_filter"
         
         # A4: 首板打板换手率/市值限制
@@ -352,11 +383,11 @@ class SignalManager:
             max_tr = params.get('max_turnover_rate', 999)
             if min_tr > 0 and tr < min_tr:
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, f"换手率{tr:.1f}%<{min_tr}%", sig)
+                    name, f"过滤·换手{tr:.1f}%<下限{min_tr}% (首板需高换手保证流动性)", sig)
                 return False, "turnover_filter"
             if max_tr < 999 and tr > max_tr:
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, f"换手率{tr:.1f}%>{max_tr}%", sig)
+                    name, f"过滤·换手{tr:.1f}%>上限{max_tr}% (首板换手过高=接力盘混乱)", sig)
                 return False, "turnover_filter"
             # 市值限制(从实时数据或MongoDB读取)
             min_mcap = params.get('min_circulation_market_cap', 0)
