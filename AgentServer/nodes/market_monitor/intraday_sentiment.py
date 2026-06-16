@@ -208,6 +208,48 @@ class IntradaySentimentCalculator:
             f"lb={max_continue} ztp={zt_premium:.1f} tp={today_premium:.2f}"
         )
         
+        # 【v2.9.96h】记录盘中实时计算到全局 _compute_log供前端读取
+        try:
+            from datetime import datetime
+            from .emotion_cycle import emotion_cycle_manager
+            broken_rate_calc = (broken / max(limit_up + broken, 1)) * 100 if (limit_up + broken) > 0 else 0.0
+            # 7维拆解按 _compute_7dim_score 的权重分配还原
+            d1 = min(20, limit_up)              # 涨停数量 20分
+            d2 = max(0, 15 - limit_down * 1.5)  # 跌停数量 15分
+            d3 = round(up_down_ratio * 15, 1)    # 涨跌比 15分
+            d4 = max(-5, min(10, momentum * 100))  # 动量 10分
+            d5 = max(0, 10 - broken_rate_calc / 5)  # 炸板率 10分
+            d6 = min(15, max_continue * 1.5)    # 连板高度 15分
+            d7 = min(15, max(0, today_premium * 3))  # 当日溢价 15分
+            emotion_cycle_manager._compute_log.append({
+                'time': datetime.now().strftime('%H:%M:%S'),
+                'trade_date': trade_date,
+                'score': round(score, 1),
+                'phase': period_en,
+                'phase_label': period_cn,
+                'position_ratio': position_ratio,
+                'limit_up': limit_up, 'limit_down': limit_down,
+                'max_continue': max_continue,
+                'up_down_ratio': round(up_down_ratio, 3),
+                'zt_premium': round(today_premium, 2),  # 今日溢价(与 UI 一致)
+                'broken': broken,
+                'broken_rate': round(broken_rate_calc, 1),
+                'momentum': round(momentum, 4),
+                'formula': '7dim',
+                # 7维拆解
+                'breakdown': {
+                    'limit_up_score': round(d1, 1),
+                    'limit_down_score': round(d2, 1),
+                    'up_down_score': round(d3, 1),
+                    'momentum_score': round(d4, 1),
+                    'broken_score': round(d5, 1),
+                    'max_continue_score': round(d6, 1),
+                    'zt_premium_score': round(d7, 1),
+                },
+            })
+        except Exception:
+            pass
+        
         return IntradayEmotionScore(
             score=score,
             period=period_cn,

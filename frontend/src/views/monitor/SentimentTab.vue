@@ -3,9 +3,11 @@
  * SentimentTab — 情绪分析Tab
  * v2.9.92: 日内改为多指标展示(涨跌停柱状图+涨跌比+情绪score)
  */
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElDatePicker } from 'element-plus'
+import { api } from '@/api/client'
+import { parseResponse } from '@/utils/scanner'
 
 const m = useScannerMonitorInject()
 const {
@@ -67,6 +69,28 @@ const dailyTradeMarkers = computed(() =>
 )
 function matrixTotal(periods: Record<string, any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as Record<string, any>).count as number || 0), 0) }
 function dailyDotBottom(p: Record<string, any>): number { return (p.score || 0) as number }
+
+// 【v2.9.96h】盘中计算日志
+const liveLogs = ref<Array<Record<string, any>>>([])
+const liveLogsLoading = ref(false)
+async function fetchLiveLogs() {
+  liveLogsLoading.value = true
+  try {
+    const r = await api.get('/scanner/sentiment-live-log?limit=50', { timeout: 5000 })
+    const p = parseResponse(r)
+    if (p.success) liveLogs.value = (p.data?.logs || []) as Array<Record<string, any>>
+  } catch { /* ignore */ }
+  finally { liveLogsLoading.value = false }
+}
+function scoreColor(s: number): string {
+  if (s >= 70) return '#f56c6c'
+  if (s >= 55) return '#409eff'
+  if (s >= 40) return '#e6a23c'
+  return '#67c23a'
+}
+let liveLogTimer: number | undefined
+onMounted(() => { fetchLiveLogs(); liveLogTimer = window.setInterval(fetchLiveLogs, 15000) })
+onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 function dailyHoverLeft(): number { const tl = displayTimeline.value as Array<Record<string, any>>; const hp = hoveredPoint.value as Record<string, any> | null; if (!hp) return 0; const idx = tl.findIndex((p: Record<string, any>) => p === hp); return Math.min(idx / Math.max(tl.length - 1, 1) * 100, 75) }
 function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<string, any> | null; return Math.min(((hp?.score || 30) as number) + 8, 85) }
 </script>
@@ -186,6 +210,37 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
           </div><div v-else class="empty" style="padding:8px 0">无数据</div></div>
       </div>
 
+      <!-- 【v2.9.96h】盘中实时计算日志 -->
+      <div class="st" style="margin-top:12px;display:flex;align-items:center;gap:8px">
+        <span>📜 盘中计算日志</span>
+        <span style="font-size:10px;color:var(--text-quaternary);font-weight:normal">(追踪每次情绪快照变化, 最近 {{ liveLogs.length }} 条)</span>
+        <ElButton size="small" @click="fetchLiveLogs" :loading="liveLogsLoading" style="font-size:10px;padding:2px 6px;margin-left:auto">🔄</ElButton>
+      </div>
+      <div v-if="liveLogs.length" class="live-log-wrap">
+        <table class="live-log-tbl">
+          <thead><tr><th>时间</th><th>得分</th><th>周期</th><th>仓位</th><th>涨停</th><th>跌停</th><th>连板</th><th>涨跌比</th><th>溢价</th><th>动量</th><th>炸板</th><th>7维拆解</th></tr></thead>
+          <tbody>
+            <tr v-for="(l, i) in liveLogs" :key="l.time + i" :class="i === 0 ? 'live-log-latest' : ''">
+              <td class="ll-time">{{ l.time }}</td>
+              <td class="ll-score" :style="{ color: scoreColor(l.score), fontWeight: 'bold' }">{{ Number(l.score).toFixed(1) }}</td>
+              <td><span class="ll-phase" :style="{ color: phaseColors[l.phase_label] || '#888' }">{{ l.phase_label }}</span></td>
+              <td>{{ ((l.position_ratio || 0) * 100).toFixed(0) }}%</td>
+              <td class="up">{{ l.limit_up }}</td>
+              <td class="down">{{ l.limit_down }}</td>
+              <td>{{ l.max_continue }}</td>
+              <td>{{ ((l.up_down_ratio || 0) * 100).toFixed(1) }}%</td>
+              <td>{{ Number(l.zt_premium || 0).toFixed(2) }}</td>
+              <td :style="{ color: (l.momentum || 0) >= 0 ? '#67c23a' : '#f56c6c' }">{{ ((l.momentum || 0) * 100).toFixed(2) }}%</td>
+              <td :class="(l.broken_rate || 0) > 30 ? 'down' : ''">{{ l.broken }} ({{ (l.broken_rate || 0).toFixed(1) }}%)</td>
+              <td class="ll-bd">
+                <span class="ll-bd-item" title="涨停数">{{ l.breakdown?.limit_up_score }}</span>+<span class="ll-bd-item" title="跌停数">{{ l.breakdown?.limit_down_score }}</span>+<span class="ll-bd-item" title="涨跌比">{{ l.breakdown?.up_down_score }}</span>+<span class="ll-bd-item" title="动量">{{ l.breakdown?.momentum_score ?? '-' }}</span>+<span class="ll-bd-item" title="炸板率">{{ l.breakdown?.broken_score ?? '-' }}</span>+<span class="ll-bd-item" title="连板高度">{{ l.breakdown?.max_continue_score }}</span>+<span class="ll-bd-item" title="今日溢价">{{ l.breakdown?.zt_premium_score }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="empty" style="padding:8px 0">暂无盘中计算日志 (非交易时段或 scanner 未运行)</div>
+
       <!-- 阶段说明 -->
       <div class="st" style="margin-top:12px">📖 阶段说明与建议</div>
       <div class="phase-guide">
@@ -301,4 +356,17 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
 .algo-section { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
 .algo-title { font-weight: 700; font-size: 12px; padding: 6px 10px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
 .algo-body { padding: 8px 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+
+/* 【v2.9.96h】盘中计算日志表格 */
+.live-log-wrap { overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid var(--border-default); border-radius: 6px; }
+.live-log-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.live-log-tbl th { position: sticky; top: 0; z-index: 1; padding: 6px 8px; background: var(--bg-secondary); font-weight: 600; color: var(--text-tertiary); text-align: center; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+.live-log-tbl td { padding: 4px 8px; text-align: center; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.live-log-latest { background: rgba(64, 158, 255, 0.08); }
+.live-log-latest td { font-weight: 500; }
+.ll-time { font-family: 'Menlo', 'Monaco', monospace; color: var(--text-tertiary); }
+.ll-score { font-family: 'Menlo', 'Monaco', monospace; min-width: 38px; }
+.ll-phase { padding: 1px 6px; border-radius: 3px; font-size: 10px; background: rgba(128,128,128,0.08); }
+.ll-bd { font-family: 'Menlo', 'Monaco', monospace; font-size: 10px; color: var(--text-tertiary); }
+.ll-bd-item { display: inline-block; padding: 0 2px; color: var(--text-secondary); }
 </style>
