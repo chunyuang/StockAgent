@@ -67,8 +67,8 @@ const emit = defineEmits<{
         <ElButton size="small" @click="emit('fetchReviewData')" :loading="reviewLoading">🔄</ElButton>
       </div>
 
-      <!-- ============ 第1层: Hero Banner ============ -->
-      <div v-if="reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
+      <!-- ============ 第1层: Hero Banner (仅日复盘显示) ============ -->
+      <div v-if="reviewTab === 'daily' && reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
         <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
         <div class="hero-meta">
           <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ (reviewHero.benchmark.pct_chg || 0) >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg || 0 }}%</span>
@@ -77,8 +77,8 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <!-- ============ 第2层: 核心仪表盘 ============ -->
-      <div v-if="reviewHero" class="review-scorecard">
+      <!-- ============ 第2层: 核心仪表盘 (仅日复盘显示) ============ -->
+      <div v-if="reviewTab === 'daily' && reviewHero" class="review-scorecard">
         <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.total_pct != null ? ((reviewHero.metrics.total_pct >= 0 ? '+' : '') + reviewHero.metrics.total_pct + '%') : '-' }}</div></div>
         <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate ?? '-' }}%</div></div>
         <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics?.trades ?? '-' }}笔</div></div>
