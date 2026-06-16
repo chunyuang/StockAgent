@@ -39,34 +39,31 @@ async def get_all_scanner_data():
     signals_data = scanner.get_signals()
     _fill_stock_names(signals_data, scanner)
     
-    # 持仓【v2.9.93】scanner.get_positions() 是主路径（字段最全）,
-    # 但增加一道 broker_positions 一致性检查：如果二者持仓 ts_code 集合不一致，
-    # 说明 scanner 内存被 scanner_timeline 污染 (P0事故 6/15) —— fallback 到 broker 真相源。
-    positions_data = scanner.get_positions()
+    # 【v2.9.97f】持仓统一从 broker_positions (MongoDB) 读取, 不再以 scanner 内存为主
+    # 解决: scanner 内存与 MongoDB 不一致(崩溃/重启时) → P0 持仓漂移事故
+    # scanner 内存只用于补充实时字段(trailing_stop等scanner独有字段)
+    positions_data = []
     try:
         from nodes.web.api.scanner_analysis import _compute_positions_from_broker
         from core.managers import mongo_manager
         if mongo_manager.db is not None:
             account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
-            broker_positions = await _compute_positions_from_broker(mongo_manager.db, account_id)
-            broker_codes = {p.get("ts_code") for p in broker_positions}
-            scanner_codes = {p.get("ts_code") for p in positions_data}
-            if broker_codes != scanner_codes:
-                # 不一致: 幽灵持仓警报 — 切为 broker 真相源 (代价: 丢失部分字段)
-                ghost = scanner_codes - broker_codes
-                missing = broker_codes - scanner_codes
-                try:
-                    from loguru import logger
-                    logger.warning(
-                        f"[/scanner/all] 持仓 drift! scanner={len(scanner_codes)} broker={len(broker_codes)} "
-                        f"幽灵(scanner独有)={ghost} 丢失(broker独有)={missing} —— fallback 到 broker_positions"
-                    )
-                except Exception:
-                    pass
-                positions_data = broker_positions
+            positions_data = await _compute_positions_from_broker(mongo_manager.db, account_id)
+            # 用 scanner 内存补充实时字段(trailing_stop, risk_level等)
+            if scanner._broker:
+                scanner_positions = {p.get("ts_code"): p for p in scanner.get_positions()}
+                for i, p in enumerate(positions_data):
+                    tc = p.get("ts_code")
+                    sp = scanner_positions.get(tc)
+                    if sp:
+                        for key in ["trailing_stop_activated", "trailing_stop_pct",
+                                     "risk_level", "risk_desc", "hold_hours",
+                                     "stop_loss_reason", "take_profit_reason"]:
+                            if sp.get(key) is not None and p.get(key) is None:
+                                positions_data[i][key] = sp[key]
     except Exception:
-        # 一致性检查失败 不影响主路径
-        pass
+        # fallback到scanner内存(MongoDB不可用时)
+        positions_data = scanner.get_positions()
     _fill_stock_names(positions_data, scanner)
     
     # 时间线
@@ -491,59 +488,87 @@ async def get_timeline_history(date: str = None, days: int = 7, source: str = "r
 async def get_account():
     """获取账户信息(资金/持仓/盈亏)"""
     scanner = await _get_scanner()
-    # scanner未运行时从MongoDB读真实数据(broker内存数据不权威)
-    if not scanner._is_running:
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.is_initialized:
-                acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
-                if acct_doc and acct_doc.get("total_assets", 0) > 0:
-                    # 【v2.9.97c】position_count 从 broker_positions 实查, 不信任 broker_accounts 的缓存值
-                    pos_count = await mongo_manager.db["broker_positions"].count_documents(
-                        {"account_id": "default", "total_qty": {"$gt": 0}}
-                    )
-                    return {
-                        "success": True,
-                        "data": {
-                            "account_id": acct_doc.get("account_id", "default"),
-                            "total_assets": round(acct_doc.get("total_assets", 0), 2),
-                            "available_cash": round(acct_doc.get("available_cash", 0), 2),
-                            "market_value": round(acct_doc.get("market_value", 0), 2),
-                            "today_profit": round(acct_doc.get("today_profit", 0), 2),
-                            "total_profit": round(acct_doc.get("total_profit", 0), 2),
-                            "position_count": pos_count,
-                            "position_ratio": round(acct_doc.get("market_value", 0) / max(acct_doc.get("total_assets", 1), 1) * 100, 1),
-                        },
-                    }
-        except Exception:
-            pass
-    if not scanner._broker:
-        # 【v2.9.97e】Broker未初始化时返回空账户(而非None, 避免前端崩溃)
+    # 【v2.9.97f】账户信息统一从 broker_positions + broker_orders 实时计算
+    # 不再信任 broker_accounts 缓存(可能过时)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
+            acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
+            
+            # 从 broker_positions 实时计算市值和持仓数
+            market_value = 0
+            pos_count = 0
+            async for p in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}):
+                qty = p.get("total_qty", 0)
+                price = float(p.get("current_price") or p.get("avg_cost") or 0)
+                if qty > 0 and price > 0:
+                    market_value += qty * price
+                    pos_count += 1
+            
+            # 从 broker_orders 实时计算已实现盈亏
+            total_profit = 0
+            async for o in db["broker_orders"].find({"account_id": "default", "side": "sell", "status": "filled"}, {"profit_amount": 1}):
+                total_profit += float(o.get("profit_amount") or 0)
+            
+            # available_cash 从 broker_accounts 读(这是唯一准确的来源)
+            available_cash = float(acct_doc.get("available_cash", 0)) if acct_doc else 0
+            total_assets = available_cash + market_value
+            
+            # today_profit: 当日已实现盈亏
+            today_str = datetime.now().strftime("%Y%m%d")
+            today_profit = 0
+            async for o in db["broker_orders"].find({
+                "account_id": "default", "side": "sell", "status": "filled",
+                "trade_date": {"$in": [int(today_str), today_str]}
+            }, {"profit_amount": 1}):
+                today_profit += float(o.get("profit_amount") or 0)
+            
+            return {
+                "success": True,
+                "data": {
+                    "account_id": "default",
+                    "total_assets": round(total_assets, 2),
+                    "available_cash": round(available_cash, 2),
+                    "market_value": round(market_value, 2),
+                    "today_profit": round(today_profit, 2),
+                    "total_profit": round(total_profit, 2),
+                    "position_count": pos_count,
+                    "position_ratio": round(market_value / max(total_assets, 1) * 100, 1),
+                },
+            }
+    except Exception:
+        pass
+    
+    # Fallback: scanner运行中时从内存读
+    if scanner._broker:
+        acct = scanner._broker.get_account()
         return {
             "success": True,
             "data": {
-                "account_id": "default",
-                "total_assets": 0,
-                "available_cash": 0,
-                "market_value": 0,
-                "today_profit": 0,
-                "total_profit": 0,
-                "position_count": 0,
-                "position_ratio": 0,
+                "account_id": acct.account_id,
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "today_profit": round(acct.today_profit, 2),
+                "total_profit": round(acct.total_profit, 2),
+                "position_count": len(scanner._broker.get_positions()),
+                "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
             },
         }
-    acct = scanner._broker.get_account()
+    
+    # 最终兜底
     return {
         "success": True,
         "data": {
-            "account_id": acct.account_id,
-            "total_assets": round(acct.total_assets, 2),
-            "available_cash": round(acct.available_cash, 2),
-            "market_value": round(acct.market_value, 2),
-            "today_profit": round(acct.today_profit, 2),
-            "total_profit": round(acct.total_profit, 2),
-            "position_count": len(scanner._broker.get_positions()),
-            "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
+            "account_id": "default",
+            "total_assets": 0,
+            "available_cash": 0,
+            "market_value": 0,
+            "today_profit": 0,
+            "total_profit": 0,
+            "position_count": 0,
+            "position_ratio": 0,
         },
     }
 

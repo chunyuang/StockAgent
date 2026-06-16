@@ -131,6 +131,8 @@ class SimulatedBroker:
         self._pending_save = False  # 标记有待保存的状态
         self._last_save_time = 0  # 上次保存时间(节流用)
         self._virtual_mode = virtual_mode  # 【v2.9.92s】replay/dry_run模式标记，防止覆盖实盘数据
+        self._sync_mongo_client = None  # 【v2.9.97f】同步MongoDB客户端(用于关键写入,不依赖事件循环)
+        self._sync_mongo_db = None      # 同步MongoDB数据库句柄
         self._today_rejected: set = set()  # 【v2.9.95f】当日已拒绝的ts_code去重缓存，避免同一股同日重复下单
 
     # ==================== 持久化 ====================
@@ -147,6 +149,102 @@ class SimulatedBroker:
             return True
         except Exception as e:
             logger.warning(f"[BROKER] MongoDB连接失败: {e}")
+            return False
+
+    def _ensure_sync_mongo(self) -> bool:
+        """【v2.9.97f】懒初始化同步MongoDB客户端(不依赖事件循环,可用于sync方法)"""
+        if self._sync_mongo_db is not None:
+            return True
+        try:
+            from pymongo import MongoClient as SyncClient
+            from core.settings import settings
+            # 复用同一连接配置,但用同步客户端
+            uri = getattr(settings, 'MONGO_URI', 'mongodb://localhost:27017')
+            self._sync_mongo_client = SyncClient(uri, serverSelectionTimeoutMS=2000)
+            db_name = getattr(settings, 'MONGO_DB', 'stock_agent')
+            self._sync_mongo_db = self._sync_mongo_client[db_name]
+            return True
+        except Exception as e:
+            logger.warning(f"[BROKER] 同步MongoDB连接失败: {e}")
+            return False
+
+    def _sync_save_order_and_position(self, order, position) -> bool:
+        """【v2.9.97f】同步写入单笔订单+持仓到MongoDB(关键路径,不依赖事件循环)
+        
+        解决: place_order是sync方法, create_task(save_state)不保证在崩溃前完成。
+        此方法用pymongo同步客户端直接写入, 保证进程崩溃时交易数据不丢失。
+        非关键数据(broker_accounts等)仍由异步save_state处理。
+        """
+        if self._virtual_mode:
+            return True  # 虚拟模式不写
+        if not self._ensure_sync_mongo():
+            return False
+        try:
+            db = self._sync_mongo_db
+            account_id = self.account.account_id
+            
+            # 1. 写入订单 (upsert by order_id)
+            if order is not None:
+                order_doc = {
+                    "order_id": order.order_id,
+                    "account_id": account_id,
+                    "ts_code": order.ts_code,
+                    "stock_name": order.stock_name,
+                    "side": order.side.value if hasattr(order.side, 'value') else str(order.side),
+                    "quantity": order.quantity,
+                    "filled_qty": order.filled_qty,
+                    "price": order.price,
+                    "filled_price": order.filled_price,
+                    "order_type": order.order_type.value if hasattr(order.order_type, 'value') else str(order.order_type),
+                    "strategy": order.strategy,
+                    "reason": order.reason,
+                    "source": getattr(order, 'source', 'auto'),
+                    "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+                    "commission": getattr(order, 'commission', 0),
+                    "stamp_duty": getattr(order, 'stamp_duty', 0),
+                    "trade_date": order.trade_date,
+                    "create_time": order.create_time,
+                    "fill_time": order.fill_time,
+                    "profit_pct": getattr(order, 'profit_pct', 0),
+                    "profit_amount": getattr(order, 'profit_amount', 0),
+                }
+                db["broker_orders"].update_one(
+                    {"order_id": order.order_id},
+                    {"$set": order_doc},
+                    upsert=True,
+                )
+            
+            # 2. 写入/更新持仓 (upsert by ts_code)
+            if position is not None:
+                pos_doc = {
+                    "account_id": account_id,
+                    "ts_code": position.ts_code,
+                    "stock_name": position.stock_name,
+                    "total_qty": position.total_qty,
+                    "available_qty": position.available_qty,
+                    "today_buy_qty": position.today_buy_qty,
+                    "avg_cost": position.avg_cost,
+                    "current_price": position.current_price,
+                    "strategy": position.strategy,
+                    "buy_date": position.buy_date,
+                    "stop_loss_price": getattr(position, 'stop_loss_price', 0),
+                    "take_profit_price": getattr(position, 'take_profit_price', 0),
+                }
+                db["broker_positions"].update_one(
+                    {"account_id": account_id, "ts_code": position.ts_code},
+                    {"$set": pos_doc},
+                    upsert=True,
+                )
+            
+            # 3. 如果持仓qty=0, 删除
+            if position is not None and position.total_qty <= 0:
+                db["broker_positions"].delete_one(
+                    {"account_id": account_id, "ts_code": position.ts_code}
+                )
+            
+            return True
+        except Exception as e:
+            logger.error(f"[BROKER] 同步写入订单+持仓失败: {e}")
             return False
 
     async def save_state(self, force: bool = False, skip_if_virtual: bool = False) -> None:
@@ -708,13 +806,25 @@ class SimulatedBroker:
         logger.info(f"[BROKER] {action} {order.ts_code} {quantity}股@{fill_price:.2f} "
                      f"佣金{commission:.0f} 印花税{stamp_duty:.0f} ({strategy})")
 
-        # 【v2.9.92p】买入/卖出后立即持久化(force=True)，不依赖stop()
-        # 防止进程崩溃时持仓丢失(000608事故根因)
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self.save_state(force=True))
-        except Exception:
-            self._pending_save = True
+        # 【v2.9.97f】同步写入关键数据(订单+持仓), 不依赖事件循环
+        # 解决: create_task(save_state)不保证在崩溃前完成 → 进程崩溃时交易丢失
+        pos = self.positions.get(order.ts_code)
+        sync_ok = self._sync_save_order_and_position(order, pos)
+        if not sync_ok:
+            # 同步写入失败时仍走异步(降级, 但不会block交易)
+            logger.warning(f"[BROKER] 同步写入失败, 降级到异步save_state")
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.save_state(force=True))
+            except Exception:
+                self._pending_save = True
+        else:
+            # 同步写入成功, 异步save_state仍需运行(broker_accounts等非关键数据)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.save_state(force=True))
+            except Exception:
+                self._pending_save = True
         return True, f"{action}{quantity}股@{fill_price:.2f}", order
 
     def _create_order_instance(self, ts_code: str, stock_name: str,
