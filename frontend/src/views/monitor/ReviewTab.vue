@@ -10,6 +10,7 @@
  */
 import { ElButton, ElTag } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
+import { formatTradeDate, formatFullDate } from '@/utils/scanner'
 import FactorEffectSection from './components/FactorEffectSection.vue'
 
 defineProps<{
@@ -172,7 +173,7 @@ const emit = defineEmits<{
           <div class="st" style="margin-top:8px">🗓️ 日历热力图</div>
           <div v-if="(monthlyReviewData?.daily_breakdown?.length || 0)" class="calendar-heatmap">
             <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="(d.pnl || 0) > 0 ? 'cal-up' : (d.pnl || 0) < 0 ? 'cal-down' : 'cal-neutral'">
-              <div class="cal-date">{{ d.date?.slice(-2) }}</div>
+              <div class="cal-date">{{ formatTradeDate(d.date) }}</div>
               <div class="cal-pnl">{{ (d.pnl || 0) >= 0 ? '+' : '' }}{{ d.pnl || 0 }}%</div>
               <div class="cal-trades">{{ d.trades || 0 }}笔</div>
             </div>
@@ -195,7 +196,7 @@ const emit = defineEmits<{
               <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
             </div>
           </div>
-          <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
+          <div v-else class="empty">无参数漂移(快照基线: {{ formatFullDate(paramDriftData?.start_date) || '无' }})</div>
         </template>
         <div v-else class="empty">选择日期后查看月复盘</div>
         <FactorEffectSection :factorEffectData="factorEffectData" />
@@ -254,7 +255,7 @@ const emit = defineEmits<{
         <div v-if="weeklyReviewData?.daily_breakdown?.length" class="weekly-daily-table">
           <div class="wdt-header"><span>日期</span><span>买入</span><span>卖出</span><span>胜率</span><span>盈亏</span><span>情绪</span></div>
           <div v-for="d in weeklyReviewData.daily_breakdown" :key="d.date" class="wdt-row wdt-6col">
-            <span>{{ d.date?.length >= 8 ? d.date.slice(4,6)+'/'+d.date.slice(6,8) : d.date }}</span>
+            <span>{{ formatTradeDate(d.date) }}</span>
             <span>{{ d.buys || 0 }}</span>
             <span>{{ d.sells || 0 }}</span>
             <span :class="(d.win_rate || 0) >= 50 ? 'up' : 'down'">{{ d.win_rate || 0 }}%</span>
@@ -343,14 +344,14 @@ const emit = defineEmits<{
     <div class="wr-sec"><div class="wr-t">💰 账户状态</div><div class="wr-g"><div class="wr-i"><span class="wr-l">总资产</span><span class="wr-v">{{ (Number(weeklyReportData?.account?.total_assets || 0) / 10000).toFixed(1) }}万</span></div><div class="wr-i"><span class="wr-l">累计盈亏</span><span class="wr-v" :class="(weeklyReportData?.account?.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (weeklyReportData?.account?.total_profit || 0) >= 0 ? '+' : '' }}{{ Number(weeklyReportData?.account?.total_profit || 0).toFixed(0) }}</span></div><div class="wr-i"><span class="wr-l">可用现金</span><span class="wr-v">{{ (Number(weeklyReportData?.account?.available_cash || 0) / 10000).toFixed(1) }}万</span></div></div></div>
     <div class="wr-sec"><div class="wr-t">📈 交易统计</div><div class="wr-g"><div class="wr-i"><span class="wr-l">交易日</span><span class="wr-v">{{ weeklyReportData.totals?.trading_days || 0 }}天</span></div><div class="wr-i"><span class="wr-l">买入</span><span class="wr-v">{{ weeklyReportData.totals?.total_buys || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">卖出</span><span class="wr-v">{{ weeklyReportData.totals?.total_sells || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">净流入</span><span class="wr-v" :class="(weeklyReportData.totals?.net_flow || 0) >= 0 ? 'up' : 'down'">{{ Number(weeklyReportData.totals?.net_flow || 0).toFixed(0) }}</span></div></div></div>
     <div class="dr-sec" v-if="weeklyReportData.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in weeklyReportData.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.trades }}笔</span><span :class="(s.amount || 0) >= 0 ? 'up' : 'down'">¥{{ (s.amount || 0) >= 0 ? '+' : '' }}{{ Number(s.amount || 0).toFixed(0) }}</span></div></div>
-    <div class="dr-sec" v-if="weeklyReportData.daily_stats"><div class="dr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ date }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="((stats.sell_amount || 0) - (stats.buy_amount || 0)) >= 0 ? 'up' : 'down'">¥{{ Number((stats.sell_amount || 0) - (stats.buy_amount || 0)).toFixed(0) }}</span></div></div>
+    <div class="dr-sec" v-if="weeklyReportData.daily_stats"><div class="dr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ formatTradeDate(date) }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="((stats.sell_amount || 0) - (stats.buy_amount || 0)) >= 0 ? 'up' : 'down'">¥{{ Number((stats.sell_amount || 0) - (stats.buy_amount || 0)).toFixed(0) }}</span></div></div>
   </div>
   <div v-else class="empty">暂无周报数据</div>
 </ElDialog>
 </template>
 
 <style scoped lang="scss">
-.review-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.review-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: nowrap; }
 
 .review-scan-stats { display: flex; gap: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); font-size: 11px; }
 

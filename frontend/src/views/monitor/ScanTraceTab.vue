@@ -61,7 +61,7 @@ onMounted(async () => {
       <div class="st">📡 扫描历史
         <UnifiedDateBar @change="(_d: string) => { scanTraceDate = _d; fetchScanHistory() }" />
         <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton>
-        <span class="text-tertiary" style="font-size:11px;margin-left:auto">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · <span style="color:var(--el-color-primary)">●</span>交易日 <span style="color:#e6a23c">●</span>调试</span>
+        <span class="text-tertiary" style="font-size:11px;margin-left:8px">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · <span style="color:var(--el-color-primary)">●</span>交易日 <span style="color:#e6a23c">●</span>调试</span>
       </div>
       <div v-if="!scanTraceDate" class="empty" style="padding:12px 0;color:var(--text-tertiary)">📅 请在上方选择日期查看扫描记录（高亮日期有数据）</div>
       <div v-else-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>

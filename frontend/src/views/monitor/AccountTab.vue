@@ -297,7 +297,7 @@ const posPie = computed(() => {
 .at-alert { padding: 5px 10px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.3); border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: #e6a23c; }
 
 /* KPI - compact single row */
-.at-kpi-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.at-kpi-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: nowrap; }
 .at-kpi-title { font-size: 14px; font-weight: 700; }
 .at-kpi { display: flex; gap: 2px; margin-bottom: 8px; flex-wrap: wrap; }
 .at-kpi-c { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 4px; padding: 3px 8px; display: flex; align-items: baseline; gap: 3px; }
