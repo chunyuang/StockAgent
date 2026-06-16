@@ -917,24 +917,31 @@ class RuntimePersistence:
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    # 从broker_orders重建持仓
+                    # 从broker_orders重建持仓 【v2.9.96i】排除 rolled_back 【v2.9.96j】用移动加权平均成本(避免清仓后重买成本叠加)
                     from collections import defaultdict
-                    holdings = defaultdict(lambda: {"qty": 0, "total_cost": 0, "name": "", "strategy": ""})
+                    holdings = defaultdict(lambda: {"qty": 0, "total_cost": 0.0, "name": "", "strategy": "", "buy_date": ""})
                     async for doc in mongo_manager.db["broker_orders"].find(
                         {"account_id": scanner._broker.account.account_id,
                          "status": {"$in": ["filled", "partial"]}}
-                    ):
+                    ).sort([("trade_date", 1), ("create_time", 1)]):
                         tc = doc.get("ts_code", "")
                         side = doc.get("side", "")
                         qty = doc.get("filled_qty", doc.get("quantity", 0))
                         price = doc.get("filled_price", doc.get("price", 0))
-                        if side == "buy" and tc:
-                            holdings[tc]["qty"] += qty
-                            holdings[tc]["total_cost"] += qty * price
-                            holdings[tc]["name"] = doc.get("stock_name", holdings[tc]["name"])
-                            holdings[tc]["strategy"] = doc.get("strategy", holdings[tc]["strategy"])
-                        elif side == "sell" and tc:
-                            holdings[tc]["qty"] -= qty
+                        if not tc or not qty: continue
+                        h = holdings[tc]
+                        if side == "buy":
+                            h["qty"] += qty
+                            h["total_cost"] += qty * price
+                            h["name"] = doc.get("stock_name") or h["name"]
+                            h["strategy"] = doc.get("strategy") or h["strategy"]
+                            h["buy_date"] = str(doc.get("trade_date", ""))
+                        elif side == "sell" and h["qty"] > 0:
+                            avg_cost = h["total_cost"] / h["qty"]
+                            h["qty"] -= qty
+                            h["total_cost"] -= avg_cost * qty
+                            if h["qty"] == 0:
+                                h["total_cost"] = 0.0
                     
                     restored_count = 0
                     for tc, h in holdings.items():
