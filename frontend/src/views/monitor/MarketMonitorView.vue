@@ -25,6 +25,7 @@ const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
 const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard.vue'))
 const SignalTracePanel = defineAsyncComponent(() => import('./SignalTracePanel.vue'))
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
+import UnifiedDateBar from '@/components/UnifiedDateBar.vue'
 
 const monitorData = useScannerMonitor()
 provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
@@ -34,6 +35,8 @@ const themeStore = monitorData.themeStore || useThemeStore()
 
 // 在模板中使用的变量仍需解构(vue-tsc要求) — 必须从同一个实例解构
 const {
+  // 【v2.9.97】统一日期选择器
+  unified,
   loading, autoRefresh,
   status, signals, positions,
   signalFilter, filteredSignals,
@@ -133,6 +136,9 @@ function formatTradeDateTime(rec: any): string {
         <span class="dark-toggle" @click="themeStore.toggleTheme()">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
       </div>
     </div>
+
+    <!-- 【v2.9.97】全局统一日期选择器 - 所有Tab共用 -->
+    <UnifiedDateBar v-model="unified.currentDate.value" />
 
     <!-- Tab 导航栏 -->
     <div class="mm-tab-bar">

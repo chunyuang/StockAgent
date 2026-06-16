@@ -15,6 +15,7 @@ import { useCoreMethods } from './composables/useCoreMethods'
 import { useReviewMonitor } from './composables/useReviewMonitor'
 import { useScanTraceMonitor } from './composables/useScanTraceMonitor'
 import { usePremarketMonitor } from './composables/usePremarketMonitor'
+import { useUnifiedData } from './composables/useUnifiedData'
 
 // 类型定义
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
@@ -36,6 +37,8 @@ const scannerApi = '/scanner'
 const configApi = '/strategy-config'
 
 export function useScannerMonitor() {
+  // 【v2.9.97】统一数据源 - 8个Tab共用
+  const unified = useUnifiedData()
 
   // ==================== 🔴 核心状态 ====================
   const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
@@ -193,18 +196,24 @@ export function useScannerMonitor() {
   const historyData = ref<any[]>([])
   const historyOrders = ref<any[]>([])
   const historyLoading = ref(false)
+  // 【v2.9.97】历史回放走统一数据源
   async function loadHistory() {
     if (!historyDate.value) return
     historyLoading.value = true
     try {
       const d = historyDate.value.replace(/-/g, '')
       const [tlR, ordR] = await Promise.all([
-        api.get(`${scannerApi}/timeline/history?date=${d}`),
+        api.get(`/unified/trades?date=${d}`),
         api.get(`${scannerApi}/orders?limit=200&date=${d}`),
       ])
       const tlP = parseResponse(tlR)
       const ordP = parseResponse(ordR)
-      if (tlP.success) historyData.value = tlP.data || []
+      // unified trades → timeline 格式适配
+      if (tlP.success) historyData.value = (tlP.data?.trades || []).map((t: any) => ({
+        time: t.time || t.fill_time, action: t.side, ts_code: t.ts_code, stock_name: t.stock_name,
+        strategy: t.strategy, shares: t.quantity, price: t.price, reason: t.reason,
+        profit_pct: t.profit_pct, profit_amount: t.profit_amount,
+      }))
       if (ordP.success) historyOrders.value = ordP.data || []
     } catch {}
     finally { historyLoading.value = false }
@@ -381,6 +390,8 @@ export function useScannerMonitor() {
   onUnmounted(() => { core.unmount() })
 
   return {
+    // 【v2.9.97】统一数据层 - 8个Tab共用
+    unified,
     // 核心状态
     loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders,
     signalFilter, filteredSignals, closedPositions, isRunning: core.isRunning,

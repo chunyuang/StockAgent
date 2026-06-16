@@ -57,13 +57,33 @@ export function useAutoTradeMonitor(core: CoreState) {
     } catch { /* ignore */ }
   }
 
+  // 【v2.9.97】切换到统一数据源 — broker_orders 为唯一真相
   async function fetchAutoTrades() {
     try {
-      let url = `${scannerApi}/auto-trades?limit=50`
+      let url = '/unified/trades?limit=50'
       if (opsDate.value) url += `&date=${opsDate.value.replace(/-/g, '')}`
       const r = await api.get(url)
       const p = parseResponse(r)
-      if (p.success) autoTrades.value = p.data || []
+      if (p.success) {
+        // unified/trades 返回 { trades: [...], summary: {...} }
+        autoTrades.value = (p.data?.trades || []).map((t: any) => ({
+          time: t.time || t.fill_time,
+          ts_code: t.ts_code,
+          stock_name: t.stock_name,
+          side: t.side,
+          quantity: t.quantity,
+          price: t.price,
+          amount: t.amount,
+          strategy: t.strategy,
+          reason: t.reason,
+          source: t.source || 'auto',
+          trade_date: t.trade_date,
+          order_id: t.order_id,
+          profit_pct: t.profit_pct,
+          profit_amount: t.profit_amount,
+          decision_trace: t.decision_trace || {},
+        }))
+      }
     } catch { /* ignore */ }
   }
 

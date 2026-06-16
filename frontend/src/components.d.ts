@@ -14,9 +14,11 @@ declare module 'vue' {
     DataStatusPanel: typeof import('./components/ultrashort/DataStatusPanel.vue')['default']
     ElBadge: typeof import('element-plus/es')['ElBadge']
     ElButton: typeof import('element-plus/es')['ElButton']
+    ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElCard: typeof import('element-plus/es')['ElCard']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDialog: typeof import('element-plus/es')['ElDialog']
+    ElIcon: typeof import('element-plus/es')['ElIcon']
     ElInputNumber: typeof import('element-plus/es')['ElInputNumber']
     ElOption: typeof import('element-plus/es')['ElOption']
     ElSelect: typeof import('element-plus/es')['ElSelect']
@@ -35,6 +37,7 @@ declare module 'vue' {
     StockChart: typeof import('./components/charts/StockChart.vue')['default']
     StrategyConfigPanel: typeof import('./components/ultrashort/StrategyConfigPanel.vue')['default']
     StrategyFactorPanel: typeof import('./components/ultrashort/StrategyFactorPanel.vue')['default']
+    UnifiedDateBar: typeof import('./components/UnifiedDateBar.vue')['default']
   }
   export interface ComponentCustomProperties {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

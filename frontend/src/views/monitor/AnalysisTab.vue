@@ -112,7 +112,8 @@ const dailyTradesLoading = ref(false)
 async function showDayDetail(date: string) {
   if (selectedDay.value === date) { selectedDay.value = ''; dailyTrades.value = []; return }
   selectedDay.value = date; dailyTradesLoading.value = true
-  try { const d = date.replace(/-/g, ''); const r = await api.get(`/scanner/timeline/history?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data || []).filter((t: any) => t.action !== 'blocked') } catch {} finally { dailyTradesLoading.value = false }
+  // 【v2.9.97】切换到统一数据源
+  try { const d = date.replace(/-/g, ''); const r = await api.get(`/unified/trades?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {} finally { dailyTradesLoading.value = false }
 }
 
 // 个股详情

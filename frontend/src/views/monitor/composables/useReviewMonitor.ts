@@ -55,7 +55,17 @@ export function useReviewMonitor() {
         if (isToday) {
           promises.push(
             api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
-            api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+            // 【v2.9.97】切换到统一数据源 — 包含 buy+sell
+            api.get(`/unified/trades?date=${dateParam}`, opts).then(r => {
+              const p = parseResponse(r); if (p.success) {
+                const sells = (p.data?.trades || []).filter((t: any) => t.side === 'sell')
+                const buys = (p.data?.trades || []).filter((t: any) => t.side === 'buy')
+                tradeAttributions.value = sells.map((s: any) => {
+                  const buy = buys.find((b: any) => b.ts_code === s.ts_code && b.strategy === s.strategy)
+                  return { ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy, buy_price: buy?.price || 0, sell_price: s.price, profit_pct: s.profit_pct, profit_amount: s.profit_amount, sell_reason: s.reason, sell_time: s.time, buy_time: buy?.time || '', why_profit: s.why, why_loss: s.why }
+                })
+              }
+            }),
           )
         } else {
           promises.push(
@@ -75,7 +85,17 @@ export function useReviewMonitor() {
                 }
               }
             }),
-            api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+            // 【v2.9.97】历史日复盘也走统一数据源
+            api.get(`/unified/trades?date=${dateParam}`, opts).then(r => {
+              const p = parseResponse(r); if (p.success) {
+                const sells = (p.data?.trades || []).filter((t: any) => t.side === 'sell')
+                const buys = (p.data?.trades || []).filter((t: any) => t.side === 'buy')
+                tradeAttributions.value = sells.map((s: any) => {
+                  const buy = buys.find((b: any) => b.ts_code === s.ts_code && b.strategy === s.strategy)
+                  return { ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy, buy_price: buy?.price || 0, sell_price: s.price, profit_pct: s.profit_pct, profit_amount: s.profit_amount, sell_reason: s.reason, sell_time: s.time, buy_time: buy?.time || '', why_profit: s.why, why_loss: s.why }
+                })
+              }
+            }),
           )
         }
         promises.push(
