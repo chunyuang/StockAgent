@@ -179,9 +179,9 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
           <div v-if="sentimentLive" class="sl-content">
             <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, (sentimentLive?.limit_up_count || 0)) }}/30</span></div>
             <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - (sentimentLive?.limit_down_count || 0) * 2) }}/20</span></div>
-            <div class="sl-row"><span>连板高度</span><span class="sl-val">—/20</span></div>
-            <div class="sl-row"><span>涨跌比</span><span class="sl-val">—/15</span></div>
-            <div class="sl-row"><span>涨停溢价</span><span class="sl-val">—/15</span></div>
+            <div class="sl-row"><span>连板高度</span><span class="sl-val">{{ Math.min(20, (sentimentLive?.max_continue || 0) * 2) }}/20</span></div>
+            <div class="sl-row"><span>涨跌比</span><span class="sl-val">{{ Math.min(15, Math.round((sentimentLive?.up_down_ratio || 0) * 15)) }}/15</span></div>
+            <div class="sl-row"><span>涨停溢价</span><span class="sl-val">{{ Math.min(15, Math.max(0, Math.round(sentimentLive?.zt_premium || 0))) }}/15</span></div>
             <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default)"><div style="font-size:10px;color:var(--text-quaternary);line-height:1.4">满分100 = 涨停30 + 跌停20 + 连板20 + 涨跌比15 + 溢价15<br>≥70高潮 | 55-70分化 | 40-55震荡 | &lt;40冰点</div></div>
           </div><div v-else class="empty" style="padding:8px 0">无数据</div></div>
       </div>
