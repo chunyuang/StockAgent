@@ -342,15 +342,28 @@ class SimulatedBroker:
             logger.info(f"[BROKER] 持仓恢复: {loaded}只")
 
     async def _restore_orders_from_mongo(self) -> None:
-        """【v2.9.57提取】从MongoDB恢复今日订单"""
+        """【v2.9.57提取】从MongoDB恢复今日订单
+        【v2.9.96c】去重保护: 多次调用load_state不会重复追加
+        """
         today = datetime.now().strftime("%Y%m%d")
+        # 【v2.9.96c】清除已存在的今日orders, 避免重复追加
+        before_count = len(self.orders)
+        self.orders = [o for o in self.orders if o.trade_date != today and o.trade_date != int(today) if hasattr(o, 'trade_date')]
+        cleared = before_count - len(self.orders)
+        if cleared > 0:
+            logger.info(f"[BROKER] 恢复前清除今日内存orders: {cleared}笔")
+        
         cursor = self._mongo_db["broker_orders"].find(
             {"account_id": self.account.account_id, "trade_date": {"$in": [today, int(today)]}}
         )
         loaded_orders = 0
+        existing_ids = set(o.order_id for o in self.orders)  # 防御性
         async for doc in cursor:
+            oid = doc["order_id"]
+            if oid in existing_ids:
+                continue  # 跳过重复
             order = Order(
-                order_id=doc["order_id"],
+                order_id=oid,
                 account_id=doc.get("account_id", self.account.account_id),
                 ts_code=doc["ts_code"],
                 stock_name=doc.get("stock_name", ""),
@@ -370,6 +383,7 @@ class SimulatedBroker:
             )
             order.fill_time = doc.get("fill_time", "")
             self.orders.append(order)
+            existing_ids.add(oid)
             loaded_orders += 1
         if loaded_orders:
             logger.info(f"[BROKER] 订单恢复: {loaded_orders}笔")
