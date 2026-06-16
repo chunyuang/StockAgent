@@ -384,17 +384,16 @@ async def get_market_sentiment_detail(date: str = None):
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    # 1. 优先读指定日期(即使missing也返回,标注数据不完整)
+                    # 1. 优先读指定日期, 但 missing_data=True 时不使用它的 score, 只作为【该日有记录】的提示
                     if date:
                         exact = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": int(date)})
-                        if exact:
+                        # 【v2.9.96g修复】只有 missing_data!=True 时才使用 exact 的 score
+                        if exact and not exact.get("missing_data"):
                             sentiment_score = exact.get("score", 50)
                             sentiment_period = exact.get("period", "unknown")
                             position_ratio = _get_position_ratio_sentiment(exact.get("period", ""), exact.get("position_ratio", 0.3))
-                            if exact.get("missing_data"):
-                                sentiment_period = "冰点(数据缺失)"  # 保留period但标注缺失
-                    # 2. 指定日期无数据或未指定日期→读最近的非missing日期
-                    if sentiment_period is None or (not date and sentiment_period is None):
+                    # 2. 指定日期无数据、或指定日期被标 missing_data, 都走这里 fallback 到最近非 missing
+                    if sentiment_period is None or sentiment_score is None:
                         latest = await mongo_manager.db["sentiment_scores"].find_one(
                             {"missing_data": {"$ne": True}},
                             sort=[("trade_date", -1)]
@@ -471,6 +470,37 @@ async def get_market_sentiment_detail(date: str = None):
             else: pi = ("冰点", 0, _chaos_th)
             sentiment_period = pi[0]
 
+        # 【v2.9.96g】充补 5维拆解字段(max_continue/up_down_ratio/zt_premium)供前端得分拆解展示
+        max_continue = 0
+        up_down_ratio = 0.0
+        zt_premium = 0.0
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                doc = None
+                if date:
+                    doc = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": int(date)})
+                if not doc or doc.get("missing_data"):
+                    doc = await mongo_manager.db["sentiment_scores"].find_one(
+                        {"missing_data": {"$ne": True}},
+                        sort=[("trade_date", -1)]
+                    )
+                if doc:
+                    max_continue = doc.get("max_continue", 0)
+                    up_down_ratio = doc.get("up_down_ratio", 0.0)
+                    zt_premium = doc.get("zt_premium", 0.0)
+        except Exception:
+            pass
+        # 盘中 实时取优先从 scanner 拿(优于 MongoDB)
+        try:
+            if filter_pipeline and emotion:
+                lc = getattr(emotion, '_last_compute', None) or {}
+                if lc.get('max_continue') is not None: max_continue = lc.get('max_continue', max_continue)
+                if lc.get('up_down_ratio') is not None: up_down_ratio = lc.get('up_down_ratio', up_down_ratio)
+                if lc.get('today_premium') is not None: zt_premium = lc.get('today_premium', zt_premium)
+        except Exception:
+            pass
+
         # can_open: 与EmotionCycleManager.CAN_OPEN对齐(冰点禁止开仓)
         _can_open = sentiment_period not in ("冰点", "冰点(数据缺失)", "bearish", "BEARISH")
         return _sanitize({"success": True, "data": {
@@ -478,6 +508,10 @@ async def get_market_sentiment_detail(date: str = None):
             "position_ratio": position_ratio, "can_open": _can_open,
             "limit_up_count": limit_up, "limit_down_count": limit_down, "broken_count": broken,
             "broken_rate": round(broken_rate, 1), "board_distribution": board_dist,
+            # 【v2.9.96g】5维拆解补充
+            "max_continue": max_continue,
+            "up_down_ratio": round(up_down_ratio, 3),
+            "zt_premium": round(zt_premium, 2),
             "ranges": [
                 {"label": "冰点", "min": 0, "max": _chaos_th, "color": "#67c23a"},
                 {"label": "震荡", "min": _chaos_th, "max": _diff_th, "color": "#e6a23c"},

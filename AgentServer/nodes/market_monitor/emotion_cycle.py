@@ -168,6 +168,16 @@ class EmotionCycleManager:
         result = self._build_emotion_score(trade_date, score, phase, factors)
         if use_cache:
             self._cache[trade_date] = result
+        # 【v2.9.96g】暴露实时计算结果供 market-sentiment API 在盘中读取 5 维拆解
+        self._last_compute = {
+            'score': score, 'phase': phase.value,
+            'limit_up_count': factors.get('limit_up_count', 0),
+            'limit_down_count': factors.get('limit_down_count', 0),
+            'max_continue': factors.get('max_continue_limit', 0),
+            'up_down_ratio': factors.get('up_down_ratio', 0.0),
+            'today_premium': factors.get('zt_premium', 0.0),
+            'trade_date': trade_date,
+        }
 
         logger.info(f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
             f"涨停={factors['limit_up_count']}, 跌停={factors['limit_down_count']}, "
