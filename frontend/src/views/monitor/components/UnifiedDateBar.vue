@@ -56,7 +56,7 @@ emit('change', selectedDate.value, dateForApi.value)
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: 8px;
+  margin-left: auto;
   flex-shrink: 0;
 }
 .nav-btn, .today-btn {

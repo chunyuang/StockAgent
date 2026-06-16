@@ -137,9 +137,6 @@ function formatTradeDateTime(rec: any): string {
       </div>
     </div>
 
-    <!-- 【v2.9.97】全局统一日期选择器 - 所有Tab共用 -->
-    <UnifiedDateBar @change="onGlobalDateChange" />
-
     <!-- Tab 导航栏 -->
     <div class="mm-tab-bar">
       <button :class="['tab-btn', activeTab === 'guide' ? 'active' : '']" @click="activeTab = 'guide'">

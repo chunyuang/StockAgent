@@ -8,6 +8,7 @@ import { ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import SystemHealth from './SystemHealth.vue'
 import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
 
@@ -88,6 +89,7 @@ const {
     <div class="mm-tab-scroll">
       <!-- 自动交易操作流 -->
       <div class="st">🤖 自动交易操作流
+        <UnifiedDateBar @change="(_d: string) => { opsDate = _d }" />
         <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton>
       </div>
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
