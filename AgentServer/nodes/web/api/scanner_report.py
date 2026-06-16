@@ -32,8 +32,12 @@ router = APIRouter(prefix="/scanner", tags=["日报/周报/历史复盘"])
 
 
 @router.get("/daily-report")
-async def get_daily_report():
-    """每日复盘报告 — scanner运行时取实时数据,否则从MongoDB聚合"""
+async def get_daily_report(date: str = None):
+    """每日复盘报告 — scanner运行时取实时数据,否则从MongoDB聚合
+    
+    Args:
+        date: 指定日期(YYYYMMDD或YYYY-MM-DD), 不传=今天
+    """
     scanner = await _get_scanner()
     # 检查scanner是否真正在运行(有真实持仓或今天的timeline记录)
     # 【v2.9.94修复】增加账户有效性检查: scanner重启后timeline可能非空但broker状态无效(total_assets=0)

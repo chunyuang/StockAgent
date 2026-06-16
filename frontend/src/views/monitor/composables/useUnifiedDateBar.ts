@@ -1,0 +1,115 @@
+import { ref, computed, watch, onMounted } from 'vue'
+import { api } from '@/api/client'
+
+/**
+ * 统一日期选择 Composable
+ * 
+ * 所有市场监听Tab共用, 保证:
+ * 1. 单日选择(非范围)
+ * 2. 默认今天
+ * 3. 交易日染色(调 /unified/date-availability)
+ * 4. 前/后一天导航
+ */
+
+export function useUnifiedDateBar() {
+  // 当前选中日期 (YYYY-MM-DD 格式, 与ElDatePicker一致)
+  const selectedDate = ref(new Date().toISOString().slice(0, 10))
+  
+  // 交易日数据 { '20260616': { status: 'trades'|'no-trades'|'weekend', count: 5, ... } }
+  const dateAvailability = ref<Record<string, any>>({})
+  const availabilityLoading = ref(false)
+  
+  // 今天
+  const today = computed(() => new Date().toISOString().slice(0, 10))
+  const isToday = computed(() => selectedDate.value === today.value)
+  
+  // 日期转API格式 (YYYYMMDD)
+  const dateForApi = computed(() => selectedDate.value.replace(/-/g, ''))
+  
+  // 前一天
+  function prevDay() {
+    const d = new Date(selectedDate.value)
+    d.setDate(d.getDate() - 1)
+    selectedDate.value = d.toISOString().slice(0, 10)
+  }
+  
+  // 后一天
+  function nextDay() {
+    const d = new Date(selectedDate.value)
+    d.setDate(d.getDate() + 1)
+    if (d <= new Date()) {
+      selectedDate.value = d.toISOString().slice(0, 10)
+    }
+  }
+  
+  // 回到今天
+  function goToday() {
+    selectedDate.value = today.value
+  }
+  
+  // 设置日期(外部调用)
+  function setDate(date: string) {
+    if (date === 'today' || !date) {
+      goToday()
+    } else {
+      // 兼容 YYYYMMDD 和 YYYY-MM-DD
+      if (date.length === 8 && /^\d{8}$/.test(date)) {
+        selectedDate.value = `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`
+      } else {
+        selectedDate.value = date
+      }
+    }
+  }
+  
+  // 加载日期可用性(交易日染色)
+  async function fetchAvailability() {
+    if (availabilityLoading.value) return
+    availabilityLoading.value = true
+    try {
+      const r = await api.get('/unified/date-availability?days=60')
+      const p = r?.data ? r : (r?.success !== false ? r : null)
+      if (p?.data) {
+        dateAvailability.value = p.data
+      }
+    } catch (e) {
+      // 非关键, 忽略
+    } finally {
+      availabilityLoading.value = false
+    }
+  }
+  
+  // 日期选择器单元格染色(给ElDatePicker用)
+  function dateCellClass(date: Date): string {
+    const key = date.toISOString().slice(0, 10).replace(/-/g, '')
+    const info = dateAvailability.value[key]
+    if (!info) return ''
+    if (info.status === 'weekend') return 'date-weekend'
+    if (info.status === 'trades') return 'date-has-trades'
+    return 'date-no-trades'
+  }
+  
+  // 禁用未来日期
+  function disabledDate(date: Date): boolean {
+    return date > new Date()
+  }
+  
+  onMounted(() => {
+    fetchAvailability()
+  })
+  
+  return {
+    selectedDate,
+    dateForApi,
+    today,
+    isToday,
+    dateAvailability,
+    availabilityLoading,
+    prevDay,
+    nextDay,
+    goToday,
+    setDate,
+    dateCellClass,
+    disabledDate,
+    fetchAvailability,
+  }
+}

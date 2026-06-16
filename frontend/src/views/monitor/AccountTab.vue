@@ -6,6 +6,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
@@ -16,8 +17,8 @@ const c = useChartColors().value
 const loading = ref(false)
 const kpiData = ref<any>(null)  // KPI/账户资金(仍从/analysis获取)
 const activeSection = ref('overview')
-const accountDate = ref('')
-const today = new Date().toISOString().slice(0, 10)
+const selectedDate = ref(new Date().toISOString().slice(0, 10))
+// date managed by UnifiedDateBar
 
 // 【v2.9.97d】统一数据层: 持仓从 unified 读取(唯一真相源)
 const unified = useUnifiedData()
@@ -41,22 +42,19 @@ const setActiveTab = (tab: string) => {
 const fetchKpi = async () => {
   loading.value = true
   try {
-    // KPI和账户资金仍从 /analysis 获取(unified没有这些)
-    let url = '/api/v1/scanner/analysis?period=30d'
-    if (accountDate.value) {
-      const d = accountDate.value.replace(/-/g, '')
-      url = `/api/v1/scanner/analysis?start_date=${d}&end_date=${d}`
-    }
+    // 【v2.9.97g】统一日期: 用date参数查指定日数据
+    const d = selectedDate.value.replace(/-/g, '')
+    const url = `/api/v1/scanner/analysis?date=${d}`
     const res = await fetch(url).then(r => r.json())
     kpiData.value = res.data || {}
-    // 同步unified日期
-    if (accountDate.value) {
-      unified.setDate(accountDate.value.replace(/-/g, ''))
-    } else {
-      unified.setDate('today')
-    }
+    unified.setDate(d)
   } catch (e) { console.error(e) }
   loading.value = false
+}
+
+// 日期变更回调
+const onDateChange = (_date: string, _dateApi: string) => {
+  fetchKpi()
 }
 
 const toggleDetail = async (code: string) => {
@@ -76,7 +74,7 @@ const toggleDetail = async (code: string) => {
 
 onMounted(fetchKpi)
 
-watch(accountDate, () => { fetchKpi() })
+// 日期变更由UnifiedDateBar的onDateChange处理
 
 const acc = computed(() => kpiData.value?.account || {})
 const riskMonitor = computed(() => kpiData.value?.risk_monitor || {})
@@ -133,7 +131,7 @@ const posPie = computed(() => {
     <!-- KPI -->
     <div class="at-kpi-header">
       <span class="at-kpi-title">💼 账户</span>
-      <ElDatePicker v-model="accountDate" type="date" placeholder="今日" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" :clearable="true" />
+      <UnifiedDateBar @change="onDateChange" />
     </div>
     <div class="at-kpi">
       <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">{{ fmt(totalAssets) }}</div></div>

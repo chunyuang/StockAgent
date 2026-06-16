@@ -153,12 +153,23 @@ def _date_filter(start_date: str = None, end_date: str = None):
     return {}
 
 @router.get("/analysis")
-async def get_analysis(start_date: str = None, end_date: str = None):
-    """市场监听结果分析 — 综合KPI + 策略贡献 + 卖出原因 + 月度收益 + 持仓分析 + 每日明细"""
+async def get_analysis(start_date: str = None, end_date: str = None, date: str = None):
+    """市场监听结果分析 — 综合KPI + 策略贡献 + 卖出原因 + 月度收益 + 持仓分析 + 每日明细
+    
+    Args:
+        date: 单日查询(YYYYMMDD或YYYY-MM-DD), 等同于start_date=end_date=date
+        start_date/end_date: 范围查询, 与date互斥(date优先)
+    """
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             return {"success": False, "message": "MongoDB未初始化"}
+        
+        # 【v2.9.97g】date参数: 单日快捷查询
+        if date and not start_date and not end_date:
+            d = date.replace("-", "")
+            start_date = d
+            end_date = d
         
         db = mongo_manager.db
         
