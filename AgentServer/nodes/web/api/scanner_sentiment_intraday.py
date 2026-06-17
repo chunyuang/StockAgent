@@ -15,6 +15,7 @@ import re
 import math
 from collections import OrderedDict
 from typing import Dict, List, Any, Optional
+from nodes.web.api.unified import query_trades
 
 
 def _parse_l1_limit_counts(l1_text: str) -> Dict[str, int]:
@@ -216,11 +217,14 @@ async def get_intraday_timeline(db, date: str) -> Dict[str, Any]:
     # 4. 获取当日交易记录
     trades = []
     date_int = int(date) if isinstance(date, str) and date.isdigit() else date
-    async for doc in db["broker_orders"].find(
-        {"trade_date": date_int, "status": "filled"},
-        {"fill_time": 1, "side": 1, "ts_code": 1, "strategy": 1, 
-         "filled_price": 1, "reason": 1, "profit_pct": 1}
-    ).sort("fill_time", 1):
+    # 【v2.9.97h-v4】使用query_trades统一查询
+    docs = await query_trades(
+        db, date=date_int,
+        projection={"fill_time": 1, "side": 1, "ts_code": 1, "strategy": 1, 
+                    "filled_price": 1, "reason": 1, "profit_pct": 1},
+        sort=[("fill_time", 1)]
+    )
+    for doc in docs:
         if doc.get("side") in ("buy", "sell"):
             trades.append({
                 "time": doc.get("fill_time", ""),

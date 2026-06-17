@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
+from nodes.web.api.unified import query_trades, aggregate_trades
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
@@ -376,11 +377,14 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         # 补充 broker_orders 中的 buy/sell
         if date_val:
             date_str_val = str(date).replace("-", "").replace("/", "")
-            td_q = {"$in": [int(date_str_val), date_str_val]} if date_str_val.isdigit() else date_str_val
-            async for order in mongo_manager.db["broker_orders"].find(
-                {"trade_date": td_q, "status": "filled"},
-                {"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "strategy": 1, "reason": 1, "_id": 0}
-            ).sort("fill_time", 1):
+            date_int_val = int(date_str_val) if date_str_val.isdigit() else None
+            # 【v2.9.97h-v4】query_trades自动处理int/str兼容
+            orders = await query_trades(
+                mongo_manager.db, date=date_int_val,
+                projection={"ts_code": 1, "fill_time": 1, "create_time": 1, "side": 1, "strategy": 1, "reason": 1, "_id": 0},
+                sort=[("fill_time", 1)]
+            )
+            for order in orders:
                 side = order.get("side", "")
                 if side in ("buy", "sell"):
                     all_timeline.append({
@@ -395,12 +399,11 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         all_buys = []
         if date_val:
             date_str_val = str(date).replace("-", "").replace("/", "")
-            td_q = {"$in": [int(date_str_val)]} if date_str_val.isdigit() else date_str_val
-            async for order in mongo_manager.db["broker_orders"].find(
-                {"trade_date": td_q, "side": "buy", "status": "filled"},
-                {"ts_code": 1, "fill_time": 1, "create_time": 1, "_id": 0}
-            ):
-                all_buys.append(order)
+            date_int_val = int(date_str_val) if date_str_val.isdigit() else None
+            all_buys = await query_trades(
+                mongo_manager.db, side="buy", date=date_int_val,
+                projection={"ts_code": 1, "fill_time": 1, "create_time": 1, "_id": 0}
+            )
         
         # ====== 3. 对每个 scan 计算执行统计 (修复: 按时间窗口匹配, 避免重复计) ======
         # 【v2.9.96修复】旧逻辑把 ts_code → orders 全局分组, 导致每个scan的passed候选只要
@@ -607,10 +610,15 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                             }
                     
                     # 获取 broker_orders filled buy
-                    async for order in mongo_manager.db["broker_orders"].find(
-                        {"trade_date": td_query, "side": "buy", "status": "filled", "ts_code": {"$in": passed_tscodes}},
-                        {"ts_code": 1, "price": 1, "amount": 1, "filled_price": 1, "filled_amount": 1, "strategy": 1, "created_at": 1, "_id": 0}
-                    ):
+                    # 【v2.9.97h-v4】query_trades现支持ts_code列表($in)
+                    td_int = trade_date if isinstance(trade_date, int) else None
+                    buy_orders = await query_trades(
+                        mongo_manager.db, side="buy",
+                        date=td_int,
+                        ts_code=passed_tscodes,
+                        projection={"ts_code": 1, "price": 1, "amount": 1, "filled_price": 1, "filled_amount": 1, "strategy": 1, "created_at": 1, "_id": 0}
+                    )
+                    for order in buy_orders:
                         tc = order.get("ts_code", "")
                         if tc and tc not in bought_map:  # 只取第一次 buy
                             bought_map[tc] = {
@@ -696,10 +704,13 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 # 【v2.9.97c】buy_set 只从 broker_orders 读取(scanner_timeline不再写buy)
                 date_str = str(trade_date)
                 if date_str.isdigit():
-                    async for order in mongo_manager.db["broker_orders"].find(
-                        {"trade_date": {"$in": [int(date_str), date_str]}, "side": "buy", "status": "filled"},
-                        {"ts_code": 1, "_id": 0}
-                    ):
+                    # 【v2.9.97h-v4】使用query_trades统一查询
+                    buy_orders = await query_trades(
+                        mongo_manager.db, side="buy",
+                        date=int(date_str),
+                        projection={"ts_code": 1, "_id": 0}
+                    )
+                    for order in buy_orders:
                         buy_set.add(order.get("ts_code", ""))
                 # 也查 scanner_timeline 历史遗留的 buy 记录(兼容旧数据)
                 async for evt in mongo_manager.db["scanner_timeline"].find(
@@ -773,9 +784,8 @@ async def get_execution_quality(date: str = None):
         date_str = str(date).replace("-", "").replace("/", "")
         try:
             date_int = int(date_str)
-            date_filter = {"$in": [date_int, date_str]}
         except (ValueError, TypeError):
-            date_filter = date_str
+            return {"success": False, "message": "日期格式错误"}
         
         # 从broker_orders聚合
         total_orders = 0
@@ -784,7 +794,11 @@ async def get_execution_quality(date: str = None):
         slippages = []
         delays = []
         
-        async for doc in db["broker_orders"].find({"trade_date": date_filter}):
+        # 【v2.9.97h-v4】使用query_trades统一查询(不限status,调用者需看pending/rejected)
+        all_orders = await query_trades(
+            db, side=None, date=date_int, status=None
+        )
+        for doc in all_orders:
             total_orders += 1
             if doc.get("status") == "filled":
                 filled_orders += 1
@@ -1422,7 +1436,9 @@ async def get_premarket_status(date: str = None):
                     {"$match": {"side": "sell", "profit_pct": {"$ne": None}}},
                     {"$group": {"_id": "$strategy", "total": {"$sum": 1}, "wins": {"$sum": {"$cond": [{"$gt": ["$profit_pct", 0]}, 1, 0]}}, "avg_profit": {"$avg": "$profit_pct"}}},
                 ]
-                async for doc in db["broker_orders"].aggregate(pipeline):
+                # 【v2.9.97h-v4】使用aggregate_trades统一查询
+                docs = await aggregate_trades(db, pipeline, auto_filter=False)
+                for doc in docs:
                     s = doc["_id"] or "unknown"
                     total = doc["total"] or 1
                     historical_hit_rate[s] = {"total": total, "wins": doc["wins"], "win_rate": round(doc["wins"] / total * 100, 1), "avg_profit": round(doc.get("avg_profit", 0), 2)}

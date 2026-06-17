@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import math
-from nodes.web.api.unified import query_trades, query_latest_trade
+from nodes.web.api.unified import query_trades, query_latest_trade, query_trade_one
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -54,11 +54,11 @@ async def backtest_compare(date: str = None):
         if mongo_manager.is_initialized:
             from collections import defaultdict
             ls = defaultdict(lambda: {"trades":0,"wins":0,"total_pnl":0})
-            sell_query = {"side":"sell","status":"filled"}
-            if date:
-                # 【v2.9.86修复】broker_orders.trade_date是int，不能用str
-                sell_query["trade_date"] = {"$lte": _normalize_date(date)}
-            async for doc in mongo_manager.db["broker_orders"].find(sell_query):
+            date_lte = _normalize_date(date) if date else None
+            for doc in await query_trades(
+                mongo_manager.db, side="sell",
+                date_lte=date_lte
+            ):
                 strat = _norm_strat(doc.get("strategy","unknown"))
                 pct = doc.get("profit_pct",0) or 0
                 ls[strat]["trades"] += 1
@@ -230,10 +230,7 @@ async def get_trade_attribution(date: str = None):
 
         # 确定日期
         if not date:
-            latest = await db["broker_orders"].find_one(
-                {"side": "sell", "status": "filled"},
-                sort=[("_id", -1)]
-            )
+            latest = await query_latest_trade(db)
             if not latest:
                 return {"success": True, "data": []}
             date = latest.get("trade_date", "")
@@ -243,9 +240,11 @@ async def get_trade_attribution(date: str = None):
 
         attributions = []
         # 从broker_order读取卖出记录
-        async for doc in db["broker_orders"].find({
-            "trade_date": date_int, "side": "sell", "status": "filled"
-        }).sort("fill_time", 1):
+        sells_today = await query_trades(
+            db, side="sell", date=date_int,
+            sort=[("fill_time", 1)]
+        )
+        for doc in sells_today:
             ts_code = doc.get("ts_code", "")
             strategy = doc.get("strategy", "")
             profit_pct = doc.get("profit_pct", 0) or 0
@@ -254,9 +253,9 @@ async def get_trade_attribution(date: str = None):
             filled_qty = doc.get("filled_qty", 0) or 0
 
             # 查找对应买入记录(同日或之前)
-            buy_doc = await db["broker_orders"].find_one(
-                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled", "trade_date": {"$lte": date_int}},
-                sort=[("_id", -1)]  # 最近的一次买入
+            buy_doc = await query_trade_one(
+                db, side="buy", ts_code=ts_code, strategy=strategy,
+                date_lte=date_int
             )
             buy_price = buy_doc.get("filled_price", 0) if buy_doc else 0
             buy_time = buy_doc.get("fill_time", "") if buy_doc else ""
@@ -447,8 +446,12 @@ async def get_review_hero(date: str = None):
         discipline_score = max(0, 100 - len(violations) * 20)
 
         # 6. 连续亏损
-        all_sells_cursor = db["broker_orders"].find({"side":"sell","status":"filled"}, {"profit_pct":1,"trade_date":1}).sort("trade_date",1)
-        all_sells = await all_sells_cursor.to_list(length=500)
+        all_sells = await query_trades(
+            db, side="sell",
+            projection={"profit_pct":1,"trade_date":1},
+            sort=[("trade_date",1)],
+            limit=500
+        )
         max_consecutive_loss = 0
         current_loss_streak = 0
         for s in all_sells:
@@ -646,8 +649,11 @@ async def get_review_forward(date: str = None):
         # 2. 策略历史表现(近30天)
         from collections import defaultdict
         strat_stats = defaultdict(lambda: {"wins":0,"losses":0,"count":0})
-        recent_sells = db["broker_orders"].find({"side":"sell","status":"filled"}).sort("_id",-1).limit(60)
-        async for doc in recent_sells:
+        recent_sells = await query_trades(
+            db, side="sell",
+            sort=[("_id", -1)], limit=60
+        )
+        for doc in recent_sells:
             strat = _norm_strat(doc.get("strategy","unknown"))
             pct = doc.get("profit_pct",0) or 0
             strat_stats[strat]["count"] += 1
@@ -736,10 +742,11 @@ async def backtest_same_period(request: Request):
             if not mongo_manager.is_initialized:
                 return {"success": False, "message": "MongoDB未初始化, 请提供start_date/end_date"}
             # 自动取实盘日期范围
-            sells = []
-            async for doc in mongo_manager.db["broker_orders"].find({"side":"sell","status":"filled"},{"trade_date":1}):
-                if doc.get("trade_date"):
-                    sells.append(doc["trade_date"])
+            sells_docs = await query_trades(
+                mongo_manager.db, side="sell",
+                projection={"trade_date":1}
+            )
+            sells = [doc["trade_date"] for doc in sells_docs if doc.get("trade_date")]
             if not sells:
                 return {"success": False, "message": "无实盘交易数据"}
             start_date = min(sells)
@@ -860,9 +867,12 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             sd, ed = start_date, end_date
         else:
             # 默认取最近7天
-            sells = []
-            async for doc in db["broker_orders"].find({"side":"sell","status":"filled"},{"trade_date":1}).sort("trade_date",-1).limit(20):
-                if doc.get("trade_date"): sells.append(doc["trade_date"])
+            recent_sells = await query_trades(
+                db, side="sell",
+                projection={"trade_date":1},
+                sort=[("trade_date",-1)], limit=20
+            )
+            sells = [doc["trade_date"] for doc in recent_sells if doc.get("trade_date")]
             if not sells:
                 return {"success": True, "data": None, "message": "无交易数据"}
             sd, ed = min(sells), max(sells)
@@ -875,26 +885,16 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             return {"success": True, "data": None, "message": "日期格式无效"}
 
         # 1. 获取实盘卖出订单
-        query = {"side": "sell", "status": "filled"}
         if sd == ed:
-            query["trade_date"] = sd_int
+            sells = await query_trades(db, side="sell", date=sd_int)
         else:
-            query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
-
-        sells = []
-        async for doc in db["broker_orders"].find(query):
-            sells.append(doc)
+            sells = await query_trades(db, side="sell", date_gte=sd_int, date_lte=ed_int)
 
         # 2. 获取同区间买入订单(用于计算纪律偏差)
-        buy_query = {"side": "buy", "status": "filled"}
         if sd == ed:
-            buy_query["trade_date"] = sd_int
+            buys = await query_trades(db, side="buy", date=sd_int)
         else:
-            buy_query["trade_date"] = {"$gte": sd_int, "$lte": ed_int}
-
-        buys = []
-        async for doc in db["broker_orders"].find(buy_query):
-            buys.append(doc)
+            buys = await query_trades(db, side="buy", date_gte=sd_int, date_lte=ed_int)
 
         # 3. 获取情绪数据(用于纪律检查)
         sentiment_map = {}
@@ -1326,10 +1326,10 @@ async def review_weekly(date: str = None):
         for w in range(4):
             wm = (base - timedelta(weeks=3-w)).strftime("%Y%m%d")
             ws = (base - timedelta(weeks=3-w) + timedelta(days=6)).strftime("%Y%m%d")
-            ws_list = []
-            # 【v2.9.87修复】broker_orders.trade_date是int
-            async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":int(wm),"$lte":int(ws)}}):
-                ws_list.append(doc)
+            ws_list = await query_trades(
+                db, side="sell",
+                date_gte=int(wm), date_lte=int(ws)
+            )
             if ws_list:
                 wr = sum(1 for s in ws_list if (s.get("profit_pct") or 0) >= 0) / len(ws_list) * 100
                 weekly_trend.append({"week": f"W{w+1}", "start": wm, "trades": len(ws_list), "win_rate": round(wr,1)})
@@ -1395,13 +1395,8 @@ async def review_monthly(date: str = None):
         last_day_int = int(last_day)
 
         # 月度统计
-        sells = []
-        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":month_start_int,"$lte":last_day_int}}):
-            sells.append(doc)
-
-        buys = []
-        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":month_start_int,"$lte":last_day_int}}):
-            buys.append(doc)
+        sells = await query_trades(db, side="sell", date_gte=month_start_int, date_lte=last_day_int)
+        buys = await query_trades(db, side="buy", date_gte=month_start_int, date_lte=last_day_int)
 
         total_sells = len(sells)
         total_wins = sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0)
@@ -1622,10 +1617,13 @@ async def factor_effectiveness(date: str = None):
         # 3. 用broker_orders的买入和后续卖出结果来补充胜率
         # 简化: 用scan_traces候选的pct_chg作为近似
         buys_by_date = {}  # date -> {ts_code -> {strategy, pct_chg}}
-        async for doc in db["broker_orders"].find(
-            {"side": "buy", "status": "filled", "trade_date": {"$gte": start_date, "$lte": end_date}},
-            {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "filled_price": 1}
-        ):
+        buy_docs = await query_trades(
+            db, side="buy",
+            date_gte=int(start_date) if isinstance(start_date, str) else start_date,
+            date_lte=int(end_date) if isinstance(end_date, str) else end_date,
+            projection={"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "filled_price": 1}
+        )
+        for doc in buy_docs:
             td = doc.get("trade_date", "")
             if td not in buys_by_date:
                 buys_by_date[td] = {}
@@ -1636,10 +1634,13 @@ async def factor_effectiveness(date: str = None):
 
         # 用卖出profit_pct来算胜率
         sells_by_buy = {}  # (date, ts_code) -> profit_pct
-        async for doc in db["broker_orders"].find(
-            {"side": "sell", "status": "filled", "trade_date": {"$gte": start_date, "$lte": end_date}},
-            {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "profit_pct": 1, "reason": 1}
-        ):
+        sell_docs = await query_trades(
+            db, side="sell",
+            date_gte=int(start_date) if isinstance(start_date, str) else start_date,
+            date_lte=int(end_date) if isinstance(end_date, str) else end_date,
+            projection={"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "profit_pct": 1, "reason": 1}
+        )
+        for doc in sell_docs:
             sells_by_buy[(doc.get("trade_date", ""), doc.get("ts_code", ""))] = doc.get("profit_pct", 0) or 0
 
         # 4. 补充因子胜率(用实际买卖结果)
@@ -1808,11 +1809,13 @@ async def review_closed_loop(date: str = None):
         buys = []
         sells = []
         # 【v2.9.87修复】broker_orders.trade_date是int，不能用str
-        async for doc in db["broker_orders"].find(
-            {"status": "filled", "trade_date": {"$gte": start_d, "$lte": end_d}},
-            {"_id": 0, "side": 1, "strategy": 1, "ts_code": 1, "stock_name": 1,
-             "filled_price": 1, "profit_pct": 1, "reason": 1, "trade_date": 1, "create_time": 1}
-        ):
+        all_docs = await query_trades(
+            db, side=None,  # 买卖都要
+            date_gte=start_d, date_lte=end_d,
+            projection={"_id": 0, "side": 1, "strategy": 1, "ts_code": 1, "stock_name": 1,
+                        "filled_price": 1, "profit_pct": 1, "reason": 1, "trade_date": 1, "create_time": 1}
+        )
+        for doc in all_docs:
             if doc.get("side") == "buy":
                 buys.append(doc)
             else:
