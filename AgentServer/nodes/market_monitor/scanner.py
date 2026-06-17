@@ -615,7 +615,9 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         import time
         from datetime import datetime
         t0 = time.time()
-        scan_time = datetime.now().strftime("%H:%M:%S")
+        scan_dt = datetime.now()
+        scan_time = scan_dt.strftime("%H:%M:%S")
+        scan_time_iso = scan_dt.isoformat()
         logger.info(f"[PREMARKET-SCAN] 开始竞价扫描 {scan_time}")
         
         try:
@@ -623,6 +625,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             realtime_data = await self._fetch_realtime_batch(force=True)
             if not realtime_data:
                 logger.warning("[PREMARKET-SCAN] 实时数据为空, 跳过")
+                await self._save_premarket_snapshot(trade_date, scan_time_iso, note="实时数据为空")
                 return 0
             
             # Step 2: 补充auction_pct字段(竞价阶段: open=auction_price)
@@ -639,16 +642,25 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             merged_df = self._merge_factors(realtime_data)
             if merged_df is None or len(merged_df) == 0:
                 logger.warning("[PREMARKET-SCAN] 合并后数据为空")
+                await self._save_premarket_snapshot(trade_date, scan_time_iso, realtime_data=realtime_data, note="合并后数据为空")
                 return 0
             
             # Step 4: 运行策略筛选
             new_signals = await self._apply_strategies(merged_df, trade_date)
             if not new_signals:
                 logger.info("[PREMARKET-SCAN] 无策略信号")
+                await self._save_premarket_snapshot(trade_date, scan_time_iso, realtime_data=realtime_data, strategy_candidates=[], passed_signals=[], note="无策略信号")
                 return 0
             
             # Step 5: 运行筛选管道(L1-L9)
+            strategy_candidates = list(new_signals)
             new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
+            await self._save_premarket_snapshot(
+                trade_date, scan_time_iso,
+                realtime_data=realtime_data,
+                strategy_candidates=strategy_candidates,
+                passed_signals=new_signals,
+            )
             
             # Step 6: 增量更新信号(使之出premarket-status API)
             await self._update_signals(new_signals, scan_time)
@@ -661,7 +673,63 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             logger.error(f"[PREMARKET-SCAN] 扫描异常: {e}")
             import traceback
             logger.debug(traceback.format_exc())
+            try:
+                await self._save_premarket_snapshot(trade_date, datetime.now().isoformat(), note=f"扫描异常: {e}")
+            except Exception:
+                pass
             return 0
+
+    async def _save_premarket_snapshot(self, trade_date: str, scan_time_iso: str, realtime_data: Dict = None,
+                                       strategy_candidates: List[ScanSignal] = None,
+                                       passed_signals: List[ScanSignal] = None,
+                                       note: str = "") -> None:
+        """保存竞价阶段每次扫描快照。
+
+        用于前端展示9:00-9:30竞价变化时间线；即使本轮无候选，也保留空快照。
+        """
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            realtime_data = realtime_data or {}
+            strategy_candidates = strategy_candidates or []
+            passed_signals = passed_signals or []
+            pcts = [float(v.get("pct_chg", v.get("auction_pct", 0)) or 0) for v in realtime_data.values() if isinstance(v, dict)]
+            def _sig(s):
+                return {
+                    "ts_code": getattr(s, "ts_code", ""),
+                    "stock_name": getattr(s, "stock_name", ""),
+                    "strategy": getattr(s, "strategy", ""),
+                    "price": getattr(s, "price", 0),
+                    "pct_chg": getattr(s, "pct_chg", 0),
+                    "reason": getattr(s, "reason", ""),
+                }
+            today_int = int(trade_date) if str(trade_date).isdigit() else trade_date
+            snapshot = {
+                "trade_date": today_int,
+                "scan_time": scan_time_iso,
+                "account_id": self.account_id,
+                "source": "premarket_scan",
+                "note": note,
+                "market_snapshot": {
+                    "total_stocks": len(realtime_data),
+                    "up_count": sum(1 for p in pcts if p > 0),
+                    "down_count": sum(1 for p in pcts if p < 0),
+                    "flat_count": sum(1 for p in pcts if p == 0),
+                    "limit_up_count": sum(1 for p in pcts if p >= 9.9),
+                    "limit_down_count": sum(1 for p in pcts if p <= -9.9),
+                    "avg_pct_chg": round(sum(pcts) / len(pcts), 2) if pcts else 0,
+                },
+                "funnel": {
+                    "total_scanned": len(realtime_data),
+                    "strategy_candidates": len(strategy_candidates),
+                    "after_pipeline": len(passed_signals),
+                },
+                "candidates": [_sig(s) for s in passed_signals[:20]],
+            }
+            await mongo_manager.db["premarket_snapshots"].insert_one(snapshot)
+        except Exception as e:
+            logger.debug(f"[PREMARKET-SCAN] 保存竞价快照失败: {e}")
 
     async def _load_stock_list(self) -> None:
         """加载全市场代码 — 委托给RuntimePersistence【v2.9.32提取】"""

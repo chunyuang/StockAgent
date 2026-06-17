@@ -111,7 +111,7 @@ onMounted(async () => {
               <span v-if="group.collapsed" class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → {{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交 · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
-              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">
+              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0 }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">
                 <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
                 <span class="sc-stats" :title="`全市场${s.summary?.total_candidates || 0}只 → 通过${s.summary?.passed || 0}只 → 成交${s.exec?.bought || 0}只 · 拦截${s.exec?.blocked || 0}次`">
@@ -286,6 +286,10 @@ onMounted(async () => {
 
 .scan-chip.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); }
 
+.scan-chip.has-buy { background: rgba(230, 162, 60, 0.22); border-color: rgba(230, 162, 60, 0.75); box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.18) inset; }
+.scan-chip.has-buy:hover { background: rgba(230, 162, 60, 0.32); border-color: #e6a23c; }
+.scan-chip.has-buy.active { background: rgba(230, 162, 60, 0.38); border-color: #e6a23c; box-shadow: 0 0 0 2px rgba(230, 162, 60, 0.22) inset; }
+
 .sc-time { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
 
 .sc-stats { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
@@ -298,7 +302,7 @@ onMounted(async () => {
 
 .ss-buy { color: var(--text-tertiary); font-weight: 600; }
 
-.ss-buy.has-buy { color: #f56c6c; }
+.ss-buy.has-buy { color: #b77900; background: rgba(255, 255, 255, 0.55); border-radius: 4px; padding: 0 3px; }
 
 .scan-funnel { padding: 8px 0; }
 
@@ -327,7 +331,7 @@ onMounted(async () => {
 .et-item:hover { background: var(--bg-hover); }
 .et-item.et-pass { background: rgba(0,180,42,0.04); border-color: rgba(0,180,42,0.15); }
 .et-item.et-fail { background: rgba(245,63,63,0.03); border-color: rgba(245,63,63,0.12); opacity: 0.85; }
-.et-item.et-bought { background: rgba(245,108,108,0.08); border-color: rgba(245,108,108,0.3); }
+.et-item.et-bought { background: rgba(230,162,60,0.18); border-color: rgba(230,162,60,0.75); border-left: 4px solid #e6a23c; box-shadow: 0 0 0 1px rgba(230,162,60,0.12) inset; }
 .et-item.et-blocked { background: rgba(230,162,60,0.06); border-color: rgba(230,162,60,0.2); }
 
 .et-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
@@ -343,7 +347,7 @@ onMounted(async () => {
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 1.4; }
 .et-exec .et-icon { flex-shrink: 0; }
 .et-exec .et-text { color: var(--text-primary); }
-.et-exec.et-bought .et-text { color: var(--stock-up, #f56c6c); font-weight: 600; }
+.et-exec.et-bought .et-text { color: #b77900; font-weight: 700; }
 .et-exec.et-blocked .et-text { color: #e6a23c; font-weight: 500; }
 .et-exec.et-pending .et-text { color: var(--text-secondary); }
 .et-exec.et-rejected .et-text { color: var(--text-tertiary); }

@@ -1103,6 +1103,152 @@ async def get_audit_log(limit: int = 50):
 # ==================== V2.8: EventBus统计与历史 ====================
 
 
+def _parse_premarket_sentiment_from_trace(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """从scan_trace的L3层提取竞价快照里的情绪信息。"""
+    import re
+    layer_details = doc.get("layer_details") or {}
+    l3d = layer_details.get("L3_sentiment_data") or {}
+    if l3d:
+        return {
+            "score": l3d.get("score"),
+            "period": l3d.get("period"),
+            "phase_name": l3d.get("phase_name") or l3d.get("period"),
+            "position_ratio": l3d.get("position_ratio"),
+        }
+    text = str(layer_details.get("L3_sentiment") or "")
+    score = None
+    position_ratio = None
+    phase_name = ""
+    m = re.search(r"情绪=([\d.]+)分", text)
+    if m:
+        score = float(m.group(1))
+    m = re.search(r"仓位系数=([\d.]+)", text)
+    if m:
+        position_ratio = float(m.group(1))
+    m = re.search(r"→(高潮|分化|震荡|冰点)", text)
+    if m:
+        phase_name = m.group(1)
+    return {"score": score, "phase_name": phase_name, "position_ratio": position_ratio}
+
+
+def _layer_brief(summary: Dict[str, Any], name: str) -> Dict[str, Any]:
+    d = (summary or {}).get(name) or {}
+    return {
+        "input": d.get("input", d.get("total", 0)) or 0,
+        "output": d.get("output", d.get("passed", 0)) or 0,
+        "rejected": d.get("rejected", 0) or 0,
+    }
+
+
+@router.get("/premarket-timeline")
+async def get_premarket_timeline(date: str = None, mode: str = "production", include_debug: bool = False, limit: int = 60):
+    """竞价期间扫描快照时间线。
+
+    默认只返回生产/交易日竞价窗口扫描；mode=debug可查看调试/离线快照。
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": {"items": [], "count": 0}}
+        from datetime import datetime
+        db = mongo_manager.db
+        data_mode = normalize_data_mode(mode, include_debug)
+        date_str = str(date or datetime.now().strftime("%Y%m%d")).replace("-", "").replace("/", "")
+        try:
+            date_int = int(date_str)
+            trade_date_query = {"$in": [date_int, date_str]}
+        except Exception:
+            trade_date_query = date_str
+        query = {"trade_date": trade_date_query, **prod_scan_query(data_mode)}
+        items = []
+        fetch_limit = max(limit * 5, limit)
+        seen_times = set()
+        async for doc in db["scan_traces"].find(
+            query,
+            {"candidates": 1, "summary": 1, "layer_details": 1, "scan_time": 1, "is_debug": 1, "session": 1}
+        ).sort("scan_time", 1).limit(fetch_limit):
+            scan_time = str(doc.get("scan_time") or "")
+            t = scan_time.split("T", 1)[1][:8] if "T" in scan_time else scan_time[:8]
+            is_premarket_window = "09:00:00" <= t <= "09:30:00"
+            if data_mode != "debug" and (not is_premarket_window or is_debug_scan_doc(doc)):
+                continue
+            if data_mode == "debug" and not is_premarket_window:
+                # debug模式也默认聚焦竞价窗口，避免把全天普通scan塞进来
+                continue
+            summary = doc.get("summary") or {}
+            candidates = doc.get("candidates") or []
+            passed = summary.get("passed", len([c for c in candidates if c.get("final_status") == "passed"])) or 0
+            rejected = summary.get("rejected", 0) or 0
+            total = summary.get("total_candidates", passed + rejected) or 0
+            top_candidates = []
+            for c in candidates[:8]:
+                top_candidates.append({
+                    "ts_code": c.get("ts_code"),
+                    "stock_name": c.get("stock_name"),
+                    "strategy": c.get("strategy"),
+                    "strategy_name": c.get("strategy_name"),
+                    "pct_chg": c.get("pct_chg"),
+                    "price": c.get("price"),
+                    "final_status": c.get("final_status"),
+                })
+            seen_times.add(scan_time)
+            items.append({
+                "scan_id": str(doc.get("_id")),
+                "scan_time": scan_time,
+                "time": t,
+                "is_debug": doc.get("is_debug", False),
+                "session": doc.get("session") or ("trading" if not doc.get("is_debug") else "off_session"),
+                "total_candidates": total,
+                "passed": passed,
+                "rejected": rejected,
+                "layers": {
+                    "L4_premarket": _layer_brief(summary, "L4_premarket"),
+                    "L5_auction": _layer_brief(summary, "L5_auction"),
+                    "L6_strategy": _layer_brief(summary, "L6_strategy"),
+                },
+                "sentiment": _parse_premarket_sentiment_from_trace(doc),
+                "top_candidates": top_candidates,
+            })
+            if len(items) >= limit:
+                break
+        # 额外合并 premarket_snapshots：即使本轮无策略候选，也能展示“空快照/异常快照”。
+        async for snap in db["premarket_snapshots"].find(
+            {"trade_date": trade_date_query}, {"_id": 1, "scan_time": 1, "market_snapshot": 1, "funnel": 1, "candidates": 1, "note": 1}
+        ).sort("scan_time", 1).limit(fetch_limit):
+            scan_time = str(snap.get("scan_time") or "")
+            if scan_time in seen_times:
+                continue
+            t = scan_time.split("T", 1)[1][:8] if "T" in scan_time else scan_time[:8]
+            if not ("09:00:00" <= t <= "09:30:00"):
+                continue
+            ms = snap.get("market_snapshot") or {}
+            fn = snap.get("funnel") or {}
+            cands = snap.get("candidates") or []
+            items.append({
+                "scan_id": str(snap.get("_id")),
+                "scan_time": scan_time,
+                "time": t,
+                "is_debug": False,
+                "session": "premarket",
+                "note": snap.get("note", ""),
+                "total_candidates": fn.get("total_scanned", ms.get("total_stocks", 0)),
+                "passed": fn.get("after_pipeline", 0),
+                "rejected": max((fn.get("strategy_candidates", 0) or 0) - (fn.get("after_pipeline", 0) or 0), 0),
+                "layers": {
+                    "L4_premarket": {"input": fn.get("total_scanned", 0), "output": fn.get("strategy_candidates", 0), "rejected": 0},
+                    "L5_auction": {"input": fn.get("strategy_candidates", 0), "output": fn.get("strategy_candidates", 0), "rejected": 0},
+                    "L6_strategy": {"input": fn.get("strategy_candidates", 0), "output": fn.get("after_pipeline", 0), "rejected": max((fn.get("strategy_candidates", 0) or 0) - (fn.get("after_pipeline", 0) or 0), 0)},
+                },
+                "sentiment": {},
+                "market_snapshot": ms,
+                "top_candidates": cands[:8],
+            })
+        items.sort(key=lambda x: x.get("scan_time") or "")
+        return _sanitize({"success": True, "data": {"items": items[:limit], "count": len(items[:limit]), "date": date_str, "mode": data_mode}})
+    except Exception as e:
+        return {"success": False, "message": str(e), "data": {"items": [], "count": 0}}
+
+
 @router.get("/premarket-status")
 async def get_premarket_status(date: str = None):
     """盘前竞价增强版 — 策略分组+情绪背景+量能排名+历史统计
