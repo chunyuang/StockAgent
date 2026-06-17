@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import math
+from nodes.web.api.unified import query_trades, query_latest_trade
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -132,20 +133,19 @@ async def get_daily_report(date: str = None):
             strategy_summary[key]["max_loss_pct"] = round(min(losses), 1) if losses else 0
         
         # 从MongoDB获取今日订单统计
+        # 【v2.9.97h】统一查询: 使用 query_trades
         today_trades = {"buy": 0, "sell": 0, "total_amount": 0}
-        if await scanner._broker._ensure_mongo():
-            db = scanner._broker._mongo_db
-            today = datetime.now().strftime("%Y%m%d")
-            today_int = int(today)
-            # 【v2.9.88修复】scan_traces.trade_date已统一为int
-            async for doc in db["broker_orders"].find({
-                "account_id": scanner._broker.account.account_id,
-                "trade_date": today_int,
-                "status": "filled"
-            }):
-                side = doc.get("side", "")
-                today_trades[side] = today_trades.get(side, 0) + 1
-                today_trades["total_amount"] += doc.get("filled_price", 0) * doc.get("filled_qty", 0)
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                today_int = int(datetime.now().strftime("%Y%m%d"))
+                docs = await query_trades(mongo_manager.db, date=today_int)
+                for doc in docs:
+                    side = doc.get("side", "")
+                    today_trades[side] = today_trades.get(side, 0) + 1
+                    today_trades["total_amount"] += doc.get("filled_price", 0) * doc.get("filled_qty", 0)
+        except Exception:
+            pass
         
         # 情绪环境(funnel+sentiment for daily report)
         funnel_summary = None
@@ -525,9 +525,10 @@ async def _daily_report_from_mongo():
     # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用today_int
     today_int = int(today)
 
-    # 1. 今日订单
+    # 1. 今日订单 【v2.9.97h】使用 query_trades
     buys, sells = [], []
-    async for doc in db["broker_orders"].find({"trade_date": today_int, "status": "filled"}).sort("fill_time", 1):
+    docs = await query_trades(db, date=today_int, sort=[("fill_time", 1)])
+    for doc in docs:
         (buys if doc.get("side") == "buy" else sells).append(doc)
     
     if not buys and not sells:

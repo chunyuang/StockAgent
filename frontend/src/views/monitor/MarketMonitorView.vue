@@ -193,6 +193,7 @@ function formatTradeDateTime(rec: any): string {
 
     <!-- 3列主布局 -->
     <div v-if="activeTab === 'trading'" class="mm-body">
+      <div class="st">🎯 实盘交易 <UnifiedDateBar @change="fetchScannerWithDate" /></div>
       <!-- 左列: 策略控制 -->
       <div class="mm-left">
         <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
