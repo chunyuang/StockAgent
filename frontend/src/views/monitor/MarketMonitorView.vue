@@ -85,14 +85,15 @@ const {
 } = monitorData
 
 const dateSectionCollapsed = ref(true)
+const expandedPositions = ref<Record<string, boolean>>({})
 const leftPanelExpanded = computed(() => !dateSectionCollapsed.value || !stratSectionCollapsed.value)
+const anyPositionExpanded = computed(() => Object.values(expandedPositions.value).some(Boolean))
 const fmtCompactDate = (d?: string) => {
   const s = String(d || '').replace(/-/g, '')
   return s.length === 8 ? `${s.slice(4, 6)}-${s.slice(6, 8)}` : '今日'
 }
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
-const expandedPositions = ref<Record<string, boolean>>({})
 function togglePositionCard(code: string) {
   expandedPositions.value[code] = !expandedPositions.value[code]
 }
@@ -225,20 +226,22 @@ function formatTradeDateTime(rec: any): string {
     <GuideTab v-if="activeTab === 'guide'" />
 
     <!-- 3列主布局 -->
-    <div v-if="activeTab === 'trading'" class="mm-body" :class="{ 'left-expanded': leftPanelExpanded }">
+    <div v-if="activeTab === 'trading'" class="mm-body" :class="{ 'left-expanded': leftPanelExpanded, 'position-expanded': anyPositionExpanded }">
       <!-- 左列: 日期+策略控制 -->
-      <div class="mm-left">
+      <div class="mm-left" :class="{ 'icon-only': !leftPanelExpanded }">
         <div class="st cp compact-st" @click="dateSectionCollapsed = !dateSectionCollapsed">
-          <span>📅 日期</span>
-          <span v-if="dateSectionCollapsed" class="compact-pill">{{ currentDateCompact }}</span>
+          <span class="nav-icon">📅</span>
+          <span v-if="leftPanelExpanded">日期</span>
+          <span v-if="leftPanelExpanded && dateSectionCollapsed" class="compact-pill">{{ currentDateCompact }}</span>
           <span class="sc-arrow">{{ dateSectionCollapsed ? '▶' : '▼' }}</span>
         </div>
         <div v-if="!dateSectionCollapsed" class="date-panel">
           <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" />
         </div>
         <div class="st cp compact-st" @click="toggleStrategySection" style="margin-top:4px">
-          <span>🎛️ 策略</span>
-          <span v-if="stratSectionCollapsed" class="compact-pill">{{ enabledStrategyCount }}/{{ strategies.length }}</span>
+          <span class="nav-icon">🎛️</span>
+          <span v-if="leftPanelExpanded">策略</span>
+          <span v-if="leftPanelExpanded && stratSectionCollapsed" class="compact-pill">{{ enabledStrategyCount }}/{{ strategies.length }}</span>
           <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span>
         </div>
         <template v-if="!stratSectionCollapsed">
@@ -552,13 +555,20 @@ function formatTradeDateTime(rec: any): string {
 .emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 【v2.9.97h-v8 布局重构】默认左栏收窄，把空间留给中右数据；展开日期/策略时自动放宽 */
-.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(280px, 2.15fr) minmax(480px, 3.95fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
-.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(280px, 2.15fr) minmax(460px, 3.55fr); }
+.mm-body { flex: 1; display: grid; grid-template-columns: 56px minmax(220px, 1.55fr) minmax(560px, 4.9fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
+.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(220px, 1.55fr) minmax(520px, 4.1fr); }
+.mm-body.position-expanded { grid-template-columns: 56px minmax(340px, 2.45fr) minmax(440px, 4fr); }
+.mm-body.left-expanded.position-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(340px, 2.45fr) minmax(420px, 3.5fr); }
 
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 12px; min-width: 0; min-height: 0; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-default); }
 
 .mm-left { background: var(--bg-secondary); padding: 8px; }
+.mm-left.icon-only { display: flex; flex-direction: column; align-items: center; padding: 8px 6px; overflow: hidden; }
 .mm-body.left-expanded .mm-left { padding: 12px; }
+.mm-left.icon-only .compact-st { width: 40px; height: 38px; justify-content: center; padding: 0; margin-bottom: 8px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-elevated); }
+.mm-left.icon-only .sc-arrow { display: none; }
+.mm-left.icon-only .nav-icon { font-size: 18px; line-height: 1; }
+.mm-left.icon-only .mt-10 { display: none; }
 
 /* 【v2.9.97h-v8】一级标题 - 加粗+下划线增强层级 */
 .st { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: 4px; }
