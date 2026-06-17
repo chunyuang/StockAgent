@@ -23,12 +23,21 @@ router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"]
 
 
 @router.get("/all")
-async def get_all_scanner_data():
+async def get_all_scanner_data(date: str = None):
     """一次性获取所有扫描器数据(减少前端HTTP开销)
     
     合并: status + signals + positions + timeline + orders
     替代前端5次并发请求, 减少延迟和HTTP开销
+    
+    Args:
+        date: 历史日期(YYYYMMDD或YYYY-MM-DD), 不传或today=实时数据
     """
+    # 【v2.9.97h】日期参数: 支持历史查询
+    from nodes.web.api.unified import _normalize_date
+    date_int = _normalize_date(date)
+    today_int = int(__import__('datetime').datetime.now().strftime("%Y%m%d"))
+    is_historical = date_int is not None and date_int != today_int
+    
     scanner = await _get_scanner()
     
     # 状态
@@ -39,85 +48,107 @@ async def get_all_scanner_data():
     signals_data = scanner.get_signals()
     _fill_stock_names(signals_data, scanner)
     
-    # 【v2.9.97f】持仓统一从 broker_positions (MongoDB) 读取, 不再以 scanner 内存为主
-    # 解决: scanner 内存与 MongoDB 不一致(崩溃/重启时) → P0 持仓漂移事故
-    # scanner 内存只用于补充实时字段(trailing_stop等scanner独有字段)
+    # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []
     try:
-        from nodes.web.api.scanner_analysis import _compute_positions_from_broker
         from core.managers import mongo_manager
         if mongo_manager.db is not None:
             account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
-            positions_data = await _compute_positions_from_broker(mongo_manager.db, account_id)
-            # 用 scanner 内存补充实时字段(trailing_stop, risk_level等)
-            if scanner._broker:
-                scanner_positions = {p.get("ts_code"): p for p in scanner.get_positions()}
-                for i, p in enumerate(positions_data):
-                    tc = p.get("ts_code")
-                    sp = scanner_positions.get(tc)
-                    if sp:
-                        for key in ["trailing_stop_activated", "trailing_stop_pct",
-                                     "risk_level", "risk_desc", "hold_hours",
-                                     "stop_loss_reason", "take_profit_reason"]:
-                            if sp.get(key) is not None and p.get(key) is None:
-                                positions_data[i][key] = sp[key]
+            if is_historical:
+                # 历史: 从broker_orders重建到指定日期收盘的持仓快照
+                from nodes.web.api.unified import fetch_unified_positions
+                pos_result = await fetch_unified_positions(date=str(date_int), account_id=account_id)
+                positions_data = pos_result if isinstance(pos_result, list) else pos_result.get("positions", []) if isinstance(pos_result, dict) else []
+                for p in positions_data:
+                    p["_historical"] = True
+                    p["status_at"] = str(date_int)
+            else:
+                # 当日: 从broker_positions读(唯一真相源)
+                from nodes.web.api.scanner_analysis import _compute_positions_from_broker
+                positions_data = await _compute_positions_from_broker(mongo_manager.db, account_id)
+                # 用scanner内存补充实时字段
+                if scanner._broker:
+                    scanner_positions = {p.get("ts_code"): p for p in scanner.get_positions()}
+                    for i, p in enumerate(positions_data):
+                        tc = p.get("ts_code")
+                        sp = scanner_positions.get(tc)
+                        if sp:
+                            for key in ["trailing_stop_activated", "trailing_stop_pct",
+                                         "risk_level", "risk_desc", "hold_hours",
+                                         "stop_loss_reason", "take_profit_reason"]:
+                                if sp.get(key) is not None and p.get(key) is None:
+                                    positions_data[i][key] = sp[key]
     except Exception:
-        # fallback到scanner内存(MongoDB不可用时)
-        positions_data = scanner.get_positions()
+        if not is_historical:
+            positions_data = scanner.get_positions()
     _fill_stock_names(positions_data, scanner)
     
-    # 时间线
-    timeline_data = scanner.get_timeline()
-    # 【v2.9.79】填充空stock_name(旧数据/行情无name时)
+    # 【v2.9.97h】时间线: 历史从MongoDB读, 当日从scanner内存+fallback
+    timeline_data = []
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.db is not None:
+            db = mongo_manager.db
+            account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+            query_date = str(date_int) if is_historical else __import__('datetime').datetime.now().strftime("%Y%m%d")
+            # 1. 从scanner_timeline读blocked等决策日志
+            async for doc in db["scanner_timeline"].find(
+                {"account_id": account_id, "trade_date": {"$in": [query_date, int(query_date)]}}
+            ).sort("_id", 1):
+                doc.pop("_id", None)
+                doc.pop("account_id", None)
+                if is_historical:
+                    doc["_historical"] = True
+                timeline_data.append(doc)
+            # 2. 从broker_orders读buy/sell交易(唯一真相源)
+            from nodes.web.api.unified import fetch_unified_trades
+            trades = await fetch_unified_trades(date=query_date, account_id=account_id)
+            for t in trades:
+                entry = {
+                    "action": t.get("side"),
+                    "ts_code": t.get("ts_code"),
+                    "stock_name": t.get("stock_name"),
+                    "price": t.get("filled_price"),
+                    "shares": t.get("filled_qty"),
+                    "strategy": t.get("strategy"),
+                    "reason": t.get("reason"),
+                    "time": t.get("fill_time") or t.get("create_time"),
+                    "trade_date": t.get("trade_date"),
+                    "profit_pct": t.get("profit_pct"),
+                    "profit_amount": t.get("profit_amount"),
+                }
+                if is_historical:
+                    entry["_historical"] = True
+                timeline_data.append(entry)
+            timeline_data.sort(key=lambda x: str(x.get("time") or x.get("fill_time") or x.get("create_time") or ""))
+            # 当日fallback: 如果scanner内存有数据且MongoDB没有
+            if not is_historical and not timeline_data:
+                timeline_data = scanner.get_timeline()
+    except Exception:
+        if not is_historical:
+            timeline_data = scanner.get_timeline()
     _fill_stock_names(timeline_data, scanner)
     
-    # 如果时间线为空(扫描器未启动)，尝试从MongoDB加载最近交易日数据
-    if not timeline_data:
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is not None:
-                db = mongo_manager.db
-                account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
-                # 优先查当天; 如果当天只有blocked记录(<3条), 回退到最近有完整数据的交易日
-                today_str = __import__('datetime').datetime.now().strftime("%Y%m%d")
-                today_count = await db["scanner_timeline"].count_documents(
-                    {"account_id": account_id, "trade_date": today_str}
-                )
-                fallback_date = today_str
-                if today_count < 3:
-                    # 找数据最多的最近交易日
-                    pipeline = [
-                        {"$match": {"account_id": account_id}},
-                        {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
-                        {"$sort": {"count": -1}},
-                        {"$limit": 1}
-                    ]
-                    result = await db["scanner_timeline"].aggregate(pipeline).to_list(1)
-                    if result:
-                        fallback_date = result[0]["_id"]
-                if fallback_date:
-                    cursor = db["scanner_timeline"].find(
-                        {"account_id": account_id, "trade_date": fallback_date}
-                    ).sort("_id", 1)
-                    async for doc in cursor:
-                        doc.pop("_id", None)
-                        doc.pop("account_id", None)
-                        # 不删trade_date! 前端需要用它判断是否今天的数据
-                        # 旧数据(trade_date!=today)显示时标注为历史回放
-                        if doc.get("trade_date") and str(doc.get("trade_date")) != today_str:
-                            doc["_historical_fallback"] = True
-                        timeline_data.append(doc)
-        except Exception:
-            pass
-    
-    # 订单(最近N条，按scanner当前交易日期过滤)
+    # 【v2.9.97h】订单: 历史日期从broker_orders读, 当日保持现有逻辑
     orders_data = []
-    if scanner._broker:
-        try:
-            if await scanner._broker._ensure_mongo():
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.db is not None:
+            db = mongo_manager.db
+            account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+            if is_historical:
+                query_date = str(date_int)
+                docs = await db["broker_orders"].find({
+                    "account_id": account_id,
+                    "trade_date": {"$in": [query_date, int(query_date)]},
+                }).sort("create_time", 1).limit(50).to_list(50)
+                for d in docs:
+                    d.pop("_id", None)
+                    d["_historical"] = True
+                    orders_data.append(d)
+            elif scanner._broker and await scanner._broker._ensure_mongo():
                 db = scanner._broker._mongo_db
                 orders_query = {"account_id": scanner._broker.account.account_id}
-                # 【v2.9.92d】如果有trade_date，只返回当天的订单
                 trade_date = getattr(scanner, '_trade_date', '')
                 if trade_date:
                     orders_query["trade_date"] = {"$in": [str(trade_date), int(trade_date)] if str(trade_date).isdigit() else str(trade_date)}
@@ -127,32 +158,32 @@ async def get_all_scanner_data():
                 for d in docs:
                     d.pop("_id", None)
                     orders_data.append(d)
-        except Exception:
-            pass
+    except Exception:
+        pass
     
     # 填充空stock_name(从scanner的名称映射)
     _fill_stock_names(timeline_data, scanner)
     
-    # 累计盈亏统计(优先从broker_orders profit_amount累加，更准确)
+    # 累计盈亏统计
     total_profit_amount = 0
-    # 方式1: 从timeline sell事件累加(实时数据)
-    for item in timeline_data:
-        if item.get("action") == "sell" and item.get("profit_amount"):
-            total_profit_amount += item["profit_amount"]
-    # 方式2: 如果timeline无profit_amount，从broker_orders补充(历史回放场景)
-    if total_profit_amount == 0 and orders_data:
-        for o in orders_data:
-            if o.get("side") == "sell" and o.get("profit_amount"):
-                total_profit_amount += o["profit_amount"]
+    for o in orders_data:
+        if o.get("side") == "sell" and o.get("profit_amount"):
+            total_profit_amount += o["profit_amount"]
+    if total_profit_amount == 0:
+        for item in timeline_data:
+            if item.get("action") == "sell" and item.get("profit_amount"):
+                total_profit_amount += item["profit_amount"]
     
     return _sanitize({
         "success": True,
         "data": {
             "status": status_data,
-            "signals": signals_data,
+            "signals": signals_data if not is_historical else [],
             "positions": positions_data,
             "timeline": timeline_data,
             "orders": orders_data,
+            "_historical": is_historical,
+            "_query_date": date_int,
             "summary": {
                 "total_profit_amount": round(total_profit_amount, 2),
                 "today_trades": len([t for t in timeline_data if t.get("action") == "buy"]) + len([t for t in timeline_data if t.get("action") == "sell"]),
@@ -1359,3 +1390,45 @@ async def get_position_risk_matrix():
         return {"success": False, "message": str(e)}
 
 
+
+
+# 【v2.9.97h】盘后收盘价刷新 - 不依赖scanner运行
+@router.post("/refresh-close-prices")
+async def refresh_close_prices_standalone():
+    """盘后刷新持仓收盘价(不依赖scanner运行, 可由cron调用)
+    
+    逻辑:
+    1. 从broker_positions读当前持仓
+    2. 从stock_daily_ak_full读当日收盘价
+    3. 更新broker_positions的current_price
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        today_int = int(__import__('datetime').datetime.now().strftime("%Y%m%d"))
+        updated = 0
+        
+        async for pos in db["broker_positions"].find({"account_id": "default"}):
+            tc = pos.get("ts_code")
+            if not tc:
+                continue
+            # 找最近收盘价(不一定是今天, 可能是非交易日)
+            doc = await db["stock_daily_ak_full"].find_one(
+                {"ts_code": tc},
+                {"close": 1, "trade_date": 1},
+                sort=[("trade_date", -1)]
+            )
+            if doc and doc.get("close", 0) > 0:
+                close = float(doc["close"])
+                await db["broker_positions"].update_one(
+                    {"_id": pos["_id"]},
+                    {"$set": {"current_price": close}}
+                )
+                updated += 1
+        
+        return {"success": True, "data": {"updated": updated, "date": today_int}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
