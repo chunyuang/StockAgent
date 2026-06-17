@@ -174,10 +174,10 @@ export function useUnifiedData(initialDate?: Ref<string> | string) {
     await Promise.all([fetchTrades(), fetchPositions()])
   }
 
-  // 监听日期变化, 自动刷新
+  // 监听日期变化, 自动刷新 (immediate: 确保首次mount即加载数据)
   watch(currentDate, () => {
     refresh()
-  })
+  }, { immediate: true })
 
   // 派生数据 (供不同 Tab 用)
   const buys = computed(() => trades.value.filter(t => t.side === 'buy'))
