@@ -140,6 +140,30 @@ function shortReason(reason: string): string {
     .replace(/本只被集中度过滤剔除/g, '集中度过滤')
 }
 
+function emotionRiskTrigger(rule: string): string {
+  const map: Record<string, string> = {
+    '强制空仓': '极端风险闸门：跌停≥80；或涨停≤10且有跌停；或大盘跌≥3%。触发后候选清空/仓位归零。',
+    '特殊时期降仓': '日历风控：月末/季末/年末/节前/周五等特殊时期降低仓位系数，不一定淘汰候选。',
+    '冰点期暂停半路追涨': '情绪分<40时暂停半路追涨策略，属于情绪层直接过滤。',
+    '风控熔断': '账户级闸门：连续亏损、日内回撤、手动暂停等触发后停止新增买入。',
+    '非交易时间不下单': '执行闸门：盘前/盘后/午休等非真实交易时段，只记录信号，不执行真实买入。',
+    '大盘跌破MA60降仓': '指数趋势风控：上证跌破MA60时仓位系数减半，通常表现为降仓而不是候选淘汰。',
+  }
+  return map[rule] || '系统风控规则。'
+}
+
+function emotionRiskState(rule: string): string {
+  const d = unref(scanTraceDetail) as any
+  if (!d?.layer_details) return '当前未选中具体扫描，点击某条扫描记录后可看本轮状态。'
+  if (rule === '强制空仓') return d.layer_details.L1_force_empty || '本轮未返回强制空仓状态。'
+  if (rule === '特殊时期降仓') return d.layer_details.L2_special_period || '本轮未返回特殊时期状态。'
+  if (rule === '冰点期暂停半路追涨') return d.layer_details.L3_sentiment || '本轮未返回情绪状态。'
+  if (rule === '大盘跌破MA60降仓') return d.layer_details.L8_ma60 || '本轮未返回MA60状态。'
+  if (rule === '非交易时间不下单') return '若本轮发生，会出现在执行拦截原因中；当前成交/拦截统计可在候选追踪里查看。'
+  if (rule === '风控熔断') return '若账户已暂停交易，会出现在执行拦截原因中；当前未在本轮详情中看到熔断拦截。'
+  return ''
+}
+
 function toggleScanDetail(s: any) {
   const idx = scanHistory.value.indexOf(s)
   if (selectedScanIdx.value === idx) {
@@ -220,13 +244,24 @@ onMounted(async () => {
                 <span class="es-reason-pct">{{ r.pct.toFixed(1) }}%</span>
               </div>
             </div>
-            <div v-else class="es-detail-hint">点击上方分类卡片查看该类全部执行拦截原因。图中只包含今日执行阶段实际触发过的拦截；排序淘汰请看下方漏斗/统计。</div>
+            <div v-else class="es-detail-hint">
+              点击上方分类卡片查看该类全部执行拦截原因。图中只包含今日执行阶段实际触发过的拦截。
+              排序淘汰在选中某条扫描后，看下面的“扫描漏斗”或点这里：
+              <button class="es-inline-link" @click="switchScanTraceFilter('summary')" :disabled="!scanTraceDetail">打开筛选统计</button>
+            </div>
             <details v-if="inactiveBlockRules.length" class="es-rule-catalog">
               <summary>今日未触发的执行/系统闸门规则（{{ inactiveBlockRules.length }}类）</summary>
               <div class="es-rule-grid">
                 <div v-for="g in inactiveBlockRules" :key="g.category" class="es-rule-card" :style="{ '--group-color': g.color }">
                   <span class="es-rule-title"><i></i>{{ g.category }}</span>
-                  <span class="es-rule-list">{{ g.rules.join('、') }}</span>
+                  <div v-if="g.category === '情绪风控'" class="es-rule-detail-list">
+                    <div v-for="rule in g.rules" :key="rule" class="es-rule-detail-item">
+                      <b>{{ rule }}</b>
+                      <span>{{ emotionRiskTrigger(rule) }}</span>
+                      <em>{{ emotionRiskState(rule) }}</em>
+                    </div>
+                  </div>
+                  <span v-else class="es-rule-list">{{ g.rules.join('、') }}</span>
                 </div>
               </div>
             </details>
@@ -559,6 +594,13 @@ onMounted(async () => {
 .es-rule-title { display: flex; align-items: center; gap: 5px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
 .es-rule-title i { width: 7px; height: 7px; border-radius: 50%; background: var(--group-color); }
 .es-rule-list { font-size: 10px; color: var(--text-tertiary); line-height: 1.5; }
+.es-inline-link { margin-left: 4px; border: 1px solid rgba(108,140,255,0.28); background: rgba(108,140,255,0.08); color: #6c8cff; border-radius: 999px; padding: 1px 7px; font-size: 10px; cursor: pointer; }
+.es-inline-link:disabled { opacity: 0.45; cursor: not-allowed; }
+.es-rule-detail-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.es-rule-detail-item { display: grid; gap: 2px; padding: 5px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); }
+.es-rule-detail-item b { color: var(--text-primary); font-size: 11px; }
+.es-rule-detail-item span { color: var(--text-secondary); font-size: 10px; line-height: 1.45; }
+.es-rule-detail-item em { color: var(--text-tertiary); font-style: normal; font-size: 10px; line-height: 1.45; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
 /* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
