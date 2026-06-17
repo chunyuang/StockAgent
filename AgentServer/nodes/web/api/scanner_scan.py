@@ -605,7 +605,7 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
             blocked_map = {}  # (ts_code, strategy) -> {reason, strategy}
             bought_map = {}   # (ts_code, strategy) -> {price, amount, shares}
             
-            if filter_status in ("passed", "all") and candidates:
+            if filter_status in ("passed", "all", "bought") and candidates:
                 passed_tscodes = [c.get("ts_code", "") for c in candidates if c.get("final_status") == "passed"]
                 passed_keys = {(c.get("ts_code", ""), c.get("strategy", "") or "") for c in candidates if c.get("final_status") == "passed"}
                 if passed_tscodes:
@@ -682,6 +682,10 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                                 f"同股多策略只保留高优先级）· {strategy_name}, {'涨' if pct >= 0 else '跌'}{abs(pct):.1f}%"
                             )
             
+            bought_candidates = [c for c in candidates if c.get("execution_status") == "bought"]
+            blocked_candidates = [c for c in candidates if c.get("execution_status") == "blocked"]
+            pending_candidates = [c for c in candidates if c.get("final_status") == "passed" and c.get("execution_status") in (None, "pending")]
+            
             if filter_status == "summary":
                 # 【v2.9.7: 只返回统计, 不返回候选列表】
                 # 按rejection_layer分组统计
@@ -694,6 +698,9 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 doc.pop("rejected_summary", None)
             elif filter_status == "passed":
                 doc["candidates"] = candidates[offset:offset + limit]
+                doc.pop("rejected_summary", None)
+            elif filter_status == "bought":
+                doc["candidates"] = bought_candidates[offset:offset + limit]
                 doc.pop("rejected_summary", None)
             elif filter_status == "rejected":
                 doc["candidates"] = rejected[offset:offset + limit]
@@ -768,12 +775,16 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
             doc["_pagination"] = {
                 "passed_count": len(candidates),
                 "rejected_count": len(rejected),
+                "bought_count": len(bought_candidates),
+                "blocked_count": len(blocked_candidates),
+                "pending_count": len(pending_candidates),
                 "returned_count": len(doc["candidates"]),
                 "filter": filter_status,
                 "limit": limit,
                 "offset": offset,
                 "has_more_passed": offset + limit < len(candidates),
                 "has_more_rejected": offset + limit < len(rejected),
+                "has_more_bought": offset + limit < len(bought_candidates),
             }
         
         return {"success": True, "data": doc}

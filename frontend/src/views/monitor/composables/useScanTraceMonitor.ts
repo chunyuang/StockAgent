@@ -114,7 +114,7 @@ export function useScanTraceMonitor() {
   }
 
   // 切换候选过滤模式
-  async function switchScanTraceFilter(filter: 'passed' | 'rejected' | 'summary') {
+  async function switchScanTraceFilter(filter: 'passed' | 'bought' | 'rejected' | 'summary') {
     if (!scanTraceDetail.value) return
     const scanId = scanTraceDetail.value.scan_id
     if (!scanId) return

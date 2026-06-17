@@ -232,7 +232,7 @@ onMounted(async () => {
             <span class="fn-desc">{{ scanTraceDetail.layer_details?.[layerName] || layerDesc(layerName, layerData) || '' }}</span>
           </div>
         </template>
-        <div v-if="scanTraceDetail?._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
+        <div v-if="scanTraceDetail?._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / 💰 成交{{ scanTraceDetail._pagination.bought_count || 0 }} / 🚫 执行拦截{{ scanTraceDetail._pagination.blocked_count || 0 }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
       </div>
 
       <!-- 底部: 候选追踪(主区域) -->
@@ -241,6 +241,7 @@ onMounted(async () => {
           <span>🎯 候选追踪</span>
           <div style="display:flex;gap:4px;margin-left:auto">
             <button :class="['tab-btn-sm', scanTraceFilter === 'passed' ? 'active' : '']" @click="switchScanTraceFilter('passed')" :disabled="scanTraceLoadingMore">✅ 通过候选({{ scanTraceDetail._pagination?.passed_count || 0 }})</button>
+            <button :class="['tab-btn-sm', scanTraceFilter === 'bought' ? 'active buy' : '']" @click="switchScanTraceFilter('bought')" :disabled="scanTraceLoadingMore">💰 成交候选({{ scanTraceDetail._pagination?.bought_count || 0 }})</button>
             <button :class="['tab-btn-sm', scanTraceFilter === 'rejected' ? 'active' : '']" @click="switchScanTraceFilter('rejected')" :disabled="scanTraceLoadingMore">❌ 淘汰候选({{ scanTraceDetail._pagination?.rejected_count || 0 }})</button>
             <button :class="['tab-btn-sm', scanTraceFilter === 'summary' ? 'active' : '']" @click="switchScanTraceFilter('summary')">📊 统计</button>
           </div>
@@ -368,6 +369,8 @@ onMounted(async () => {
 .scan-trace-help { color: var(--text-tertiary); font-size: 11px; }
 .scan-date-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .scan-debug-hint { color: var(--text-tertiary); font-size: 11px; opacity: 0.8; }
+
+.tab-btn-sm.active.buy { background: rgba(245,108,108,0.12); color: var(--stock-up, #f56c6c); border-color: rgba(245,108,108,0.45); }
 
 .scan-hours { display: flex; flex-direction: column; gap: 4px; }
 
