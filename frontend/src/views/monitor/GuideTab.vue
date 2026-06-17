@@ -30,16 +30,12 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div>
         <div class="gg-body">
-          <div class="gf-flow">
-            <span class="gf-tag gf-input">全市场实时行情</span>
-            <span class="gf-arrow">→</span>
-            <span class="gf-tag">L1~L3 风险/情绪</span>
-            <span class="gf-arrow">→</span>
-            <span class="gf-tag">L4~L6 回测策略过滤</span>
-            <span class="gf-arrow">→</span>
-            <span class="gf-tag">L7~L9 排序仓位执行</span>
-            <span class="gf-arrow">→</span>
-            <span class="gf-tag gf-output">执行候选/成交</span>
+          <div class="gf-flow gf-flow-rail">
+            <div class="gf-tag gf-input"><span>01</span><b>行情输入</b><small>全市场实时行情</small></div>
+            <div class="gf-tag"><span>02</span><b>环境风控</b><small>L1~L3 风险/情绪</small></div>
+            <div class="gf-tag"><span>03</span><b>策略过滤</b><small>L4~L6 回测条件</small></div>
+            <div class="gf-tag"><span>04</span><b>排序控仓</b><small>L7~L8 去重/仓位</small></div>
+            <div class="gf-tag gf-output"><span>05</span><b>执行反馈</b><small>L9 候选/成交</small></div>
           </div>
           <div class="gf-layers gf-layers-live">
             <div class="gf-layer"><span class="gfl-k">L1</span><b>强制空仓</b><em>回测对齐</em><small>跌停≥80 / 涨停≤10且跌停&gt;0 / 大盘跌≥3%</small></div>
@@ -60,17 +56,17 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
       <div class="gg-card">
         <div class="gg-head"><span class="gg-icon">📖</span>操作指南</div>
         <div class="gg-body">
-          <div class="go-list">
-            <div class="go-row"><span class="sn">1</span><div><b>启动扫描器</b> → 每5分钟全量扫描 + 30秒持仓风控检查</div></div>
-            <div class="go-row"><span class="sn">2</span><div><b>信号买入</b> → 信号区出现候选，点击"买"或按F9一键下单</div></div>
-            <div class="go-row"><span class="sn">3</span><div><b>策略调参</b> → 左侧面板开关策略、编辑参数（与回测对齐）</div></div>
-            <div class="go-row"><span class="sn">4</span><div><b>持仓管理</b> → 自动止盈止损 / 手动卖出 / 盘中冲高锁定</div></div>
-            <div class="go-row"><span class="sn">5</span><div><b>强制扫描</b> → F5或⚡按钮立即扫描，跳过5分钟缓存</div></div>
-            <div class="go-row"><span class="sn">6</span><div><b>交易详情</b> → 点击持仓/信号的🔍查看买卖因子和决策链路</div></div>
-            <div class="go-row"><span class="sn">7</span><div><b>结果分析</b> → 分析Tab查看胜率/盈亏比/策略贡献/日收益</div></div>
-            <div class="go-row"><span class="sn">8</span><div><b>复盘归因</b> → 复盘Tab查看日/周/月报告+前瞻建议</div></div>
-            <div class="go-row"><span class="sn">9</span><div><b>风控状态</b> → 账户Tab查看止损风险+风控参数+情绪仓位</div></div>
-            <div class="go-row"><span class="sn">⌨</span><div>快捷键: <kbd>F5</kbd>强扫 <kbd>F9</kbd>买入 <kbd>Ctrl+S</kbd>卖出 <kbd>Ctrl+E</kbd>紧急平仓 <kbd>↑↓</kbd>切换 <kbd>Enter</kbd>详情 <kbd>1-5</kbd>策略开关</div></div>
+          <div class="go-list go-list-live">
+            <div class="go-row"><span class="sn">01</span><b>盘前准备</b><small>确认扫描器、行情源、账户资金和策略开关；9:25 后可看竞价时间线。</small><em>启动/自检</em></div>
+            <div class="go-row"><span class="sn">02</span><b>竞价观察</b><small>查看每次竞价快照：候选、过滤、情绪、Top标的，不只看单一当前值。</small><em>9:00~9:30</em></div>
+            <div class="go-row"><span class="sn">03</span><b>全量扫描</b><small>盘中按周期扫描全市场；需要立即刷新时用强制扫描，跳过缓存。</small><em>F5/⚡</em></div>
+            <div class="go-row"><span class="sn">04</span><b>候选追踪</b><small>从扫描历史展开 L1~L9 详情；成交 scan 黄色高亮，便于和未成交区分。</small><em>追踪归因</em></div>
+            <div class="go-row"><span class="sn">05</span><b>买入执行</b><small>候选进入执行层后校验资金、T+1、集中度、成交概率；支持自动/手动确认。</small><em>F9/买入</em></div>
+            <div class="go-row"><span class="sn">06</span><b>持仓风控</b><small>账户页核对现金、持仓、市值；系统持续检查止损、近止损、冲高回落和追踪止损。</small><em>风控守护</em></div>
+            <div class="go-row"><span class="sn">07</span><b>交易审查</b><small>点击持仓/成交查看个股买入原因、策略、成本、现价、浮盈亏和交易记录。</small><em>逐笔详情</em></div>
+            <div class="go-row"><span class="sn">08</span><b>复盘分析</b><small>分析/复盘查看胜率、盈亏比、策略贡献、日周月报告和前瞻建议。</small><em>盘后复盘</em></div>
+            <div class="go-row"><span class="sn">09</span><b>参数对齐</b><small>策略参数以回测基准为参照；修改实盘参数后要检查是否与回测预期一致。</small><em>回测一致</em></div>
+            <div class="go-hotkeys"><b>快捷键</b><span><kbd>F5</kbd>强扫</span><span><kbd>F9</kbd>买入</span><span><kbd>Ctrl+S</kbd>卖出</span><span><kbd>Ctrl+E</kbd>紧急平仓</span><span><kbd>Enter</kbd>详情</span></div>
           </div>
         </div>
       </div>
@@ -181,9 +177,15 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 
 /* 系统架构 */
 .gf-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
-.gf-tag { position: relative; padding: 6px 8px; border-radius: 7px; font-size: 11px; font-weight: 600; text-align: center; background: var(--bg-normal); border: 1px solid var(--border-default); line-height: 1.25; }
+.gf-tag { position: relative; padding: 7px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; text-align: center; background: var(--bg-normal); border: 1px solid var(--border-default); line-height: 1.25; }
+.gf-flow-rail .gf-tag { display: flex; flex-direction: column; gap: 3px; min-height: 54px; justify-content: center; }
+.gf-flow-rail .gf-tag span { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-tertiary); }
+.gf-flow-rail .gf-tag b { color: var(--text-primary); font-size: 12px; }
+.gf-flow-rail .gf-tag small { color: var(--text-secondary); font-size: 10px; font-weight: 500; }
 .gf-tag.gf-input { background: var(--el-color-primary-light-5); border-color: var(--el-color-primary-light-3); color: var(--el-color-primary-dark-2); }
 .gf-tag.gf-output { background: rgba(0,180,42,0.1); border-color: rgba(0,180,42,0.3); color: #00b42a; }
+.gf-tag.gf-input b, .gf-tag.gf-input small { color: var(--el-color-primary-dark-2); }
+.gf-tag.gf-output b, .gf-tag.gf-output small { color: #00b42a; }
 .gf-arrow { display: none; }
 .gf-layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
 .gf-layer { font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; padding: 2px 0; }
@@ -198,10 +200,19 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 
 /* 操作指南 */
 .go-list { display: flex; flex-direction: column; gap: 4px; }
+.go-list-live { gap: 5px; }
 .go-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.6; }
+.go-list-live .go-row { display: grid; grid-template-columns: 34px 72px 1fr auto; align-items: center; gap: 8px; background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 7px; padding: 7px 9px; min-height: 42px; }
 .sn { background: var(--el-color-primary); color: #fff; border-radius: 4px; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
+.go-list-live .sn { min-width: 30px; height: 22px; margin-top: 0; font-family: 'JetBrains Mono', monospace; background: rgba(0,180,42,0.12); color: #00a870; border: 1px solid rgba(0,180,42,0.22); }
 .go-row b { font-weight: 600; }
-.go-row kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 3px; padding: 0 5px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.go-list-live .go-row b { color: var(--text-primary); font-size: 12px; white-space: nowrap; }
+.go-list-live .go-row small { color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+.go-list-live .go-row em { justify-self: end; font-style: normal; color: #00a870; background: rgba(0,180,42,0.1); border: 1px solid rgba(0,180,42,0.18); border-radius: 999px; padding: 1px 7px; font-size: 10px; white-space: nowrap; }
+.go-row kbd, .go-hotkeys kbd { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; padding: 0 5px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.go-hotkeys { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; padding: 8px 10px; border-radius: 7px; background: rgba(0,180,42,0.06); color: var(--text-secondary); font-size: 11px; }
+.go-hotkeys b { color: var(--text-primary); margin-right: 2px; }
+.go-hotkeys span { display: inline-flex; align-items: center; gap: 3px; }
 
 /* 策略表格 */
 .st-table { width: 100%; border-collapse: collapse; font-size: 12px; }
