@@ -96,7 +96,7 @@ const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => 
 function toggleStrategySection() {
   stratSectionCollapsed.value = !stratSectionCollapsed.value
   if (!stratSectionCollapsed.value) {
-    stratCollapsed.value = {}
+    stratCollapsed.value = Object.fromEntries(strategies.value.map((s: any) => [s.id, true]))
   }
 }
 
