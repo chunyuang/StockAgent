@@ -4,7 +4,8 @@
  * v2.9.92g: 双栏紧凑布局 — 左栏timeline，右栏订单+平仓+审计
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElDatePicker, ElTag } from 'element-plus'
+import { ElButton, ElTag } from 'element-plus'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
 
@@ -134,7 +135,7 @@ const closedStats = computed(() => {
           <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" class="ht-pnl">{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
         </div>
         <div class="ht-toolbar-right">
-          <ElDatePicker v-model="historyDate" type="date" placeholder="历史日期" size="small" value-format="YYYY-MM-DD" style="width:125px" :disabled-date="(d: Date) => d > new Date()" />
+          <UnifiedDateBar @change="(_d: string) => { historyDate = _d }" />
           <ElButton size="small" @click="loadHistory" :loading="historyLoading">回放</ElButton>
           <ElButton v-if="historyData.length" size="small" type="info" @click="historyData = []; historyDate = ''">返回今日</ElButton>
           <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit">🔍 审查</ElButton>

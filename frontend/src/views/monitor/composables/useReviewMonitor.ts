@@ -54,7 +54,7 @@ export function useReviewMonitor() {
       if (reviewTab.value === 'daily') {
         if (isToday) {
           promises.push(
-            api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
+            api.get(`${scannerApi}/daily-report?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
             // 【v2.9.97】切换到统一数据源 — 包含 buy+sell
             api.get(`/unified/trades?date=${dateParam}`, opts).then(r => {
               const p = parseResponse(r); if (p.success) {

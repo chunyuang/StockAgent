@@ -385,7 +385,7 @@ function formatTradeDateTime(rec: any): string {
     <!-- 回放日期弹窗 -->
     <ElDialog v-model="replayDateVisible" title="🔄 回放模式" width="380px" :close-on-click-modal="false">
       <div style="margin-bottom:12px;font-size:14px">选择要回放的交易日期，将使用历史数据重放扫描：</div>
-      <ElDatePicker v-model="replayDateInput" type="date" placeholder="选择回放日期" value-format="YYYY-MM-DD" style="width:100%" :disabled-date="(d: Date) => d > new Date()" />
+      <UnifiedDateBar @change="(_d: string) => { replayDateInput = _d }" />
       <template #footer><ElButton @click="cancelReplay">取消</ElButton><ElButton type="primary" @click="confirmReplay" :disabled="!replayDateInput">确认回放</ElButton></template>
     </ElDialog>
 
