@@ -6,7 +6,7 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide, defineAsyncComponent } from 'vue'
+import { provide, defineAsyncComponent, ref, computed } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useThemeStore } from '@/stores/theme'
@@ -84,6 +84,15 @@ const {
   tradeAttributions, paramDriftData, factorEffectData,
   disciplineCheck,
 } = monitorData
+
+const dateSectionCollapsed = ref(true)
+const leftPanelExpanded = computed(() => !dateSectionCollapsed.value || !stratSectionCollapsed.value)
+const fmtCompactDate = (d?: string) => {
+  const s = String(d || '').replace(/-/g, '')
+  return s.length === 8 ? `${s.slice(4, 6)}-${s.slice(6, 8)}` : '今日'
+}
+const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
+const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
 
 // 【v2.9.94】交易详情弹窗时间显示：优先后端 time_display，后退到 trade_date + time 拼接
 function formatTradeDateTime(rec: any): string {
@@ -193,12 +202,26 @@ function formatTradeDateTime(rec: any): string {
     <GuideTab v-if="activeTab === 'guide'" />
 
     <!-- 3列主布局 -->
-    <div v-if="activeTab === 'trading'" class="mm-body">
+    <div v-if="activeTab === 'trading'" class="mm-body" :class="{ 'left-expanded': leftPanelExpanded }">
       <!-- 左列: 日期+策略控制 -->
       <div class="mm-left">
-        <div class="st">📅 日期 <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" /></div>
-        <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed" style="margin-top:4px">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
-        <template v-if="!stratSectionCollapsed">
+        <div class="st cp compact-st" @click="dateSectionCollapsed = !dateSectionCollapsed">
+          <span>📅 日期</span>
+          <span v-if="dateSectionCollapsed" class="compact-pill">{{ currentDateCompact }}</span>
+          <span class="sc-arrow">{{ dateSectionCollapsed ? '▶' : '▼' }}</span>
+        </div>
+        <div v-if="!dateSectionCollapsed" class="date-panel">
+          <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" />
+        </div>
+        <div class="st cp compact-st" @click="stratSectionCollapsed = !stratSectionCollapsed" style="margin-top:4px">
+          <span>🎛️ 策略</span>
+          <span v-if="stratSectionCollapsed" class="compact-pill">{{ enabledStrategyCount }}/{{ strategies.length }}</span>
+          <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span>
+        </div>
+        <div v-if="stratSectionCollapsed" class="strategy-mini-strip">
+          <button v-for="s in strategies" :key="s.id" class="strategy-mini" :class="{ off: !s.enabled }" :title="s.name" @click.stop="toggleStrategy(s.id, !s.enabled)">{{ strategyMeta[s.id]?.icon || '📋' }}</button>
+        </div>
+        <template v-else>
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
           <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="toggleStrategy(s.id, $event)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
@@ -502,15 +525,25 @@ function formatTradeDateTime(rec: any): string {
 
 .emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* 【v2.9.97h-v8 布局重构】3列比例: 左1.5/中2.5/右3，改用gap+圆角分隔 */
-.mm-body { flex: 1; display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(280px, 2.5fr) minmax(380px, 3fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); }
+/* 【v2.9.97h-v8 布局重构】默认左栏收窄，把空间留给中右数据；展开日期/策略时自动放宽 */
+.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(320px, 2.7fr) minmax(420px, 3.4fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
+.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(300px, 2.55fr) minmax(400px, 3.1fr); }
 
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 12px; min-width: 0; min-height: 0; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-default); }
 
-.mm-left { background: var(--bg-secondary); }
+.mm-left { background: var(--bg-secondary); padding: 8px; }
+.mm-body.left-expanded .mm-left { padding: 12px; }
 
 /* 【v2.9.97h-v8】一级标题 - 加粗+下划线增强层级 */
 .st { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: 4px; }
+
+.compact-st { justify-content: space-between; margin-bottom: 6px; white-space: nowrap; }
+.compact-pill { margin-left: auto; padding: 1px 6px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.date-panel { display: flex; justify-content: center; padding: 6px; margin: -2px 0 8px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-light); }
+.strategy-mini-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: -2px 0 8px; }
+.strategy-mini { height: 28px; border: 1px solid var(--border-light); border-radius: 6px; background: var(--bg-elevated); cursor: pointer; font-size: 14px; transition: all 0.15s; }
+.strategy-mini:hover { border-color: var(--el-color-primary-light-5); background: var(--bg-hover); }
+.strategy-mini.off { opacity: 0.35; filter: grayscale(0.7); }
 
 .sc { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); transition: border-color 0.2s; min-width: 0; }
 
