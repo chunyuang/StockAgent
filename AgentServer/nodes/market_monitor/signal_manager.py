@@ -162,6 +162,55 @@ class SignalManager:
                         break
         return added
 
+    async def _persist_signal_history(self, signals: List[ScanSignal], scan_time: str) -> None:
+        """将扫描信号写入MongoDB，供非交易时间/重启后回看。"""
+        if not signals:
+            return
+        try:
+            from core.managers import mongo_manager
+            if not getattr(mongo_manager, "is_initialized", False):
+                return
+            scanner = self._scanner
+            now = datetime.now()
+            trade_date = str(getattr(scanner, "_trade_date", "") or now.strftime("%Y%m%d"))
+            account_id = getattr(scanner, "account_id", "default") or "default"
+            docs = []
+            for s in signals:
+                docs.append({
+                    "account_id": account_id,
+                    "trade_date": int(trade_date) if str(trade_date).isdigit() else trade_date,
+                    "ts_code": s.ts_code,
+                    "stock_name": s.stock_name,
+                    "strategy": s.strategy,
+                    "strategy_name": s.strategy_name,
+                    "signal_type": s.signal_type,
+                    "price": s.price,
+                    "pct_chg": s.pct_chg,
+                    "volume_ratio": s.volume_ratio,
+                    "turnover_rate": s.turnover_rate,
+                    "reason": s.reason,
+                    "scan_time": scan_time or s.scan_time,
+                    "created_at": s.created_at,
+                    "signal_status": s.signal_status,
+                    "factors": s.factors,
+                    "decision_detail": s.decision_detail,
+                    "layer_trace": s.layer_trace,
+                    "updated_at": now,
+                })
+            for doc in docs:
+                await mongo_manager.db["scanner_signals"].update_one(
+                    {
+                        "account_id": doc["account_id"],
+                        "trade_date": doc["trade_date"],
+                        "ts_code": doc["ts_code"],
+                        "strategy": doc["strategy"],
+                    },
+                    {"$set": doc, "$setOnInsert": {"created_doc_at": now}},
+                    upsert=True,
+                )
+        except Exception as e:
+            logger.debug(f"[SIGNAL] 持久化历史信号失败: {e}")
+
     async def _process_new_signals(self, added: List[ScanSignal], scan_time: str) -> None:
         """推送+执行+持久化新信号【v2.9.43从update_signals提取】"""
         scanner = self._scanner
@@ -184,6 +233,7 @@ class SignalManager:
         except Exception as _e:
             logger.debug(f"event publish failed: {_e}")
         await self.execute_signals(added)
+        await self._persist_signal_history(added, scan_time)
         if self.broker:
             try:
                 await self.broker.save_state()
