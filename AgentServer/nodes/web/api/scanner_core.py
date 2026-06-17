@@ -273,23 +273,21 @@ async def get_scanner_status():
                             {"account_id": "default"}
                         ).to_list(length=50)
                         if pos_docs:
-                            status["positions"] = [{
-                                "ts_code": p.get("ts_code", ""),
-                                "stock_name": p.get("stock_name", ""),
-                                "strategy": p.get("strategy", ""),
-                                "shares": p.get("total_qty", 0),
-                                "available_qty": p.get("available_qty", 0),
-                                "cost_price": p.get("avg_cost", 0),
-                                "current_price": p.get("current_price", 0),
-                                "profit_pct": round(p.get("profit_pct", 0), 2),
-                                "profit_amount": round((p.get("current_price", 0) - p.get("avg_cost", 0)) * p.get("total_qty", 0), 2),
-                                "market_value": round(p.get("current_price", 0) * p.get("total_qty", 0), 2),
-                                "stop_loss_pct": 3.0,
-                                "take_profit_pct": 12.0,
-                                "stop_loss_price": round(p.get("avg_cost", 0) * 0.97, 2),
-                                "take_profit_price": round(p.get("avg_cost", 0) * 1.12, 2),
-                                "risk_level": "normal",
-                            } for p in pos_docs]
+                            from nodes.web.api.unified import _build_position_dict
+                            # 【v2.9.97h-v7】使用unified统一的position字段生成，避免与AccountTab/AnalysisTab不一致
+                            built = []
+                            for p in pos_docs:
+                                qty = p.get("total_qty", 0) or 0
+                                avg_cost = float(p.get("avg_cost", 0) or 0)
+                                cur_price = float(p.get("current_price", 0) or 0)
+                                profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0.0
+                                pos = _build_position_dict(p, qty, avg_cost, cur_price, profit_pct)
+                                # 补充scanner_core专有字段
+                                pos["strategy_name"] = p.get("strategy_name", "") or pos.get("strategy", "")
+                                pos["today_buy"] = p.get("today_buy_qty", 0) or 0
+                                pos["risk_level"] = pos.get("risk_level") or ("high" if pos["stop_loss_status"] == "broken" else "elevated" if pos["stop_loss_status"] == "near" else "normal")
+                                built.append(pos)
+                            status["positions"] = built
                             status["position_count"] = len(pos_docs)
                 except Exception:
                     pass

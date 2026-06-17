@@ -126,6 +126,7 @@ async def fetch_unified_trades(date: Optional[str] = None, account_id: str = "de
             "time": time_str,
             "fill_time": ftime,
             "side": side,
+            "status": doc.get("status", ""),  # 【v2.9.97h-v7】补充status字段
             "ts_code": ts_code,
             "stock_name": doc.get("stock_name", ""),
             "quantity": qty,
@@ -138,6 +139,7 @@ async def fetch_unified_trades(date: Optional[str] = None, account_id: str = "de
             "profit_pct": profit_pct,
             "profit_amount": profit_amount,
             "why": why,
+            "decision_trace": doc.get("decision_trace", {}),  # 【v2.9.97h-v7】补充决策跟踪
         })
 
     return trades
@@ -304,14 +306,19 @@ def _build_position_dict(p: dict, qty: int, avg_cost: float, cur_price: float, p
         stop_loss_status = "near"
         stop_loss_desc = f"接近止损价 {stop_loss_price:.2f}"
 
+    # 【v2.9.97h-v7】获取策略中文名
+    strategy_name_cn = strat_cfg.get("display_name", strategy) if strat_cfg else strategy
+
     return {
         "ts_code": p.get("ts_code", ""),
         "stock_name": p.get("stock_name", ""),
         "strategy": strategy,
+        "strategy_name": strategy_name_cn,
         "strategy_en": strat_en,
         "shares": qty,
         "available_qty": p.get("available_qty", 0),
-        "today_buy_qty": p.get("today_buy_qty", 0),
+        "today_buy": p.get("today_buy_qty", 0),
+        "today_buy_qty": p.get("today_buy_qty", 0),  # 保留以兼容
         "cost_price": round(avg_cost, 2),
         "current_price": round(cur_price, 2),
         "profit_pct": round(profit_pct, 2),
@@ -323,6 +330,7 @@ def _build_position_dict(p: dict, qty: int, avg_cost: float, cur_price: float, p
         "take_profit_pct": round(tp_pct * 100, 1),
         "stop_loss_status": stop_loss_status,
         "stop_loss_desc": stop_loss_desc,
+        "risk_level": "high" if stop_loss_status == "broken" else "elevated" if stop_loss_status == "near" else "normal",
         "buy_date": p.get("buy_date", ""),
     }
 
