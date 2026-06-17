@@ -51,10 +51,23 @@ export function useScanTraceMonitor() {
   })
 
   function toggleScanHour(hour: string) {
-    // 从computed获取实际折叠状态(而非从scanHourCollapse直接取, 因为latestHour默认展开)
+    // 从computed获取实际折叠状态
     const group = scanHistoryByHour.value.find(g => g.hour === hour)
     const current = group?.collapsed ?? true
-    scanHourCollapse.value = { ...scanHourCollapse.value, [hour]: !current }
+    const nextCollapsed = !current
+    scanHourCollapse.value = { ...scanHourCollapse.value, [hour]: nextCollapsed }
+
+    // 收起某个小时组时，同步收起该小时内已展开的扫描详情
+    if (nextCollapsed && selectedScanIdx.value >= 0) {
+      const selected = scanHistory.value[selectedScanIdx.value]
+      const t = selected?.scan_time || selected?.time || ''
+      const selectedHour = t.length > 11 ? t.substring(11, 13) : '??'
+      if (selectedHour === hour) {
+        selectedScanIdx.value = -1
+        scanTraceDetail.value = null
+        scanTraceFilter.value = 'passed'
+      }
+    }
   }
 
   // 日期高亮
