@@ -3,27 +3,10 @@
  * GuideTab — 系统引导Tab v2.9.92x
  * 重构布局: 3大板块(概览/策略/风控), 策略表格化, 操作指南更详细
  */
-import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton } from 'element-plus'
-
-const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 </script>
 
 <template>
   <div class="mm-guide">
-    <!-- 顶部横幅 -->
-    <div class="guide-banner">
-      <div class="gb-left">
-        <div class="gb-logo">📡</div>
-        <div>
-          <div class="gb-title">超短量化实盘监控系统</div>
-          <div class="gb-sub">9层漏斗筛选 · 5策略联合选股 · 实时风控守护 · 参数对齐回测</div>
-        </div>
-      </div>
-      <ElButton v-if="!isRunning" type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
-      <ElButton v-else type="danger" size="large" @click="stopScanner" style="padding:10px 32px;font-size:15px">⏹ 停止扫描器</ElButton>
-    </div>
-
     <!-- 第一行: 架构 + 操作指南 + 快捷键 -->
     <div class="guide-row2">
       <!-- 系统架构 -->
@@ -158,13 +141,6 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 
 <style scoped lang="scss">
 .mm-guide { flex: 1; overflow-y: auto; padding: 12px 16px; }
-
-/* 横幅 */
-.guide-banner { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--bg-elevated); border-radius: 10px; margin-bottom: 10px; }
-.gb-left { display: flex; align-items: center; gap: 14px; }
-.gb-logo { font-size: 32px; }
-.gb-title { font-size: 17px; font-weight: 700; }
-.gb-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
 /* 双列行 */
 .guide-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
