@@ -458,3 +458,86 @@ async def api_date_availability(
     except Exception as e:
         logger.exception("api_date_availability error")
         return {"success": False, "data": {}, "error": str(e)}
+
+
+# ============================================================
+# 共享查询工具 (供其他API模块调用, 减少重复代码)
+# ============================================================
+
+async def query_trades(
+    db,
+    account_id: str = "default",
+    side: str = None,
+    date: int = None,
+    date_gte: int = None,
+    date_lte: int = None,
+    status: str = "filled",
+    sort: list = None,
+    limit: int = 0,
+    projection: dict = None,
+) -> list[dict]:
+    """【v2.9.97h】统一交易查询工具
+    
+    所有模块查broker_orders都应通过此函数, 确保:
+    - trade_date兼容int/string
+    - account_id过滤
+    - status过滤
+    - 日期范围过滤
+    
+    Args:
+        db: MongoDB database
+        account_id: 账户ID
+        side: buy/sell/None(全部)
+        date: 精确日期
+        date_gte/date_lte: 日期范围
+        status: 订单状态
+        sort: 排序 [('trade_date', 1)]
+        limit: 限制条数, 0=不限
+        projection: 投影 {'trade_date': 1, 'profit_pct': 1}
+    """
+    query: dict[str, Any] = {"account_id": account_id}
+    if side:
+        query["side"] = side
+    if status:
+        query["status"] = status
+    
+    # 日期过滤: 兼容int/string
+    if date is not None:
+        query["trade_date"] = {"$in": [date, str(date)]}
+    elif date_gte is not None or date_lte is not None:
+        td_filter: dict[str, Any] = {}
+        if date_gte is not None:
+            td_filter["$gte"] = date_gte
+        if date_lte is not None:
+            td_filter["$lte"] = date_lte
+        # 兼容int和string
+        if len(td_filter) == 1:
+            query["$or"] = [
+                {"trade_date": td_filter},
+                {"trade_date": {k: str(v) if isinstance(v, int) else v for k, v in td_filter.items()}},
+            ]
+        else:
+            query["trade_date"] = td_filter
+    
+    cursor = db["broker_orders"].find(query, projection or {})
+    if sort:
+        cursor = cursor.sort(sort)
+    if limit > 0:
+        cursor = cursor.limit(limit)
+    
+    return await cursor.to_list(limit if limit > 0 else 5000)
+
+
+async def query_latest_trade(
+    db,
+    account_id: str = "default",
+    side: str = "sell",
+    status: str = "filled",
+    projection: dict = None,
+) -> dict | None:
+    """【v2.9.97h】查询最新一条交易"""
+    return await db["broker_orders"].find_one(
+        {"account_id": account_id, "side": side, "status": status},
+        projection or {},
+        sort=[("_id", -1)],
+    )

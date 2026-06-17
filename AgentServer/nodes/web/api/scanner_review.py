@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import math
+from nodes.web.api.unified import query_trades, query_latest_trade
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -358,7 +359,7 @@ async def get_review_hero(date: str = None):
         db = mongo_manager.db
 
         if not date:
-            latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
+            latest = await query_latest_trade(db)
             date = latest.get("trade_date","") if latest else ""
 
         if not date:
@@ -369,7 +370,7 @@ async def get_review_hero(date: str = None):
 
         # 1. 当日交易统计
         sells, buys = [], []
-        async for doc in db["broker_orders"].find({"trade_date": date_int, "status": "filled"}):
+        for doc in await query_trades(db, date=date_int):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
         # 止损/止盈计数(基于卖出原因,非胜/负)
@@ -523,7 +524,7 @@ async def get_discipline_check(date: str = None):
         db = mongo_manager.db
 
         if not date:
-            latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
+            latest = await query_latest_trade(db)
             date = latest.get("trade_date","") if latest else ""
 
         if not date:
@@ -555,7 +556,7 @@ async def get_discipline_check(date: str = None):
         date_int = _normalize_date(date)
 
         # 检查买入
-        async for doc in db["broker_orders"].find({"trade_date": date_int, "side": "buy", "status": "filled"}):
+        for doc in await query_trades(db, side="buy", date=date_int):
             total_actions += 1
             strat = _norm_strat(doc.get("strategy", ""))  # 归一化:anomaly_surge→halfway_chase
             fit = strategy_fit.get(strat, {})
@@ -578,7 +579,7 @@ async def get_discipline_check(date: str = None):
                 correct_actions += 1
 
         # 检查卖出(止损是否及时)
-        async for doc in db["broker_orders"].find({"trade_date": date_int, "side": "sell", "status": "filled"}):
+        for doc in await query_trades(db, side="sell", date=date_int):
             total_actions += 1
             pct = doc.get("profit_pct",0) or 0
             reason = doc.get("reason","")
@@ -1280,12 +1281,12 @@ async def review_weekly(date: str = None):
         monday_int = int(monday)
         sunday_int = int(sunday)
         
-        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":monday_int,"$lte":sunday_int}}):
+        for doc in await query_trades(db, side="sell", date_gte=monday_int, date_lte=sunday_int):
             sells.append(doc)
 
         # 获取本周买入
         buys = []
-        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":monday_int,"$lte":sunday_int}}):
+        for doc in await query_trades(db, side="buy", date_gte=monday_int, date_lte=sunday_int):
             buys.append(doc)
 
         # 逐日统计(偏差趋势)
