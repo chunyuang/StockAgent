@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional
 from enum import Enum
 from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
 
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TaskStatus(str, Enum):
@@ -48,26 +48,25 @@ class BacktestRequest(BaseModel):
     # 是否自动计算技术指标
     auto_technical: bool = Field(default=True, description="自动计算技术指标")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "ts_code": "000001.SZ",
-                "start_date": "20240101",
-                "end_date": "20241231",
-                "initial_cash": 100000,
-                "entry_threshold": 0.7,
-                "exit_threshold": 0.3,
-                "position_size": 1.0,
-                "factor_weights": {
-                    "tech_rsi": 0.3,
-                    "tech_macd_signal": 0.3,
-                    "tech_price_position": 0.4,
-                },
-                "auto_technical": True,
-            }
-        }
-
-
+    model_config = ConfigDict(
+        json_schema_extra={
+                    "example": {
+                        "ts_code": "000001.SZ",
+                        "start_date": "20240101",
+                        "end_date": "20241231",
+                        "initial_cash": 100000,
+                        "entry_threshold": 0.7,
+                        "exit_threshold": 0.3,
+                        "position_size": 1.0,
+                        "factor_weights": {
+                            "tech_rsi": 0.3,
+                            "tech_macd_signal": 0.3,
+                            "tech_price_position": 0.4,
+                        },
+                        "auto_technical": True,
+                    }
+                }
+    )
 class FactorConfig(BaseModel):
     """因子配置"""
     name: str = Field(..., description="因子名称")
@@ -90,27 +89,26 @@ class FactorSelectionRequest(BaseModel):
     exclude: List[str] = Field(default=["st", "new_stock"], description="排除规则")
     benchmark: str = Field(default="000300.SH", description="基准指数")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "universe": "all_a",
-                "start_date": "20230101",
-                "end_date": "20260101",
-                "initial_cash": 1000000,
-                "rebalance_freq": "monthly",
-                "top_n": 20,
-                "weight_method": "equal",
-                "factors": [
-                    {"name": "momentum_20d", "weight": 0.3},
-                    {"name": "pb", "weight": 0.3},
-                    {"name": "roe", "weight": 0.4},
-                ],
-                "exclude": ["st", "new_stock"],
-                "benchmark": "000300.SH",
-            }
-        }
-
-
+    model_config = ConfigDict(
+        json_schema_extra={
+                    "example": {
+                        "universe": "all_a",
+                        "start_date": "20230101",
+                        "end_date": "20260101",
+                        "initial_cash": 1000000,
+                        "rebalance_freq": "monthly",
+                        "top_n": 20,
+                        "weight_method": "equal",
+                        "factors": [
+                            {"name": "momentum_20d", "weight": 0.3},
+                            {"name": "pb", "weight": 0.3},
+                            {"name": "roe", "weight": 0.4},
+                        ],
+                        "exclude": ["st", "new_stock"],
+                        "benchmark": "000300.SH",
+                    }
+                }
+    )
 class UltraShortParams(BaseModel):
     """超短策略参数配置"""
     volume_threshold: float = Field(default=1.5, ge=1.0, le=10.0, description="量能放大倍数")
@@ -173,7 +171,8 @@ class UltraShortBacktestRequest(BaseModel):
     enable_auction_filter: bool = Field(default=True, description="启用集合竞价过滤")
     enable_force_empty: bool = Field(default=True, description="启用强制空仓规则")
 
-    @root_validator(skip_on_failure=True)
+    @model_validator(mode='before')
+    @classmethod
     def compatibility_convert(cls, values):
         # 兼容前端selected_strategies结构，转换为strategies和strategy_params
         selected_strategies = values.get('selected_strategies')
@@ -252,30 +251,29 @@ class UltraShortBacktestRequest(BaseModel):
         return values
 
     # 允许所有额外字段，不会过滤任何前端提交的内容
-    class Config:
-        extra = 'allow'
-        json_schema_extra = {
-            "example": {
-                "strategies": ["halfway_chase"],
-                "start_date": "20260105",
-                "end_date": "20260320",
-                "initial_cash": 1000000,
-                "params": {
-                    "liquidity_threshold": 500,
-                    "volume_threshold": 1.5,
-                    "stop_loss_pct": GLOBAL_RISK["stop_loss_pct"],
-                    "take_profit_pct": GLOBAL_RISK["take_profit_pct"],
-                    "max_hold_days": GLOBAL_RISK["max_hold_days"],
-                    "max_position_per_stock": 0.2,
-                    "max_position": 0.7,
-                },
-                "enable_force_empty": True,
-                "enable_sentiment_cycle": True,
-                "enable_auction_filter": True,
-            }
-        }
-
-
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+                    "example": {
+                        "strategies": ["halfway_chase"],
+                        "start_date": "20260105",
+                        "end_date": "20260320",
+                        "initial_cash": 1000000,
+                        "params": {
+                            "liquidity_threshold": 500,
+                            "volume_threshold": 1.5,
+                            "stop_loss_pct": GLOBAL_RISK["stop_loss_pct"],
+                            "take_profit_pct": GLOBAL_RISK["take_profit_pct"],
+                            "max_hold_days": GLOBAL_RISK["max_hold_days"],
+                            "max_position_per_stock": 0.2,
+                            "max_position": 0.7,
+                        },
+                        "enable_force_empty": True,
+                        "enable_sentiment_cycle": True,
+                        "enable_auction_filter": True,
+                    }
+                }
+    )
 class BacktestTaskResponse(BaseModel):
     """回测任务响应"""
     task_id: str

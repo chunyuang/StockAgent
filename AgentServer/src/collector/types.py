@@ -6,7 +6,7 @@ import hashlib
 from enum import Enum, IntEnum
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ==================== 源优先级体系 ====================
@@ -275,8 +275,7 @@ class NewsItem(BaseModel):
             parts.append(" ".join(self.keywords))
         return "\n".join(parts)
     
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class CollectResult(BaseModel):
