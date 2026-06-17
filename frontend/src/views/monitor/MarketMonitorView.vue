@@ -142,50 +142,50 @@ function formatTradeDateTime(rec: any): string {
     <div class="mm-tab-bar">
       <button :class="['tab-btn', activeTab === 'guide' ? 'active' : '']" @click="activeTab = 'guide'">
         <span class="tab-icon">📖</span>
-        <span class="tab-text"><span class="tab-label">指南</span><span class="tab-desc">架构·策略·操作</span></span>
+        <span class="tab-text"><span class="tab-label">指南</span><span class="tab-desc">架构操作</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
         <span class="tab-icon">🎯</span>
-        <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
+        <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号交易</span></span>
         <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
       </button>
       <button :class="['tab-btn', activeTab === 'premarket' ? 'active' : '']" @click="activeTab = 'premarket'">
         <span class="tab-icon">🌅</span>
-        <span class="tab-text"><span class="tab-label">盘前竞价</span><span class="tab-desc">9:00-9:25</span></span>
+        <span class="tab-text"><span class="tab-label">竞价</span><span class="tab-desc">9:00-9:25</span></span>
         <span v-if="premarketSignals.length" class="tab-badge">{{ premarketSignals.length }}</span>
       </button>
       <button :class="['tab-btn', activeTab === 'scan-trace' ? 'active' : '']" @click="activeTab = 'scan-trace'">
         <span class="tab-icon">🔍</span>
-        <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗·执行链</span></span>
+        <span class="tab-text"><span class="tab-label">追踪</span><span class="tab-desc">9层漏斗</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
         <span class="tab-icon">📋</span>
-        <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日/周·归因·对比</span></span>
+        <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日周归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
         <span class="tab-icon">🛡️</span>
-        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
+        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
       </button>
       <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'; fetchSentimentData()">
         <span class="tab-icon">🌡️</span>
-        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">周期·曲线·矩阵</span></span>
+        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">周期曲线</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'history' ? 'active' : '']" @click="activeTab = 'history'">
         <span class="tab-icon">📜</span>
-        <span class="tab-text"><span class="tab-label">历史</span><span class="tab-desc">时间线·订单</span></span>
+        <span class="tab-text"><span class="tab-label">历史</span><span class="tab-desc">时间订单</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'analysis' ? 'active' : '']" @click="activeTab = 'analysis'">
         <span class="tab-icon">📊</span>
-        <span class="tab-text"><span class="tab-label">分析</span><span class="tab-desc">KPI·策略·归因</span></span>
+        <span class="tab-text"><span class="tab-label">分析</span><span class="tab-desc">KPI归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'account' ? 'active' : '']" @click="activeTab = 'account'">
         <span class="tab-icon">💰</span>
-        <span class="tab-text"><span class="tab-label">账户</span><span class="tab-desc">资产·持仓·风控</span></span>
+        <span class="tab-text"><span class="tab-label">账户</span><span class="tab-desc">资产持仓</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
-        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·操作</span></span>
+        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统操作</span></span>
       </button>
     </div>
 
@@ -602,72 +602,87 @@ function formatTradeDateTime(rec: any): string {
 
 .mm-tab-bar {
   display: flex;
-  gap: 2px;
-  padding: 0 16px;
+  gap: 4px;
+  padding: 4px 10px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
+  overflow-x: auto;
 }
 
 .mm-tab-bar .tab-btn {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 72px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: none;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: all 0.18s;
   white-space: nowrap;
-  height: 36px;
+  height: 34px;
 }
 
 .mm-tab-bar .tab-btn:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+  border-color: var(--border-light);
 }
 
 .mm-tab-bar .tab-btn.active {
   color: var(--el-color-primary);
-  border-bottom-color: var(--el-color-primary);
-  font-weight: 600;
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-5);
+  font-weight: 700;
 }
 
-.tab-icon { font-size: 14px; }
+.tab-icon { font-size: 14px; line-height: 1; }
 
-.tab-text { display: flex; flex-direction: column; gap: 1px; }
+.tab-text { display: flex; align-items: center; justify-content: center; min-width: 28px; }
 
-.tab-label { font-size: 13px; line-height: 1.2; font-weight: 500; }
+.tab-label { font-size: 13px; line-height: 1; font-weight: 600; letter-spacing: 0.08em; }
 
-/* 【v2.9.97h-v8】tab副标题隐藏，空间不够 */
-.tab-desc { display: none; font-size: 10px; color: var(--text-tertiary); line-height: 1; }
+/* 二字主名保持统一；超宽屏再露出副标题 */
+.tab-desc { display: none; font-size: 10px; color: var(--text-tertiary); line-height: 1; margin-left: 4px; letter-spacing: 0; }
 @media (min-width: 1600px) {
-  .tab-desc { display: inline; }
+  .tab-text { flex-direction: column; gap: 2px; align-items: center; }
+  .tab-desc { display: inline; margin-left: 0; }
+  .mm-tab-bar .tab-btn { height: 42px; }
 }
 
 .tab-badge {
+  position: absolute;
+  top: 2px;
+  right: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 9px;
   font-weight: 600;
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--el-color-primary);
   color: var(--text-inverse);
-  padding: 0 5px;
+  padding: 0 4px;
 }
 
 .tab-badge-danger {
+  position: absolute;
+  top: 2px;
+  right: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: 16px;
+  height: 16px;
   font-size: 10px;
   font-weight: 700;
   border-radius: 9px;
