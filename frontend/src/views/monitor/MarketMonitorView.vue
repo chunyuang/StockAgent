@@ -106,6 +106,7 @@ function formatTradeDateTime(rec: any): string {
     <!-- 顶部状态栏(一行: 风控+状态+资产+操作) -->
     <div class="mm-header">
       <div class="hh-left">
+        <div class="hh-title">市场监听</div>
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
         <ElSelect v-model="tradeMode" size="small" style="width:96px" @change="onModeChange">
           <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
@@ -465,11 +466,13 @@ function formatTradeDateTime(rec: any): string {
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 
-.mm-header { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; overflow-x: auto; }
+.mm-header { display: flex; align-items: center; gap: 8px; padding: 4px 10px; min-height: 34px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; overflow-x: auto; }
 
-.hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.hh-left { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 
-.hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
+.hh-title { font-size: 15px; font-weight: 700; color: var(--text-primary); padding-right: 8px; border-right: 1px solid var(--border-default); white-space: nowrap; }
+
+.hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12px; white-space: nowrap; }
 
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
 
@@ -479,13 +482,13 @@ function formatTradeDateTime(rec: any): string {
 
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-.hh-account { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+.hh-account { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; min-width: 320px; }
 
-.ha { display: inline-flex; align-items: baseline; gap: 2px; font-size: 12px; }
+.ha { display: inline-flex; align-items: baseline; gap: 2px; font-size: 11px; white-space: nowrap; }
 
 .hv { font-weight: 600; }
 
-.hv { font-size: 13px; font-weight: 600; }
+.hv { font-size: 12px; font-weight: 600; }
 
 .hh-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
