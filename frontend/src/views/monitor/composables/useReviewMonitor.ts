@@ -34,6 +34,24 @@ export function useReviewMonitor() {
   const executionQuality = ref<any>(null)
   const backtestRunning = ref(false)
 
+  function buildTradeAttributions(trades: any[]) {
+    const sells = (trades || []).filter((t: any) => t.side === 'sell')
+    const buys = (trades || []).filter((t: any) => t.side === 'buy')
+    if (sells.length) {
+      return sells.map((s: any) => {
+        const buy = buys.find((b: any) => b.ts_code === s.ts_code && b.strategy === s.strategy)
+        return { status: 'closed', ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy, buy_price: buy?.price || 0, sell_price: s.price, profit_pct: s.profit_pct, profit_amount: s.profit_amount, sell_reason: s.reason, sell_time: s.time, buy_time: buy?.time || '', why_profit: s.why, why_loss: s.why }
+      })
+    }
+    // 当天只有买入没有卖出时，也要展示“建仓中”明细，否则日复盘看起来像空数据
+    return buys.map((b: any) => ({
+      status: 'open', ts_code: b.ts_code, stock_name: b.stock_name, strategy: b.strategy,
+      buy_price: b.price, buy_time: b.time, quantity: b.quantity, amount: b.amount,
+      sell_price: null, sell_time: '', profit_pct: 0, profit_amount: 0,
+      sell_reason: b.reason || '今日买入，持仓未闭环', why_profit: '', why_loss: '',
+    }))
+  }
+
   // ==================== 复盘API ====================
   async function fetchReviewData() {
     reviewLoading.value = true
@@ -58,12 +76,7 @@ export function useReviewMonitor() {
             // 【v2.9.97】切换到统一数据源 — 包含 buy+sell
             api.get(`/unified/trades?date=${dateParam}`, opts).then(r => {
               const p = parseResponse(r); if (p.success) {
-                const sells = (p.data?.trades || []).filter((t: any) => t.side === 'sell')
-                const buys = (p.data?.trades || []).filter((t: any) => t.side === 'buy')
-                tradeAttributions.value = sells.map((s: any) => {
-                  const buy = buys.find((b: any) => b.ts_code === s.ts_code && b.strategy === s.strategy)
-                  return { ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy, buy_price: buy?.price || 0, sell_price: s.price, profit_pct: s.profit_pct, profit_amount: s.profit_amount, sell_reason: s.reason, sell_time: s.time, buy_time: buy?.time || '', why_profit: s.why, why_loss: s.why }
-                })
+                tradeAttributions.value = buildTradeAttributions(p.data?.trades || [])
               }
             }),
           )
@@ -88,12 +101,7 @@ export function useReviewMonitor() {
             // 【v2.9.97】历史日复盘也走统一数据源
             api.get(`/unified/trades?date=${dateParam}`, opts).then(r => {
               const p = parseResponse(r); if (p.success) {
-                const sells = (p.data?.trades || []).filter((t: any) => t.side === 'sell')
-                const buys = (p.data?.trades || []).filter((t: any) => t.side === 'buy')
-                tradeAttributions.value = sells.map((s: any) => {
-                  const buy = buys.find((b: any) => b.ts_code === s.ts_code && b.strategy === s.strategy)
-                  return { ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy, buy_price: buy?.price || 0, sell_price: s.price, profit_pct: s.profit_pct, profit_amount: s.profit_amount, sell_reason: s.reason, sell_time: s.time, buy_time: buy?.time || '', why_profit: s.why, why_loss: s.why }
-                })
+                tradeAttributions.value = buildTradeAttributions(p.data?.trades || [])
               }
             }),
           )
@@ -125,6 +133,17 @@ export function useReviewMonitor() {
       }
 
       await Promise.allSettled(promises)
+      // 后端review-hero按“卖出闭环”统计，盘中只有买入时会显示0笔；前端用统一交易数据兜底修正展示
+      if (reviewTab.value === 'daily' && reviewHero.value && tradeAttributions.value.length) {
+        const openBuys = tradeAttributions.value.filter((t: any) => t.status === 'open').length
+        if (openBuys && !(reviewHero.value.metrics?.closed_trades || 0)) {
+          reviewHero.value = {
+            ...reviewHero.value,
+            conclusion: `📋 今日买入${openBuys}笔，暂无卖出闭环`,
+            metrics: { ...(reviewHero.value.metrics || {}), trades: tradeAttributions.value.length, buys: openBuys },
+          }
+        }
+      }
     } catch { /* ignore */ }
     finally { reviewLoading.value = false }
   }

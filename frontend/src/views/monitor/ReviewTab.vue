@@ -113,17 +113,18 @@ const emit = defineEmits<{
 
         <div class="st" style="margin-top:8px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
         <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
-        <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="(t.profit_pct || 0) >= 0 ? 'attr-profit' : 'attr-loss'">
+        <div v-for="t in tradeAttributions" :key="t.ts_code + (t.sell_time || t.buy_time)" class="attribution-card" :class="t.status === 'open' ? 'attr-open' : ((t.profit_pct || 0) >= 0 ? 'attr-profit' : 'attr-loss')">
           <div class="attr-top">
             <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
             <span class="code">{{ t.ts_code }}</span>
             <span class="name">{{ t.stock_name }}</span>
-            <span :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ (t.profit_pct || 0) >= 0 ? '+' : '' }}{{ (t.profit_pct || 0).toFixed(1) }}%</span>
+            <span v-if="t.status === 'open'" class="pct ml-auto text-tertiary">建仓中</span>
+            <span v-else :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ (t.profit_pct || 0) >= 0 ? '+' : '' }}{{ (t.profit_pct || 0).toFixed(1) }}%</span>
           </div>
           <div class="attr-detail">
-            <div class="attr-row"><span>买入</span><span>{{ t.buy_price != null ? '¥' + Number(t.buy_price).toFixed(2) : '未知' }} {{ t.buy_time }}</span></div>
-            <div class="attr-row"><span>卖出</span><span>{{ t.sell_price != null ? '¥' + Number(t.sell_price).toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
-            <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
+            <div class="attr-row"><span>买入</span><span>{{ t.buy_price != null ? '¥' + Number(t.buy_price).toFixed(2) : '未知' }} {{ t.buy_time }}<template v-if="t.quantity"> · {{ t.quantity }}股</template></span></div>
+            <div v-if="t.status !== 'open'" class="attr-row"><span>卖出</span><span>{{ t.sell_price != null ? '¥' + Number(t.sell_price).toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
+            <div class="attr-row"><span>{{ t.status === 'open' ? '买入原因' : '原因' }}</span><span>{{ t.sell_reason }}</span></div>
             <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
             <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
           </div>
@@ -469,6 +470,8 @@ const emit = defineEmits<{
 .attr-profit { border-left: 3px solid rgba(103,194,58,0.4); }
 
 .attr-loss { border-left: 3px solid rgba(245,108,108,0.4); }
+
+.attr-open { border-left: 3px solid rgba(230,162,60,0.55); }
 
 .eq-grid-mini { display: flex; flex-direction: column; gap: 4px; }
 

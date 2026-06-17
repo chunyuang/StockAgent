@@ -4,7 +4,7 @@
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取(86行)】
  */
-import { computed, unref, onMounted } from 'vue'
+import { computed, unref, onMounted, ref } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElTag } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
@@ -25,17 +25,29 @@ const {
   executionSummary,
 } = m
 
-// v2.9.95: 执行摘要格式化
+const showSummaryReasons = ref(false)
+
+// v2.9.95: 执行摘要格式化 — 顶部只保留数字，原因改为可展开Top列表，避免长文本挤爆
 const execSummaryDisplay = computed(() => {
   const es = unref(executionSummary)
   if (!es) return null
-  const reasons = Object.entries(es.block_reasons || {}).map(([reason, count]) => `${reason}×${count}`)
+  const reasons = Object.entries(es.block_reasons || {})
+    .map(([reason, count]) => ({ reason, count: Number(count) || 0 }))
+    .sort((a, b) => b.count - a.count)
   return {
     buys: es.buys || 0,
     blocked: es.blocked || 0,
-    reasonsText: reasons.length ? `(${reasons.join(', ')})` : ''
+    reasons,
+    topReasons: reasons.slice(0, 5),
   }
 })
+
+function shortReason(reason: string): string {
+  return reason
+    .replace(/同行业「(.+?)」已选\d+只信号,本只被集中度过滤剔除/g, '行业集中度：$1')
+    .replace(/同行业「(.+?)」已选\d+只信号,本只被集中度过滤剔/g, '行业集中度：$1')
+    .replace(/本只被集中度过滤剔除/g, '集中度过滤')
+}
 
 // scanTraceCode accessed from inject, used in template via {{ scanTraceCode }}
 // @ts-expect-error vue-tsc TS6133 false positive — used in template
@@ -70,10 +82,21 @@ onMounted(async () => {
         <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
         <!-- 【v2.9.95】全天执行摘要横幅 -->
         <div v-if="execSummaryDisplay" class="exec-summary-banner">
-          <span class="es-label">今日执行</span>
-          <span class="es-item es-buy">{{ execSummaryDisplay.buys }}成交</span>
-          <span class="es-item es-block">{{ execSummaryDisplay.blocked }}拦截</span>
-          <span v-if="execSummaryDisplay.reasonsText" class="es-reasons">{{ execSummaryDisplay.reasonsText }}</span>
+          <div class="es-main">
+            <span class="es-label">今日执行</span>
+            <span class="es-item es-buy">{{ execSummaryDisplay.buys }}成交</span>
+            <span class="es-item es-block">{{ execSummaryDisplay.blocked }}拦截</span>
+            <button v-if="execSummaryDisplay.reasons.length" class="es-toggle" @click="showSummaryReasons = !showSummaryReasons">
+              {{ showSummaryReasons ? '收起原因' : `查看拦截原因 Top ${Math.min(execSummaryDisplay.reasons.length, 5)}` }}
+            </button>
+          </div>
+          <div v-if="showSummaryReasons && execSummaryDisplay.reasons.length" class="es-reason-list">
+            <div v-for="r in execSummaryDisplay.topReasons" :key="r.reason" class="es-reason-chip" :title="r.reason">
+              <span class="es-reason-text">{{ shortReason(r.reason) }}</span>
+              <span class="es-reason-count">×{{ r.count }}</span>
+            </div>
+            <span v-if="execSummaryDisplay.reasons.length > 5" class="es-more">+{{ execSummaryDisplay.reasons.length - 5 }}类，详情见运维Tab原因/详情</span>
+          </div>
         </div>
         <div class="scan-hours">
           <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
@@ -342,20 +365,27 @@ onMounted(async () => {
 /* ========== v2.9.95 执行摘要 + 状态标签 ========== */
 .exec-summary-banner {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  padding: 4px 10px;
-  margin-bottom: 4px;
-  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
   font-size: 11px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
 }
+.es-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .es-label { font-weight: 600; color: var(--text-secondary); }
-.es-item { font-weight: 600; }
+.es-item { font-weight: 700; }
 .es-buy { color: var(--stock-up, #f56c6c); }
-.es-block { color: var(--stock-down, #67c23a); }
-.es-reasons { color: var(--text-tertiary); font-size: 10px; }
+.es-block { color: #e6a23c; }
+.es-toggle { border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--el-color-primary); border-radius: 4px; padding: 1px 6px; font-size: 11px; cursor: pointer; margin-left: auto; }
+.es-toggle:hover { background: var(--bg-hover); }
+.es-reason-list { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 2px; }
+.es-reason-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 260px; padding: 2px 6px; border-radius: 999px; background: rgba(230,162,60,0.12); border: 1px solid rgba(230,162,60,0.22); color: var(--text-secondary); }
+.es-reason-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.es-reason-count { color: #e6a23c; font-weight: 700; flex-shrink: 0; }
+.es-more { color: var(--text-tertiary); font-size: 10px; align-self: center; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
 /* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
