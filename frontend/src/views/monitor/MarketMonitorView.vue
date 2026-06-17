@@ -93,6 +93,24 @@ const fmtCompactDate = (d?: string) => {
 }
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
+const expandedPositions = ref<Record<string, boolean>>({})
+function togglePositionCard(code: string) {
+  expandedPositions.value[code] = !expandedPositions.value[code]
+}
+function positionActionLabel(pos: any) {
+  const raw = String(pos?.side || pos?.action || pos?.trade_side || '').toLowerCase()
+  return raw.includes('sell') || raw.includes('卖') ? '卖出' : '买入'
+}
+function formatPositionTime(pos: any) {
+  const raw = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time || pos?.created_at || pos?.buy_date || pos?.trade_date
+  if (!raw) return '--:--'
+  const s = String(raw)
+  const hhmm = s.match(/(\d{1,2}):(\d{2})/)
+  if (hhmm) return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`
+  const ymd = s.replace(/\D/g, '')
+  if (ymd.length >= 8) return `${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`
+  return s.slice(0, 8)
+}
 function toggleStrategySection() {
   stratSectionCollapsed.value = !stratSectionCollapsed.value
   if (!stratSectionCollapsed.value) {
@@ -238,35 +256,33 @@ function formatTradeDateTime(rec: any): string {
 
       </div>
 
-      <!-- 中列: 信号+行情 -->
-      <div class="mm-center">
-        <div class="st">🎯 活跃信号 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="filteredSignals.length" :max="99" style="margin-left:4px" /></div>
-        <div class="sl">
-          <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
-          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- 右列: 持仓 -->
-      <div class="mm-right">
+      <!-- 中列: 持仓 -->
+      <div class="mm-center holdings-center">
         <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /><ElSelect v-model="posSort" size="small" style="width:80px;margin-left:auto"><ElOption label="盈亏" value="profit" /><ElOption label="市值" value="cost" /><ElOption label="策略" value="strategy" /><ElOption label="时间" value="time" /></ElSelect></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
-          <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card" :class="{ 'pos-focused': idx === focusIndex }">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct || 0) / 10 * 100, 100) + '%' }" :class="(pos.profit_pct || 0) >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
-            <div class="pos-prices-row">
-              <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
-              <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
-              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ Number(pos.trailing_stop.stop_price || 0).toFixed(2) }}({{ ((Number(pos.trailing_stop.trailing_stop_pct) || 0) * 100).toFixed(0) }}%)</span>
-              <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
+          <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card compact-pos" :class="{ 'pos-focused': idx === focusIndex, expanded: expandedPositions[pos.ts_code] }">
+            <div class="pos-summary" @click="togglePositionCard(pos.ts_code)">
+              <ElTag size="small" :type="positionActionLabel(pos) === '卖出' ? 'danger' : 'success'" class="action-tag">{{ positionActionLabel(pos) }}</ElTag>
+              <span class="pos-time">{{ formatPositionTime(pos) }}</span>
+              <span class="name pos-name-main">{{ pos.stock_name }}</span>
+              <span class="code pos-code-sub">{{ pos.ts_code }}</span>
+              <span v-if="pos.today_buy > 0" class="t1-tag">T+1</span>
+              <span class="pos-toggle">{{ expandedPositions[pos.ts_code] ? '▼' : '▶' }}</span>
             </div>
-            <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
-              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (() => { const pPct = pos.profit_pct || 0, sl = normalizePct(pos.stop_loss_pct, 3), tp = normalizePct(pos.take_profit_pct, 7), d = sl + tp; return d > 0 ? (pPct + sl) / d * 100 : 0 })())) + '%' }" :class="(pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : (pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
-              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span v-if="pos.trailing_stop?.activated" class="rl trail">📍{{ ((pos.trailing_stop.trailing_stop_pct || 0) * 100).toFixed(0) }}%</span><span class="rd" :class="{ danger: (pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ ((pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
+            <div v-if="expandedPositions[pos.ts_code]" class="pos-detail-panel">
+              <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct || 0) / 10 * 100, 100) + '%' }" :class="(pos.profit_pct || 0) >= 0 ? 'bar-up' : 'bar-down'"></span></span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
+              <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
+              <div class="pos-prices-row">
+                <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
+                <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
+                <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ Number(pos.trailing_stop.stop_price || 0).toFixed(2) }}({{ ((Number(pos.trailing_stop.trailing_stop_pct) || 0) * 100).toFixed(0) }}%)</span>
+                <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
+              </div>
+              <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
+                <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (() => { const pPct = pos.profit_pct || 0, sl = normalizePct(pos.stop_loss_pct, 3), tp = normalizePct(pos.take_profit_pct, 7), d = sl + tp; return d > 0 ? (pPct + sl) / d * 100 : 0 })())) + '%' }" :class="(pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : (pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
+                <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span v-if="pos.trailing_stop?.activated" class="rl trail">📍{{ ((pos.trailing_stop.trailing_stop_pct || 0) * 100).toFixed(0) }}%</span><span class="rd" :class="{ danger: (pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ ((pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
+              </div>
             </div>
           </div>
         </div>
@@ -274,6 +290,17 @@ function formatTradeDateTime(rec: any): string {
         <!-- 盈亏曲线 → 已移至绩效Tab -->
         <!-- 策略绩效看板 -->
         <StrategyPerfBoard />
+      </div>
+
+      <!-- 右列: 信号+行情 -->
+      <div class="mm-right signals-right">
+        <div class="st">🎯 活跃信号 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="filteredSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="sl">
+          <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
+          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -810,6 +837,18 @@ mm-tab-content {
 .pos-info > span { white-space: nowrap; }
 .pos-info .mv { color: var(--text-tertiary); }
 .pos-info .pamt { font-weight: 600; font-size: 12px; }
+.compact-pos { display: block; padding: 0; overflow: hidden; }
+.compact-pos:hover { transform: none; }
+.pos-summary { display: grid; grid-template-columns: auto 44px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
+.pos-summary:hover { background: var(--bg-hover); }
+.action-tag { min-width: 44px; text-align: center; justify-content: center; }
+.pos-time { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.pos-name-main { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pos-code-sub { color: var(--text-tertiary); font-size: 12px; }
+.pos-toggle { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
+.pos-detail-panel { border-top: 1px solid var(--border-light); padding: 8px 10px 10px; background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg-secondary)); }
+.compact-pos .pos-top { display: flex; grid-area: auto; }
+.compact-pos .pos-info { grid-area: auto; }
 /* mini-bar 隐藏 (与riskTrack重复) */
 .mini-bar { display: none !important; }
 /* T+1 标签紧凑 */
