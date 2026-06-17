@@ -47,13 +47,43 @@ const inactiveBlockRules = computed(() => {
     .filter(g => !g.active)
 })
 
+function normalizeBlockReason(reason: string) {
+  const r = String(reason || '')
+  let m = r.match(/过滤·换手([\d.]+)%<下限([\d.]+)%/)
+  if (m) return { reason: `首板打板：换手不足（<${m[2]}%）`, sample: r }
+  m = r.match(/换手率([\d.]+)%<([\d.]+)%/)
+  if (m) return { reason: `跌停翘板：换手不足（<${m[2]}%）`, sample: r }
+  m = r.match(/过滤·换手([\d.]+)%>上限([\d.]+)%/)
+  if (m) return { reason: `首板打板：换手过高（>${m[2]}%）`, sample: r }
+  m = r.match(/流通市值[\d.]+亿<([\d.]+)亿/)
+  if (m) return { reason: `流通市值过小（<${m[1]}亿）`, sample: r }
+  m = r.match(/流通市值[\d.]+亿>([\d.]+)亿/)
+  if (m) return { reason: `流通市值过大（>${m[1]}亿）`, sample: r }
+  m = r.match(/流动性不足\(成交额[\d.]+万<([\d.]+)万\)/)
+  if (m) return { reason: `流动性不足（成交额<${m[1]}万）`, sample: r }
+  m = r.match(/回调[\d.]+%<([\d.]+)%/)
+  if (m) return { reason: `龙头低吸：回调不足（<${m[1]}%）`, sample: r }
+  m = r.match(/回调[\d.]+%>([\d.]+)%/)
+  if (m) return { reason: `龙头低吸：回调过深（>${m[1]}%）`, sample: r }
+  if (/已有持仓|已持仓/.test(r)) return { reason: '已有持仓/重复信号', sample: r }
+  if (/持仓已满|最大持仓/.test(r)) return { reason: '最大持仓数已满', sample: r }
+  if (/非交易时间/.test(r)) return { reason: '非交易时间不下单', sample: r }
+  return { reason: r, sample: r }
+}
+
 // v2.9.95: 执行摘要格式化 — 顶部只保留数字，原因改为可展开Top列表，避免长文本挤爆
 const execSummaryDisplay = computed(() => {
   const es = unref(executionSummary)
   if (!es) return null
-  const reasons = Object.entries(es.block_reasons || {})
-    .map(([reason, count]) => ({ reason, count: Number(count) || 0 }))
-    .sort((a, b) => b.count - a.count)
+  const reasonMap = Object.entries(es.block_reasons || {}).reduce((acc: Record<string, any>, [rawReason, rawCount]) => {
+    const count = Number(rawCount) || 0
+    const n = normalizeBlockReason(String(rawReason))
+    if (!acc[n.reason]) acc[n.reason] = { reason: n.reason, count: 0, examples: [] }
+    acc[n.reason].count += count
+    if (n.sample && acc[n.reason].examples.length < 3 && !acc[n.reason].examples.includes(n.sample)) acc[n.reason].examples.push(n.sample)
+    return acc
+  }, {})
+  const reasons = Object.values(reasonMap).sort((a: any, b: any) => b.count - a.count)
   const totalBlocked = Number(es.blocked || reasons.reduce((s, r) => s + r.count, 0) || 1)
   const groups = reasons.reduce((acc: Record<string, { label: string; count: number; reasons: any[] }>, r) => {
     const label = reasonCategory(r.reason)
@@ -184,7 +214,7 @@ onMounted(async () => {
             </div>
             <div v-if="expandedReasonGroup" class="es-reason-table">
               <div class="es-reason-table-title">{{ expandedReasonGroup }}明细</div>
-              <div v-for="r in execSummaryDisplay.groups.find((g: any) => g.label === expandedReasonGroup)?.reasons || []" :key="r.reason" class="es-reason-row" :title="r.reason">
+              <div v-for="r in execSummaryDisplay.groups.find((g: any) => g.label === expandedReasonGroup)?.reasons || []" :key="r.reason" class="es-reason-row" :title="r.examples?.length ? `原始样例：\n${r.examples.join('\n')}` : r.reason">
                 <span class="es-reason-name">{{ shortReason(r.reason) }}</span>
                 <div class="es-reason-bar"><div class="es-reason-fill" :style="{ width: Math.max(3, r.pct) + '%' }"></div></div>
                 <span class="es-reason-num">{{ r.count }}次</span>
