@@ -84,15 +84,15 @@ const emit = defineEmits<{
 
       <!-- ============ 指标条 (单行紧凑) ============ -->
       <div v-if="reviewTab === 'daily' && reviewHero" class="metric-strip">
-        <span class="ms">胜率 <b>{{ reviewHero.metrics?.win_rate != null ? reviewHero.metrics.win_rate + '%' : '--' }}</b></span>
-        <span class="ms">交易 <b>{{ reviewHero.metrics?.trades ?? '--' }}</b></span>
-        <span class="ms">期望 <b :class="reviewHero.metrics?.expectancy != null ? ((reviewHero.metrics.expectancy || 0) >= 0 ? 'up' : 'down') : ''">{{ reviewHero.metrics?.expectancy ?? '--' }}</b></span>
-        <span class="ms">纪律 <b :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) < 60 ? 'down' : ''">{{ reviewHero.metrics?.discipline_score ?? '--' }}</b></span>
+        <span class="ms">胜率(闭环) <b>{{ reviewHero.metrics?.win_rate != null ? reviewHero.metrics.win_rate + '%' : '--' }}</b></span>
+        <span class="ms">今日交易 <b>{{ reviewHero.metrics?.trades ?? '--' }}</b></span>
+        <span class="ms">期望值(笔均) <b :class="reviewHero.metrics?.expectancy != null ? ((reviewHero.metrics.expectancy || 0) >= 0 ? 'up' : 'down') : ''">{{ reviewHero.metrics?.expectancy ?? '--' }}</b></span>
+        <span class="ms">纪律评分 <b :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) < 60 ? 'down' : ''">{{ reviewHero.metrics?.discipline_score ?? '--' }}</b></span>
         <span class="ms">盈亏比 <b>{{ reviewHero.metrics?.profit_loss_ratio ?? '--' }}</b></span>
-        <span class="ms">止损 <b class="down">{{ reviewHero.metrics?.stop_loss_count ?? 0 }}</b></span>
-        <span class="ms">止盈 <b class="up">{{ reviewHero.metrics?.take_profit_count ?? 0 }}</b></span>
-        <span class="ms">连亏 <b :class="(reviewHero.metrics?.max_consecutive_loss || 0) >= 3 ? 'down' : ''">{{ reviewHero.metrics?.max_consecutive_loss ?? 0 }}</b></span>
-        <span class="ms">闭环 <b>{{ reviewHero.metrics?.closed_trades ?? 0 }}/{{ reviewHero.metrics?.buys ?? 0 }}</b></span>
+        <span class="ms">止损触发 <b class="down">{{ reviewHero.metrics?.stop_loss_count ?? 0 }}</b></span>
+        <span class="ms">止盈触发 <b class="up">{{ reviewHero.metrics?.take_profit_count ?? 0 }}</b></span>
+        <span class="ms">最大连亏 <b :class="(reviewHero.metrics?.max_consecutive_loss || 0) >= 3 ? 'down' : ''">{{ reviewHero.metrics?.max_consecutive_loss ?? 0 }}</b></span>
+        <span class="ms">闭环进度 <b>{{ reviewHero.metrics?.closed_trades ?? 0 }}/{{ reviewHero.metrics?.buys ?? 0 }}</b></span>
       </div>
 
       <!-- ============ 双栏: 策略贡献 + 扫描漏斗 ============ -->
@@ -109,9 +109,9 @@ const emit = defineEmits<{
               </span>
             </template>
           </span>
-          <span v-if="dailyReportData?.scanner_stats" class="ir-section">📡扫{{ dailyReportData.scanner_stats.scan_count || 0 }}→信{{ dailyReportData.scanner_stats.total_signals || 0 }}(均{{ ((dailyReportData.scanner_stats.total_signals || 0) / Math.max(dailyReportData.scanner_stats.scan_count || 1, 1)).toFixed(0) }})→买{{ dailyReportData.scanner_stats.buy_count || 0 }}(转化{{ ((dailyReportData.scanner_stats.buy_count || 0) / Math.max(dailyReportData.scanner_stats.total_signals || 1, 1) * 100).toFixed(1) }}%)→卖{{ dailyReportData.scanner_stats.sell_count || 0 }}止{{ dailyReportData.scanner_stats.stop_losses || 0 }}盈{{ dailyReportData.scanner_stats.take_profits || 0 }}</span>
-          <span v-if="disciplineCheck" class="ir-section">🔍纪律<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b><span v-if="disciplineCheck?.violations?.length" class="down">({{ disciplineCheck.violations.length }}违规)</span></span>
-          <span v-if="executionQuality" class="ir-section">🎯滑<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>(max{{ (executionQuality.max_slippage_pct || 0).toFixed(2) }})成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span>
+          <span v-if="dailyReportData?.scanner_stats" class="ir-section">📡扫描漏斗 | 扫描漏斗 | 扫{{ dailyReportData.scanner_stats.scan_count || 0 }}→信{{ dailyReportData.scanner_stats.total_signals || 0 }}(均{{ ((dailyReportData.scanner_stats.total_signals || 0) / Math.max(dailyReportData.scanner_stats.scan_count || 1, 1)).toFixed(0) }})→买{{ dailyReportData.scanner_stats.buy_count || 0 }}(转化{{ ((dailyReportData.scanner_stats.buy_count || 0) / Math.max(dailyReportData.scanner_stats.total_signals || 1, 1) * 100).toFixed(1) }}%)→卖{{ dailyReportData.scanner_stats.sell_count || 0 }}止{{ dailyReportData.scanner_stats.stop_losses || 0 }}盈{{ dailyReportData.scanner_stats.take_profits || 0 }}</span>
+          <span v-if="disciplineCheck" class="ir-section">🔍纪律检查 | 执行正确率<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b><span v-if="disciplineCheck?.violations?.length" class="down">({{ disciplineCheck.violations.length }}违规)</span></span>
+          <span v-if="executionQuality" class="ir-section">🎯执行质量 | 平均滑点<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>(max{{ (executionQuality.max_slippage_pct || 0).toFixed(2) }})成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span>
           <span v-if="dailyReportData?.sentiment_snapshot" class="ir-section ir-dim">🌡{{ dailyReportData.sentiment_snapshot }}</span>
           <span v-if="dailyReportData?.account" class="ir-section ir-dim">💰{{ (Number(dailyReportData.account.total_assets || 0) / 10000).toFixed(1) }}万仓{{ dailyReportData.account.position_ratio || 0 }}%</span>
         </div>
@@ -147,20 +147,14 @@ const emit = defineEmits<{
       <!-- 月复盘 -->
       <template v-if="reviewTab === 'monthly'">
         <template v-if="monthlyReviewData">
-          <!-- 月复盘指标行 -->
-          <div class="info-row" style="margin-top:2px">
-            <span class="ir-section">🔬系统偏差({{ monthlyReviewData.period }})</span>
-            <span class="ir-section">交易<b>{{ monthlyReviewData.summary?.trades || 0 }}</b>笔</span>
-            <span class="ir-section">胜率<b :class="(monthlyReviewData.summary?.win_rate || 0) >= 50 ? 'up' : 'down'">{{ monthlyReviewData.summary?.win_rate || 0 }}%</b></span>
-            <span class="ir-section">盈亏<b :class="(monthlyReviewData.summary?.pnl || 0) >= 0 ? 'up' : 'down'">{{ (monthlyReviewData.summary?.pnl || 0) >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</b></span>
+          <div class="st" style="margin-top:4px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
+          <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
+            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="(monthlyReviewData.summary?.pnl || 0) >= 0 ? 'up' : 'down'">{{ (monthlyReviewData.summary?.pnl || 0) >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
           </div>
-
-          <!-- 行为漂移检测 行式 -->
-          <div class="info-row" style="margin-top:2px">
-            <span class="ir-section">⚡行为漂移</span>
-            <span class="ir-section">🛡止损执行<b :class="(monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0) >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</b> | 亏损止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_loss || 0 }}笔 / 触发{{ monthlyReviewData.behavior_drift?.stop_loss_triggered || 0 }}笔 / 全部亏损{{ monthlyReviewData.behavior_drift?.loss_sells || 0 }}笔</span>
-            <span class="ir-section">❄冰点开仓<b :class="(monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0) >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</b> | 冰点买入{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span>
-          </div>
+          <div class="st" style="margin-top:4px">📈 偏差趋势(近4周)</div>
           <div v-if="(monthlyReviewData?.weekly_trend?.length || 0)" class="deviation-trend-chart">
             <div class="trend-axis">
               <div v-for="w in monthlyReviewData.weekly_trend" :key="w.week" class="trend-col">
@@ -187,57 +181,49 @@ const emit = defineEmits<{
             </div>
           </div>
           <div v-else class="empty">无逐日数据</div>
-          <!-- 策略月度贡献 行式 -->
-          <div class="info-row" style="margin-top:2px">
-            <span class="ir-section">🎯策略月度</span>
-            <template v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key">
-              <span class="ir-strat" :style="{borderColor: (data.pnl || 0) >= 0 ? 'var(--stock-up)' : 'var(--stock-down)'}">{{ strategyCN(key) }}<span :class="(data.pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span></span>
-            </template>
+          <div class="st" style="margin-top:3px">🎯 策略月度贡献</div>
+          <div class="strategy-stacked">
+            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+              <span class="stacked-label">{{ strategyCN(key) }}</span>
+              <span class="stacked-val">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span>
+            </div>
           </div>
-
-          <!-- 参数漂移 行式 -->
-          <div class="info-row" style="margin-top:2px">
-            <span class="ir-section">🔧参数漂移<ElButton size="small" @click="emit('saveParamSnapshot')" style="margin-left:4px;font-size:10px;padding:0 4px;height:18px">📸快照</ElButton></span>
-            <template v-if="paramDriftData?.drifts?.length">
-              <span v-for="(d, i) in paramDriftData.drifts" :key="i" class="ir-section" :class="d.severity === 'high' ? 'down' : ''">{{ d.severity === 'high' ? '🔴' : '🟡' }}{{ d.strategy || d.level }} | {{ d.key }}: <b>{{ d.old }}</b>→<b>{{ d.new }}</b></span>
-            </template>
-            <span v-else class="ir-section ir-dim">无漂移(基线: {{ formatFullDate(paramDriftData?.start_date) || '无' }})</span>
+          <div class="st" style="margin-top:4px">🔧 参数漂移检测
+            <ElButton size="small" @click="emit('saveParamSnapshot')" style="margin-left:8px">📸 保存当前快照</ElButton>
           </div>
+          <div v-if="paramDriftData?.drifts?.length" class="violations-list">
+            <div v-for="(d, i) in paramDriftData.drifts" :key="i" class="violation-item" :class="d.severity === 'high' ? 'sev-high' : 'sev-medium'">
+              <span class="v-icon">{{ d.severity === 'high' ? '🔴' : '🟡' }}</span>
+              <span class="v-type">{{ d.strategy || d.level }}</span>
+              <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
+            </div>
+          </div>
+          <div v-else class="empty">无参数漂移(快照基线: {{ formatFullDate(paramDriftData?.start_date) || '无' }})</div>
         </template>
         <div v-else class="empty">选择日期后查看月复盘</div>
         <FactorEffectSection :factorEffectData="factorEffectData" />
-        <!-- 闭环建议 行式 -->
-        <div class="info-row" style="margin-top:2px">
-          <span class="ir-section">💡闭环建议<span v-if="closedLoopData" class="ir-dim"> | 🔴{{ closedLoopData.summary?.high || 0 }}高 | 🟡{{ closedLoopData.summary?.medium || 0 }}中 | 🔵{{ closedLoopData.summary?.low || 0 }}低</span></span>
-        </div>
-        <div v-if="closedLoopData?.suggestions?.length" class="violations-compact" style="margin-top:1px">
-          <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="v-item" :class="'sev-' + (s.severity === 'high' ? 'high' : s.severity === 'medium' ? 'medium' : 'high')">
-            {{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}{{ s.type }} | {{ s.diagnosis }} | 👉{{ s.action }} | ✅{{ s.verification }}<span v-if="s.worst_cases?.length"> | 最差: <span v-for="w in s.worst_cases" :key="w.ts_code">{{ w.name }}({{ w.pnl }}%) </span></span>
+        <div class="st" style="margin-top:3px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
+        <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
+          <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
+            <div class="cl-header"><span class="cl-sev">{{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}</span><span class="cl-type">{{ s.type }}</span></div>
+            <div class="cl-diagnosis">{{ s.diagnosis }}</div>
+            <div class="cl-action">👉 {{ s.action }}</div>
+            <div class="cl-verify">✅ 验证: {{ s.verification }}</div>
+            <div v-if="s.worst_cases?.length" class="cl-cases">最差案例: <span v-for="w in s.worst_cases" :key="w.ts_code">{{ w.name }}({{ w.pnl }}%) </span></div>
           </div>
         </div>
+        <div v-else class="empty">无闭环建议</div>
       </template>
 
       <!-- 第4层: 纪律检查 + 执行质量 -->
       <template v-if="reviewTab === 'daily' && deviationData">
-        <!-- 执行偏差归因 — 行式 -->
-        <div class="info-row" style="margin-top:2px">
-          <span class="ir-section">🔍执行偏差({{ deviationData.period }})</span>
-          <span class="ir-section">📊滑点均<b :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</b> | 影响笔<b>{{ deviationData.deviations?.slippage?.count || 0 }}</b> | 幅度<b class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</b></span>
-          <span class="ir-section">🚨纪律违规<b class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}</b>笔 | 违规胜率<b class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</b> | 幅度<b class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</b><span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></span>
-          <span v-if="deviationData.live_stats" class="ir-section ir-dim">实盘{{ deviationData.live_stats.trades || 0 }}笔胜{{ deviationData.live_stats.win_rate || 0 }}%</span>
-          <span v-if="deviationData.risk_alerts" class="ir-section" :class="(deviationData.risk_alerts?.bearish_buy_ratio || 0) > 30 ? 'down' : 'ir-dim'">❄冰点开仓{{ deviationData.risk_alerts?.bearish_buy_ratio || 0 }}%({{ deviationData.risk_alerts?.bearish_buy_count || 0 }}笔)</span>
+        <div class="st" style="margin-top:3px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
+        <div class="review-2col">
+          <div class="dev-card"><div class="dev-title">📊 滑点偏差</div><div class="dev-row"><span>平均滑点</span><span :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</span></div><div class="dev-row"><span>影响笔数</span><span>{{ deviationData.deviations?.slippage?.count || 0 }}笔</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</span></div></div>
+          <div class="dev-card"><div class="dev-title">🚨 纪律偏差 <span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></div><div class="dev-row"><span>违规笔数</span><span class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}笔</span></div><div class="dev-row"><span>违规胜率</span><span class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</span></div></div>
         </div>
-        <!-- 逐笔滑点(仅显示前5) -->
-        <div v-if="deviationData.details?.slippage?.length" class="violations-compact" style="margin-top:1px">
-          <div v-for="s in deviationData.details.slippage.slice(0,5)" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
-            {{ s.ts_code }} {{ s.stock_name }} | 信¥{{ s.signal_price?.toFixed(2) }}→成¥{{ s.filled_price?.toFixed(2) }} | 滑<b :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'down' : ''">{{ s.slippage_pct?.toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
-          </div>
-        </div>
-        <!-- 纪律违规明细(仅显示前5) -->
-        <div v-if="deviationData.details?.discipline?.length" class="violations-compact" style="margin-top:1px">
-          <div v-for="v in deviationData.details.discipline.slice(0,5)" :key="v.ts_code" class="v-item sev-high">
-            🔴{{ v.type }} | {{ v.period }}期 {{ strategyCN(v.strategy) }} {{ v.stock_name }}
-          </div>
+        <div v-if="deviationData.details?.discipline?.length" class="violations-list" style="margin-top:3px">
+          <div v-for="v in deviationData.details.discipline.slice(0,5)" :key="v.ts_code" class="violation-item sev-high"><span class="v-icon">🔴</span><span class="v-type">{{ v.type }}</span><span class="v-detail">{{ v.period }}期{{ v.strategy }} {{ v.stock_name }}</span></div>
         </div>
       </template>
 
@@ -284,8 +270,8 @@ const emit = defineEmits<{
 
       <!-- 纪律+执行+回测偏差 一行标签 -->
       <div class="info-row" style="margin-top:2px">
-        <span v-if="disciplineCheck" class="ir-section">🔍纪律<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b></span>
-        <span v-if="executionQuality" class="ir-section">🎯滑<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b></span>
+        <span v-if="disciplineCheck" class="ir-section">🔍纪律检查 | 执行正确率<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b></span>
+        <span v-if="executionQuality" class="ir-section">🎯执行质量 | 平均滑点<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b></span>
         <template v-if="(liveBacktestDiff?.length || 0)">
           <span v-for="c in liveBacktestDiff" :key="c.strategy" class="ir-section">{{ strategyCN(c.strategy) }}<b>{{ c.live_trades || 0 }}笔</b>实<b>{{ c.live_win_rate || 0 }}%</b>回<b>{{ c.bt_win_rate || 0 }}%</b>差<b :class="Math.abs((c.live_win_rate || 0) - (c.bt_win_rate || 0)) > 15 ? 'down' : 'up'">{{ ((Number(c.live_win_rate) || 0) - (Number(c.bt_win_rate) || 0)).toFixed(1) }}%</b></span>
         </template>
@@ -301,15 +287,17 @@ const emit = defineEmits<{
 
       <!-- 前瞻建议 紧凑 -->
       <div class="info-row" style="margin-top:2px" v-if="reviewForward">
-        <span class="ir-section">💡{{ reviewForward.advice }}</span>
-        <span v-if="reviewForward.sentiment" class="ir-dim">🌡{{ reviewForward.sentiment.period }}{{ reviewForward.sentiment.score }}分→{{ reviewForward.sentiment.raw_period }}</span>
+        <span class="ir-section">💡明日操作建议 | {{ reviewForward.advice }}</span>
+      </div>
+      <div v-if="reviewForward" class="info-row" style="margin-top:1px">
+        <span v-if="reviewForward.sentiment" class="ir-dim">🌡当前情绪{{ reviewForward.sentiment.period }}({{ reviewForward.sentiment.score }}分)→{{ reviewForward.sentiment.raw_period }}</span>
         <template v-if="reviewForward.strategy_recommendations?.length">
-          <span v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="ir-section" style="color:var(--stock-up)">🟢{{ strategyCN(r.strategy) }}(WR{{ r.win_rate || 0 }}%{{ r.count || 0 }}笔可开)</span>
+          <span v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="ir-section" style="color:var(--stock-up)">🟢{{ strategyCN(r.strategy) }}可开仓(历史胜率{{ r.win_rate || 0 }}%，{{ r.count || 0 }}笔候选)</span>
         </template>
         <template v-if="reviewForward.strategy_switches?.length">
           <span v-for="s in reviewForward.strategy_switches" :key="'c'+s.strategy" class="ir-section" style="color:var(--stock-down)">🔴{{ strategyCN(s.strategy) }}{{ s.reason }}</span>
         </template>
-        <span v-if="reviewForward.drift_warnings?.length" class="ir-section down">⚠{{ reviewForward.drift_warnings.length }}项漂移告警</span>
+        <span v-if="reviewForward.drift_warnings?.length" class="ir-section down">⚠{{ reviewForward.drift_warnings.length }}项参数漂移告警</span>
       </div>
 <ElDialog :model-value="compareVisible" @update:model-value="emit('update:compareVisible', $event)" title="📊 实盘 vs 回测对比" width="700px">
   <div v-if="compareData.length" class="cl-table">
