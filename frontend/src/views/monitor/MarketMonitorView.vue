@@ -22,7 +22,6 @@ const AccountTab = defineAsyncComponent(() => import('./AccountTab.vue'))
 const ScanTraceTab = defineAsyncComponent(() => import('./ScanTraceTab.vue'))
 const PositionRiskMatrix = defineAsyncComponent(() => import('./PositionRiskMatrix.vue'))
 const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
-const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard.vue'))
 const SignalTracePanel = defineAsyncComponent(() => import('./SignalTracePanel.vue'))
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 import UnifiedDateBar from '@/components/UnifiedDateBar.vue'
@@ -287,9 +286,6 @@ function formatTradeDateTime(rec: any): string {
           </div>
         </div>
 
-        <!-- 盈亏曲线 → 已移至绩效Tab -->
-        <!-- 策略绩效看板 -->
-        <StrategyPerfBoard />
       </div>
 
       <!-- 右列: 信号+行情 -->
@@ -556,8 +552,8 @@ function formatTradeDateTime(rec: any): string {
 .emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 【v2.9.97h-v8 布局重构】默认左栏收窄，把空间留给中右数据；展开日期/策略时自动放宽 */
-.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(320px, 2.7fr) minmax(420px, 3.4fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
-.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(300px, 2.55fr) minmax(400px, 3.1fr); }
+.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(280px, 2.15fr) minmax(480px, 3.95fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
+.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(280px, 2.15fr) minmax(460px, 3.55fr); }
 
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 12px; min-width: 0; min-height: 0; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-default); }
 
