@@ -609,8 +609,40 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 passed_tscodes = [c.get("ts_code", "") for c in candidates if c.get("final_status") == "passed"]
                 passed_keys = {(c.get("ts_code", ""), c.get("strategy", "") or "") for c in candidates if c.get("final_status") == "passed"}
                 if passed_tscodes:
-                    # 获取 timeline blocked 事件(只取该 scan 的候选相关)
-                    td_query = {"$in": [trade_date]} if isinstance(trade_date, int) else trade_date
+                    # 与列表页保持一致：成交/拦截先归属到“最近且包含该候选”的scan，再只取当前scan
+                    target_sid = doc.get("scan_id", "")
+                    day_query = {"$in": [trade_date, str(trade_date)]} if trade_date else trade_date
+                    scan_docs_for_day = []
+                    if day_query:
+                        async for sd in mongo_manager.db["scan_traces"].find(
+                            {"trade_date": day_query},
+                            {"_id": 1, "scan_time": 1, "candidates.ts_code": 1, "candidates.final_status": 1, "candidates.strategy": 1}
+                        ):
+                            scan_docs_for_day.append(sd)
+                    def _scan_time(d):
+                        st = d.get("scan_time", "")
+                        if "T" in str(st):
+                            return str(st).split("T")[1][:8]
+                        return str(st)[:8]
+                    scan_docs_for_day.sort(key=_scan_time)
+                    scan_passed_map = {}
+                    for sd in scan_docs_for_day:
+                        sid = str(sd.get("_id"))
+                        scan_passed_map[sid] = set(
+                            (c.get("ts_code", ""), c.get("strategy", "") or "")
+                            for c in sd.get("candidates", []) if c.get("final_status") == "passed"
+                        )
+                    def _attribute_to_scan(t, tc, strat):
+                        if not scan_docs_for_day:
+                            return target_sid
+                        scans = [(_scan_time(sd), str(sd.get("_id"))) for sd in scan_docs_for_day if _scan_time(sd) <= str(t)]
+                        if not scans:
+                            return None
+                        key = (tc, strat or "")
+                        with_key = [(st, sid) for st, sid in scans if key in scan_passed_map.get(sid, set())]
+                        return (with_key[-1][1] if with_key else scans[-1][1])
+                    # 获取 timeline blocked 事件(只取归属当前scan的候选相关)
+                    td_query = {"$in": [trade_date, str(trade_date)]} if isinstance(trade_date, int) else trade_date
                     async for evt in mongo_manager.db["scanner_timeline"].find(
                         {"trade_date": td_query, "action": "blocked", "ts_code": {"$in": passed_tscodes}},
                         {"ts_code": 1, "reason": 1, "strategy": 1, "time": 1, "_id": 0}
@@ -618,6 +650,8 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                         tc = evt.get("ts_code", "")
                         strat = evt.get("strategy", "") or ""
                         key = (tc, strat)
+                        if _attribute_to_scan(evt.get("time", ""), tc, strat) != target_sid:
+                            continue
                         if tc and key in passed_keys and key not in blocked_map:  # 只取第一次 blocked
                             blocked_map[key] = {
                                 "reason": evt.get("reason", "被拦截"),
@@ -638,6 +672,9 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                         tc = order.get("ts_code", "")
                         strat = order.get("strategy", "") or ""
                         key = (tc, strat)
+                        order_time = order.get("fill_time", "") or order.get("created_at", "") or order.get("create_time", "")
+                        if _attribute_to_scan(order_time, tc, strat) != target_sid:
+                            continue
                         if tc and key in passed_keys and key not in bought_map:  # 只取第一次 buy
                             bought_map[key] = {
                                 "price": order.get("filled_price") or order.get("price", 0),

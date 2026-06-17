@@ -120,12 +120,16 @@ export function useScanTraceMonitor() {
     if (!scanId) return
     scanTraceFilter.value = filter
     scanTraceLoadingMore.value = true
+    // 先清空旧列表，避免“成交候选(0)”时仍显示上一页通过候选
+    scanTraceDetail.value = { ...scanTraceDetail.value, candidates: [], rejected_layer_stats: undefined }
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
       const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}`, { timeout: 10000 })
       const p = parseResponse(r)
-      if (p.success) {
+      if (p.success && p.data) {
         scanTraceDetail.value = { ...scanTraceDetail.value, candidates: p.data.candidates || [], _pagination: p.data._pagination, rejected_layer_stats: p.data.rejected_layer_stats }
+      } else {
+        scanTraceDetail.value = { ...scanTraceDetail.value, candidates: [], _pagination: { ...(scanTraceDetail.value?._pagination || {}), filter, returned_count: 0 }, rejected_layer_stats: undefined }
       }
     } catch { /* ignore */ }
     finally { scanTraceLoadingMore.value = false }
