@@ -29,6 +29,24 @@ const {
 const showSummaryReasons = ref(false)
 const expandedReasonGroup = ref('')
 
+const blockRuleCatalog = [
+  { category: '集中度', rules: ['同行业集中度超限'] },
+  { category: '信号状态', rules: ['已有持仓/重复信号', '异动信号仅观察', '调试模式不下单'] },
+  { category: '行情条件', rules: ['盘前预选过滤(ST/退市/次新/低流动)', '极端竞价', '换手率不足/过高', '流通市值不在区间', '龙头回调幅度不符', '流动性不足', '价格异常', '停牌/无实时行情', '涨停未成交'] },
+  { category: '仓位资金', rules: ['最大持仓数已满', '可用资金不足', '单票仓位超限', '总仓位超限', '科创板资金不足200股'] },
+  { category: '情绪风控', rules: ['强制空仓', '特殊时期降仓', '冰点期暂停半路追涨', '风控熔断', '非交易时间不下单', '大盘跌破MA60降仓'] },
+  { category: '排序评分', rules: ['去重/排序靠后被截断', '综合排序截断'] },
+  { category: '其他原因', rules: ['撮合失败', '执行质量检查拒绝', '下单失败/券商拒单'] },
+]
+
+const inactiveBlockRules = computed(() => {
+  const groups = execSummaryDisplay.value?.groups || []
+  const activeCats = new Set(groups.map((g: any) => g.label))
+  return blockRuleCatalog
+    .map(g => ({ ...g, active: activeCats.has(g.category), color: reasonGroupColor(g.category) }))
+    .filter(g => !g.active)
+})
+
 // v2.9.95: 执行摘要格式化 — 顶部只保留数字，原因改为可展开Top列表，避免长文本挤爆
 const execSummaryDisplay = computed(() => {
   const es = unref(executionSummary)
@@ -173,7 +191,16 @@ onMounted(async () => {
                 <span class="es-reason-pct">{{ r.pct.toFixed(1) }}%</span>
               </div>
             </div>
-            <div v-else class="es-detail-hint">点击上方分类卡片查看该类全部拦截原因。</div>
+            <div v-else class="es-detail-hint">点击上方分类卡片查看该类全部拦截原因。图中只包含今日实际触发过的原因。</div>
+            <details v-if="inactiveBlockRules.length" class="es-rule-catalog">
+              <summary>今日未触发的拦截规则（{{ inactiveBlockRules.length }}类）</summary>
+              <div class="es-rule-grid">
+                <div v-for="g in inactiveBlockRules" :key="g.category" class="es-rule-card" :style="{ '--group-color': g.color }">
+                  <span class="es-rule-title"><i></i>{{ g.category }}</span>
+                  <span class="es-rule-list">{{ g.rules.join('、') }}</span>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
         <div class="scan-hours">
@@ -493,6 +520,13 @@ onMounted(async () => {
 .es-reason-num { text-align: right; color: #e6a23c; font-weight: 800; }
 .es-reason-pct { text-align: right; color: var(--text-tertiary); font-size: 10px; }
 .es-detail-hint { color: var(--text-tertiary); font-size: 11px; padding: 4px 2px; }
+.es-rule-catalog { margin-top: 2px; color: var(--text-secondary); }
+.es-rule-catalog summary { cursor: pointer; font-size: 11px; color: var(--text-tertiary); user-select: none; }
+.es-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; margin-top: 6px; }
+.es-rule-card { --group-color: #a8abb2; padding: 6px 8px; border-radius: 7px; background: color-mix(in srgb, var(--group-color) 7%, var(--bg-secondary)); border: 1px dashed color-mix(in srgb, var(--group-color) 28%, transparent); }
+.es-rule-title { display: flex; align-items: center; gap: 5px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+.es-rule-title i { width: 7px; height: 7px; border-radius: 50%; background: var(--group-color); }
+.es-rule-list { font-size: 10px; color: var(--text-tertiary); line-height: 1.5; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
 /* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
