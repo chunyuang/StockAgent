@@ -50,6 +50,17 @@ function shortReason(reason: string): string {
     .replace(/本只被集中度过滤剔除/g, '集中度过滤')
 }
 
+function toggleScanDetail(s: any) {
+  const idx = scanHistory.value.indexOf(s)
+  if (selectedScanIdx.value === idx) {
+    selectedScanIdx.value = -1
+    scanTraceDetail.value = null
+    return
+  }
+  selectedScanIdx.value = idx
+  fetchScanTrace(s.scan_id || '')
+}
+
 // scanTraceCode accessed from inject, used in template via {{ scanTraceCode }}
 // @ts-expect-error vue-tsc TS6133 false positive — used in template
 const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
@@ -111,7 +122,7 @@ onMounted(async () => {
               <span v-if="group.collapsed" class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → {{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交 · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
-              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0 }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">
+              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0 }" @click="toggleScanDetail(s)">
                 <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
                 <span class="sc-stats" :title="`全市场${s.summary?.total_candidates || 0}只 → 通过${s.summary?.passed || 0}只 → 成交${s.exec?.bought || 0}只 · 拦截${s.exec?.blocked || 0}次`">
