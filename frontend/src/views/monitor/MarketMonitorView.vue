@@ -57,7 +57,7 @@ const {
   manualTrade, trailEditPct, trailSaving,
   tradeMode, replayDate, replayDateInput,
   replayDateVisible,
-  startScanner, stopScanner,
+  startScanner, stopScanner, fetchScanner,
   manualScan, forceScan, quickBuy, quickSell, fetchReviewData, fetchSentimentData,
   // sentiment sub-composable
   openTradeDetail,
@@ -193,10 +193,10 @@ function formatTradeDateTime(rec: any): string {
 
     <!-- 3列主布局 -->
     <div v-if="activeTab === 'trading'" class="mm-body">
-      <div class="st">🎯 实盘交易 <UnifiedDateBar @change="fetchScannerWithDate" /></div>
-      <!-- 左列: 策略控制 -->
+      <!-- 左列: 日期+策略控制 -->
       <div class="mm-left">
-        <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
+        <div class="st">📅 日期 <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" /></div>
+        <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed" style="margin-top:4px">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
         <template v-if="!stratSectionCollapsed">
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
           <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="toggleStrategy(s.id, $event)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
