@@ -105,7 +105,7 @@ export function useScannerMonitor() {
   const trailSaving = ref(false)
   const dailyReport = ref<any>(null)
   const stratCollapsed = ref<Record<string, boolean>>({})
-  const stratSectionCollapsed = ref(false)
+  const stratSectionCollapsed = ref(true)
   const qaSectionCollapsed = ref(false)
   const timelineCollapsed = ref(true)
   const replayDateVisible = ref(false)
@@ -227,7 +227,7 @@ export function useScannerMonitor() {
     manualTrade, manualQuote, riskBarCollapsed, trailEditPct, trailSaving,
     emergencyLiquidating, dataSources, brokers, dailyReport,
     stratCollapsed: ref<Record<string, boolean>>({}),
-    stratSectionCollapsed: ref(false),
+    stratSectionCollapsed: ref(true),
     qaSectionCollapsed: ref(false),
     timelineCollapsed: ref(true),
     editDialogVisible, editTab, editParams, editRiskParams,
