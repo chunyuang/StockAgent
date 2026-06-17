@@ -23,6 +23,38 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
 
 
+async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。"""
+    try:
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, "is_initialized", False):
+            return []
+        db = mongo_manager.db
+        account_id = getattr(scanner, "account_id", "default") or "default"
+        if date_int:
+            query = {"account_id": account_id, "trade_date": {"$in": [date_int, str(date_int)]}}
+        else:
+            latest = await db["scanner_signals"].find_one(
+                {"account_id": account_id}, sort=[("trade_date", -1), ("created_at", -1)]
+            )
+            if not latest:
+                return []
+            latest_date = latest.get("trade_date")
+            query = {"account_id": account_id, "trade_date": {"$in": [latest_date, str(latest_date), int(latest_date)] if str(latest_date).isdigit() else [latest_date]}}
+        docs = await db["scanner_signals"].find(query).sort("created_at", -1).limit(limit).to_list(limit)
+        result = []
+        for d in docs:
+            d.pop("_id", None)
+            d.pop("account_id", None)
+            d["_historical_signal"] = True
+            result.append(d)
+        _fill_stock_names(result, scanner)
+        return result
+    except Exception as e:
+        logger.debug(f"读取历史信号失败: {e}")
+        return []
+
+
 @router.get("/all")
 async def get_all_scanner_data(date: str = None, mode: str = "production", include_debug: bool = False):
     """一次性获取所有扫描器数据(减少前端HTTP开销)
@@ -47,9 +79,13 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
     status_resp = await get_scanner_status()
     status_data = status_resp.get("data", {}) if isinstance(status_resp, dict) else {}
     
-    # 信号
+    # 信号: 实时优先；无实时信号时回退最近一次历史信号，方便非交易时间回看
     signals_data = scanner.get_signals()
     _fill_stock_names(signals_data, scanner)
+    signals_is_history = False
+    if not signals_data:
+        signals_data = await _load_recent_signal_history(scanner, date_int=date_int)
+        signals_is_history = bool(signals_data)
     
     # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []
@@ -187,12 +223,13 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
         "success": True,
         "data": {
             "status": status_data,
-            "signals": signals_data if not is_historical else [],
+            "signals": signals_data,
             "positions": positions_data,
             "timeline": timeline_data,
             "orders": orders_data,
             "_historical": is_historical,
             "_query_date": date_int,
+            "_signals_historical": signals_is_history,
             "summary": {
                 "total_profit_amount": round(total_profit_amount, 2),
                 "debug_filtered_count": debug_filtered_count,
@@ -420,10 +457,20 @@ async def stop_scanner(req: StopScannerRequest = StopScannerRequest()):
 
 
 @router.get("/signals")
-async def get_signals():
-    """获取当前活跃信号"""
+async def get_signals(date: str = None):
+    """获取当前活跃信号；无实时信号时回退最近历史信号。"""
     scanner = await _get_scanner()
-    return _sanitize({"success": True, "data": scanner.get_signals()})
+    data = scanner.get_signals()
+    history = False
+    if not data:
+        try:
+            from nodes.web.api.unified import _normalize_date
+            date_int = _normalize_date(date)
+        except Exception:
+            date_int = None
+        data = await _load_recent_signal_history(scanner, date_int=date_int)
+        history = bool(data)
+    return _sanitize({"success": True, "data": data, "historical": history})
 
 
 
