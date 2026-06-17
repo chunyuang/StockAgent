@@ -35,13 +35,32 @@ const execSummaryDisplay = computed(() => {
   const reasons = Object.entries(es.block_reasons || {})
     .map(([reason, count]) => ({ reason, count: Number(count) || 0 }))
     .sort((a, b) => b.count - a.count)
+  const totalBlocked = Number(es.blocked || reasons.reduce((s, r) => s + r.count, 0) || 1)
+  const groups = reasons.reduce((acc: Record<string, { label: string; count: number; reasons: any[] }>, r) => {
+    const label = reasonCategory(r.reason)
+    if (!acc[label]) acc[label] = { label, count: 0, reasons: [] }
+    acc[label].count += r.count
+    acc[label].reasons.push({ ...r, pct: r.count / totalBlocked * 100 })
+    return acc
+  }, {})
   return {
     buys: es.buys || 0,
     blocked: es.blocked || 0,
-    reasons,
-    topReasons: reasons.slice(0, 5),
+    totalBlocked,
+    reasons: reasons.map(r => ({ ...r, pct: r.count / totalBlocked * 100 })),
+    groups: Object.values(groups).sort((a, b) => b.count - a.count),
   }
 })
+
+function reasonCategory(reason: string): string {
+  if (/仓位|资金|现金|持仓|已持有|满仓|可用/.test(reason)) return '仓位资金'
+  if (/情绪|周期|冰点|高潮|分化|熔断|风控|风险|空仓/.test(reason)) return '情绪风控'
+  if (/行业|集中度|板块|同业/.test(reason)) return '集中度'
+  if (/排名|评分|分数|综合|概率/.test(reason)) return '排序评分'
+  if (/竞价|量比|换手|封单|涨停|跌停|开板|价格|涨幅/.test(reason)) return '行情条件'
+  if (/重复|过期|已在进行|信号/.test(reason)) return '信号状态'
+  return '其他原因'
+}
 
 function shortReason(reason: string): string {
   return reason
@@ -102,15 +121,25 @@ onMounted(async () => {
             <span class="es-item es-buy">{{ execSummaryDisplay.buys }}成交</span>
             <span class="es-item es-block">{{ execSummaryDisplay.blocked }}拦截</span>
             <button v-if="execSummaryDisplay.reasons.length" class="es-toggle" @click="showSummaryReasons = !showSummaryReasons">
-              {{ showSummaryReasons ? '收起原因' : `查看拦截原因 Top ${Math.min(execSummaryDisplay.reasons.length, 5)}` }}
+              {{ showSummaryReasons ? '收起拦截分析' : `查看完整拦截分析（${execSummaryDisplay.reasons.length}类）` }}
             </button>
           </div>
-          <div v-if="showSummaryReasons && execSummaryDisplay.reasons.length" class="es-reason-list">
-            <div v-for="r in execSummaryDisplay.topReasons" :key="r.reason" class="es-reason-chip" :title="r.reason">
-              <span class="es-reason-text">{{ shortReason(r.reason) }}</span>
-              <span class="es-reason-count">×{{ r.count }}</span>
+          <div v-if="showSummaryReasons && execSummaryDisplay.reasons.length" class="es-analysis">
+            <div class="es-group-grid">
+              <div v-for="g in execSummaryDisplay.groups" :key="g.label" class="es-group-card">
+                <span class="es-group-name">{{ g.label }}</span>
+                <span class="es-group-count">{{ g.count }}次</span>
+                <span class="es-group-pct">{{ (g.count / execSummaryDisplay.totalBlocked * 100).toFixed(0) }}%</span>
+              </div>
             </div>
-            <span v-if="execSummaryDisplay.reasons.length > 5" class="es-more">+{{ execSummaryDisplay.reasons.length - 5 }}类，详情见运维Tab原因/详情</span>
+            <div class="es-reason-table">
+              <div v-for="r in execSummaryDisplay.reasons" :key="r.reason" class="es-reason-row" :title="r.reason">
+                <span class="es-reason-name">{{ shortReason(r.reason) }}</span>
+                <div class="es-reason-bar"><div class="es-reason-fill" :style="{ width: Math.max(3, r.pct) + '%' }"></div></div>
+                <span class="es-reason-num">{{ r.count }}次</span>
+                <span class="es-reason-pct">{{ r.pct.toFixed(1) }}%</span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="scan-hours">
@@ -403,11 +432,19 @@ onMounted(async () => {
 .es-block { color: #e6a23c; }
 .es-toggle { border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--el-color-primary); border-radius: 4px; padding: 1px 6px; font-size: 11px; cursor: pointer; margin-left: auto; }
 .es-toggle:hover { background: var(--bg-hover); }
-.es-reason-list { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 2px; }
-.es-reason-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 260px; padding: 2px 6px; border-radius: 999px; background: rgba(230,162,60,0.12); border: 1px solid rgba(230,162,60,0.22); color: var(--text-secondary); }
-.es-reason-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.es-reason-count { color: #e6a23c; font-weight: 700; flex-shrink: 0; }
-.es-more { color: var(--text-tertiary); font-size: 10px; align-self: center; }
+.es-analysis { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.es-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 6px; }
+.es-group-card { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 8px; border-radius: 6px; background: rgba(64,158,255,0.08); border: 1px solid rgba(64,158,255,0.18); }
+.es-group-name { font-weight: 700; color: var(--text-primary); }
+.es-group-count { font-weight: 800; color: #e6a23c; }
+.es-group-pct { grid-column: 1 / -1; color: var(--text-tertiary); font-size: 10px; }
+.es-reason-table { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.es-reason-row { display: grid; grid-template-columns: minmax(150px, 1.8fr) minmax(120px, 2fr) 48px 48px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; background: var(--bg-secondary); border: 1px solid var(--border-light); }
+.es-reason-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-secondary); }
+.es-reason-bar { height: 8px; border-radius: 999px; overflow: hidden; background: var(--bg-hover); }
+.es-reason-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, rgba(230,162,60,0.45), rgba(230,162,60,0.9)); }
+.es-reason-num { text-align: right; color: #e6a23c; font-weight: 800; }
+.es-reason-pct { text-align: right; color: var(--text-tertiary); font-size: 10px; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
 /* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
