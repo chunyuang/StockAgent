@@ -464,7 +464,10 @@ async def get_review_hero(date: str = None):
 
         # 7. 一句话结论
         if not sells:
-            conclusion = "📋 当日无卖出交易"
+            if buys:
+                conclusion = f"📋 今日买入{len(buys)}笔，暂无卖出闭环"
+            else:
+                conclusion = "📋 当日无交易"
             conclusion_type = "neutral"
         elif total_pct > 3:
             conclusion = f"🟢 今日大赚 +{total_pct:.1f}% 跑赢大盘{total_pct - benchmark_pct:.1f}% {max((wins), key=lambda w: w.get('profit_pct',0)).get('strategy','')}贡献最大"
@@ -486,7 +489,8 @@ async def get_review_hero(date: str = None):
             "metrics": {
                 "total_pct": round(total_pct, 2),
                 "win_rate": round(win_rate, 1),
-                "trades": len(sells),
+                "trades": len(buys) + len(sells),
+                "closed_trades": len(sells),
                 "buys": len(buys),
                 "stop_loss_count": len(stop_losses),
                 "take_profit_count": len(take_profits),

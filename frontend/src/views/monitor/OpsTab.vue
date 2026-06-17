@@ -64,6 +64,16 @@ function fmt(v: any, digits = 2): string {
   if (v === undefined || v === null || v === '') return '-'
   return Number(v).toFixed(digits)
 }
+function hasDecisionTrace(t: any): boolean {
+  return !!(t?.decision_trace && Object.keys(t.decision_trace).length)
+}
+function shortTradeReason(reason: string): string {
+  if (!reason) return '-'
+  return reason
+    .replace(/同行业「(.+?)」已选\d+只信号,本只被集中度过滤剔除/g, '行业集中度：$1')
+    .replace(/同行业「(.+?)」已选\d+只信号,本只被集中度过滤剔/g, '行业集中度：$1')
+    .replace(/本只被集中度过滤剔除/g, '集中度过滤')
+}
 
 // 解构需要的变量(从inject对象)
 const {
@@ -107,16 +117,24 @@ const {
             <span>¥{{ Number(t.price || 0).toFixed(2) }}</span>
             <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
             <span class="reason-cell">
-              <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
-              <ElButton v-if="t.decision_trace && Object.keys(t.decision_trace).length" size="small" link
-                class="trace-toggle" @click="toggleTradeExpand(t.order_id)">
-                {{ expandedOrderIds.has(t.order_id) ? '▽ 收起' : '▶ 详情' }}
+              <span class="text-tertiary reason-preview" :title="t.reason" style="font-size:11px">{{ shortTradeReason(t.reason) }}</span>
+              <ElButton size="small" link class="trace-toggle" @click="toggleTradeExpand(t.order_id)">
+                {{ expandedOrderIds.has(t.order_id) ? '▽ 收起' : (hasDecisionTrace(t) ? '▶ 决策' : '▶ 原因') }}
               </ElButton>
             </span>
           </div>
-          <!-- 完整决策轨迹展开 -->
-          <div v-if="expandedOrderIds.has(t.order_id) && t.decision_trace" class="trace-detail">
-            <div class="trace-grid">
+          <!-- 原因/完整决策轨迹展开 -->
+          <div v-if="expandedOrderIds.has(t.order_id)" class="trace-detail">
+            <div class="trace-reason-full">
+              <div class="tb-title">📝 原因/详情</div>
+              <div class="reason-full-text">{{ t.reason || '无原因记录' }}</div>
+              <div class="reason-meta">
+                <span>订单 {{ t.order_id || '-' }}</span>
+                <span>{{ t.source === 'auto' ? '自动交易' : '手动交易' }}</span>
+                <span>{{ t.side === 'buy' ? '买入' : '卖出' }} {{ t.quantity }}股 @ ¥{{ Number(t.price || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div v-if="hasDecisionTrace(t)" class="trace-grid">
               <!-- 行情快照 -->
               <div class="trace-block" v-if="t.decision_trace.market_data">
                 <div class="tb-title">📊 行情快照</div>
@@ -321,6 +339,10 @@ const {
   border-radius: 4px;
   font-size: 11px;
 }
+.trace-reason-full { margin-bottom: 10px; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; }
+.reason-full-text { color: var(--text-primary); line-height: 1.6; word-break: break-word; white-space: normal; }
+.reason-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--text-tertiary); font-size: 10px; }
+.reason-meta span { padding: 1px 5px; background: var(--bg-tertiary); border-radius: 3px; }
 .trace-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
