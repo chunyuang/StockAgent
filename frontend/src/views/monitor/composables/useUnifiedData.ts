@@ -84,7 +84,11 @@ function todayStr(): string {
 }
 
 function parseResponse(r: any): { success: boolean; data: any } {
-  const p = r?.data || r
+  // api/client 的响应拦截器已返回 response.data；
+  // 兼容两种形态：
+  // 1) { success: true, data: {...} }            ← 当前 api.get 实际返回
+  // 2) { data: { success: true, data: {...} } } ← 原始 axios response 形态
+  const p = typeof r?.success === 'boolean' ? r : (r?.data || r)
   return { success: !!p?.success, data: p?.data ?? p }
 }
 
