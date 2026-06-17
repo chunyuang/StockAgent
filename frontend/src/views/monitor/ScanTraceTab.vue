@@ -14,6 +14,7 @@ const m = useScannerMonitorInject()
 const {
   scanTraceDate, scanTraceFilter, scanTraceLoadingMore, selectedScanIdx,
   scanDateCellClass, scanHistory, scanHistoryByHour, scanHistoryLoading,
+  scanTraceDebugMode,
   switchScanTraceFilter, fetchScanHistory, fetchScanTrace, toggleScanHour,
   scanTraceDetail, layerLabel, layerDesc, rejectionLayerCN,
   strategyCN, strategyMeta,
@@ -73,7 +74,10 @@ onMounted(async () => {
       <div class="st">📡 扫描历史
         <UnifiedDateBar @change="(_d: string) => { scanTraceDate = _d; fetchScanHistory() }" />
         <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton>
-        <span class="text-tertiary" style="font-size:11px;margin-left:8px">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · <span style="color:var(--el-color-primary)">●</span>交易日 <span style="color:#e6a23c">●</span>调试</span>
+        <button :class="['mode-toggle', scanTraceDebugMode ? 'debug' : 'prod']" @click="scanTraceDebugMode = !scanTraceDebugMode; fetchScanHistory()">
+          {{ scanTraceDebugMode ? '调试审计模式' : '生产模式' }}
+        </button>
+        <span class="text-tertiary" style="font-size:11px;margin-left:8px">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · 默认隐藏调试/非交易时段数据</span>
       </div>
       <div v-if="!scanTraceDate" class="empty" style="padding:12px 0;color:var(--text-tertiary)">📅 请在上方选择日期查看扫描记录（高亮日期有数据）</div>
       <div v-else-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
@@ -433,4 +437,17 @@ onMounted(async () => {
 :deep(.has-scan-debug) { position: relative; }
 :deep(.has-scan-debug .el-date-table-cell) { color: #e6a23c !important; font-weight: 600; }
 :deep(.has-scan-debug .el-date-table-cell::after) { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: #e6a23c; }
+.mode-toggle {
+  margin-left: 6px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.mode-toggle.prod { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
+.mode-toggle.debug { border-color: #e6a23c; color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
+
 </style>

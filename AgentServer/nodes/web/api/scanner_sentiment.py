@@ -17,6 +17,7 @@ from nodes.web.api.scanner_shared import (
     _fill_stock_names, _safe_read_shared, logger,
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
+    normalize_data_mode,
 )
 
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
@@ -52,7 +53,7 @@ def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> floa
 
 
 @router.get("/sentiment-timeline")
-async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
+async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mode: str = "production", include_debug: bool = False):
     """情绪时间线 — 聚合历史情绪数据,返回时间序列
     
     Args:
@@ -177,7 +178,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
         else:
             # 日内模式 — v2.9.92: 多指标展示(涨跌停柱状图+涨跌比+情绪score)
             from nodes.web.api.scanner_sentiment_intraday import get_intraday_timeline
-            result = await get_intraday_timeline(db, date)
+            result = await get_intraday_timeline(db, date, data_mode=normalize_data_mode(data_mode, include_debug))
             points = result["points"]
             trades = result.get("trades", [])
         

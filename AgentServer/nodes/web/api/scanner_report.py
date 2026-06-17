@@ -21,6 +21,7 @@ from nodes.web.api.scanner_shared import (
     _fill_stock_names, _safe_read_shared, logger,
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
+    prod_scan_query, normalize_data_mode, is_debug_scan_doc,
 )
 
 # 策略ID归一化(anomaly_surge→halfway_chase等)
@@ -33,7 +34,7 @@ router = APIRouter(prefix="/scanner", tags=["日报/周报/历史复盘"])
 
 
 @router.get("/daily-report")
-async def get_daily_report(date: str = None):
+async def get_daily_report(date: str = None, mode: str = "production", include_debug: bool = False):
     """每日复盘报告 — scanner运行时取实时数据,否则从MongoDB聚合
     
     Args:
@@ -213,7 +214,7 @@ async def get_daily_report(date: str = None):
 
 
 @router.get("/historical-review")
-async def get_historical_review(date: str = None):
+async def get_historical_review(date: str = None, mode: str = "production", include_debug: bool = False):
     """历史复盘 — 从MongoDB聚合历史交易数据,支持任意交易日查看
     
     Args:
@@ -313,7 +314,7 @@ async def get_historical_review(date: str = None):
             scan_count = total_count - debug_count
         else:
             # 回退到count_documents(较慢,仅首次)
-            scan_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": {"$ne": True}})
+            scan_count = await db["scan_traces"].count_documents({"trade_date": date_int, **prod_scan_query(mode, include_debug)})
             debug_count = await db["scan_traces"].count_documents({"trade_date": date_int, "is_debug": True})
         total_passed = 0
         funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
@@ -322,23 +323,25 @@ async def get_historical_review(date: str = None):
         sample_size = min(scan_count + debug_count, 50)
         if sample_size > 0:
             async for doc in db["scan_traces"].find(
-                {"trade_date": date_int},
-                {"summary": 1}
+                {"trade_date": date_int, **prod_scan_query(mode, include_debug)},
+                {"summary": 1, "scan_time": 1, "is_debug": 1}
             ).limit(sample_size):
+                if normalize_data_mode(mode, include_debug) != "debug" and is_debug_scan_doc(doc):
+                    continue
                 total_passed += (doc.get("summary") or {}).get("passed", 0)
                 for layer_name, layer_data in (doc.get("summary") or {}).items():
                     if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                         funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
                         funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
             # 按采样比例放大total_passed
-            if scan_count + debug_count > sample_size:
-                total_passed = int(total_passed * (scan_count + debug_count) / sample_size)
+            if scan_count > sample_size:
+                total_passed = int(total_passed * scan_count / sample_size)
         # 取最新一条layer_details.L3作为情绪快照
         sentiment_snap = None
         # 1. 优先从scan_traces读取L3情绪层
         # 【v2.9.89修复】scan_traces.trade_date是int，必须用date_int而非date字符串
         latest_with_l3 = await db["scan_traces"].find_one(
-            {"trade_date": date_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+            {"trade_date": date_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}, **prod_scan_query(mode, include_debug)},
             sort=[("_id", -1)],
             projection={"layer_details.L3_sentiment": 1}
         )
@@ -577,7 +580,11 @@ async def _daily_report_from_mongo():
     
     # 3. 扫描统计(从scan_traces)
     scan_stats = {}
-    async for doc in db["scan_traces"].find({"trade_date": today_int}):
+    scan_query = {"trade_date": today_int, **prod_scan_query(mode, include_debug)}
+    data_mode = normalize_data_mode(mode, include_debug)
+    async for doc in db["scan_traces"].find(scan_query):
+        if data_mode != "debug" and is_debug_scan_doc(doc):
+            continue
         cands = doc.get("candidates", [])
         scan_stats["scans"] = scan_stats.get("scans", 0) + 1
         scan_stats["signals_found"] = scan_stats.get("signals_found", 0) + len([c for c in cands if c.get("final_status") == "passed"])
@@ -592,7 +599,7 @@ async def _daily_report_from_mongo():
     # 4. 情绪快照(优先从scan_traces L3读取, fallback到sentiment_scores)
     sentiment_snap = None
     latest_with_l3 = await db["scan_traces"].find_one(
-        {"trade_date": today_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+        {"trade_date": today_int, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}, **prod_scan_query(mode, include_debug)},
         sort=[("_id", -1)],
         projection={"layer_details.L3_sentiment": 1}
     )
@@ -605,7 +612,9 @@ async def _daily_report_from_mongo():
     
     # 4b. 漏斗聚合(从scan_traces)
     funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
-    async for doc in db["scan_traces"].find({"trade_date": today_int}, {"summary": 1}):
+    async for doc in db["scan_traces"].find(scan_query, {"summary": 1, "scan_time": 1, "is_debug": 1}):
+        if data_mode != "debug" and is_debug_scan_doc(doc):
+            continue
         for layer_name, layer_data in (doc.get("summary") or {}).items():
             if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
                 funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)

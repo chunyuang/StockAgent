@@ -24,6 +24,8 @@ export function useScanTraceMonitor() {
   const selectedScanIdx = ref(-1)
   const scanHistory = ref<any[]>([])
   const scanHistoryLoading = ref(false)
+  // 默认生产模式；只有显式打开调试审计，才请求debug/off-session数据
+  const scanTraceDebugMode = ref(false)
 
   // 按小时分组+折叠
   const scanHourCollapse = ref<Record<string, boolean>>({})
@@ -86,7 +88,8 @@ export function useScanTraceMonitor() {
     // 切换日期时重置折叠状态, 避免旧状态残留
     scanHourCollapse.value = {}
     try {
-      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}`, { timeout: 15000 })
+      const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
+      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}&mode=${dataMode}`, { timeout: 15000 })
       const p = parseResponse(r)
       if (p.success && p.data?.length) {
         scanHistory.value = p.data
@@ -104,7 +107,8 @@ export function useScanTraceMonitor() {
     scanTraceDetail.value = null
     scanTraceFilter.value = 'passed'
     try {
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50`, { timeout: 10000 })
+      const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success) scanTraceDetail.value = p.data
     } catch { /* ignore */ }
@@ -118,7 +122,8 @@ export function useScanTraceMonitor() {
     scanTraceFilter.value = filter
     scanTraceLoadingMore.value = true
     try {
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50`, { timeout: 10000 })
+      const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success) {
         scanTraceDetail.value = { ...scanTraceDetail.value, candidates: p.data.candidates || [], _pagination: p.data._pagination, rejected_layer_stats: p.data.rejected_layer_stats }
@@ -291,7 +296,7 @@ export function useScanTraceMonitor() {
     scanTraceDates, scanTraceList, scanTraceDetail, signalTraceVisible,
     scanTraceDate, scanTraceFilter, scanTraceLoadingMore,
     selectedScanIdx, scanHistory, scanHistoryByHour, scanHistoryLoading,
-    scanHourCollapse, scanTraceHasData,
+    scanHourCollapse, scanTraceDebugMode, scanTraceHasData,
     executionSummary,
     layerDebugVisible, layerDebugData, layerDebugLoading,
     // 兼容
