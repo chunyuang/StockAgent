@@ -5,7 +5,7 @@
 from enum import Enum
 from typing import List, Optional
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 import uuid
 
 
@@ -87,8 +87,7 @@ class KnowledgeItem(BaseModel):
     # 检索相关
     score: Optional[float] = Field(default=None, description="相似度分数")
     
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class FixedKnowledgeItem(KnowledgeItem):

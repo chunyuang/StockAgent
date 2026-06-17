@@ -7,7 +7,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 import uuid
 
 
@@ -70,8 +70,7 @@ class MemoryMetadata(BaseModel):
     # 扩展字段
     extra: Dict[str, Any] = Field(default_factory=dict)
     
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 # ==================== 股票相关元数据 ====================
@@ -119,8 +118,7 @@ class BaseMemoryItem(BaseModel):
     # 检索相关
     score: Optional[float] = Field(default=None, description="相似度/相关性分数")
     
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
     
     def touch(self) -> None:
         """更新访问时间和计数"""

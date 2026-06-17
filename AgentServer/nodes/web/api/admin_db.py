@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import logging
 
 from fastapi import APIRouter, HTTPException, Body
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.constants import C
 from core.managers import mongo_manager
@@ -70,8 +70,7 @@ class CheckMissingRequest(BaseModel):
     date: Optional[int] = Field(None, description="检查指定日期，不指定检查最新日期")
     factors: Optional[List[str]] = Field(None, description="检查指定因子，不指定检查所有预计算因子")
     
-    class Config:
-        extra = 'allow'
+    model_config = ConfigDict(extra="allow")
 
 
 # ========== 工具函数 ==========
