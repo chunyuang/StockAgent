@@ -402,8 +402,25 @@ async def get_review_hero(date: str = None):
         sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": _normalize_date(date)})
         sentiment_period = sentiment_doc.get("period", "") if sentiment_doc else ""
         sentiment_score = sentiment_doc.get("score", 0) if sentiment_doc else 50
+        # 【v2.9.97i】sentiment_scores数据缺失时fallback到scan_traces L3
         if sentiment_doc and sentiment_doc.get("missing_data"):
-            sentiment_period = sentiment_doc.get("period", "") + "(数据缺失)"
+            l3_doc = await db["scan_traces"].find_one(
+                {"trade_date": _normalize_date(date), "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+                sort=[("_id", -1)], projection={"layer_details.L3_sentiment": 1}
+            )
+            if l3_doc:
+                l3_text = (l3_doc.get("layer_details") or {}).get("L3_sentiment", "")
+                # Parse: "情绪=58分→differentiation, 仓位系数=70% | ..."
+                import re
+                m_score = re.search(r'(\d+)分', l3_text)
+                m_period = re.search(r'→(\w+)', l3_text)
+                if m_score:
+                    sentiment_score = int(m_score.group(1))
+                if m_period:
+                    sentiment_period = m_period.group(1)
+                logger.info(f"[REVIEW-HERO] sentiment_scores missing_data, fallback to scan_traces L3: period={sentiment_period} score={sentiment_score}")
+            else:
+                sentiment_period = sentiment_doc.get("period", "") + "(数据缺失)"
 
         # 5. 纪律检查
         violations = []
