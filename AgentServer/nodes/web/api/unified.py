@@ -471,6 +471,8 @@ async def query_trades(
     date: int = None,
     date_gte: int = None,
     date_lte: int = None,
+    ts_code: str = None,
+    strategy: str = None,
     status: str = "filled",
     sort: list = None,
     limit: int = 0,
@@ -500,6 +502,14 @@ async def query_trades(
         query["side"] = side
     if status:
         query["status"] = status
+    if ts_code:
+        # 支持单个字符串或列表
+        if isinstance(ts_code, (list, tuple, set)):
+            query["ts_code"] = {"$in": list(ts_code)}
+        else:
+            query["ts_code"] = ts_code
+    if strategy:
+        query["strategy"] = strategy
     
     # 日期过滤: 兼容int/string
     if date is not None:
@@ -541,3 +551,49 @@ async def query_latest_trade(
         projection or {},
         sort=[("_id", -1)],
     )
+
+
+async def query_trade_one(
+    db,
+    account_id: str = "default",
+    ts_code: str = None,
+    strategy: str = None,
+    side: str = None,
+    date_lte: int = None,
+    status: str = "filled",
+    sort: list = None,
+) -> dict | None:
+    """【v2.9.97h-v4】查询单条交易（按ts_code+strategy+date查找最近一笔买入等）"""
+    query: dict = {"account_id": account_id, "status": status}
+    if side:
+        query["side"] = side
+    if ts_code:
+        query["ts_code"] = ts_code
+    if strategy:
+        query["strategy"] = strategy
+    if date_lte is not None:
+        query["trade_date"] = {"$lte": date_lte}
+    return await db["broker_orders"].find_one(query, sort=sort or [("_id", -1)])
+
+
+async def aggregate_trades(
+    db,
+    pipeline: list,
+    account_id: str = "default",
+    auto_filter: bool = True,
+) -> list[dict]:
+    """【v2.9.97h-v4】统一聚合查询(自动注入account_id+filled状态)
+    
+    Args:
+        pipeline: MongoDB聚合pipeline
+        account_id: 账户ID
+        auto_filter: 是否自动在第一步注入account_id+status=filled过滤
+    """
+    if auto_filter:
+        # 在pipeline最前面注入match过滤
+        pipeline = [
+            {"$match": {"account_id": account_id, "status": "filled"}},
+            *pipeline,
+        ]
+    cursor = db["broker_orders"].aggregate(pipeline)
+    return await cursor.to_list(length=None)

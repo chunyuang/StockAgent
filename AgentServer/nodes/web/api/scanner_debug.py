@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
+from nodes.web.api.unified import aggregate_trades
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
@@ -308,7 +309,10 @@ async def debug_premarket_sim(date: str = None):
                                 "wins": {"$sum": {"$cond": [{"$gt": ["$profit_pct", 0]}, 1, 0]}},
                                 "avg_profit": {"$avg": "$profit_pct"}}},
                 ]
-                async for doc in mongo_manager.db["broker_orders"].aggregate(pipeline):
+                # 【v2.9.97h-v4】使用aggregate_trades统一查询(自动注入account_id+filled)
+                docs = await aggregate_trades(mongo_manager.db, pipeline, auto_filter=False)
+                # pipeline已有自定义的$match, 不需要auto_filter
+                for doc in docs:
                     s = doc["_id"] or "unknown"
                     total = doc["total"] or 1
                     historical_hit_rate[s] = {"total": total, "wins": doc["wins"],
@@ -568,7 +572,9 @@ async def debug_premarket_sim(date: str = None):
                             "wins": {"$sum": {"$cond": [{"$gt": ["$profit_pct", 0]}, 1, 0]}}, 
                             "avg_profit": {"$avg": "$profit_pct"}}},
             ]
-            async for doc in mongo_manager.db["broker_orders"].aggregate(pipeline):
+            # 【v2.9.97h-v4】使用aggregate_trades统一查询
+            docs = await aggregate_trades(mongo_manager.db, pipeline, auto_filter=False)
+            for doc in docs:
                 s = doc["_id"] or "unknown"
                 total = doc["total"] or 1
                 historical_hit_rate[s] = {"total": total, "wins": doc["wins"], 
