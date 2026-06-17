@@ -97,31 +97,33 @@ const emit = defineEmits<{
 
       <!-- ============ 双栏: 策略贡献 + 扫描漏斗 ============ -->
       <template v-if="reviewTab === 'daily' && dailyReportData">
-        <!-- 策略+漏斗+纪律+执行 一行内联 -->
-        <div class="info-row" style="margin-top:2px">
-          <span v-if="Object.keys(dailyReportData.positions?.strategy_summary || {}).length" class="ir-section">🎯
-            <template v-for="(data, key) in dailyReportData.positions.strategy_summary" :key="key">
-              <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">
-                {{ strategyCN(key) }}{{ data.count || 0 }}只
-                <span :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
-              </span>
-            </template>
-          </span>
-          <span v-if="dailyReportData?.scanner_stats" class="ir-section">📡 扫{{ dailyReportData.scanner_stats.scan_count || 0 }}→信{{ dailyReportData.scanner_stats.total_signals || 0 }}→买{{ dailyReportData.scanner_stats.buy_count || 0 }}→卖{{ dailyReportData.scanner_stats.sell_count || 0 }}</span>
-          <span v-if="disciplineCheck" class="ir-section">🔍纪律<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b></span>
-          <span v-if="executionQuality" class="ir-section">🎯滑<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b></span>
-          <span v-if="dailyReportData?.sentiment_snapshot" class="ir-section ir-dim">🌡{{ dailyReportData.sentiment_snapshot }}</span>
-        </div>
-
-        <!-- 纪律违规(仅违规时显示) -->
-        <div v-if="disciplineCheck && (disciplineCheck?.violations?.length || 0)" class="violations-compact" style="margin-top:2px">
-          <div v-for="(v, i) in disciplineCheck.violations" :key="i" class="v-item" :class="'sev-' + v.severity">
-            {{ v.severity === 'high' ? '🔴' : '🟡' }}{{ v.violation }}: {{ v.detail }}
+        <div class="review-2col" style="margin-top:4px">
+          <div class="rv-card">
+            <div class="rv-card-title">🎯 策略贡献</div>
+            <div v-if="Object.keys(dailyReportData.positions?.strategy_summary || {}).length" class="strat-rows">
+              <div v-for="(data, key) in dailyReportData.positions.strategy_summary" :key="key" class="strat-row">
+                <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+                <span class="strat-cnt">{{ data.count || 0 }}只</span>
+                <span class="strat-val" :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
+                <span class="strat-wr" :class="(Number(data.closed_win_rate ?? data.win_rate ?? 0)) >= 50 ? 'up' : 'down'">{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span>
+              </div>
+            </div>
+            <div v-else class="empty">暂无策略数据</div>
+          </div>
+          <div class="rv-card">
+            <div class="rv-card-title">📡 扫描漏斗</div>
+            <div v-if="dailyReportData?.scanner_stats" class="funnel-rows">
+              <div class="funnel-row"><span class="fun-l">扫描</span><div class="fun-bar"><div class="fun-fill full" /><span class="fun-v">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div></div>
+              <div class="funnel-row"><span class="fun-l">信号</span><div class="fun-bar"><div class="fun-fill" :style="{width: Math.min((dailyReportData.scanner_stats.total_signals || 0) / Math.max(dailyReportData.scanner_stats.scan_count || 1, 1) * 100, 100) + '%'}" /><span class="fun-v up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div></div>
+              <div class="funnel-row"><span class="fun-l">买入</span><div class="fun-bar"><div class="fun-fill buy" :style="{width: Math.min((dailyReportData.scanner_stats.buy_count || 0) / Math.max(dailyReportData.scanner_stats.total_signals || 1, 1) * 100, 100) + '%'}" /><span class="fun-v">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div></div>
+              <div class="funnel-row"><span class="fun-l">卖出</span><div class="fun-bar"><div class="fun-fill" :style="{width: Math.min((dailyReportData.scanner_stats.sell_count || 0) / Math.max(dailyReportData.scanner_stats.buy_count || 1, 1) * 100, 100) + '%'}" /><span class="fun-v">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div></div>
+            </div>
+            <div v-if="dailyReportData?.sentiment_snapshot" class="sent-snap">🌡️ {{ dailyReportData.sentiment_snapshot }}</div>
           </div>
         </div>
 
-        <!-- 逐笔归因 (唯一需要列表的) -->
-        <div class="rv-card" style="margin-top:2px">
+        <!-- 逐笔归因 (紧凑行式, 不用表格) -->
+        <div class="rv-card" style="margin-top:3px">
           <div class="rv-card-title">📝 逐笔 <span class="rv-count">{{ tradeAttributions?.length || 0 }}笔</span></div>
           <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无</div>
           <div v-else class="attr-compact">
@@ -134,6 +136,32 @@ const emit = defineEmits<{
             </div>
           </div>
         </div>
+
+        <!-- 纪律+执行 -->
+        <div class="review-2col" style="margin-top:3px">
+          <div class="rv-card">
+            <div class="rv-card-title">🔍 纪律<span v-if="disciplineCheck" class="rv-badge" :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) >= 60 ? '' : 'down'">{{ disciplineCheck.execution_rate || 0 }}%</span></div>
+            <div v-if="disciplineCheck && (disciplineCheck?.violations?.length || 0)" class="violations-list">
+              <div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity">
+                <span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
+                <span class="v-type">{{ v.violation }}</span>
+                <span class="v-detail">{{ v.detail }}</span>
+              </div>
+            </div>
+            <div v-else-if="disciplineCheck" class="empty ok">✅ 无违规</div>
+            <div v-else class="empty">--</div>
+          </div>
+          <div class="rv-card">
+            <div class="rv-card-title">🎯 执行</div>
+            <div v-if="executionQuality" class="eq-compact">
+              <span>滑点<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</b></span>
+              <span>成交<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b></span>
+              <span>下单<b>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</b></span>
+            </div>
+            <div v-else class="empty">--</div>
+          </div>
+        </div>
+        <div v-if="dailyReportData?.sentiment_snapshot" class="sent-snap">🌡 {{ dailyReportData.sentiment_snapshot }}</div>
       </template>
 
       <!-- 月复盘 -->
@@ -353,19 +381,6 @@ const emit = defineEmits<{
 /* 指标条 — 单行内联, 极致紧凑 */
 .metric-strip { display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: 2px; padding: 2px 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; font-size: 10px; color: var(--text-tertiary); }
 .metric-strip .ms b { font-weight: 600; color: var(--text-primary); font-size: 11px; margin-left: 2px; }
-
-/* 信息行 — 策略/漏斗/纪律/执行 一行内联 */
-.info-row { display: flex; flex-wrap: wrap; gap: 2px 8px; padding: 2px 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; font-size: 10px; color: var(--text-tertiary); }
-.ir-section { white-space: nowrap; }
-.ir-section b { font-weight: 600; color: var(--text-primary); font-size: 11px; margin-left: 1px; }
-.ir-strat { border-left: 2px solid; padding-left: 3px; margin-right: 2px; font-size: 10px; color: var(--text-primary); }
-.ir-dim { color: var(--text-tertiary); }
-
-/* 纪律违规紧凑 */
-.violations-compact { display: flex; flex-direction: column; gap: 1px; }
-.v-item { font-size: 10px; padding: 1px 4px; border-radius: 2px; }
-.v-item.sev-high { background: rgba(242,54,69,0.06); }
-.v-item.sev-medium { background: rgba(230,162,60,0.06); }
 
 /* 卡片 — 紧凑 */
 .rv-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; padding: 3px 5px; }
