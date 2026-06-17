@@ -142,50 +142,50 @@ function formatTradeDateTime(rec: any): string {
     <div class="mm-tab-bar">
       <button :class="['tab-btn', activeTab === 'guide' ? 'active' : '']" @click="activeTab = 'guide'">
         <span class="tab-icon">📖</span>
-        <span class="tab-text"><span class="tab-label">指南</span><span class="tab-desc">架构操作</span></span>
+        <span class="tab-text"><span class="tab-label">使用指南</span><span class="tab-desc">架构操作</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
         <span class="tab-icon">🎯</span>
-        <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号交易</span></span>
+        <span class="tab-text"><span class="tab-label">实盘交易</span><span class="tab-desc">信号持仓</span></span>
         <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
       </button>
       <button :class="['tab-btn', activeTab === 'premarket' ? 'active' : '']" @click="activeTab = 'premarket'">
         <span class="tab-icon">🌅</span>
-        <span class="tab-text"><span class="tab-label">竞价</span><span class="tab-desc">9:00-9:25</span></span>
+        <span class="tab-text"><span class="tab-label">盘前竞价</span><span class="tab-desc">9:00-9:25</span></span>
         <span v-if="premarketSignals.length" class="tab-badge">{{ premarketSignals.length }}</span>
       </button>
       <button :class="['tab-btn', activeTab === 'scan-trace' ? 'active' : '']" @click="activeTab = 'scan-trace'">
         <span class="tab-icon">🔍</span>
-        <span class="tab-text"><span class="tab-label">追踪</span><span class="tab-desc">9层漏斗</span></span>
+        <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
         <span class="tab-icon">📋</span>
-        <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日周归因</span></span>
+        <span class="tab-text"><span class="tab-label">每日复盘</span><span class="tab-desc">日周归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
         <span class="tab-icon">🛡️</span>
-        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损矩阵</span></span>
+        <span class="tab-text"><span class="tab-label">风控矩阵</span><span class="tab-desc">止损矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
       </button>
       <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'; fetchSentimentData()">
         <span class="tab-icon">🌡️</span>
-        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">周期曲线</span></span>
+        <span class="tab-text"><span class="tab-label">情绪周期</span><span class="tab-desc">周期曲线</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'history' ? 'active' : '']" @click="activeTab = 'history'">
         <span class="tab-icon">📜</span>
-        <span class="tab-text"><span class="tab-label">历史</span><span class="tab-desc">时间订单</span></span>
+        <span class="tab-text"><span class="tab-label">历史记录</span><span class="tab-desc">时间订单</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'analysis' ? 'active' : '']" @click="activeTab = 'analysis'">
         <span class="tab-icon">📊</span>
-        <span class="tab-text"><span class="tab-label">分析</span><span class="tab-desc">KPI归因</span></span>
+        <span class="tab-text"><span class="tab-label">数据分析</span><span class="tab-desc">KPI归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'account' ? 'active' : '']" @click="activeTab = 'account'">
         <span class="tab-icon">💰</span>
-        <span class="tab-text"><span class="tab-label">账户</span><span class="tab-desc">资产持仓</span></span>
+        <span class="tab-text"><span class="tab-label">账户资产</span><span class="tab-desc">资产持仓</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
-        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统操作</span></span>
+        <span class="tab-text"><span class="tab-label">系统运维</span><span class="tab-desc">系统操作</span></span>
       </button>
     </div>
 
@@ -613,7 +613,7 @@ function formatTradeDateTime(rec: any): string {
 .mm-tab-bar .tab-btn {
   position: relative;
   flex: 1 1 0;
-  min-width: 72px;
+  min-width: 92px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -645,9 +645,9 @@ function formatTradeDateTime(rec: any): string {
 
 .tab-icon { font-size: 14px; line-height: 1; }
 
-.tab-text { display: flex; align-items: center; justify-content: center; min-width: 28px; }
+.tab-text { display: flex; align-items: center; justify-content: center; min-width: 56px; }
 
-.tab-label { font-size: 13px; line-height: 1; font-weight: 600; letter-spacing: 0.08em; }
+.tab-label { font-size: 13px; line-height: 1; font-weight: 600; letter-spacing: 0.02em; }
 
 /* 二字主名保持统一；超宽屏再露出副标题 */
 .tab-desc { display: none; font-size: 10px; color: var(--text-tertiary); line-height: 1; margin-left: 4px; letter-spacing: 0; }
