@@ -27,6 +27,7 @@ const {
 } = m
 
 const showSummaryReasons = ref(false)
+const expandedReasonGroup = ref('')
 
 // v2.9.95: 执行摘要格式化 — 顶部只保留数字，原因改为可展开Top列表，避免长文本挤爆
 const execSummaryDisplay = computed(() => {
@@ -43,14 +44,37 @@ const execSummaryDisplay = computed(() => {
     acc[label].reasons.push({ ...r, pct: r.count / totalBlocked * 100 })
     return acc
   }, {})
+  const sortedGroups = Object.values(groups).sort((a, b) => b.count - a.count)
+    .map((g, i) => ({ ...g, pct: g.count / totalBlocked * 100, color: reasonGroupColor(g.label, i) }))
+  let cursor = 0
+  const pieSegments = sortedGroups.map((g) => {
+    const start = cursor
+    cursor += g.pct
+    return `${g.color} ${start}% ${cursor}%`
+  }).join(', ')
   return {
     buys: es.buys || 0,
     blocked: es.blocked || 0,
     totalBlocked,
     reasons: reasons.map(r => ({ ...r, pct: r.count / totalBlocked * 100 })),
-    groups: Object.values(groups).sort((a, b) => b.count - a.count),
+    groups: sortedGroups,
+    pieStyle: { background: pieSegments ? `conic-gradient(${pieSegments})` : 'var(--bg-hover)' },
   }
 })
+
+function reasonGroupColor(label: string, index = 0): string {
+  const map: Record<string, string> = {
+    '集中度': '#6C8CFF',
+    '信号状态': '#67C23A',
+    '行情条件': '#E6A23C',
+    '仓位资金': '#F56C6C',
+    '情绪风控': '#9B7BFF',
+    '排序评分': '#36CFC9',
+    '其他原因': '#A8ABB2',
+  }
+  const fallback = ['#6C8CFF', '#67C23A', '#E6A23C', '#F56C6C', '#9B7BFF', '#36CFC9', '#A8ABB2']
+  return map[label] || fallback[index % fallback.length]
+}
 
 function reasonCategory(reason: string): string {
   if (/仓位|资金|现金|持仓|已持有|满仓|可用/.test(reason)) return '仓位资金'
@@ -101,13 +125,17 @@ onMounted(async () => {
   <div class="mm-tab-content">
     <div class="mm-tab-scroll">
       <!-- 顶部: 扫描历史列表(单行紧凑) -->
-      <div class="st">📡 扫描历史
-        <UnifiedDateBar @change="(_d: string) => { scanTraceDate = _d; fetchScanHistory() }" />
-        <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton>
+      <div class="st scan-trace-toolbar">
+        <span class="st-title">📡 扫描历史</span>
         <button :class="['mode-toggle', scanTraceDebugMode ? 'debug' : 'prod']" @click="scanTraceDebugMode = !scanTraceDebugMode; fetchScanHistory()">
           {{ scanTraceDebugMode ? '调试审计模式' : '生产模式' }}
         </button>
-        <span class="text-tertiary" style="font-size:11px;margin-left:8px">当前显示实盘有效扫描；点小时行展开查看每轮漏斗、成交和拦截。排查盘前/非交易记录时切换“调试审计模式”。</span>
+        <span class="scan-trace-help">当前显示实盘有效扫描；点小时行展开查看每轮漏斗、成交和拦截。</span>
+        <div class="scan-date-actions">
+          <span class="scan-debug-hint">排查盘前/非交易记录时切换调试模式</span>
+          <UnifiedDateBar @change="(_d: string) => { scanTraceDate = _d; fetchScanHistory() }" />
+          <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton>
+        </div>
       </div>
       <div v-if="!scanTraceDate" class="empty" style="padding:12px 0;color:var(--text-tertiary)">📅 请在上方选择日期查看扫描记录（高亮日期有数据）</div>
       <div v-else-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
@@ -125,21 +153,27 @@ onMounted(async () => {
             </button>
           </div>
           <div v-if="showSummaryReasons && execSummaryDisplay.reasons.length" class="es-analysis">
-            <div class="es-group-grid">
-              <div v-for="g in execSummaryDisplay.groups" :key="g.label" class="es-group-card">
-                <span class="es-group-name">{{ g.label }}</span>
-                <span class="es-group-count">{{ g.count }}次</span>
-                <span class="es-group-pct">{{ (g.count / execSummaryDisplay.totalBlocked * 100).toFixed(0) }}%</span>
+            <div class="es-distribution">
+              <div class="es-pie" :style="execSummaryDisplay.pieStyle"><span>{{ execSummaryDisplay.blocked }}<em>拦截</em></span></div>
+              <div class="es-group-grid">
+                <button v-for="g in execSummaryDisplay.groups" :key="g.label" class="es-group-card" :class="{ active: expandedReasonGroup === g.label }" :style="{ '--group-color': g.color }" @click="expandedReasonGroup = expandedReasonGroup === g.label ? '' : g.label">
+                  <span class="es-group-dot"></span>
+                  <span class="es-group-name">{{ g.label }}</span>
+                  <span class="es-group-count">{{ g.count }}次</span>
+                  <span class="es-group-pct">{{ g.pct.toFixed(0) }}%</span>
+                </button>
               </div>
             </div>
-            <div class="es-reason-table">
-              <div v-for="r in execSummaryDisplay.reasons" :key="r.reason" class="es-reason-row" :title="r.reason">
+            <div v-if="expandedReasonGroup" class="es-reason-table">
+              <div class="es-reason-table-title">{{ expandedReasonGroup }}明细</div>
+              <div v-for="r in execSummaryDisplay.groups.find((g: any) => g.label === expandedReasonGroup)?.reasons || []" :key="r.reason" class="es-reason-row" :title="r.reason">
                 <span class="es-reason-name">{{ shortReason(r.reason) }}</span>
                 <div class="es-reason-bar"><div class="es-reason-fill" :style="{ width: Math.max(3, r.pct) + '%' }"></div></div>
                 <span class="es-reason-num">{{ r.count }}次</span>
                 <span class="es-reason-pct">{{ r.pct.toFixed(1) }}%</span>
               </div>
             </div>
+            <div v-else class="es-detail-hint">点击上方分类卡片查看该类全部拦截原因。</div>
           </div>
         </div>
         <div class="scan-hours">
@@ -302,6 +336,12 @@ onMounted(async () => {
 </template>
 
 <style scoped lang="scss">
+.scan-trace-toolbar { display: flex; align-items: center; gap: 8px; }
+.scan-trace-toolbar .st-title { flex-shrink: 0; }
+.scan-trace-help { color: var(--text-tertiary); font-size: 11px; }
+.scan-date-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.scan-debug-hint { color: var(--text-tertiary); font-size: 11px; opacity: 0.8; }
+
 .scan-hours { display: flex; flex-direction: column; gap: 4px; }
 
 .sc-hour-group { margin-bottom: 2px; }
@@ -430,21 +470,29 @@ onMounted(async () => {
 .es-item { font-weight: 700; }
 .es-buy { color: var(--stock-up, #f56c6c); }
 .es-block { color: #e6a23c; }
-.es-toggle { border: 1px solid var(--border-default); background: var(--bg-secondary); color: var(--el-color-primary); border-radius: 4px; padding: 1px 6px; font-size: 11px; cursor: pointer; margin-left: auto; }
-.es-toggle:hover { background: var(--bg-hover); }
+.es-toggle { border: 1px solid rgba(108,140,255,0.28); background: rgba(108,140,255,0.09); color: #6c8cff; border-radius: 999px; padding: 2px 9px; font-size: 11px; cursor: pointer; margin-left: auto; }
+.es-toggle:hover { background: rgba(108,140,255,0.15); border-color: rgba(108,140,255,0.45); }
 .es-analysis { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.es-distribution { display: grid; grid-template-columns: 112px 1fr; gap: 10px; align-items: center; }
+.es-pie { width: 92px; height: 92px; border-radius: 50%; margin: 0 auto; display: grid; place-items: center; box-shadow: inset 0 0 0 12px rgba(255,255,255,0.18); }
+.es-pie span { width: 54px; height: 54px; border-radius: 50%; background: var(--bg-elevated); display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; color: var(--text-primary); border: 1px solid var(--border-light); }
+.es-pie em { font-style: normal; font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
 .es-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 6px; }
-.es-group-card { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 8px; border-radius: 6px; background: rgba(64,158,255,0.08); border: 1px solid rgba(64,158,255,0.18); }
+.es-group-card { --group-color: #6c8cff; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 6px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--group-color) 10%, var(--bg-secondary)); border: 1px solid color-mix(in srgb, var(--group-color) 28%, transparent); cursor: pointer; text-align: left; color: var(--text-primary); }
+.es-group-card:hover, .es-group-card.active { background: color-mix(in srgb, var(--group-color) 16%, var(--bg-secondary)); border-color: color-mix(in srgb, var(--group-color) 55%, transparent); }
+.es-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--group-color); }
 .es-group-name { font-weight: 700; color: var(--text-primary); }
-.es-group-count { font-weight: 800; color: #e6a23c; }
-.es-group-pct { grid-column: 1 / -1; color: var(--text-tertiary); font-size: 10px; }
+.es-group-count { font-weight: 800; color: var(--group-color); }
+.es-group-pct { grid-column: 2 / -1; color: var(--text-tertiary); font-size: 10px; }
 .es-reason-table { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.es-reason-table-title { font-weight: 700; color: var(--text-primary); margin: 2px 0; }
 .es-reason-row { display: grid; grid-template-columns: minmax(150px, 1.8fr) minmax(120px, 2fr) 48px 48px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 5px; background: var(--bg-secondary); border: 1px solid var(--border-light); }
 .es-reason-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-secondary); }
 .es-reason-bar { height: 8px; border-radius: 999px; overflow: hidden; background: var(--bg-hover); }
 .es-reason-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, rgba(230,162,60,0.45), rgba(230,162,60,0.9)); }
 .es-reason-num { text-align: right; color: #e6a23c; font-weight: 800; }
 .es-reason-pct { text-align: right; color: var(--text-tertiary); font-size: 10px; }
+.es-detail-hint { color: var(--text-tertiary); font-size: 11px; padding: 4px 2px; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
 /* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
