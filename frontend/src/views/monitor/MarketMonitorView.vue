@@ -93,6 +93,12 @@ const fmtCompactDate = (d?: string) => {
 }
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
+function toggleStrategySection() {
+  stratSectionCollapsed.value = !stratSectionCollapsed.value
+  if (!stratSectionCollapsed.value) {
+    stratCollapsed.value = {}
+  }
+}
 
 // 【v2.9.94】交易详情弹窗时间显示：优先后端 time_display，后退到 trade_date + time 拼接
 function formatTradeDateTime(rec: any): string {
@@ -213,15 +219,12 @@ function formatTradeDateTime(rec: any): string {
         <div v-if="!dateSectionCollapsed" class="date-panel">
           <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" />
         </div>
-        <div class="st cp compact-st" @click="stratSectionCollapsed = !stratSectionCollapsed" style="margin-top:4px">
+        <div class="st cp compact-st" @click="toggleStrategySection" style="margin-top:4px">
           <span>🎛️ 策略</span>
           <span v-if="stratSectionCollapsed" class="compact-pill">{{ enabledStrategyCount }}/{{ strategies.length }}</span>
           <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span>
         </div>
-        <div v-if="stratSectionCollapsed" class="strategy-mini-strip">
-          <button v-for="s in strategies" :key="s.id" class="strategy-mini" :class="{ off: !s.enabled }" :title="s.name" @click.stop="toggleStrategy(s.id, !s.enabled)">{{ strategyMeta[s.id]?.icon || '📋' }}</button>
-        </div>
-        <template v-else>
+        <template v-if="!stratSectionCollapsed">
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
           <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="toggleStrategy(s.id, $event)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
@@ -540,11 +543,6 @@ function formatTradeDateTime(rec: any): string {
 .compact-st { justify-content: space-between; margin-bottom: 6px; white-space: nowrap; }
 .compact-pill { margin-left: auto; padding: 1px 6px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
 .date-panel { display: flex; justify-content: center; padding: 6px; margin: -2px 0 8px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-light); }
-.strategy-mini-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: -2px 0 8px; }
-.strategy-mini { height: 28px; border: 1px solid var(--border-light); border-radius: 6px; background: var(--bg-elevated); cursor: pointer; font-size: 14px; transition: all 0.15s; }
-.strategy-mini:hover { border-color: var(--el-color-primary-light-5); background: var(--bg-hover); }
-.strategy-mini.off { opacity: 0.35; filter: grayscale(0.7); }
-
 .sc { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); transition: border-color 0.2s; min-width: 0; }
 
 .sc:hover { border-color: var(--text-muted); }
