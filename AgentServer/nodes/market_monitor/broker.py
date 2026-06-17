@@ -207,6 +207,7 @@ class SimulatedBroker:
                     "fill_time": order.fill_time,
                     "profit_pct": getattr(order, 'profit_pct', 0),
                     "profit_amount": getattr(order, 'profit_amount', 0),
+                    "decision_trace": getattr(order, 'decision_trace', {}) or {},
                 }
                 db["broker_orders"].update_one(
                     {"order_id": order.order_id},
@@ -717,13 +718,15 @@ class SimulatedBroker:
                     order_type: str = "market",
                     strategy: str = "",
                     reason: str = "",
-                    source: str = "auto") -> Tuple[bool, str, Order]:
+                    source: str = "auto",
+                    decision_trace: dict = None) -> Tuple[bool, str, Order]:
         """下单(编排方法: 前置检查→买入/卖出校验→撮合→执行)"""
         if stock_name:
             self._stock_names[ts_code] = stock_name
 
         order = self._create_order_instance(
             ts_code, stock_name, side, quantity, price, order_type, strategy, reason, source)
+        order.decision_trace = decision_trace or {}
 
         # 前置检查
         reject_reason = self._validate_prechecks(ts_code, quantity)

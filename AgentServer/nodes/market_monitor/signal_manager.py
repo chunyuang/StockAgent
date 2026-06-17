@@ -470,12 +470,15 @@ class SignalManager:
             return
 
         adjusted_price = self._apply_buy_slippage(sig, shares)
+        decision_trace = self._build_decision_trace(sig, shares, position_ratio, max_amount, acct, adjusted_price)
+        detailed_reason = self._format_decision_reason(sig, decision_trace)
         # 【v2.9.80修复】用滑点调整价更新broker实时价格, 使撮合更接近真实成交
         self.broker.update_realtime(sig.ts_code, adjusted_price)
         ok, msg, order = self.broker.place_order(
             ts_code=sig.ts_code, stock_name=sig.stock_name,
             side="buy", quantity=shares, price=sig.price,
-            order_type="market", strategy=sig.strategy, reason=sig.reason)
+            order_type="market", strategy=sig.strategy, reason=detailed_reason,
+            decision_trace=decision_trace)
         if ok:
             await self._post_buy_success(sig, order, shares, position_ratio, max_amount, acct)
         else:
@@ -497,7 +500,7 @@ class SignalManager:
         sent_period = sentiment.get('period', 'chaos')
         factors = getattr(sig, 'factors', {}) or {}
         
-        return {
+        trace = {
             "version": "v2.9.96",
             "stock": {
                 "ts_code": sig.ts_code,
@@ -587,6 +590,17 @@ class SignalManager:
                 },
             },
         }
+        trace["decision_steps"] = [
+            {"step": "1. 信号入池", "logic": "扫描器从全市场候选中识别到策略信号", "params": {"strategy": strategy_key}, "observed": {"reason": sig.reason, "scan_time": sig.scan_time}, "result": "通过，进入自动交易评估"},
+            {"step": "2. 策略参数检查", "logic": "按当前策略配置检查涨幅、量比、换手、市值、开盘/收盘涨幅、连板/回调等阈值", "params": trace["selection_params"], "observed": {"pct_chg": sig.pct_chg, "volume_ratio": sig.volume_ratio, "turnover_rate": sig.turnover_rate, "circ_mv": factors.get("circ_mv")}, "result": "策略筛选通过"},
+            {"step": "3. L1-L9全局过滤", "logic": "依次检查强制空仓、特殊时期、情绪周期、盘前过滤、竞价过滤、策略筛选、排序去重、大盘/仓位、行业集中度", "params": {}, "observed": trace["layers"], "result": "通过所有已启用过滤层"},
+            {"step": "4. 情绪与仓位系数", "logic": "根据情绪周期映射仓位系数，决定本票可用资金比例", "params": {"sentiment_phase": sent_period}, "observed": trace["sentiment"], "result": f"仓位系数{position_ratio*100:.0f}%"},
+            {"step": "5. 风控参数载入", "logic": "载入该策略止损、止盈、追踪止损、最大持有天数、滑点等风控配置", "params": trace["risk_params"], "observed": {}, "result": "风控参数已绑定到后续持仓"},
+            {"step": "6. 买入股数计算", "logic": "根据可用现金×仓位系数得到最大买入金额，再按100股手数取整", "params": {"max_amount": round(max_amount, 2), "lot_size": 100}, "observed": {"available_cash": round(acct.available_cash, 2), "price": sig.price, "shares": shares}, "result": f"计划买入{shares}股"},
+            {"step": "7. 执行质量检查", "logic": "检查资金、持仓、下单质量、滑点与撮合前置条件", "params": {}, "observed": {"raw_price": sig.price, "adjusted_price": adjusted_price}, "result": "通过，提交订单"},
+            {"step": "8. 下单撮合", "logic": "以调整后价格更新实时价并提交市价订单，成交后写入broker_orders", "params": {"order_type": "market"}, "observed": {"filled_price_estimate": adjusted_price, "buy_amount": round(adjusted_price * shares, 2)}, "result": "等待Broker成交结果"},
+        ]
+        return trace
 
     def _format_decision_reason(self, sig, trace: dict) -> str:
         """从决策轨迹构建一行简要reason(详细信息在decision_trace JSON中)【v2.9.96】"""

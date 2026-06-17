@@ -22,6 +22,73 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["交易/买卖/熔断/结算"])
 
 
+def _build_replay_decision_trace(order: Dict[str, Any]) -> Dict[str, Any]:
+    """为历史订单/旧订单补一份可解释决策轨迹。
+
+    旧订单没有保存完整 decision_trace 时，仍要在前端按步骤展示：
+    信号来源 → 策略参数 → 风控参数 → 仓位金额 → 下单撮合 → 结果。
+    这是“回放版”，字段来自 broker_orders + 当前策略配置；不是伪造实时盘口。
+    """
+    try:
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+    except Exception:
+        STRATEGY_CONFIGS, GLOBAL_RISK = {}, {}
+    strategy = order.get("strategy") or ""
+    cfg = STRATEGY_CONFIGS.get(strategy, {}) if isinstance(STRATEGY_CONFIGS, dict) else {}
+    params = cfg.get("params", {}) or {}
+    risk_params = cfg.get("riskParams", {}) or {}
+    price = order.get("filled_price") or order.get("price") or 0
+    qty = order.get("filled_qty") or order.get("quantity") or 0
+    amount = (price or 0) * (qty or 0)
+    reason = order.get("reason", "")
+    return {
+        "version": "replay-v1",
+        "trace_quality": "replayed_from_order_and_config",
+        "stock": {
+            "ts_code": order.get("ts_code", ""),
+            "stock_name": order.get("stock_name", ""),
+            "strategy": strategy,
+            "strategy_name": cfg.get("name") or strategy,
+            "scan_time": order.get("fill_time") or order.get("create_time") or "",
+        },
+        "market_data": {
+            "price": price,
+            "filled_price": price,
+            "pct_chg": None,
+            "volume_ratio": None,
+            "turnover_rate": None,
+            "is_limit_up": "涨停" in reason,
+            "limit_up_count": None,
+        },
+        "selection_params": params,
+        "risk_params": risk_params,
+        "account_context": {
+            "buy_amount": round(amount, 2),
+            "buy_shares": qty,
+            "max_position_ratio": GLOBAL_RISK.get("max_position_ratio", 0.7) if isinstance(GLOBAL_RISK, dict) else None,
+            "single_position_cap": GLOBAL_RISK.get("max_single_position_ratio", 0.35) if isinstance(GLOBAL_RISK, dict) else None,
+        },
+        "execution": {
+            "side": order.get("side", ""),
+            "order_type": order.get("order_type", "market"),
+            "status": order.get("status", "filled"),
+            "create_time": order.get("create_time", ""),
+            "fill_time": order.get("fill_time", ""),
+            "quantity": qty,
+            "price": order.get("price") or price,
+            "filled_price": price,
+            "amount": round(amount, 2),
+        },
+        "decision_steps": [
+            {"step": "1. 信号入池", "logic": "扫描器产生候选信号并进入自动交易操作流", "params": {"strategy": strategy}, "observed": {"reason": reason}, "result": "通过，进入下单评估"},
+            {"step": "2. 策略参数检查", "logic": "使用当前策略配置校验涨幅、量比、换手、市值、开盘/收盘涨幅等阈值", "params": params, "observed": {"historical_order": True}, "result": "该旧订单未保存逐项盘口值，展示当时使用的策略参数"},
+            {"step": "3. 风控参数检查", "logic": "应用止损、止盈、追踪止损、最大持有天数、滑点等策略风控配置", "params": risk_params, "observed": {}, "result": "参数已记录，用于后续持仓风控"},
+            {"step": "4. 仓位与金额计算", "logic": "根据可用资金、仓位系数、单票上限和100股手数计算买入股数", "params": {"max_position_ratio": GLOBAL_RISK.get("max_position_ratio", 0.7) if isinstance(GLOBAL_RISK, dict) else None, "single_position_cap": GLOBAL_RISK.get("max_single_position_ratio", 0.35) if isinstance(GLOBAL_RISK, dict) else None}, "observed": {"quantity": qty, "filled_price": price, "amount": round(amount, 2)}, "result": f"买入{qty}股，成交金额约{amount:.0f}元"},
+            {"step": "5. 下单与撮合", "logic": "提交市价/模拟市价订单，执行撮合并写入 broker_orders", "params": {"order_type": order.get("order_type", "market")}, "observed": {"status": order.get("status", "filled"), "fill_time": order.get("fill_time", "")}, "result": "已成交" if order.get("status", "filled") == "filled" else order.get("status", "")},
+        ],
+    }
+
+
 def _format_trade_time_display(trade_date: str, time_str: str) -> str:
     """【v2.9.94】统一格式化交易时间显示为 'YYYY-MM-DD HH:MM:SS'
 
@@ -1107,7 +1174,7 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                     continue
                 if date and o.trade_date != date:
                     continue
-                trades.append({
+                item = {
                     "time": o.fill_time or o.create_time,
                     "ts_code": o.ts_code,
                     "stock_name": o.stock_name,
@@ -1120,8 +1187,15 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                     "source": getattr(o, 'source', 'auto'),
                     "trade_date": o.trade_date,
                     "order_id": o.order_id,
-                    "decision_trace": getattr(o, 'decision_trace', {}),
-                })
+                    "order_type": getattr(o.order_type, 'value', o.order_type),
+                    "status": getattr(o.status, 'value', o.status),
+                    "create_time": o.create_time,
+                    "fill_time": o.fill_time,
+                    "decision_trace": getattr(o, 'decision_trace', {}) or {},
+                }
+                if not item["decision_trace"]:
+                    item["decision_trace"] = _build_replay_decision_trace(item)
+                trades.append(item)
         
         # 历史日期 或 今日scanner未运行: 从MongoDB读取
         if not trades:
@@ -1137,7 +1211,7 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                     }
                     cursor = db["broker_orders"].find(query).sort("create_time", -1).limit(limit * 2)
                     async for o in cursor:
-                        trades.append({
+                        item = {
                             "time": o.get("fill_time") or o.get("create_time", ""),
                             "ts_code": o.get("ts_code", ""),
                             "stock_name": o.get("stock_name", ""),
@@ -1150,10 +1224,17 @@ async def get_auto_trades(date: str = None, limit: int = 50):
                             "source": o.get("source", "auto"),
                             "trade_date": str(o.get("trade_date", "")),
                             "order_id": o.get("order_id", ""),
+                            "order_type": o.get("order_type", "market"),
+                            "status": o.get("status", "filled"),
+                            "create_time": o.get("create_time", ""),
+                            "fill_time": o.get("fill_time", ""),
                             "profit_pct": o.get("profit_pct"),
                             "profit_amount": o.get("profit_amount"),
-                            "decision_trace": o.get("decision_trace", {}),
-                        })
+                            "decision_trace": o.get("decision_trace", {}) or {},
+                        }
+                        if not item["decision_trace"]:
+                            item["decision_trace"] = _build_replay_decision_trace({**o, **item})
+                        trades.append(item)
             except Exception as e:
                 logger.error(f"[auto-trades] MongoDB读取失败: {e}")
         

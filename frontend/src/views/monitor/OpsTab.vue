@@ -74,6 +74,17 @@ function shortTradeReason(reason: string): string {
     .replace(/同行业「(.+?)」已选\d+只信号,本只被集中度过滤剔/g, '行业集中度：$1')
     .replace(/本只被集中度过滤剔除/g, '集中度过滤')
 }
+function fmtTraceValue(v: any): string {
+  if (v === null || v === undefined || v === '') return '-'
+  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)))
+  if (typeof v === 'boolean') return v ? '是' : '否'
+  if (typeof v === 'object') return JSON.stringify(v, null, 0)
+  return String(v)
+}
+function entriesOf(obj: any): Array<[string, any]> {
+  if (!obj || typeof obj !== 'object') return []
+  return Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== '')
+}
 
 // 解构需要的变量(从inject对象)
 const {
@@ -132,6 +143,17 @@ const {
                 <span>订单 {{ t.order_id || '-' }}</span>
                 <span>{{ t.source === 'auto' ? '自动交易' : '手动交易' }}</span>
                 <span>{{ t.side === 'buy' ? '买入' : '卖出' }} {{ t.quantity }}股 @ ¥{{ Number(t.price || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div v-if="hasDecisionTrace(t) && t.decision_trace.decision_steps?.length" class="decision-steps">
+              <div class="tb-title">🧭 决策步骤（逻辑 / 参数 / 当时值 / 结果）</div>
+              <div v-for="(s, i) in t.decision_trace.decision_steps" :key="i" class="decision-step">
+                <div class="ds-head"><span class="ds-no">{{ i + 1 }}</span><b>{{ s.step }}</b><span class="ds-result">{{ s.result }}</span></div>
+                <div class="ds-logic">{{ s.logic }}</div>
+                <div class="ds-cols">
+                  <div v-if="entriesOf(s.params).length" class="ds-col"><div class="ds-title">参数</div><div v-for="pair in entriesOf(s.params)" :key="pair[0]" class="ds-kv"><span>{{ pair[0] }}</span><b>{{ fmtTraceValue(pair[1]) }}</b></div></div>
+                  <div v-if="entriesOf(s.observed).length" class="ds-col"><div class="ds-title">当时值/考虑</div><div v-for="pair in entriesOf(s.observed)" :key="pair[0]" class="ds-kv"><span>{{ pair[0] }}</span><b>{{ fmtTraceValue(pair[1]) }}</b></div></div>
+                </div>
               </div>
             </div>
             <div v-if="hasDecisionTrace(t)" class="trace-grid">
@@ -343,6 +365,20 @@ const {
 .reason-full-text { color: var(--text-primary); line-height: 1.6; word-break: break-word; white-space: normal; }
 .reason-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; color: var(--text-tertiary); font-size: 10px; }
 .reason-meta span { padding: 1px 5px; background: var(--bg-tertiary); border-radius: 3px; }
+.decision-steps { margin-bottom: 10px; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; }
+.decision-step { position: relative; padding: 8px 0 8px 22px; border-bottom: 1px dashed var(--border-default); }
+.decision-step:last-child { border-bottom: none; }
+.ds-head { display: flex; align-items: center; gap: 8px; color: var(--text-primary); }
+.ds-no { position: absolute; left: 0; top: 8px; width: 16px; height: 16px; border-radius: 50%; background: var(--el-color-primary); color: white; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.ds-result { margin-left: auto; color: #67c23a; font-size: 11px; font-weight: 600; }
+.ds-logic { color: var(--text-secondary); line-height: 1.5; margin: 4px 0 6px; }
+.ds-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.ds-col { background: var(--bg-tertiary); border-radius: 5px; padding: 6px; }
+.ds-title { font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+.ds-kv { display: grid; grid-template-columns: minmax(90px, 38%) 1fr; gap: 6px; padding: 2px 0; border-bottom: 1px solid rgba(127,127,127,0.08); }
+.ds-kv:last-child { border-bottom: none; }
+.ds-kv span { color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-kv b { color: var(--text-primary); font-weight: 500; word-break: break-word; }
 .trace-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
