@@ -7,7 +7,7 @@ import { useChartColors } from './useChartColors'
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 import VChart from 'vue-echarts'
@@ -18,6 +18,7 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZ
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 const c = useChartColors().value
+const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard.vue'))
 
 const m = useScannerMonitorInject()
 const { activeTab } = m
@@ -183,6 +184,10 @@ async function showStockDetail(tsCode: string) {
             <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
               <tr v-for="s in strategies" :key="s.strategy" :class="(s.profit || 0) >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ m.strategyCN(s.strategy) || s.strategy }}</td><td>{{ s.trades }}</td><td :class="(s.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (s.win_rate || 0).toFixed(1) }}%</td><td :class="(s.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (s.profit || 0).toLocaleString() }}</td><td :class="(s.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (s.avg_profit_pct || 0).toFixed(2) }}%</td></tr>
             </tbody></table>
+          </div>
+          <div class="chart-section">
+            <div class="chart-title">📊 策略绩效</div>
+            <StrategyPerfBoard />
           </div>
         </div>
 
