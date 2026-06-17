@@ -41,13 +41,12 @@ export function useScanTraceMonitor() {
       if (!hourMap.has(hour)) hourMap.set(hour, [])
       hourMap.get(hour)!.push(s)
     }
-    // 降序排列: 最新时段在最上面
+    // 降序排列: 最新时段在最上面；默认全部折叠，点击小时行后再展开
     const hours = [...hourMap.keys()].sort((a, b) => b.localeCompare(a))
-    const latestHour = hours[0]  // 降序后第一个就是最新
     return hours.map(h => ({
       hour: h,
       items: hourMap.get(h) || [],
-      collapsed: scanHourCollapse.value[h] ?? (h !== latestHour)
+      collapsed: scanHourCollapse.value[h] ?? true
     }))
   })
 

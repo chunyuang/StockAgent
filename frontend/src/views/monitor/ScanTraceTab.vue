@@ -115,11 +115,11 @@ onMounted(async () => {
         </div>
         <div class="scan-hours">
           <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
-            <div class="sc-hour-header" @click="toggleScanHour(group.hour)">
+            <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) > 0 }" @click="toggleScanHour(group.hour)">
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
               <span class="sc-hour-label">{{ group.hour }}:00</span>
               <span class="sc-hour-count">{{ group.items.length }}条</span>
-              <span v-if="group.collapsed" class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → {{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交 · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
+              <span class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
               <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0 }" @click="toggleScanDetail(s)">
@@ -280,6 +280,8 @@ onMounted(async () => {
 .sc-hour-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
 
 .sc-hour-header:hover { background: var(--bg-hover); }
+.sc-hour-header.has-buy { background: rgba(230, 162, 60, 0.16); border-color: rgba(230, 162, 60, 0.75); box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.12) inset; }
+.sc-hour-header.has-buy:hover { background: rgba(230, 162, 60, 0.24); border-color: #e6a23c; }
 
 .sc-hour-toggle { font-size: 9px; color: var(--text-tertiary); }
 
@@ -288,6 +290,7 @@ onMounted(async () => {
 .sc-hour-count { color: var(--text-tertiary); font-size: 10px; }
 
 .sc-hour-summary { color: var(--el-color-primary); font-size: 10px; margin-left: auto; }
+.sc-hour-header.has-buy .sc-hour-summary b { color: #e6a23c; font-weight: 800; }
 
 .scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 16px; }
 
