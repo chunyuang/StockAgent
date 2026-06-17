@@ -27,6 +27,9 @@ StockAgent 统一入口
 """
 
 import asyncio
+import warnings
+# 抑制aiohttp的Unclosed session警告(非泄漏,是aiohttp已知行为)
+warnings.filterwarnings('ignore', message='Unclosed client session')
 import os
 import sys
 
