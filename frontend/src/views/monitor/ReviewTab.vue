@@ -69,9 +69,14 @@ const emit = defineEmits<{
         <ElButton size="small" @click="emit('fetchReviewData')" :loading="reviewLoading">🔄</ElButton>
       </div>
 
-      <!-- ============ 第1层: Hero Banner (仅日复盘显示) ============ -->
+      <!-- ============ Hero: 结论+大字收益+行情+情绪 ============ -->
       <div v-if="reviewTab === 'daily' && reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
-        <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
+        <div class="hero-main">
+          <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
+          <div class="hero-big-pct" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">
+            {{ reviewHero.metrics?.total_pct != null ? ((reviewHero.metrics.total_pct >= 0 ? '+' : '') + reviewHero.metrics.total_pct + '%') : '--' }}
+          </div>
+        </div>
         <div class="hero-meta">
           <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ (reviewHero.benchmark.pct_chg || 0) >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg || 0 }}%</span>
           <span v-if="reviewHero.benchmark" class="hero-alpha" :class="(reviewHero.benchmark.alpha || 0) >= 0 ? 'up' : 'down'">{{ (reviewHero.benchmark.alpha || 0) >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark.alpha || 0) }}%</span>
@@ -79,63 +84,87 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <!-- ============ 第2层: 核心仪表盘 (仅日复盘显示) ============ -->
-      <div v-if="reviewTab === 'daily' && reviewHero" class="review-scorecard">
-        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.total_pct != null ? ((reviewHero.metrics.total_pct >= 0 ? '+' : '') + reviewHero.metrics.total_pct + '%') : '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate != null ? reviewHero.metrics.win_rate + '%' : '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics?.trades ?? '-' }}笔</div></div>
-        <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="(reviewHero.metrics?.expectancy || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.expectancy ?? '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) >= 60 ? '' : 'down'">{{ reviewHero.metrics?.discipline_score ?? '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">盈亏比</div><div class="rsc-value">{{ reviewHero.metrics?.profit_loss_ratio ?? '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ reviewHero.metrics?.stop_loss_count ?? 0 }}</div></div>
-        <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ reviewHero.metrics?.take_profit_count ?? 0 }}</div></div>
-        <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value" :class="(reviewHero.metrics?.max_consecutive_loss || 0) >= 3 ? 'down' : ''">{{ reviewHero.metrics?.max_consecutive_loss ?? 0 }}笔</div></div>
+      <!-- ============ 9宫格指标 (仅日复盘显示) ============ -->
+      <div v-if="reviewTab === 'daily' && reviewHero" class="rv-grid9">
+        <div class="g9"><div class="g9-l">胜率</div><div class="g9-v">{{ reviewHero.metrics?.win_rate != null ? reviewHero.metrics.win_rate + '%' : '--' }}</div></div>
+        <div class="g9"><div class="g9-l">交易</div><div class="g9-v">{{ reviewHero.metrics?.trades ?? '--' }}<span class="g9-u">笔</span></div></div>
+        <div class="g9"><div class="g9-l">期望值</div><div class="g9-v" :class="reviewHero.metrics?.expectancy != null ? ((reviewHero.metrics.expectancy || 0) >= 0 ? 'up' : 'down') : ''">{{ reviewHero.metrics?.expectancy ?? '--' }}</div></div>
+        <div class="g9"><div class="g9-l">纪律分</div><div class="g9-v" :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) >= 60 ? '' : 'down'">{{ reviewHero.metrics?.discipline_score ?? '--' }}</div></div>
+        <div class="g9"><div class="g9-l">盈亏比</div><div class="g9-v">{{ reviewHero.metrics?.profit_loss_ratio ?? '--' }}</div></div>
+        <div class="g9"><div class="g9-l">止损</div><div class="g9-v down">{{ reviewHero.metrics?.stop_loss_count ?? 0 }}</div></div>
+        <div class="g9"><div class="g9-l">止盈</div><div class="g9-v up">{{ reviewHero.metrics?.take_profit_count ?? 0 }}</div></div>
+        <div class="g9"><div class="g9-l">连亏</div><div class="g9-v" :class="(reviewHero.metrics?.max_consecutive_loss || 0) >= 3 ? 'down' : ''">{{ reviewHero.metrics?.max_consecutive_loss ?? 0 }}<span class="g9-u">笔</span></div></div>
+        <div class="g9"><div class="g9-l">闭环</div><div class="g9-v">{{ reviewHero.metrics?.closed_trades ?? 0 }}<span class="g9-u">/{{ reviewHero.metrics?.buys ?? 0 }}</span></div></div>
       </div>
 
-      <!-- ============ 第3层: 归因分析 ============ -->
+      <!-- ============ 双栏: 策略贡献 + 扫描漏斗 ============ -->
       <template v-if="reviewTab === 'daily' && dailyReportData">
-        <div class="st" style="margin-top:6px">🎯 策略贡献</div>
-        <div class="strategy-contrib">
-          <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
-            <div class="strat-header">
-              <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
-              <span class="strat-pnl" :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
+        <div class="review-2col" style="margin-top:8px">
+          <div class="rv-card">
+            <div class="rv-card-title">🎯 策略贡献</div>
+            <div v-if="Object.keys(dailyReportData.positions?.strategy_summary || {}).length" class="strat-rows">
+              <div v-for="(data, key) in dailyReportData.positions.strategy_summary" :key="key" class="strat-row">
+                <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+                <span class="strat-cnt">{{ data.count || 0 }}只</span>
+                <span class="strat-val" :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
+                <span class="strat-wr" :class="(Number(data.closed_win_rate ?? data.win_rate ?? 0)) >= 50 ? 'up' : 'down'">{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span>
+              </div>
             </div>
-            <div class="strat-metrics">
-              <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || data.sell_count || 0 }}笔</span></div>
-              <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(Number(data.closed_win_rate ?? data.win_rate ?? 0)) >= 50 ? 'up' : 'down'">{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span></div>
-              <div class="strat-m" v-if="data.avg_win_pct"><span class="strat-ml">均盈</span><span class="strat-mv up">+{{ data.avg_win_pct }}%</span></div>
-              <div class="strat-m" v-if="data.avg_loss_pct"><span class="strat-ml">均亏</span><span class="strat-mv down">{{ data.avg_loss_pct }}%</span></div>
-              <div class="strat-m" v-if="data.stop_loss_count"><span class="strat-ml">止损</span><span class="strat-mv down">{{ data.stop_loss_count }}笔</span></div>
+            <div v-else class="empty">暂无策略数据</div>
+          </div>
+          <div class="rv-card">
+            <div class="rv-card-title">📡 扫描漏斗</div>
+            <div v-if="dailyReportData?.scanner_stats" class="funnel-rows">
+              <div class="funnel-row"><span class="fun-l">扫描</span><div class="fun-bar"><div class="fun-fill full" /><span class="fun-v">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div></div>
+              <div class="funnel-row"><span class="fun-l">信号</span><div class="fun-bar"><div class="fun-fill" :style="{width: Math.min((dailyReportData.scanner_stats.total_signals || 0) / Math.max(dailyReportData.scanner_stats.scan_count || 1, 1) * 100, 100) + '%'}" /><span class="fun-v up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div></div>
+              <div class="funnel-row"><span class="fun-l">买入</span><div class="fun-bar"><div class="fun-fill buy" :style="{width: Math.min((dailyReportData.scanner_stats.buy_count || 0) / Math.max(dailyReportData.scanner_stats.total_signals || 1, 1) * 100, 100) + '%'}" /><span class="fun-v">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div></div>
+              <div class="funnel-row"><span class="fun-l">卖出</span><div class="fun-bar"><div class="fun-fill" :style="{width: Math.min((dailyReportData.scanner_stats.sell_count || 0) / Math.max(dailyReportData.scanner_stats.buy_count || 1, 1) * 100, 100) + '%'}" /><span class="fun-v">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div></div>
+            </div>
+            <div v-if="dailyReportData?.sentiment_snapshot" class="sent-snap">🌡️ {{ dailyReportData.sentiment_snapshot }}</div>
+          </div>
+        </div>
+
+        <!-- 逐笔归因 (紧凑表格) -->
+        <div class="rv-card" style="margin-top:8px">
+          <div class="rv-card-title">📝 逐笔归因 <span class="rv-count">{{ tradeAttributions?.length || 0 }}笔</span></div>
+          <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
+          <div v-else class="attr-table">
+            <div class="attr-th"><span>代码</span><span>名称</span><span>策略</span><span>买入</span><span>盈亏</span><span>原因</span></div>
+            <div v-for="t in tradeAttributions" :key="t.ts_code + (t.sell_time || t.buy_time)" class="attr-tr" :class="t.status === 'open' ? 'tr-open' : ((t.profit_pct || 0) >= 0 ? 'tr-profit' : 'tr-loss')">
+              <span class="mono">{{ t.ts_code }}</span>
+              <span>{{ t.stock_name }}</span>
+              <span><ElTag size="small" class="tag-solid tag-xs" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'">{{ strategyCN(t.strategy) }}</ElTag></span>
+              <span>¥{{ t.buy_price != null ? Number(t.buy_price).toFixed(2) : '--' }}</span>
+              <span :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓中' : ((t.profit_pct || 0) >= 0 ? '+' : '') + (t.profit_pct || 0).toFixed(1) + '%' }}</span>
+              <span class="text-tertiary">{{ t.sell_reason || '--' }}</span>
             </div>
           </div>
         </div>
 
-        <div class="st" style="margin-top:6px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
-        <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
-        <div v-for="t in tradeAttributions" :key="t.ts_code + (t.sell_time || t.buy_time)" class="attribution-card" :class="t.status === 'open' ? 'attr-open' : ((t.profit_pct || 0) >= 0 ? 'attr-profit' : 'attr-loss')">
-          <div class="attr-top">
-            <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
-            <span class="code">{{ t.ts_code }}</span>
-            <span class="name">{{ t.stock_name }}</span>
-            <span v-if="t.status === 'open'" class="pct ml-auto text-tertiary">建仓中</span>
-            <span v-else :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ (t.profit_pct || 0) >= 0 ? '+' : '' }}{{ (t.profit_pct || 0).toFixed(1) }}%</span>
+        <!-- 双栏: 纪律检查 + 执行质量 -->
+        <div class="review-2col" style="margin-top:8px">
+          <div class="rv-card">
+            <div class="rv-card-title">🔍 纪律检查<span v-if="disciplineCheck" class="rv-badge" :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) >= 60 ? '' : 'down'">{{ disciplineCheck.execution_rate || 0 }}%</span></div>
+            <div v-if="disciplineCheck && (disciplineCheck?.violations?.length || 0)" class="violations-list">
+              <div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity">
+                <span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
+                <span class="v-type">{{ v.violation }}</span>
+                <span class="v-detail">{{ v.detail }}</span>
+              </div>
+            </div>
+            <div v-else-if="disciplineCheck" class="empty ok">✅ 无违规</div>
+            <div v-else class="empty">无数据</div>
           </div>
-          <div class="attr-detail">
-            <div class="attr-row"><span>买入</span><span>{{ t.buy_price != null ? '¥' + Number(t.buy_price).toFixed(2) : '未知' }} {{ t.buy_time }}<template v-if="t.quantity"> · {{ t.quantity }}股</template></span></div>
-            <div v-if="t.status !== 'open'" class="attr-row"><span>卖出</span><span>{{ t.sell_price != null ? '¥' + Number(t.sell_price).toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
-            <div class="attr-row"><span>{{ t.status === 'open' ? '买入原因' : '原因' }}</span><span>{{ t.sell_reason }}</span></div>
-            <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
-            <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
+          <div class="rv-card">
+            <div class="rv-card-title">🎯 执行质量</div>
+            <div v-if="executionQuality" class="eq-grid-mini">
+              <div class="eq-row"><span>平均滑点</span><span :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</span></div>
+              <div class="eq-row"><span>最大滑点</span><span>{{ (executionQuality.max_slippage_pct || 0).toFixed(3) }}%</span></div>
+              <div class="eq-row"><span>成交率</span><span :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(1) }}%</span></div>
+              <div class="eq-row"><span>下单/成交</span><span>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span></div>
+            </div>
+            <div v-else class="empty">无数据</div>
           </div>
-        </div>
-
-        <div class="st" style="margin-top:6px">📡 扫描漏斗</div>
-        <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
-          <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.scan_count || 0) || 0 }}次</span></div>
-          <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ (dailyReportData?.scanner_stats?.total_signals || 0) || 0 }}只</span></div>
-          <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.buy_count || 0) || 0 }}笔</span></div>
-          <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.sell_count || 0) || 0 }}笔</span></div>
         </div>
         <div v-if="dailyReportData?.sentiment_snapshot" class="review-sentiment-snap">
           <span style="font-weight:600">🌡️ 情绪快照</span>
@@ -352,6 +381,54 @@ const emit = defineEmits<{
 </template>
 
 <style scoped lang="scss">
+/* ========== v2.9.97i 重构布局 ========== */
+
+/* 9宫格指标 */
+.rv-grid9 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 4px; }
+.g9 { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 4px 6px; text-align: center; }
+.g9-l { font-size: 10px; color: var(--text-tertiary); margin-bottom: 1px; }
+.g9-v { font-size: 13px; font-weight: 600; }
+.g9-u { font-size: 10px; font-weight: 400; color: var(--text-tertiary); }
+
+/* 卡片 */
+.rv-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 8px; }
+.rv-card-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+.rv-count { font-weight: 400; font-size: 11px; color: var(--text-tertiary); }
+.rv-badge { font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 3px; line-height: 1.5; }
+.rv-badge.up { background: rgba(242,54,69,0.1); color: var(--stock-up); }
+.rv-badge.down { background: rgba(8,153,129,0.1); color: var(--stock-down); }
+
+/* 策略贡献行式 */
+.strat-rows { display: flex; flex-direction: column; gap: 3px; }
+.strat-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--border-light); font-size: 12px; }
+.strat-row:last-child { border-bottom: none; }
+.strat-cnt { color: var(--text-secondary); font-size: 11px; }
+.strat-val { font-weight: 600; margin-left: auto; }
+.strat-wr { font-weight: 600; min-width: 36px; text-align: right; }
+
+/* 漏斗 */
+.funnel-rows { display: flex; flex-direction: column; gap: 3px; }
+.funnel-row { display: flex; align-items: center; gap: 6px; }
+.fun-l { font-size: 11px; color: var(--text-tertiary); min-width: 28px; }
+.fun-bar { flex: 1; height: 16px; background: var(--bg-muted); border-radius: 3px; position: relative; overflow: hidden; }
+.fun-fill { height: 100%; border-radius: 3px; background: var(--el-color-primary); opacity: 0.5; transition: width 0.3s; }
+.fun-fill.full { width: 100%; }
+.fun-fill.buy { background: var(--stock-up); opacity: 0.6; }
+.fun-v { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px; font-weight: 600; }
+.sent-snap { margin-top: 4px; padding: 3px 8px; border-radius: 4px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); font-size: 11px; }
+
+/* 逐笔归因表 */
+.attr-table { font-size: 12px; }
+.attr-th, .attr-tr { display: grid; grid-template-columns: 80px 50px 72px 56px 56px 1fr; gap: 4px; padding: 3px 0; align-items: center; }
+.attr-th { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); font-size: 11px; }
+.attr-tr { border-bottom: 1px solid var(--border-light); }
+.attr-tr:last-child { border-bottom: none; }
+.tr-profit { border-left: 2px solid rgba(242,54,69,0.4); padding-left: 4px; }
+.tr-loss { border-left: 2px solid rgba(8,153,129,0.4); padding-left: 4px; }
+.tr-open { border-left: 2px solid rgba(230,162,60,0.5); padding-left: 4px; }
+.mono { font-family: monospace; font-size: 11px; }
+.tag-xs { font-size: 10px !important; padding: 0 4px !important; height: 18px !important; line-height: 18px !important; }
+
 .review-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: nowrap; }
 
 .review-scan-stats { display: flex; gap: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); font-size: 11px; }
@@ -427,7 +504,13 @@ const emit = defineEmits<{
 
 .lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
 
-.hero-banner { padding: 8px 12px; border-radius: 8px; margin-bottom: 4px; }
+.hero-banner { padding: 8px 12px; border-radius: 8px; margin-bottom: 2px; }
+
+.hero-main { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+
+.hero-big-pct { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+.hero-big-pct.up { color: var(--stock-up); }
+.hero-big-pct.down { color: var(--stock-down); }
 
 .hero-banner.profit { background: linear-gradient(135deg, rgba(242,54,69,0.10), rgba(242,54,69,0.03)); border: 1px solid rgba(242,54,69,0.20); }
 
