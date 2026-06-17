@@ -97,20 +97,23 @@ const emit = defineEmits<{
 
       <!-- ============ 双栏: 策略贡献 + 扫描漏斗 ============ -->
       <template v-if="reviewTab === 'daily' && dailyReportData">
-        <!-- 策略+漏斗+纪律+执行 一行内联 -->
+        <!-- 策略+漏斗+纪律+执行 信息行 -->
         <div class="info-row" style="margin-top:2px">
           <span v-if="Object.keys(dailyReportData.positions?.strategy_summary || {}).length" class="ir-section">🎯
             <template v-for="(data, key) in dailyReportData.positions.strategy_summary" :key="key">
               <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">
-                {{ strategyCN(key) }}{{ data.count || 0 }}只
+                {{ strategyCN(key) }}<b>{{ data.count || 0 }}</b>只
                 <span :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
+                <span class="ir-dim">WR{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span>
+                <span v-if="data.market_value" class="ir-dim">市值¥{{ (data.market_value/10000).toFixed(1) }}万</span>
               </span>
             </template>
           </span>
-          <span v-if="dailyReportData?.scanner_stats" class="ir-section">📡 扫{{ dailyReportData.scanner_stats.scan_count || 0 }}→信{{ dailyReportData.scanner_stats.total_signals || 0 }}→买{{ dailyReportData.scanner_stats.buy_count || 0 }}→卖{{ dailyReportData.scanner_stats.sell_count || 0 }}</span>
-          <span v-if="disciplineCheck" class="ir-section">🔍纪律<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b></span>
-          <span v-if="executionQuality" class="ir-section">🎯滑<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b></span>
+          <span v-if="dailyReportData?.scanner_stats" class="ir-section">📡扫{{ dailyReportData.scanner_stats.scan_count || 0 }}→信{{ dailyReportData.scanner_stats.total_signals || 0 }}(均{{ ((dailyReportData.scanner_stats.total_signals || 0) / Math.max(dailyReportData.scanner_stats.scan_count || 1, 1)).toFixed(0) }})→买{{ dailyReportData.scanner_stats.buy_count || 0 }}(转化{{ ((dailyReportData.scanner_stats.buy_count || 0) / Math.max(dailyReportData.scanner_stats.total_signals || 1, 1) * 100).toFixed(1) }}%)→卖{{ dailyReportData.scanner_stats.sell_count || 0 }}止{{ dailyReportData.scanner_stats.stop_losses || 0 }}盈{{ dailyReportData.scanner_stats.take_profits || 0 }}</span>
+          <span v-if="disciplineCheck" class="ir-section">🔍纪律<b :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) < 60 ? 'down' : ''">{{ disciplineCheck.execution_rate || 0 }}%</b><span v-if="disciplineCheck?.violations?.length" class="down">({{ disciplineCheck.violations.length }}违规)</span></span>
+          <span v-if="executionQuality" class="ir-section">🎯滑<b :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(2) }}%</b>(max{{ (executionQuality.max_slippage_pct || 0).toFixed(2) }})成<b :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(0) }}%</b>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span>
           <span v-if="dailyReportData?.sentiment_snapshot" class="ir-section ir-dim">🌡{{ dailyReportData.sentiment_snapshot }}</span>
+          <span v-if="dailyReportData?.account" class="ir-section ir-dim">💰{{ (Number(dailyReportData.account.total_assets || 0) / 10000).toFixed(1) }}万仓{{ dailyReportData.account.position_ratio || 0 }}%</span>
         </div>
 
         <!-- 纪律违规(仅违规时显示) -->
@@ -129,7 +132,12 @@ const emit = defineEmits<{
               <span class="mono">{{ t.ts_code }}</span>
               <span class="attr-name">{{ t.stock_name }}</span>
               <ElTag size="small" class="tag-solid tag-xs" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'">{{ strategyCN(t.strategy) }}</ElTag>
+              <span v-if="t.buy_price" class="ir-dim">买¥{{ Number(t.buy_price).toFixed(2) }}</span>
+              <span v-if="t.sell_price" class="ir-dim">卖¥{{ Number(t.sell_price).toFixed(2) }}</span>
+              <span v-if="t.signal_price" class="ir-dim">信¥{{ Number(t.signal_price).toFixed(2) }}</span>
               <span class="attr-pct" :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓' : ((t.profit_pct || 0) >= 0 ? '+' : '') + (t.profit_pct || 0).toFixed(1) + '%' }}</span>
+              <span v-if="t.profit_amount" class="ir-dim">¥{{ Number(t.profit_amount).toFixed(0) }}</span>
+              <span v-if="t.hold_days" class="ir-dim">持{{ t.hold_days }}日</span>
               <span v-if="t.sell_reason" class="attr-reason">{{ t.sell_reason }}</span>
             </div>
           </div>
@@ -227,7 +235,7 @@ const emit = defineEmits<{
           <span class="ir-section">盈亏<b :class="(weeklyReviewData.summary?.pnl ?? 0) >= 0 ? 'up' : 'down'">{{ (weeklyReviewData.summary?.pnl ?? 0) >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl ?? 0 }}%</b></span>
           <span class="ir-section ir-dim">🌡{{ (Object.values(weeklyReviewData.sentiments || {}) as any[])[0]?.period || '-' }}</span>
           <template v-for="(data, key) in weeklyReviewData.strategy_stats || {}" :key="key">
-            <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">{{ strategyCN(key) }}{{ data.trades || 0 }}笔<b :class="(data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ data.win_rate || 0 }}%</b><span :class="(data.pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span></span>
+            <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">{{ strategyCN(key) }}<b>{{ data.trades || 0 }}</b>笔<b :class="(data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ data.win_rate || 0 }}%</b><span :class="(data.pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span></span>
           </template>
         </div>
 
@@ -280,12 +288,14 @@ const emit = defineEmits<{
       <!-- 前瞻建议 紧凑 -->
       <div class="info-row" style="margin-top:2px" v-if="reviewForward">
         <span class="ir-section">💡{{ reviewForward.advice }}</span>
+        <span v-if="reviewForward.sentiment" class="ir-dim">🌡{{ reviewForward.sentiment.period }}{{ reviewForward.sentiment.score }}分→{{ reviewForward.sentiment.raw_period }}</span>
         <template v-if="reviewForward.strategy_recommendations?.length">
-          <span v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="ir-section" style="color:var(--stock-up)">🟢{{ strategyCN(r.strategy) }}(WR{{ r.win_rate }}%)</span>
+          <span v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="ir-section" style="color:var(--stock-up)">🟢{{ strategyCN(r.strategy) }}(WR{{ r.win_rate || 0 }}%{{ r.count || 0 }}笔可开)</span>
         </template>
         <template v-if="reviewForward.strategy_switches?.length">
           <span v-for="s in reviewForward.strategy_switches" :key="'c'+s.strategy" class="ir-section" style="color:var(--stock-down)">🔴{{ strategyCN(s.strategy) }}{{ s.reason }}</span>
         </template>
+        <span v-if="reviewForward.drift_warnings?.length" class="ir-section down">⚠{{ reviewForward.drift_warnings.length }}项漂移告警</span>
       </div>
 <ElDialog :model-value="compareVisible" @update:model-value="emit('update:compareVisible', $event)" title="📊 实盘 vs 回测对比" width="700px">
   <div v-if="compareData.length" class="cl-table">
