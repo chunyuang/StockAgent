@@ -166,8 +166,17 @@ export function useScannerMonitor() {
   const weeklyReportVisible = ref(false)
 
   // ==================== 🎛️ UI状态 ====================
-  const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'analysis' | 'account' | 'ops'>('guide')
+  type MonitorTab = 'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'analysis' | 'account' | 'ops'
+  const monitorTabs: MonitorTab[] = ['guide', 'trading', 'premarket', 'scan-trace', 'review', 'risk', 'sentiment', 'history', 'analysis', 'account', 'ops']
+  const savedTab = (() => {
+    try {
+      const v = localStorage.getItem('market-monitor-active-tab') as MonitorTab | null
+      return v && monitorTabs.includes(v) ? v : 'guide'
+    } catch { return 'guide' }
+  })()
+  const activeTab = ref<MonitorTab>(savedTab)
   watch(activeTab, (tab) => {
+    try { localStorage.setItem('market-monitor-active-tab', tab) } catch {}
     try {
       if (tab === 'premarket') premarket.fetchPremarketData()
       if (tab === 'scan-trace') { scanTrace.fetchScanTraceDates(); scanTrace.fetchScanHistory() }

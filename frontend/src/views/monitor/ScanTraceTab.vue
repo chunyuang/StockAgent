@@ -88,7 +88,7 @@ onMounted(async () => {
         <button :class="['mode-toggle', scanTraceDebugMode ? 'debug' : 'prod']" @click="scanTraceDebugMode = !scanTraceDebugMode; fetchScanHistory()">
           {{ scanTraceDebugMode ? '调试审计模式' : '生产模式' }}
         </button>
-        <span class="text-tertiary" style="font-size:11px;margin-left:8px">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · 默认隐藏调试/非交易时段数据</span>
+        <span class="text-tertiary" style="font-size:11px;margin-left:8px">当前显示实盘有效扫描；点小时行展开查看每轮漏斗、成交和拦截。排查盘前/非交易记录时切换“调试审计模式”。</span>
       </div>
       <div v-if="!scanTraceDate" class="empty" style="padding:12px 0;color:var(--text-tertiary)">📅 请在上方选择日期查看扫描记录（高亮日期有数据）</div>
       <div v-else-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
