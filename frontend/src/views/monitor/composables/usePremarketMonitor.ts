@@ -36,6 +36,8 @@ export function usePremarketMonitor() {
   const premarketSentiment = ref<any>({})
   const premarketStrategyGroups = ref<any[]>([])
   const auctionTopGainers = ref<any[]>([])
+  const premarketTimeline = ref<any[]>([])
+  const premarketTimelineLoading = ref(false)
 
   // ==================== API ====================
   async function fetchPremarketData() {
@@ -85,6 +87,7 @@ export function usePremarketMonitor() {
         premarketLimitPools.value = p.data.limit_pools || null
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
+        await fetchPremarketTimeline()
 
         // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
         const dataDate = p.data.market_snapshot?.data_date
@@ -126,6 +129,24 @@ export function usePremarketMonitor() {
     } catch { /* ignore */ }
   }
 
+  async function fetchPremarketTimeline() {
+    premarketTimelineLoading.value = true
+    try {
+      const dateParam = premarketDate.value ? `date=${premarketDate.value.replace(/-/g, '')}` : ''
+      const modeParam = premarketDebugMode.value ? 'mode=debug' : 'mode=production'
+      const joiner = dateParam ? '&' : ''
+      const r = await api.get(`${scannerApi}/premarket-timeline?${dateParam}${joiner}${modeParam}`)
+      const p = parseResponse(r)
+      if (p.success) {
+        premarketTimeline.value = p.data?.items || []
+      }
+    } catch {
+      premarketTimeline.value = []
+    } finally {
+      premarketTimelineLoading.value = false
+    }
+  }
+
   /** 判断当前是否非交易时间(盘前9:00之前、盘后15:30之后、周末) - 暴露给模板使用 */
   function isNonTradingHours(): boolean {
     const now = new Date()
@@ -142,8 +163,8 @@ export function usePremarketMonitor() {
     premarketAnalysis, premarketBlockedReasons, premarketFunnel,
     premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
     premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
-    auctionTopGainers,
+    auctionTopGainers, premarketTimeline, premarketTimelineLoading,
     // 方法
-    fetchPremarketData, isNonTradingHours,
+    fetchPremarketData, fetchPremarketTimeline, isNonTradingHours,
   }
 }

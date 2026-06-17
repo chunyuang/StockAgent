@@ -20,7 +20,7 @@ const {
   premarketAnalysis, premarketBlockedReasons, premarketFunnel,
   premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
   premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
-  auctionTopGainers,
+  auctionTopGainers, premarketTimeline, premarketTimelineLoading,
   dryRun, strategyCN, strategyMeta,
   fetchPremarketData, quickBuy,
 } = m
@@ -126,6 +126,42 @@ onMounted(() => {
           <div class="pm-ov-label">🎯 信号数</div>
           <div class="pm-ov-val">{{ premarketCandidates.length }}</div>
           <div class="pm-ov-hint">已执行 {{ executedCount }} | blocked {{ blockedCount }}</div>
+        </div>
+      </div>
+
+      <!-- 竞价变化时间线 -->
+      <div class="pm-auction-timeline">
+        <div class="pm-tl-head">
+          <div class="st">🕘 竞价变化时间线 <span class="text-tertiary" style="font-size:10px">{{ premarketTimelineLoading ? '加载中' : (premarketTimeline?.length || 0) + '次扫描' }}</span></div>
+          <span class="pm-tl-hint">每次竞价扫描的情绪/过滤/候选变化</span>
+        </div>
+        <div v-if="!premarketTimeline?.length" class="pm-tl-empty">暂无竞价期间扫描快照；9:15-9:25运行后会按时间列出。</div>
+        <div v-else class="pm-tl-list">
+          <div v-for="snap in premarketTimeline" :key="snap.scan_id" class="pm-tl-row">
+            <div class="pm-tl-time">
+              <b>{{ snap.time }}</b>
+              <span v-if="snap.is_debug" class="pm-debug-badge">DEBUG</span>
+            </div>
+            <div class="pm-tl-main">
+              <div class="pm-tl-metrics">
+                <span>候选 <b>{{ snap.total_candidates || 0 }}</b></span>
+                <span class="up">通过 <b>{{ snap.passed || 0 }}</b></span>
+                <span class="warn">淘汰 <b>{{ snap.rejected || 0 }}</b></span>
+                <span>情绪 <b>{{ snap.sentiment?.phase_name || '-' }}</b><sub>{{ snap.sentiment?.score ?? '-' }}分</sub></span>
+                <span>仓位 <b>{{ ((Number(snap.sentiment?.position_ratio) || 0) * 100).toFixed(0) }}%</b></span>
+              </div>
+              <div class="pm-tl-layers">
+                <span>L4 {{ snap.layers?.L4_premarket?.input || 0 }}→{{ snap.layers?.L4_premarket?.output || 0 }}</span>
+                <span>L5 {{ snap.layers?.L5_auction?.input || 0 }}→{{ snap.layers?.L5_auction?.output || 0 }}<sub v-if="snap.layers?.L5_auction?.rejected">-{{ snap.layers.L5_auction.rejected }}</sub></span>
+                <span>L6 {{ snap.layers?.L6_strategy?.input || 0 }}→{{ snap.layers?.L6_strategy?.output || 0 }}</span>
+              </div>
+              <div v-if="snap.top_candidates?.length" class="pm-tl-cands">
+                <span v-for="c in snap.top_candidates.slice(0, 6)" :key="c.ts_code + c.strategy" class="pm-tl-cand">
+                  {{ c.stock_name || c.ts_code?.slice(0,6) }}<sub>{{ strategyCN(c.strategy) }}</sub><em v-if="c.pct_chg != null" :class="Number(c.pct_chg) >= 0 ? 'up' : 'down'">{{ Number(c.pct_chg).toFixed(1) }}%</em>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -521,4 +557,23 @@ onMounted(() => {
 .pm-empty-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 4px; }
 
 .pm-empty-hint { font-size: 11px; color: var(--text-tertiary); }
+
+.pm-auction-timeline { margin: 10px 0 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 10px; padding: 10px; }
+.pm-tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pm-tl-hint { font-size: 11px; color: var(--text-tertiary); }
+.pm-tl-empty { padding: 10px; color: var(--text-tertiary); font-size: 12px; background: var(--bg-muted); border-radius: 8px; }
+.pm-tl-list { display: flex; flex-direction: column; gap: 7px; max-height: 360px; overflow: auto; }
+.pm-tl-row { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 8px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-primary); }
+.pm-tl-time { display: flex; flex-direction: column; gap: 4px; color: var(--text-primary); font-size: 12px; }
+.pm-tl-main { min-width: 0; }
+.pm-tl-metrics, .pm-tl-layers, .pm-tl-cands { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pm-tl-metrics span, .pm-tl-layers span { font-size: 11px; color: var(--text-secondary); background: var(--bg-muted); padding: 2px 6px; border-radius: 999px; }
+.pm-tl-metrics b { color: var(--text-primary); margin-left: 2px; }
+.pm-tl-metrics sub, .pm-tl-layers sub { margin-left: 2px; color: var(--text-tertiary); }
+.pm-tl-layers { margin-top: 5px; }
+.pm-tl-cands { margin-top: 6px; }
+.pm-tl-cand { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(64, 158, 255, 0.08); color: var(--text-primary); }
+.pm-tl-cand sub { margin-left: 3px; color: var(--text-tertiary); }
+.pm-tl-cand em { margin-left: 4px; font-style: normal; font-weight: 600; }
+
 </style>
