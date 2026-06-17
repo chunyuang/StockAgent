@@ -213,6 +213,11 @@ onMounted(async () => {
       <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">该日暂无扫描记录</div>
       <div v-else>
         <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
+        <div class="scan-readme">
+          <span><b>小时行</b>：汇总该小时所有扫描，显示“扫描次数 / 通过候选 / 实际成交 / 执行拦截”。</span>
+          <span><b>单次扫描</b>：格式是“全市场候选 ▶ 通过筛选 ▶ 成交”，如果有 🚫 表示通过后又被仓位、资金、熔断等执行规则挡住。</span>
+          <span><b>查看明细</b>：点某个时间 chip 后，下方会展开扫描漏斗和候选追踪。</span>
+        </div>
         <!-- 【v2.9.95】全天执行摘要横幅 -->
         <div v-if="execSummaryDisplay" class="exec-summary-banner">
           <div class="es-main">
@@ -288,6 +293,10 @@ onMounted(async () => {
         </div>
       </div>
       <div v-if="scanTraceDetail?.summary" class="scan-funnel">
+        <div class="funnel-readme">
+          <b>扫描漏斗读法</b>
+          <span>每一行代表一层规则：左侧是层名，中间是“进入该层 → 通过该层”，右侧“淘汰N”表示这一层挡掉的候选。最后的“成交/执行拦截”是通过筛选后是否真正买入。</span>
+        </div>
         <template v-for="(layerData, layerName) in scanTraceDetail.summary" :key="layerName">
           <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && layerData && typeof layerData === 'object'" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
             <span class="fn-tag">{{ layerLabel(layerName) }}</span>
@@ -303,6 +312,7 @@ onMounted(async () => {
       <div v-if="scanTraceDetail" style="margin-top:8px">
         <div class="st" style="display:flex;align-items:center;gap:8px">
           <span>🎯 候选追踪</span>
+          <span class="candidate-readme">通过候选=进入买入池；成交候选=真实买入；淘汰候选=筛选阶段被挡住；统计=按层汇总。</span>
           <div style="display:flex;gap:4px;margin-left:auto">
             <button :class="['tab-btn-sm', scanTraceFilter === 'passed' ? 'active' : '']" @click="switchScanTraceFilter('passed')" :disabled="scanTraceLoadingMore">✅ 通过候选({{ scanTraceDetail._pagination?.passed_count || 0 }})</button>
             <button :class="['tab-btn-sm', scanTraceFilter === 'bought' ? 'active buy' : '']" @click="switchScanTraceFilter('bought')" :disabled="scanTraceLoadingMore">💰 成交候选({{ scanTraceDetail._pagination?.bought_count || 0 }})</button>
@@ -435,6 +445,12 @@ onMounted(async () => {
 .scan-debug-hint { color: var(--text-tertiary); font-size: 11px; opacity: 0.8; }
 
 .tab-btn-sm.active.buy { background: rgba(245,108,108,0.12); color: var(--stock-up, #f56c6c); border-color: rgba(245,108,108,0.45); }
+
+.scan-readme, .funnel-readme { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 6px 8px; margin-bottom: 6px; border-radius: 7px; background: rgba(64,158,255,0.06); border: 1px solid rgba(64,158,255,0.14); color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.scan-readme b, .funnel-readme b { color: var(--text-primary); }
+.funnel-readme { margin-bottom: 8px; background: rgba(103,194,58,0.055); border-color: rgba(103,194,58,0.15); }
+.funnel-readme span { color: var(--text-secondary); }
+.candidate-readme { color: var(--text-tertiary); font-size: 11px; }
 
 .scan-hours { display: flex; flex-direction: column; gap: 4px; }
 
