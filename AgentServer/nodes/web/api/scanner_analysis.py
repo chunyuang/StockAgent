@@ -191,7 +191,11 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
         sell_count = len(sells)
         total_trades = buy_count + sell_count  # 完整成交笔数
         if sell_count == 0 and buy_count == 0:
-            return {"success": True, "data": _empty_result()}
+            empty = _empty_result()
+            # 【v2.9.97h-v6】无交易记录时也要返回真实的scanner运行状态，不能硬编码为未运行
+            empty["risk_monitor"] = _get_risk_monitor_status()
+            empty["account"] = (await _get_account_from_mongo()) or empty["account"]
+            return {"success": True, "data": empty}
         
         profits = [s.get("profit_pct", 0) or 0 for s in sells]
         profit_amounts = [s.get("profit_amount", 0) or 0 for s in sells]
