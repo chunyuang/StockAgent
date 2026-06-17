@@ -94,7 +94,7 @@ const emit = defineEmits<{
 
       <!-- ============ 第3层: 归因分析 ============ -->
       <template v-if="reviewTab === 'daily' && dailyReportData">
-        <div class="st" style="margin-top:8px">🎯 策略贡献</div>
+        <div class="st" style="margin-top:6px">🎯 策略贡献</div>
         <div class="strategy-contrib">
           <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
             <div class="strat-header">
@@ -111,7 +111,7 @@ const emit = defineEmits<{
           </div>
         </div>
 
-        <div class="st" style="margin-top:8px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
+        <div class="st" style="margin-top:6px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
         <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
         <div v-for="t in tradeAttributions" :key="t.ts_code + (t.sell_time || t.buy_time)" class="attribution-card" :class="t.status === 'open' ? 'attr-open' : ((t.profit_pct || 0) >= 0 ? 'attr-profit' : 'attr-loss')">
           <div class="attr-top">
@@ -130,7 +130,7 @@ const emit = defineEmits<{
           </div>
         </div>
 
-        <div class="st" style="margin-top:8px">📡 扫描漏斗</div>
+        <div class="st" style="margin-top:6px">📡 扫描漏斗</div>
         <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
           <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.scan_count || 0) || 0 }}次</span></div>
           <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ (dailyReportData?.scanner_stats?.total_signals || 0) || 0 }}只</span></div>
@@ -180,7 +180,7 @@ const emit = defineEmits<{
             </div>
           </div>
           <div v-else class="empty">无逐日数据</div>
-          <div class="st" style="margin-top:8px">🎯 策略月度贡献</div>
+          <div class="st" style="margin-top:6px">🎯 策略月度贡献</div>
           <div class="strategy-stacked">
             <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
               <span class="stacked-label">{{ strategyCN(key) }}</span>
@@ -201,7 +201,7 @@ const emit = defineEmits<{
         </template>
         <div v-else class="empty">选择日期后查看月复盘</div>
         <FactorEffectSection :factorEffectData="factorEffectData" />
-        <div class="st" style="margin-top:8px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
+        <div class="st" style="margin-top:6px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
         <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
           <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
             <div class="cl-header"><span class="cl-sev">{{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}</span><span class="cl-type">{{ s.type }}</span></div>
@@ -216,7 +216,7 @@ const emit = defineEmits<{
 
       <!-- 第4层: 纪律检查 + 执行质量 -->
       <template v-if="reviewTab === 'daily' && deviationData">
-        <div class="st" style="margin-top:8px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
+        <div class="st" style="margin-top:6px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
         <div class="review-2col">
           <div class="dev-card"><div class="dev-title">📊 滑点偏差</div><div class="dev-row"><span>平均滑点</span><span :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</span></div><div class="dev-row"><span>影响笔数</span><span>{{ deviationData.deviations?.slippage?.count || 0 }}笔</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</span></div></div>
           <div class="dev-card"><div class="dev-title">🚨 纪律偏差 <span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></div><div class="dev-row"><span>违规笔数</span><span class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}笔</span></div><div class="dev-row"><span>违规胜率</span><span class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</span></div></div>
@@ -227,7 +227,7 @@ const emit = defineEmits<{
       </template>
 
       <template v-if="reviewTab === 'weekly' && weeklyReviewData">
-        <div class="st" style="margin-top:8px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
+        <div class="st" style="margin-top:6px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
         <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
           <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
           <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
@@ -285,7 +285,7 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <div class="st" style="margin-top:8px">📊 实盘 vs 回测偏差
+      <div class="st" style="margin-top:6px">📊 实盘 vs 回测偏差
         <ElButton v-if="!(liveBacktestDiff?.length || 0)" size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
       </div>
       <div v-if="(liveBacktestDiff?.length || 0)" class="lb-table">
@@ -294,7 +294,7 @@ const emit = defineEmits<{
       </div>
       <div v-else class="empty">暂无对比数据</div>
 
-      <div class="st" style="margin-top:8px">💡 前瞻建议</div>
+      <div class="st" style="margin-top:6px">💡 前瞻建议</div>
       <div v-if="reviewForward" class="forward-section">
         <div class="fw-card fw-advice"><div class="fw-title">📌 明日操作</div><div class="fw-content">{{ reviewForward.advice }}</div></div>
         <div v-if="reviewForward.strategy_recommendations?.length || reviewForward.strategy_switches?.length" class="fw-switches">
@@ -352,7 +352,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped lang="scss">
-.review-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: nowrap; }
+.review-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: nowrap; }
 
 .review-scan-stats { display: flex; gap: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); font-size: 11px; }
 
@@ -366,7 +366,7 @@ const emit = defineEmits<{
 
 .review-tabs { display: flex; gap: 2px; }
 
-.review-tab { padding: 6px 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
+.review-tab { padding: 5px 12px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: all 0.2s; }
 
 .review-tab:hover { background: var(--bg-hover); }
 
@@ -374,23 +374,23 @@ const emit = defineEmits<{
 
 .review-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 
-.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 8px; text-align: center; }
+.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 4px 6px; text-align: center; }
 
 .rsc-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
 
-.rsc-value { font-size: 14px; font-weight: 600; }
+.rsc-value { font-size: 13px; font-weight: 600; }
 
 .strategy-contrib { display: flex; flex-direction: column; gap: 8px; }
 
-.strat-card { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-elevated); }
+.strat-card { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-elevated); }
 
 .strat-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 
-.strat-pnl { font-weight: 700; font-size: 14px; margin-left: auto; }
+.strat-pnl { font-weight: 700; font-size: 13px; margin-left: auto; }
 
-.strat-pnl.up { color: var(--stock-down); }
+.strat-pnl.up { color: var(--stock-up); }
 
-.strat-pnl.down { color: var(--stock-up); }
+.strat-pnl.down { color: var(--stock-down); }
 
 .strat-metrics { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
@@ -400,9 +400,9 @@ const emit = defineEmits<{
 
 .strat-mv { font-weight: 600; }
 
-.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; margin-bottom: 4px; }
+.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 5px 8px; margin-bottom: 3px; }
 
-.attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 
 .attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; font-size: 11px; }
 
@@ -427,19 +427,19 @@ const emit = defineEmits<{
 
 .lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
 
-.hero-banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 6px; }
+.hero-banner { padding: 8px 12px; border-radius: 8px; margin-bottom: 4px; }
 
-.hero-banner.profit { background: linear-gradient(135deg, rgba(103,194,58,0.12), rgba(103,194,58,0.04)); border: 1px solid rgba(103,194,58,0.25); }
+.hero-banner.profit { background: linear-gradient(135deg, rgba(242,54,69,0.10), rgba(242,54,69,0.03)); border: 1px solid rgba(242,54,69,0.20); }
 
-.hero-banner.slight_profit { background: linear-gradient(135deg, rgba(103,194,58,0.08), rgba(230,162,60,0.04)); border: 1px solid rgba(103,194,58,0.15); }
+.hero-banner.slight_profit { background: linear-gradient(135deg, rgba(242,54,69,0.06), rgba(230,162,60,0.03)); border: 1px solid rgba(242,54,69,0.12); }
 
-.hero-banner.slight_loss { background: linear-gradient(135deg, rgba(230,162,60,0.12), rgba(245,108,108,0.04)); border: 1px solid rgba(230,162,60,0.25); }
+.hero-banner.slight_loss { background: linear-gradient(135deg, rgba(230,162,60,0.10), rgba(8,153,129,0.03)); border: 1px solid rgba(230,162,60,0.20); }
 
-.hero-banner.loss { background: linear-gradient(135deg, rgba(245,108,108,0.12), rgba(245,108,108,0.04)); border: 1px solid rgba(245,108,108,0.25); }
+.hero-banner.loss { background: linear-gradient(135deg, rgba(8,153,129,0.10), rgba(8,153,129,0.03)); border: 1px solid rgba(8,153,129,0.20); }
 
 .hero-banner.neutral { background: var(--bg-elevated); border: 1px solid var(--border-default); }
 
-.hero-conclusion { font-size: 14px; font-weight: 700; line-height: 1.4; margin-bottom: 2px; }
+.hero-conclusion { font-size: 13px; font-weight: 700; line-height: 1.4; margin-bottom: 2px; }
 
 .hero-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
 
@@ -449,17 +449,17 @@ const emit = defineEmits<{
 
 .hero-sentiment { }
 
-.review-scorecard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.review-scorecard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 
-.review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
 .violations-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 
-.violation-item { display: flex; align-items: flex-start; gap: 6px; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.4; }
+.violation-item { display: flex; align-items: flex-start; gap: 5px; padding: 4px 6px; border-radius: 5px; font-size: 11px; line-height: 1.3; }
 
-.violation-item.sev-high { background: rgba(245,108,108,0.08); border: 1px solid rgba(245,108,108,0.15); }
+.violation-item.sev-high { background: rgba(242,54,69,0.06); border: 1px solid rgba(242,54,69,0.12); }
 
-.violation-item.sev-medium { background: rgba(230,162,60,0.08); border: 1px solid rgba(230,162,60,0.15); }
+.violation-item.sev-medium { background: rgba(230,162,60,0.06); border: 1px solid rgba(230,162,60,0.12); }
 
 .v-icon { flex-shrink: 0; }
 
@@ -467,11 +467,11 @@ const emit = defineEmits<{
 
 .v-detail { color: var(--text-secondary); }
 
-.attr-profit { border-left: 3px solid rgba(103,194,58,0.4); }
+.attr-profit { border-left: 3px solid rgba(242,54,69,0.35); }
 
-.attr-loss { border-left: 3px solid rgba(245,108,108,0.4); }
+.attr-loss { border-left: 3px solid rgba(8,153,129,0.35); }
 
-.attr-open { border-left: 3px solid rgba(230,162,60,0.55); }
+.attr-open { border-left: 3px solid rgba(230,162,60,0.45); }
 
 .eq-grid-mini { display: flex; flex-direction: column; gap: 4px; }
 
@@ -497,9 +497,9 @@ const emit = defineEmits<{
 
 .cal-cell { border-radius: 6px; padding: 4px 2px; text-align: center; font-size: 10px; min-height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 
-.cal-up { background: rgba(207, 48, 48, 0.15); color: var(--color-up, #f56c6c); }
+.cal-up { background: rgba(242,54,69,0.12); color: var(--stock-up); }
 
-.cal-down { background: rgba(103, 194, 58, 0.15); color: var(--color-down, #67c23a); }
+.cal-down { background: rgba(8,153,129,0.12); color: var(--stock-down); }
 
 .cal-neutral { background: var(--bg-elevated); color: var(--text-tertiary); }
 
@@ -521,7 +521,7 @@ const emit = defineEmits<{
 
 .cl-card { border-radius: 6px; padding: 6px 8px; border-left: 3px solid; }
 
-.cl-high { background: rgba(245,108,108,0.08); border-color: #f56c6c; }
+.cl-high { background: rgba(245,108,108,0.08); border-color: var(--stock-up); }
 
 .cl-medium { background: rgba(230,162,60,0.08); border-color: #e6a23c; }
 
