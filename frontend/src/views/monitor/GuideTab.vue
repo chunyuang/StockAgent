@@ -31,27 +31,28 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
         <div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div>
         <div class="gg-body">
           <div class="gf-flow">
-            <span class="gf-tag gf-input">5000+股票</span>
+            <span class="gf-tag gf-input">全市场实时行情</span>
             <span class="gf-arrow">→</span>
-            <span class="gf-tag">L1~L3 基础过滤</span>
+            <span class="gf-tag">L1~L3 风险/情绪</span>
             <span class="gf-arrow">→</span>
-            <span class="gf-tag">L4~L6 策略筛选</span>
+            <span class="gf-tag">L4~L6 回测策略过滤</span>
             <span class="gf-arrow">→</span>
-            <span class="gf-tag">L7~L9 排序仓位</span>
+            <span class="gf-tag">L7~L9 排序仓位执行</span>
             <span class="gf-arrow">→</span>
-            <span class="gf-tag gf-output">买入信号</span>
+            <span class="gf-tag gf-output">执行候选/成交</span>
           </div>
-          <div class="gf-layers">
-            <div class="gf-layer"><span class="gfl-k">L1</span>流动性/市值过滤</div>
-            <div class="gf-layer"><span class="gfl-k">L2</span>量能放大筛选</div>
-            <div class="gf-layer"><span class="gfl-k">L3</span>MA60趋势过滤</div>
-            <div class="gf-layer"><span class="gfl-k">L4</span>策略选股匹配</div>
-            <div class="gf-layer"><span class="gfl-k">L5</span>成交概率估算</div>
-            <div class="gf-layer"><span class="gfl-k">L6</span>情绪/板块过滤</div>
-            <div class="gf-layer"><span class="gfl-k">L7</span>因子综合排序</div>
-            <div class="gf-layer"><span class="gfl-k">L8</span>仓位/集中度控制</div>
-            <div class="gf-layer"><span class="gfl-k">L9</span>信号生成+过期</div>
+          <div class="gf-layers gf-layers-live">
+            <div class="gf-layer"><span class="gfl-k">L1</span><b>强制空仓</b><em>回测对齐</em><small>跌停≥80 / 涨停≤10且跌停&gt;0 / 大盘跌≥3%</small></div>
+            <div class="gf-layer"><span class="gfl-k">L2</span><b>特殊时期</b><em>实盘扩展</em><small>月末/季末/年末/节前降仓</small></div>
+            <div class="gf-layer"><span class="gfl-k">L3</span><b>情绪周期</b><em>回测对齐+盘中增强</em><small>高潮100% / 分化70% / 震荡50% / 冰点25%</small></div>
+            <div class="gf-layer"><span class="gfl-k">L4</span><b>盘前预选</b><em>回测基础过滤</em><small>ST/退市/次新&lt;60天/低流动&lt;500万</small></div>
+            <div class="gf-layer"><span class="gfl-k">L5</span><b>竞价过滤</b><em>实盘优势</em><small>首板2~7%；其他策略仅排除&gt;7%/&lt;-5%</small></div>
+            <div class="gf-layer"><span class="gfl-k">L6</span><b>策略量能</b><em>复用回测</em><small>调用回测策略条件：涨幅/量比/换手/封板/翘板等</small></div>
+            <div class="gf-layer"><span class="gfl-k">L7</span><b>综合排序</b><em>实盘执行控制</em><small>同股多策略取最高；龙头&gt;翘板&gt;首板&gt;半路；最多10股×策略</small></div>
+            <div class="gf-layer"><span class="gfl-k">L8</span><b>仓位控制</b><em>回测风险参数</em><small>情绪×特殊时期×硬上限；单票/总仓位限制</small></div>
+            <div class="gf-layer"><span class="gfl-k">L9</span><b>执行确认</b><em>实盘特有</em><small>资金/T+1/集中度/成交概率/订单状态，最终看候选追踪</small></div>
           </div>
+          <div class="gf-note">说明：L6核心选股条件复用回测；L1/L3/L8与回测风险框架对齐；L5使用真实竞价是实盘优势，回测只能用开盘价近似；L9是实盘执行层，回测没有真实订单撮合。</div>
         </div>
       </div>
 
@@ -187,6 +188,12 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 .gf-layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
 .gf-layer { font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; padding: 2px 0; }
 .gfl-k { background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 3px; padding: 0 5px; font-size: 9px; font-weight: 600; color: var(--text-tertiary); min-width: 22px; text-align: center; }
+.gf-layers-live { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.gf-layers-live .gf-layer { align-items: flex-start; background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 6px; padding: 6px; line-height: 1.35; }
+.gf-layers-live .gf-layer b { color: var(--text-primary); margin-right: 4px; }
+.gf-layers-live .gf-layer em { font-style: normal; color: var(--el-color-primary); font-size: 9px; margin-left: auto; white-space: nowrap; }
+.gf-layers-live .gf-layer small { display: block; color: var(--text-tertiary); grid-column: 2 / -1; margin-top: 2px; }
+.gf-note { margin-top: 8px; padding: 7px 9px; border-radius: 6px; background: rgba(64,158,255,0.08); color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 
 /* 操作指南 */
 .go-list { display: flex; flex-direction: column; gap: 4px; }
