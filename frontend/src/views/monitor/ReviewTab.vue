@@ -82,7 +82,7 @@ const emit = defineEmits<{
       <!-- ============ 第2层: 核心仪表盘 (仅日复盘显示) ============ -->
       <div v-if="reviewTab === 'daily' && reviewHero" class="review-scorecard">
         <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.total_pct != null ? ((reviewHero.metrics.total_pct >= 0 ? '+' : '') + reviewHero.metrics.total_pct + '%') : '-' }}</div></div>
-        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate ?? '-' }}%</div></div>
+        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate != null ? reviewHero.metrics.win_rate + '%' : '-' }}</div></div>
         <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics?.trades ?? '-' }}笔</div></div>
         <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="(reviewHero.metrics?.expectancy || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.expectancy ?? '-' }}</div></div>
         <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) >= 60 ? '' : 'down'">{{ reviewHero.metrics?.discipline_score ?? '-' }}</div></div>

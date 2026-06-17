@@ -372,6 +372,25 @@ async def get_review_hero(date: str = None):
         for doc in await query_trades(db, date=date_int):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
+        # 【v2.9.97i】未实现盈亏: 有买入但无卖出时，从broker_positions计算浮盈/浮亏
+        unrealized_pct = None
+        if buys and not sells:
+            try:
+                today_int = _normalize_date(date) or int(datetime.now().strftime("%Y%m%d"))
+                buy_codes = set(b.get("ts_code", "") for b in buys)
+                total_cost = 0
+                total_market = 0
+                async for pos in db["broker_positions"].find({"ts_code": {"$in": list(buy_codes)}}):
+                    cost = pos.get("avg_cost", 0) or 0
+                    price = pos.get("current_price", 0) or 0
+                    qty = pos.get("total_qty", 0) or pos.get("quantity", 0) or 0
+                    total_cost += cost * qty
+                    total_market += price * qty
+                if total_cost > 0:
+                    unrealized_pct = round((total_market / total_cost - 1) * 100, 2)
+            except Exception as e:
+                logger.warning(f"[REVIEW-HERO] unrealized calc failed: {e}")
+
         # 止损/止盈计数(基于卖出原因,非胜/负)
         # 【v2.9.84修复】追踪止损: 盈利时算止盈,亏损时算止损(之前全算止盈)
         stop_losses = [s for s in sells if ("止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")) or ("追踪止损" in (s.get("reason","") or "") and (s.get("profit_pct") or 0) < 0)];
@@ -482,10 +501,21 @@ async def get_review_hero(date: str = None):
         # 7. 一句话结论
         if not sells:
             if buys:
-                conclusion = f"📋 今日买入{len(buys)}笔，暂无卖出闭环"
+                if unrealized_pct is not None and unrealized_pct < -5:
+                    conclusion = f"🔴 今日买入{len(buys)}笔持仓中，浮亏{unrealized_pct:.1f}%"
+                    conclusion_type = "loss"
+                elif unrealized_pct is not None and unrealized_pct < 0:
+                    conclusion = f"🟠 今日买入{len(buys)}笔持仓中，浮亏{unrealized_pct:.1f}%"
+                    conclusion_type = "slight_loss"
+                elif unrealized_pct is not None and unrealized_pct > 0:
+                    conclusion = f"🟡 今日买入{len(buys)}笔持仓中，浮盈+{unrealized_pct:.1f}%"
+                    conclusion_type = "slight_profit"
+                else:
+                    conclusion = f"📋 今日买入{len(buys)}笔，暂无卖出闭环"
+                    conclusion_type = "neutral"
             else:
                 conclusion = "📋 当日无交易"
-            conclusion_type = "neutral"
+                conclusion_type = "neutral"
         elif total_pct > 3:
             conclusion = f"🟢 今日大赚 +{total_pct:.1f}% 跑赢大盘{total_pct - benchmark_pct:.1f}% {max((wins), key=lambda w: w.get('profit_pct',0)).get('strategy','')}贡献最大"
             conclusion_type = "profit"
@@ -499,29 +529,34 @@ async def get_review_hero(date: str = None):
             conclusion = f"🔴 今日亏损 {total_pct:.1f}% 止损{len(stop_losses)}笔过多 建议降仓检查策略"
             conclusion_type = "loss"
 
+        # 【v2.9.97i】无闭环时收益用浮盈/浮亏，胜率/期望值/盈亏比显示null
+        _has_closed = len(sells) > 0
+        display_pct = round(total_pct, 2) if _has_closed else unrealized_pct
+        display_alpha = round(total_pct - benchmark_pct, 2) if _has_closed else (round(unrealized_pct - benchmark_pct, 2) if unrealized_pct is not None else 0)
+
         return {"success": True, "data": {
             "date": date,
             "conclusion": conclusion,
             "conclusion_type": conclusion_type,
             "metrics": {
-                "total_pct": round(total_pct, 2),
-                "win_rate": round(win_rate, 1),
+                "total_pct": display_pct,
+                "win_rate": round(win_rate, 1) if _has_closed else None,
                 "trades": len(buys) + len(sells),
                 "closed_trades": len(sells),
                 "buys": len(buys),
                 "stop_loss_count": len(stop_losses),
                 "take_profit_count": len(take_profits),
-                "expectancy": round(expectancy, 2),
+                "expectancy": round(expectancy, 2) if _has_closed else None,
                 "discipline_score": discipline_score,
                 "max_consecutive_loss": max_consecutive_loss,
-                "avg_win": round(avg_win, 1),
-                "avg_loss": round(avg_loss, 1),
-                "profit_loss_ratio": round(abs(avg_win / avg_loss), 1) if avg_loss != 0 else 0,
+                "avg_win": round(avg_win, 1) if _has_closed else None,
+                "avg_loss": round(avg_loss, 1) if _has_closed else None,
+                "profit_loss_ratio": round(abs(avg_win / avg_loss), 1) if avg_loss != 0 else (None if not _has_closed else 0),
             },
             "benchmark": {
                 "name": benchmark_name,
                 "pct_chg": round(benchmark_pct, 2),
-                "alpha": round(total_pct - benchmark_pct, 2),
+                "alpha": display_alpha,
             },
             "sentiment": {
                 "period": cn_period,
