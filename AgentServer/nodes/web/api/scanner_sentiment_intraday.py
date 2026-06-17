@@ -16,6 +16,7 @@ import math
 from collections import OrderedDict
 from typing import Dict, List, Any, Optional
 from nodes.web.api.unified import query_trades
+from nodes.web.api.scanner_shared import prod_scan_query, is_debug_scan_doc
 
 
 def _parse_l1_limit_counts(l1_text: str) -> Dict[str, int]:
@@ -163,15 +164,17 @@ def _aggregate_to_buckets(
     return result
 
 
-async def get_intraday_timeline(db, date: str) -> Dict[str, Any]:
+async def get_intraday_timeline(db, date: str, data_mode: str = "production") -> Dict[str, Any]:
     """获取日内情绪时间线数据(新版: 多指标+结构化维度)"""
     
     # 1. 收集所有scan_traces, 解析涨跌停+情绪
     raw_points = []
     async for doc in db["scan_traces"].find(
-        {"trade_date": int(date)},
+        {"trade_date": int(date), **prod_scan_query(data_mode)},
         {"scan_time": 1, "layer_details": 1, "summary": 1, "is_debug": 1}
     ).sort("scan_time", 1):
+        if data_mode != "debug" and is_debug_scan_doc(doc):
+            continue
         l1_text = doc.get("layer_details", {}).get("L1_force_empty", "")
         l3 = _parse_l3_data(doc)
         

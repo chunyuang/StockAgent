@@ -402,12 +402,16 @@ class RuntimePersistence:
             today_int = int(today)
         except (ValueError, TypeError):
             today_int = today
-        is_trading_day = datetime.now().weekday() < 5
+        now = datetime.now()
+        ct = now.strftime("%H:%M:%S")
+        is_trading_day = now.weekday() < 5
+        is_trading_session = is_trading_day and (("09:15:00" <= ct <= "11:30:00") or ("13:00:00" <= ct <= "15:00:00"))
         trace_doc = {
             "trade_date": today_int,
-            "scan_time": datetime.now().isoformat(),
+            "scan_time": now.isoformat(),
+            "session": "trading" if is_trading_session else "off_session",
             "account_id": self.broker.account.account_id if self.broker else "default",
-            "is_debug": not is_trading_day,
+            "is_debug": not is_trading_session,
             "summary": {},
             "candidates": passed_candidates,
             "rejected_summary": rejected_summary,

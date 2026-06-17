@@ -17,33 +17,14 @@ from nodes.web.api.scanner_shared import (
     _fill_stock_names, _safe_read_shared, logger,
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
+    mark_timeline_session, normalize_data_mode,
 )
 
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
 
 
-def _is_trading_session_time(time_str: str) -> bool:
-    """A股交易/竞价相关时段。交易历史默认只展示这些时段的执行日志。"""
-    t = str(time_str or "")[:8]
-    if len(t) < 5:
-        return False
-    return ("09:15:00" <= t <= "11:30:00") or ("13:00:00" <= t <= "15:00:00")
-
-
-def _mark_timeline_session(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """标记timeline是否来自非交易时段/调试时段，方便前端默认过滤但审计可查看。"""
-    action = doc.get("action")
-    t = doc.get("time") or doc.get("fill_time") or doc.get("create_time") or ""
-    in_session = _is_trading_session_time(t)
-    doc["session"] = "trading" if in_session else "off_session"
-    if action == "blocked" and not in_session:
-        doc["is_debug"] = True
-        doc["debug_reason"] = "非交易时段扫描/调试记录"
-    return doc
-
-
 @router.get("/all")
-async def get_all_scanner_data(date: str = None, include_debug: bool = False):
+async def get_all_scanner_data(date: str = None, mode: str = "production", include_debug: bool = False):
     """一次性获取所有扫描器数据(减少前端HTTP开销)
     
     合并: status + signals + positions + timeline + orders
@@ -51,6 +32,7 @@ async def get_all_scanner_data(date: str = None, include_debug: bool = False):
     
     Args:
         date: 历史日期(YYYYMMDD或YYYY-MM-DD), 不传或today=实时数据
+        mode: production(默认) / debug
         include_debug: 是否包含非交易时段/调试timeline记录，默认False
     """
     # 【v2.9.97h】日期参数: 支持历史查询
@@ -119,8 +101,8 @@ async def get_all_scanner_data(date: str = None, include_debug: bool = False):
             ).sort("_id", 1):
                 doc.pop("_id", None)
                 doc.pop("account_id", None)
-                doc = _mark_timeline_session(doc)
-                if (not include_debug) and doc.get("action") == "blocked" and doc.get("session") == "off_session":
+                doc = mark_timeline_session(doc)
+                if normalize_data_mode(mode, include_debug) != "debug" and doc.get("action") == "blocked" and doc.get("session") == "off_session":
                     debug_filtered_count += 1
                     continue
                 if is_historical:
@@ -143,7 +125,7 @@ async def get_all_scanner_data(date: str = None, include_debug: bool = False):
                     "profit_pct": t.get("profit_pct"),
                     "profit_amount": t.get("profit_amount"),
                 }
-                entry = _mark_timeline_session(entry)
+                entry = mark_timeline_session(entry)
                 if is_historical:
                     entry["_historical"] = True
                 timeline_data.append(entry)
@@ -214,7 +196,8 @@ async def get_all_scanner_data(date: str = None, include_debug: bool = False):
             "summary": {
                 "total_profit_amount": round(total_profit_amount, 2),
                 "debug_filtered_count": debug_filtered_count,
-                "include_debug": include_debug,
+                "mode": normalize_data_mode(mode, include_debug),
+                "include_debug": normalize_data_mode(mode, include_debug) == "debug",
                 "today_trades": len([t for t in timeline_data if t.get("action") == "buy"]) + len([t for t in timeline_data if t.get("action") == "sell"]),
                 "today_buys": len([t for t in timeline_data if t.get("action") == "buy"]),
                 "today_sells": len([t for t in timeline_data if t.get("action") == "sell"]),

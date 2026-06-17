@@ -20,6 +20,52 @@ from nodes.web.api.utils import sanitize_nan as _sanitize
 logger = logging.getLogger("api.scanner")
 
 
+# ==================== 生产/调试数据隔离 ====================
+
+def is_trading_session_time(time_str: str) -> bool:
+    """A股交易/竞价相关时段。默认生产视图只展示这些时段的执行/扫描数据。"""
+    t = str(time_str or "")[:8]
+    if len(t) < 5:
+        return False
+    return ("09:15:00" <= t <= "11:30:00") or ("13:00:00" <= t <= "15:00:00")
+
+
+def normalize_data_mode(mode: str = None, include_debug: bool = False) -> str:
+    """统一数据模式: production(默认) / debug。"""
+    if include_debug or str(mode or "").lower() in ("debug", "audit", "all"):
+        return "debug"
+    return "production"
+
+
+def is_debug_scan_doc(doc: Dict[str, Any]) -> bool:
+    """判断scan_traces记录是否调试/非交易时段。"""
+    if doc.get("is_debug") is True:
+        return True
+    t = doc.get("scan_time") or doc.get("time") or ""
+    if "T" in str(t):
+        t = str(t).split("T", 1)[1]
+    return not is_trading_session_time(str(t)[:8])
+
+
+def prod_scan_query(mode: str = None, include_debug: bool = False) -> Dict[str, Any]:
+    """scan_traces生产模式默认过滤debug；debug模式不过滤。"""
+    if normalize_data_mode(mode, include_debug) == "debug":
+        return {}
+    return {"is_debug": {"$ne": True}}
+
+
+def mark_timeline_session(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """标记timeline是否来自非交易时段/调试时段。"""
+    action = doc.get("action")
+    t = doc.get("time") or doc.get("fill_time") or doc.get("create_time") or ""
+    in_session = is_trading_session_time(t)
+    doc["session"] = "trading" if in_session else "off_session"
+    if action == "blocked" and not in_session:
+        doc["is_debug"] = True
+        doc["debug_reason"] = "非交易时段扫描/调试记录"
+    return doc
+
+
 # ==================== Scanner单例管理 ====================
 
 _scanner_lock = asyncio.Lock()

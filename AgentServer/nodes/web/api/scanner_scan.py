@@ -18,6 +18,7 @@ from nodes.web.api.scanner_shared import (
     _fill_stock_names, _safe_read_shared, logger,
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
+    normalize_data_mode, prod_scan_query, is_debug_scan_doc,
 )
 from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
 
@@ -317,7 +318,7 @@ async def get_scan_trace_dates():
 
 
 @router.get("/scan-traces")
-async def get_scan_traces(date: str = None, limit: int = 10):
+async def get_scan_traces(date: str = None, limit: int = 10, mode: str = "production", include_debug: bool = False):
     """获取扫描链路追踪记录
     
     返回每次扫描的摘要信息，不含candidates详情（用于列表展示）
@@ -338,7 +339,7 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         
         from bson import ObjectId  # 【v2.9.95b】列表函数需要 ObjectId
         
-        query = {}
+        query = prod_scan_query(mode, include_debug)
         if date:
             date_str = str(date).replace("-", "").replace("/", "")
             try:
@@ -349,13 +350,19 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         
         # ====== 1. 获取 scan_traces 列表 ======
         docs = []
+        data_mode = normalize_data_mode(mode, include_debug)
+        fetch_limit = limit if data_mode == "debug" else max(limit * 5, limit)
         async for doc in mongo_manager.db["scan_traces"].find(
             query,
             {"candidates": 0, "rejected_summary": 0}
-        ).sort("_id", -1).limit(limit):
+        ).sort("_id", -1).limit(fetch_limit):
+            if data_mode != "debug" and is_debug_scan_doc(doc):
+                continue
             doc["scan_id"] = str(doc.pop("_id", ""))
             _fix_funnel_summary(doc)
             docs.append(doc)
+            if len(docs) >= limit:
+                break
         
         if not docs:
             return {"success": True, "data": [], "count": 0}
@@ -548,14 +555,15 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         }
         
         return {"success": True, "data": docs, "count": len(docs),
-                "execution_summary": execution_summary}
+                "execution_summary": execution_summary,
+            "mode": normalize_data_mode(mode, include_debug)}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
 
 
 @router.get("/scan-traces/{scan_id}")
-async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 50, offset: int = 0):
+async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 50, offset: int = 0, mode: str = "production", include_debug: bool = False):
     """获取单次扫描的详细追踪
     
     v2.9.7优化：
@@ -579,6 +587,8 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
         
         doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
         if doc:
+            if normalize_data_mode(mode, include_debug) != "debug" and is_debug_scan_doc(doc):
+                return {"success": True, "data": None, "message": "该扫描记录为调试/非交易时段数据，请使用mode=debug查看"}
             doc["scan_id"] = str(doc.pop("_id", ""))
             # 【v2.9.17:修复旧数据漏斗数字】
             _fix_funnel_summary(doc)
