@@ -58,7 +58,7 @@ async def get_daily_report(date: str = None, mode: str = "production", include_d
     
     if not has_live:
         # Scanner未运行: 从MongoDB聚合今日数据
-        return await _daily_report_from_mongo()
+        return await _daily_report_from_mongo(mode, include_debug)
     
     try:
         acct = scanner._broker.get_account()
@@ -514,7 +514,7 @@ async def get_weekly_report(date: str = None):
 
 
 
-async def _daily_report_from_mongo():
+async def _daily_report_from_mongo(mode: str = "production", include_debug: bool = False):
     """Scanner未运行时从MongoDB聚合今日复盘数据"""
     from core.managers import mongo_manager
     from collections import defaultdict
@@ -543,12 +543,19 @@ async def _daily_report_from_mongo():
             "scanner_stats": {}, "funnel_summary": None, "sentiment_snapshot": None,
         }}
     
-    # 2. 按策略汇总
-    strategy_summary = defaultdict(lambda: {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_count": 0, "closed_profit": 0, "stop_loss_count": 0, "take_profit_count": 0, "wins_pcts": [], "losses_pcts": []})
+    # 2. 按策略汇总(从卖出记录统计已平仓, 从买入记录统计建仓中)
+    strategy_summary = defaultdict(lambda: {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_count": 0, "closed_profit": 0, "sell_count": 0, "stop_loss_count": 0, "take_profit_count": 0, "wins_pcts": [], "losses_pcts": []})
+    
+    # 【v2.9.97i】当日只有买入没有卖出时,也要展示策略贡献(建仓中)
+    for b in buys:
+        key = _norm_strat(b.get("strategy", "") or "unknown")
+        strategy_summary[key]["count"] += 1
+        strategy_summary[key]["market_value"] += (b.get("filled_price", 0) or b.get("price", 0) or 0) * (b.get("filled_qty", 0) or b.get("quantity", 0) or 0)
     
     for s in sells:
         key = _norm_strat(s.get("strategy", "") or "unknown")
         strategy_summary[key]["closed_count"] += 1
+        strategy_summary[key]["sell_count"] += 1
         pnl = s.get("profit_pct", 0) or 0
         strategy_summary[key]["closed_profit"] += s.get("profit_amount", 0) or 0
         reason = s.get("reason", "")
