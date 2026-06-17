@@ -180,20 +180,21 @@ const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 .gg-body { padding: 10px 14px; }
 
 /* 系统架构 */
-.gf-flow { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
-.gf-tag { padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; background: var(--bg-normal); border: 1px solid var(--border-default); }
+.gf-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+.gf-tag { position: relative; padding: 6px 8px; border-radius: 7px; font-size: 11px; font-weight: 600; text-align: center; background: var(--bg-normal); border: 1px solid var(--border-default); line-height: 1.25; }
 .gf-tag.gf-input { background: var(--el-color-primary-light-5); border-color: var(--el-color-primary-light-3); color: var(--el-color-primary-dark-2); }
 .gf-tag.gf-output { background: rgba(0,180,42,0.1); border-color: rgba(0,180,42,0.3); color: #00b42a; }
-.gf-arrow { color: var(--text-tertiary); font-size: 10px; }
+.gf-arrow { display: none; }
 .gf-layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
 .gf-layer { font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; padding: 2px 0; }
 .gfl-k { background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 3px; padding: 0 5px; font-size: 9px; font-weight: 600; color: var(--text-tertiary); min-width: 22px; text-align: center; }
-.gf-layers-live { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.gf-layers-live .gf-layer { align-items: flex-start; background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 6px; padding: 6px; line-height: 1.35; }
-.gf-layers-live .gf-layer b { color: var(--text-primary); margin-right: 4px; }
-.gf-layers-live .gf-layer em { font-style: normal; color: var(--el-color-primary); font-size: 9px; margin-left: auto; white-space: nowrap; }
-.gf-layers-live .gf-layer small { display: block; color: var(--text-tertiary); grid-column: 2 / -1; margin-top: 2px; }
-.gf-note { margin-top: 8px; padding: 7px 9px; border-radius: 6px; background: rgba(64,158,255,0.08); color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.gf-layers-live { grid-template-columns: 1fr; gap: 5px; }
+.gf-layers-live .gf-layer { display: grid; grid-template-columns: 34px 72px 1fr auto; align-items: center; gap: 8px; background: var(--bg-normal); border: 1px solid var(--border-light); border-radius: 7px; padding: 7px 9px; line-height: 1.35; }
+.gf-layers-live .gfl-k { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-size: 10px; }
+.gf-layers-live .gf-layer b { color: var(--text-primary); font-size: 12px; white-space: nowrap; }
+.gf-layers-live .gf-layer em { justify-self: end; font-style: normal; color: var(--el-color-primary); background: rgba(64,158,255,0.1); border: 1px solid rgba(64,158,255,0.18); border-radius: 999px; padding: 1px 7px; font-size: 10px; white-space: nowrap; }
+.gf-layers-live .gf-layer small { color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+.gf-note { margin-top: 10px; padding: 9px 10px; border-radius: 7px; border-left: 3px solid var(--el-color-primary); background: rgba(64,158,255,0.08); color: var(--text-secondary); font-size: 11px; line-height: 1.55; }
 
 /* 操作指南 */
 .go-list { display: flex; flex-direction: column; gap: 4px; }
