@@ -580,10 +580,29 @@ class ScannerUtils:
         tp_pct = risk.get("take_profit_pct", 0.07) * 100
         mv = round(pos.current_price * pos.total_qty, 2)
         profit_amt = round((pos.current_price - pos.avg_cost) * pos.total_qty, 2)
+        sl_price_v = sl_price if isinstance(sl_price, (int, float)) else 0
+        # 【v2.9.97h-v7】补充stop_loss_status/desc + strategy_name (保持与unified/_build_position_dict一致)
+        if pos.current_price <= sl_price_v and sl_price_v > 0:
+            stop_loss_status = "broken"
+            stop_loss_desc = f"已破止损 -{sl_pct:.1f}%, 当前 {pos.profit_pct:.1f}%"
+        elif pos.current_price <= sl_price_v * 1.05 and sl_price_v > 0:
+            stop_loss_status = "near"
+            stop_loss_desc = f"接近止损价 {sl_price_v:.2f}"
+        else:
+            stop_loss_status = "safe"
+            stop_loss_desc = ""
+        # 获取策略中文名
+        try:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+            strategy_name_cn = STRATEGY_CONFIGS.get(pos.strategy, {}).get("display_name", pos.strategy)
+        except Exception:
+            strategy_name_cn = pos.strategy
+        
         return {
             "ts_code": pos.ts_code,
             "stock_name": pos.stock_name or scanner._stock_name_map.get(pos.ts_code, ""),
             "strategy": pos.strategy,
+            "strategy_name": strategy_name_cn,
             "shares": pos.total_qty,
             "available_qty": pos.available_qty,
             "cost_price": round(pos.avg_cost, 2),
@@ -596,6 +615,8 @@ class ScannerUtils:
             "take_profit_pct": round(tp_pct, 1),
             "stop_loss_price": sl_price,
             "take_profit_price": tp_price,
+            "stop_loss_status": stop_loss_status,
+            "stop_loss_desc": stop_loss_desc,
             "distance_to_stop": round(pos.profit_pct + sl_pct, 1),
             "buy_date": pos.buy_date,
             "trailing_stop": trailing_copy.get(pos.ts_code),

@@ -102,11 +102,18 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
             except Exception:
                 risk_monitor_desc = "无法获取风控状态"
 
+            # 【v2.9.97h-v7】补全前端需要的字段，与unified/scanner_utils保持一致
+            strategy_name_cn = strat_cfg.get("display_name", strategy) if strat_cfg else strategy
+            risk_lvl = "high" if stop_loss_status == "broken" else ("elevated" if stop_loss_status == "near" else "normal")
             positions.append({
                 "ts_code": tc,
                 "stock_name": stock_name,
                 "strategy": _norm_strat(strategy),
+                "strategy_name": strategy_name_cn,
                 "shares": qty,
+                "available_qty": p.get("available_qty", 0),
+                "today_buy": p.get("today_buy_qty", 0),
+                "today_buy_qty": p.get("today_buy_qty", 0),
                 "cost_price": round(avg_cost, 2),
                 "current_price": round(cur_price, 2),
                 "profit_pct": round(profit_pct, 2),
@@ -115,10 +122,13 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
                 "stop_loss_price": stop_loss_price,
                 "stop_loss_pct": round(sl_pct * 100, 1),
                 "take_profit_price": take_profit_price,
+                "take_profit_pct": round(tp_pct * 100, 1),
                 "stop_loss_status": stop_loss_status,
                 "stop_loss_desc": stop_loss_desc,
+                "risk_level": risk_lvl,
                 "risk_monitor_active": risk_monitor_active,
                 "risk_monitor_desc": risk_monitor_desc,
+                "buy_date": p.get("buy_date", ""),
             })
     except Exception as e:
         import traceback
