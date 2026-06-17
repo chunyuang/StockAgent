@@ -119,11 +119,12 @@ export function useCoreMethods(refs: CoreRefs) {
     try { await refs.confirmData.onConfirm() } finally { refs.confirmLoading.value = false; refs.confirmVisible.value = false }
   }
 
-  async function fetchScanner() {
+  async function fetchScanner(date?: string) {
     if (fetchScannerRunning) return; fetchScannerRunning = true
     try {
       if (fetchScannerAbort) fetchScannerAbort.abort(); fetchScannerAbort = new AbortController()
-      const r = await api.get(`${scannerApi}/all`, { signal: fetchScannerAbort.signal })
+      const url = date ? `${scannerApi}/all?date=${date.replace(/-/g, '')}` : `${scannerApi}/all`
+      const r = await api.get(url, { signal: fetchScannerAbort.signal })
       const p = parseResponse(r)
       if (p.success) {
         const d = p.data
