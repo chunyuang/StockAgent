@@ -253,6 +253,8 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
     
     Body:
         force: 强制模式, 忽略交易时间检查(消耗必盈额度, 测试用)
+    
+    v2.9.98: 非交易时间force=True会触发持仓检查(可能产生盘后卖出), 已在_execute_sell_list层加保护
     """
     scanner = await _get_scanner()
     # 回放模式: 自动force并设置replay_date
@@ -260,6 +262,14 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
         scanner._replay_date = req.replay_date
     force = req.force or scanner._replay_mode
     trade_date = scanner._replay_date or datetime.now().strftime("%Y%m%d")
+    
+    # 【v2.9.98】非交易时间force扫描警告
+    if force:
+        from nodes.market_monitor.market_phase import MarketPhase
+        phase = MarketPhase.classify()
+        if not MarketPhase.is_in_trading():
+            logger.warning(f"[API] 非交易时间({phase})强制扫描! 卖出路径已有时间保护, 但请确认意图")
+    
     try:
         await scanner.scan_once(trade_date, force=force)
     except Exception as e:
