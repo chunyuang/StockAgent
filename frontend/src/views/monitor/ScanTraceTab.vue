@@ -109,6 +109,45 @@ const execSummaryDisplay = computed(() => {
   }
 })
 
+function scanKind(s: any): 'full' | 'quick' | 'blocked' | 'other' {
+  const total = Number(s?.summary?.total_candidates || 0)
+  const passed = Number(s?.summary?.passed || 0)
+  if (total >= 1000) return 'full'
+  if (total > 0 && total <= 300) return 'quick'
+  if (total > 0 && passed === 0) return 'blocked'
+  return 'other'
+}
+
+function scanKindLabel(s: any): string {
+  const k = scanKind(s)
+  if (k === 'full') return '全市场主扫'
+  if (k === 'quick') return '异动快扫'
+  if (k === 'blocked') return '风控拦截'
+  return '扫描'
+}
+
+function scanKindTitle(s: any): string {
+  const total = Number(s?.summary?.total_candidates || 0)
+  const passed = Number(s?.summary?.passed || 0)
+  const bought = Number(s?.exec?.bought || 0)
+  const blocked = Number(s?.exec?.blocked || 0)
+  const label = scanKindLabel(s)
+  if (scanKind(s) === 'full') {
+    return `${label}: 策略展开记录${total}条，不等于股票数；通过排序/仓位后${passed}条，成交${bought}条，执行拦截${blocked}次`
+  }
+  if (scanKind(s) === 'quick') {
+    return `${label}: 只扫描盘中异动/候选池${total}条；通过${passed}条，成交${bought}条，执行拦截${blocked}次`
+  }
+  return `${label}: 输入${total}条，通过${passed}条，成交${bought}条，执行拦截${blocked}次`
+}
+
+function scanHourTypeSummary(items: any[]) {
+  const full = items.filter(s => scanKind(s) === 'full').length
+  const quick = items.filter(s => scanKind(s) === 'quick').length
+  const blocked = items.filter(s => scanKind(s) === 'blocked').length
+  return [full ? `全市场${full}轮` : '', quick ? `异动${quick}轮` : '', blocked ? `拦截${blocked}轮` : ''].filter(Boolean).join(' · ')
+}
+
 function reasonGroupColor(label: string, index = 0): string {
   const map: Record<string, string> = {
     '集中度': '#6C8CFF',
@@ -215,7 +254,7 @@ onMounted(async () => {
         <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
         <div class="scan-readme">
           <span><b>小时行</b>：汇总该小时所有扫描，显示“扫描次数 / 通过候选 / 实际成交 / 执行拦截”。</span>
-          <span><b>单次扫描</b>：格式是“全市场候选 ▶ 通过筛选 ▶ 成交”，如果有 🚫 表示通过后又被仓位、资金、熔断等执行规则挡住。</span>
+          <span><b>单次扫描</b>：分为“全市场主扫”和“异动快扫”。一万多条是策略展开记录，不等于股票数；几十条通常是盘中异动候选池快扫。🚫 表示通过筛选后又被仓位、资金、熔断等执行规则挡住。</span>
           <span><b>查看明细</b>：点某个时间 chip 后，下方会展开扫描漏斗和候选追踪。</span>
         </div>
         <!-- 【v2.9.95】全天执行摘要横幅 -->
@@ -277,14 +316,16 @@ onMounted(async () => {
             <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) > 0 }" @click="toggleScanHour(group.hour)">
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
               <span class="sc-hour-label">{{ group.hour }}:00</span>
-              <span class="sc-hour-count">{{ group.items.length }}条</span>
+              <span class="sc-hour-count">{{ group.items.length }}轮</span>
+              <span class="sc-hour-types">{{ scanHourTypeSummary(group.items) }}</span>
               <span class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
-              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0 }" @click="toggleScanDetail(s)">
+              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">
                 <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
+                <span class="sc-kind" :class="scanKind(s)">{{ scanKindLabel(s) }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
-                <span class="sc-stats" :title="`全市场${s.summary?.total_candidates || 0}只 → 通过${s.summary?.passed || 0}只 → 成交${s.exec?.bought || 0}只 · 拦截${s.exec?.blocked || 0}次`">
+                <span class="sc-stats" :title="scanKindTitle(s)">
                   <span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
                 </span>
               </div>
@@ -467,6 +508,7 @@ onMounted(async () => {
 .sc-hour-label { font-weight: 600; color: var(--text-primary); }
 
 .sc-hour-count { color: var(--text-tertiary); font-size: 10px; }
+.sc-hour-types { color: var(--text-secondary); font-size: 10px; background: var(--bg-muted); padding: 1px 6px; border-radius: 999px; }
 
 .sc-hour-summary { color: var(--el-color-primary); font-size: 10px; margin-left: auto; }
 .sc-hour-header.has-buy .sc-hour-summary b { color: #e6a23c; font-weight: 800; }
@@ -482,8 +524,14 @@ onMounted(async () => {
 .scan-chip.has-buy { background: rgba(230, 162, 60, 0.22); border-color: rgba(230, 162, 60, 0.75); box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.18) inset; }
 .scan-chip.has-buy:hover { background: rgba(230, 162, 60, 0.32); border-color: #e6a23c; }
 .scan-chip.has-buy.active { background: rgba(230, 162, 60, 0.38); border-color: #e6a23c; box-shadow: 0 0 0 2px rgba(230, 162, 60, 0.22) inset; }
+.scan-chip.full { border-left: 3px solid var(--el-color-primary); }
+.scan-chip.quick { border-left: 3px solid #67c23a; }
 
 .sc-time { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
+.sc-kind { font-size: 10px; padding: 1px 5px; border-radius: 999px; background: var(--bg-muted); color: var(--text-secondary); }
+.sc-kind.full { background: rgba(64,158,255,.12); color: var(--el-color-primary); }
+.sc-kind.quick { background: rgba(103,194,58,.12); color: #67c23a; }
+.sc-kind.blocked { background: rgba(245,108,108,.12); color: #f56c6c; }
 
 .sc-stats { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
 
