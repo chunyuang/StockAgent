@@ -511,7 +511,7 @@ function formatTradeDateTime(rec: any): string {
 
     <!-- 【V50.1】信号链路追踪面板(可收起, 跨Tab) -->
     <div v-if="signalTraceVisible" class="mm-trace">
-      <SignalTracePanel />
+      <SignalTracePanel @close="signalTraceVisible = false" />
     </div>
 
     <!-- P2-10: 键盘快捷键 -->
