@@ -8,6 +8,7 @@
  * Props: review composable的展开状态 + 策略映射
  * Emits: fetchReviewData, runBacktest, saveParamSnapshot
  */
+import { ref } from 'vue'
 import { ElButton, ElTag } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { formatTradeDate, formatFullDate } from '@/utils/scanner'
@@ -53,6 +54,10 @@ const emit = defineEmits<{
   (e: 'runBacktest'): void
   (e: 'saveParamSnapshot'): void
 }>()
+
+// 折叠状态
+const tradeDetailExpanded = ref(false)
+const slippageDetailExpanded = ref(false)
 </script>
 
 <template>
@@ -145,21 +150,23 @@ const emit = defineEmits<{
           <span v-if="dailyReportData?.account" class="section-detail">总资产<b>{{ (Number(dailyReportData.account.total_assets || 0) / 10000).toFixed(1) }}</b>万 | 仓位<b>{{ dailyReportData.account.position_ratio || 0 }}%</b></span>
         </div>
 
-        <!-- 逐笔归因 (唯一需要列表的) -->
-        <div class="rv-card" style="margin-top:2px">
-          <div class="rv-card-title">📝 逐笔 <span class="rv-count">{{ tradeAttributions?.length || 0 }}笔</span></div>
-          <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无</div>
-          <div v-else class="attr-compact">
+        <!-- 逐笔归因 — 折叠 -->
+        <div class="review-section" style="margin-top:4px">
+          <span class="section-title title-red" style="cursor:pointer" @click="tradeDetailExpanded = !tradeDetailExpanded">📝 逐笔归因 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ tradeDetailExpanded ? '▼' : '▶' }}</span></span>
+          <span class="section-detail" v-if="!tradeDetailExpanded"><b>{{ tradeAttributions?.length || 0 }}</b>笔交易 | 持仓<b>{{ tradeAttributions?.filter(t => t.status === 'open').length || 0 }}</b>笔 | 已平<b>{{ tradeAttributions?.filter(t => t.status !== 'open').length || 0 }}</b>笔 | 总盈亏<b :class="tradeAttributions?.reduce((s,t) => s + (t.profit_amount || 0), 0) >= 0 ? 'up' : 'down'">¥{{ (tradeAttributions?.reduce((s,t) => s + (t.profit_amount || 0), 0) || 0).toFixed(0) }}</b></span>
+        </div>
+        <div v-if="tradeDetailExpanded && (tradeAttributions?.length || 0)" class="review-section" style="margin-top:1px">
+          <div class="attr-compact">
             <div v-for="t in tradeAttributions" :key="t.ts_code + (t.sell_time || t.buy_time)" class="attr-line" :class="t.status === 'open' ? 'tr-open' : ((t.profit_pct || 0) >= 0 ? 'tr-profit' : 'tr-loss')">
               <span class="mono">{{ t.ts_code }}</span>
               <span class="attr-name">{{ t.stock_name }}</span>
               <ElTag size="small" class="tag-solid tag-xs" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'">{{ strategyCN(t.strategy) }}</ElTag>
-              <span v-if="t.buy_price" class="ir-dim">买¥{{ Number(t.buy_price).toFixed(2) }}</span>
-              <span v-if="t.sell_price" class="ir-dim">卖¥{{ Number(t.sell_price).toFixed(2) }}</span>
-              <span v-if="t.signal_price" class="ir-dim">信¥{{ Number(t.signal_price).toFixed(2) }}</span>
+              <span v-if="t.buy_price" class="ir-dim">买入价¥{{ Number(t.buy_price).toFixed(2) }}</span>
+              <span v-if="t.sell_price" class="ir-dim">卖出价¥{{ Number(t.sell_price).toFixed(2) }}</span>
+              <span v-if="t.signal_price" class="ir-dim">信号价¥{{ Number(t.signal_price).toFixed(2) }}</span>
               <span class="attr-pct" :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓' : ((t.profit_pct || 0) >= 0 ? '+' : '') + (t.profit_pct || 0).toFixed(1) + '%' }}</span>
-              <span v-if="t.profit_amount" class="ir-dim">¥{{ Number(t.profit_amount).toFixed(0) }}</span>
-              <span v-if="t.hold_days" class="ir-dim">持{{ t.hold_days }}日</span>
+              <span v-if="t.profit_amount" class="ir-dim">盈亏¥{{ Number(t.profit_amount).toFixed(0) }}</span>
+              <span v-if="t.hold_days" class="ir-dim">持有{{ t.hold_days }}日</span>
               <span v-if="t.sell_reason" class="attr-reason">{{ t.sell_reason }}</span>
             </div>
           </div>
@@ -249,10 +256,14 @@ const emit = defineEmits<{
           <span class="section-title title-orange">🚨 纪律偏差</span>
           <span class="section-detail">违规笔数<b class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}</b>笔 | 违规交易胜率<b class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</b> | 影响幅度<b class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</b><span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></span>
         </div>
-        <!-- 逐笔滑点明细 -->
+        <!-- 逐笔滑点明细 — 折叠 -->
         <div v-if="deviationData.details?.slippage?.length" class="review-section" style="margin-top:1px">
+          <span class="section-title title-blue" style="cursor:pointer" @click="slippageDetailExpanded = !slippageDetailExpanded">📋 逐笔滑点 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ slippageDetailExpanded ? '▼' : '▶' }}</span></span>
+          <span class="section-detail" v-if="!slippageDetailExpanded"><b>{{ deviationData.details.slippage.length }}</b>笔 | 最大滑点<b :class="Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))) > 0.5 ? 'down' : ''">{{ Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))).toFixed(2) }}%</b></span>
+        </div>
+        <div v-if="slippageDetailExpanded && deviationData.details?.slippage?.length" class="review-section" style="margin-top:1px">
           <span class="section-detail">
-            <div v-for="s in deviationData.details.slippage.slice(0,5)" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
+            <div v-for="s in deviationData.details.slippage" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
               {{ s.ts_code }} {{ s.stock_name }} | 信号价¥{{ s.signal_price?.toFixed(2) }}→成交价¥{{ s.filled_price?.toFixed(2) }} | 滑点<b :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'down' : ''">{{ s.slippage_pct?.toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
             </div>
           </span>
