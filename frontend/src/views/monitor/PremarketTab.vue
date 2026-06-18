@@ -183,25 +183,39 @@ onMounted(() => {
           <div v-for="snap in premarketTimeline" :key="snap.scan_id" class="pm-tl-row">
             <div class="pm-tl-time">
               <b>{{ snap.time }}</b>
+              <span>{{ snap.source_label || '竞价扫描' }}</span>
               <span v-if="snap.is_debug" class="pm-debug-badge">DEBUG</span>
             </div>
             <div class="pm-tl-main">
-              <div class="pm-tl-metrics">
-                <span>候选 <b>{{ snap.total_candidates || 0 }}</b></span>
-                <span class="up">通过 <b>{{ snap.passed || 0 }}</b></span>
-                <span class="warn">淘汰 <b>{{ snap.rejected || 0 }}</b></span>
-                <span>情绪 <b>{{ snap.sentiment?.phase_name || '-' }}</b><sub>{{ snap.sentiment?.score ?? '-' }}分</sub></span>
-                <span>仓位 <b>{{ ((Number(snap.sentiment?.position_ratio) || 0) * 100).toFixed(0) }}%</b></span>
-                <span v-if="snap.market_snapshot">涨停/跌停 <b class="up">{{ snap.market_snapshot.limit_up_count || 0 }}</b>/<b class="down">{{ snap.market_snapshot.limit_down_count || 0 }}</b></span>
-                <span v-if="snap.force_empty_confirm?.risk_level">风险 <b>{{ snap.force_empty_confirm.risk_level }}</b><sub>{{ snap.force_empty_confirm.risk_score || 0 }}分</sub></span>
+              <div class="pm-tl-section">
+                <b>市场宽度</b>
+                <span>样本 {{ snap.market_snapshot?.total_stocks || snap.display_funnel?.market_samples || 0 }}</span>
+                <span>上涨/下跌 <em class="up">{{ snap.market_snapshot?.up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.down_count || 0 }}</em></span>
+                <span>均幅 {{ Number(snap.market_snapshot?.avg_pct_chg || 0).toFixed(2) }}%</span>
+                <span>涨停/跌停 <em class="up">{{ snap.market_snapshot?.limit_up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.limit_down_count || 0 }}</em></span>
+              </div>
+              <div class="pm-tl-section">
+                <b>风险判断</b>
+                <span>等级 {{ snap.force_empty_confirm?.risk_level || '-' }}</span>
+                <span>评分 {{ snap.force_empty_confirm?.risk_score ?? '-' }}</span>
+                <span>质量 {{ snap.force_empty_confirm?.data_quality || '-' }}</span>
                 <span v-if="snap.force_empty_confirm?.pending" class="down">{{ snap.force_empty_confirm.pending_action === 'reduce_position' ? '待降仓' : '待清仓' }}</span>
-                <span v-if="snap.force_empty_confirm?.anomalies?.length" class="warn">数据异常</span>
               </div>
-              <div class="pm-tl-layers">
-                <span>L4 {{ snap.layers?.L4_premarket?.input || 0 }}→{{ snap.layers?.L4_premarket?.output || 0 }}</span>
-                <span>L5 {{ snap.layers?.L5_auction?.input || 0 }}→{{ snap.layers?.L5_auction?.output || 0 }}<sub v-if="snap.layers?.L5_auction?.rejected">-{{ snap.layers.L5_auction.rejected }}</sub></span>
-                <span>L6 {{ snap.layers?.L6_strategy?.input || 0 }}→{{ snap.layers?.L6_strategy?.output || 0 }}</span>
+              <div class="pm-tl-funnel">
+                <b>筛选漏斗</b>
+                <span>全市场 {{ snap.display_funnel?.market_samples || 0 }}</span>
+                <span>策略命中 {{ snap.display_funnel?.strategy_hits || 0 }}</span>
+                <span>竞价过滤后 {{ snap.display_funnel?.auction_passed || 0 }}</span>
+                <span>策略过滤后 {{ snap.display_funnel?.strategy_passed || 0 }}</span>
+                <span class="up">最终通过 {{ snap.display_funnel?.final_passed || snap.passed || 0 }}</span>
               </div>
+              <div v-if="snap.force_empty_confirm?.anomalies?.length" class="pm-tl-alert">⚠️ {{ snap.force_empty_confirm.anomalies.slice(-3).join('；') }}</div>
+              <details class="pm-tl-debug">
+                <summary>调试链路</summary>
+                <span>盘前预选 {{ snap.layers?.L4_premarket?.input || 0 }}→{{ snap.layers?.L4_premarket?.output || 0 }}</span>
+                <span>竞价过滤 {{ snap.layers?.L5_auction?.input || 0 }}→{{ snap.layers?.L5_auction?.output || 0 }}</span>
+                <span>策略过滤 {{ snap.layers?.L6_strategy?.input || 0 }}→{{ snap.layers?.L6_strategy?.output || 0 }}</span>
+              </details>
               <div v-if="snap.top_candidates?.length" class="pm-tl-cands">
                 <span v-for="c in snap.top_candidates.slice(0, 6)" :key="c.ts_code + c.strategy" class="pm-tl-cand">
                   {{ c.stock_name || c.ts_code?.slice(0,6) }}<sub>{{ strategyCN(c.strategy) }}</sub><em v-if="c.pct_chg != null" :class="Number(c.pct_chg) >= 0 ? 'up' : 'down'">{{ Number(c.pct_chg).toFixed(1) }}%</em>
@@ -624,13 +638,14 @@ onMounted(() => {
 .pm-tl-list { display: flex; flex-direction: column; gap: 7px; max-height: 360px; overflow: auto; }
 .pm-tl-row { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 8px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-primary); }
 .pm-tl-time { display: flex; flex-direction: column; gap: 4px; color: var(--text-primary); font-size: 12px; }
-.pm-tl-main { min-width: 0; }
-.pm-tl-metrics, .pm-tl-layers, .pm-tl-cands { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.pm-tl-metrics span, .pm-tl-layers span { font-size: 11px; color: var(--text-secondary); background: var(--bg-muted); padding: 2px 6px; border-radius: 999px; }
-.pm-tl-metrics b { color: var(--text-primary); margin-left: 2px; }
-.pm-tl-metrics sub, .pm-tl-layers sub { margin-left: 2px; color: var(--text-tertiary); }
-.pm-tl-layers { margin-top: 5px; }
-.pm-tl-cands { margin-top: 6px; }
+.pm-tl-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.pm-tl-section, .pm-tl-funnel, .pm-tl-cands, .pm-tl-debug { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pm-tl-section b, .pm-tl-funnel b { min-width: 58px; color: var(--text-primary); font-size: 12px; }
+.pm-tl-section span, .pm-tl-funnel span, .pm-tl-debug span { font-size: 11px; color: var(--text-secondary); background: var(--bg-muted); padding: 2px 6px; border-radius: 999px; }
+.pm-tl-alert { font-size: 12px; color: var(--el-color-warning); background: var(--warning-bg, rgba(230,162,60,.12)); padding: 5px 8px; border-radius: 6px; }
+.pm-tl-debug { color: var(--text-tertiary); font-size: 11px; }
+.pm-tl-debug summary { cursor: pointer; color: var(--text-tertiary); margin-right: 4px; }
+.pm-tl-cands { margin-top: 2px; }
 .pm-tl-cand { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(64, 158, 255, 0.08); color: var(--text-primary); }
 .pm-tl-cand sub { margin-left: 3px; color: var(--text-tertiary); }
 .pm-tl-cand em { margin-left: 4px; font-style: normal; font-weight: 600; }
