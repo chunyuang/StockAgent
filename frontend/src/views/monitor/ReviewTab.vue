@@ -144,9 +144,9 @@ const slippageDetailExpanded = ref(false)
 
         <!-- 🌡情绪+💰账户 -->
         <div class="review-section" v-if="dailyReportData?.sentiment_snapshot || dailyReportData?.account">
-          <span v-if="dailyReportData?.sentiment_snapshot" class="section-title title-cyan">🌡 情绪</span>
+          <span v-if="dailyReportData?.sentiment_snapshot" class="section-title title-cyan">🌡 情绪状态</span>
           <span v-if="dailyReportData?.sentiment_snapshot" class="section-detail">{{ dailyReportData.sentiment_snapshot }}</span>
-          <span v-if="dailyReportData?.account" class="section-title title-orange" style="margin-left:8px">💰 账户</span>
+          <span v-if="dailyReportData?.account" class="section-title title-orange" style="margin-left:8px">💰 账户概览</span>
           <span v-if="dailyReportData?.account" class="section-detail">总资产<b>{{ (Number(dailyReportData.account.total_assets || 0) / 10000).toFixed(1) }}</b>万 | 仓位<b>{{ dailyReportData.account.position_ratio || 0 }}%</b></span>
         </div>
 
@@ -170,6 +170,19 @@ const slippageDetailExpanded = ref(false)
               <span v-if="t.sell_reason" class="attr-reason">{{ t.sell_reason }}</span>
             </div>
           </div>
+        </div>
+
+        <!-- 逐笔滑点明细 — 折叠, 底部 -->
+        <div v-if="deviationData?.details?.slippage?.length" class="review-section" style="margin-top:4px">
+          <span class="section-title title-blue" style="cursor:pointer" @click="slippageDetailExpanded = !slippageDetailExpanded">📋 逐笔滑点 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ slippageDetailExpanded ? '▼' : '▶' }}</span></span>
+          <span class="section-detail" v-if="!slippageDetailExpanded"><b>{{ deviationData.details.slippage.length }}</b>笔 | 最大滑点<b :class="Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))) > 0.5 ? 'down' : ''">{{ Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))).toFixed(2) }}%</b></span>
+        </div>
+        <div v-if="slippageDetailExpanded && deviationData?.details?.slippage?.length" class="review-section" style="margin-top:1px">
+          <span class="section-detail">
+            <div v-for="s in deviationData.details.slippage" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
+              {{ s.ts_code }} {{ s.stock_name }} | 信号价¥{{ s.signal_price?.toFixed(2) }}→成交价¥{{ s.filled_price?.toFixed(2) }} | 滑点<b :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'down' : ''">{{ s.slippage_pct?.toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
+            </div>
+          </span>
         </div>
       </template>
 
@@ -256,18 +269,6 @@ const slippageDetailExpanded = ref(false)
           <span class="section-title title-orange">🚨 纪律偏差</span>
           <span class="section-detail">违规笔数<b class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}</b>笔 | 违规交易胜率<b class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</b> | 影响幅度<b class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</b><span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></span>
         </div>
-        <!-- 逐笔滑点明细 — 折叠 -->
-        <div v-if="deviationData.details?.slippage?.length" class="review-section" style="margin-top:1px">
-          <span class="section-title title-blue" style="cursor:pointer" @click="slippageDetailExpanded = !slippageDetailExpanded">📋 逐笔滑点 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ slippageDetailExpanded ? '▼' : '▶' }}</span></span>
-          <span class="section-detail" v-if="!slippageDetailExpanded"><b>{{ deviationData.details.slippage.length }}</b>笔 | 最大滑点<b :class="Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))) > 0.5 ? 'down' : ''">{{ Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))).toFixed(2) }}%</b></span>
-        </div>
-        <div v-if="slippageDetailExpanded && deviationData.details?.slippage?.length" class="review-section" style="margin-top:1px">
-          <span class="section-detail">
-            <div v-for="s in deviationData.details.slippage" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
-              {{ s.ts_code }} {{ s.stock_name }} | 信号价¥{{ s.signal_price?.toFixed(2) }}→成交价¥{{ s.filled_price?.toFixed(2) }} | 滑点<b :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'down' : ''">{{ s.slippage_pct?.toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
-            </div>
-          </span>
-        </div>
         <!-- 纪律违规明细 -->
         <div v-if="deviationData.details?.discipline?.length" class="review-section" style="margin-top:1px">
           <span class="section-detail">
@@ -321,7 +322,7 @@ const slippageDetailExpanded = ref(false)
 
       <!-- 📊实盘vs回测偏差 -->
       <div v-if="(liveBacktestDiff?.length || 0)" class="review-section" style="margin-top:4px">
-        <span class="section-title title-purple">📊 实盘vs回测偏差</span>
+        <span class="section-title title-purple">📊 回测偏差</span>
         <span class="section-detail">
           <template v-for="c in liveBacktestDiff" :key="c.strategy">
             <span>{{ strategyCN(c.strategy) }}: 实盘<b>{{ c.live_trades || 0 }}</b>笔胜率<b>{{ c.live_win_rate || 0 }}%</b> | 回测胜率<b>{{ c.bt_win_rate || 0 }}%</b> | 偏差<b :class="Math.abs((c.live_win_rate || 0) - (c.bt_win_rate || 0)) > 15 ? 'down' : 'up'">{{ ((Number(c.live_win_rate) || 0) - (Number(c.bt_win_rate) || 0)).toFixed(1) }}%</b></span>
@@ -329,7 +330,7 @@ const slippageDetailExpanded = ref(false)
         </span>
       </div>
       <div v-else class="review-section" style="margin-top:4px">
-        <span class="section-title title-purple">📊 实盘vs回测偏差</span>
+        <span class="section-title title-purple">📊 回测偏差</span>
         <span class="section-detail ir-dim">暂无数据 <ElButton size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="font-size:10px;padding:0 6px;height:20px;margin-left:4px">▶️运行回测</ElButton></span>
       </div>
 
@@ -404,8 +405,8 @@ const slippageDetailExpanded = ref(false)
 /* 分区块 */
 .review-section { padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
 
-/* 分区标题 — 内联,大粗字+颜色左边框 */
-.section-title { font-size: 13px; font-weight: 800; color: var(--text-primary); line-height: 1.4; padding: 1px 6px; border-left: 3px solid var(--el-color-primary); white-space: nowrap; flex-shrink: 0; }
+/* 分区标题 — 内联,大粗字+颜色左边框, 等宽对齐 */
+.section-title { font-size: 13px; font-weight: 800; color: var(--text-primary); line-height: 1.4; padding: 1px 6px; border-left: 3px solid var(--el-color-primary); white-space: nowrap; flex-shrink: 0; min-width: 96px; display: inline-block; text-align: left; }
 .title-red { border-left-color: #e6363a; color: #e6363a; }
 .title-green { border-left-color: #18a058; color: #18a058; }
 .title-orange { border-left-color: #e6a23c; color: #e6a23c; }
