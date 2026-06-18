@@ -142,7 +142,15 @@ class DaemonWatchdogMixin:
 
         优先通过Redis命令委托子进程执行(daemon模式下scanner在子进程中)。
         如果非daemon模式(无Redis命令通道), 回退到直接操作broker。
+        
+        v2.9.98: 增加交易时间检查, 非交易时间禁止减仓
         """
+        # 【v2.9.98】非交易时间禁止紧急减仓
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_in_trading():
+            logger.warning("[DAEMON] 非交易时间跳过紧急减仓")
+            return
+
         # 【v2.9.84修复】daemon模式下应通过Redis命令委托子进程执行
         # 子进程拥有最新的broker状态, 主进程直接操作可能导致状态不一致
         if await self._try_delegate_emergency_reduce():

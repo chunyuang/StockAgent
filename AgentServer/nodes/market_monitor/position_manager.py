@@ -884,7 +884,14 @@ class PositionManager:
         v2.9.12: try/except保护
         v2.9.19: 提取_post_sell_cleanup
         v2.9.71: trace_id贯穿
+        v2.9.98: 增加交易时间检查
         """
+        # 【v2.9.98】非交易时间禁止卖出
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_in_trading():
+            logger.warning(f"[RISK_SELL] 非交易时间跳过卖出: {pos.ts_code} {reason}")
+            return
+        
         import uuid
         scanner = self._scanner
         if pos.available_qty <= 0:
@@ -927,10 +934,17 @@ class PositionManager:
         _sell_all_positions(停止清仓)和_execute_force_empty(强制空仓)的公共实现。
         使用available_qty(T+1合规), 单票异常不中断。
         v2.9.71: 每笔卖出带trace_id。
+        v2.9.98: 增加交易时间检查
 
         Returns:
             (sold, failed) 成功/失败数
         """
+        # 【v2.9.98】非交易时间禁止清仓
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_in_trading():
+            logger.warning(f"[LIQUIDATE] 非交易时间跳过清仓: {reason}")
+            return 0, 0
+        
         import uuid
         scanner = self._scanner
         if not scanner._broker:
