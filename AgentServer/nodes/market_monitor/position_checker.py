@@ -622,6 +622,20 @@ class PositionChecker:
     async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy") -> List[Tuple]:
         """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法, v2.9.72:trace_id】"""
         import uuid
+        from nodes.market_monitor.market_phase import MarketPhase
+
+        # 【v2.9.98修复】非交易时间禁止卖出(盘后止损卖出是BUG)
+        # 允许的时段: 交易时间(09:30-15:00) + 盘后5分钟结算(15:00-15:05)
+        phase = MarketPhase.classify()
+        if phase in (MarketPhase.AFTER_CLOSE, MarketPhase.OFF_HOURS, MarketPhase.DEEP_NIGHT, MarketPhase.WEEKEND, MarketPhase.PREMARKET):
+            blocked = len(to_sell)
+            if blocked > 0:
+                logger.warning(
+                    f"[{source.upper()}] 非交易时间({phase})跳过{blocked}笔卖出: "
+                    f"{', '.join(p.ts_code for p, _, _, _ in to_sell[:5])}{'...' if blocked > 5 else ''}"
+                )
+            return to_sell  # 返回未执行的列表
+
         for pos, reason, force_price, risk in to_sell:
             if pos.available_qty <= 0:
                 continue

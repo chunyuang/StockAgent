@@ -757,7 +757,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         
         v2.9.41: 移除冗余的broker/positions检查(PM内部已处理), 
         scanner只负责调用PM和执行卖出结果。
+        
+        v2.9.98: 增加交易时间检查(risk_loop在AFTER_CLOSE仍可能被API触发的scan_once唤醒)
         """
+        # 【v2.9.98】非连续竞价时段不执行止损卖出
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_in_trading():
+            return
+
         # 【v2.9.22:跌停恢复重试pending_sells】
         self._retry_pending_sells(realtime_data)
         
