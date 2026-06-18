@@ -720,6 +720,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                     "limit_down_count": sum(1 for p in pcts if p <= -9.9),
                     "avg_pct_chg": round(sum(pcts) / len(pcts), 2) if pcts else 0,
                 },
+                "force_empty_confirm": dict(getattr(self, "_premarket_force_empty_state", {}) or {}),
                 "funnel": {
                     "total_scanned": len(realtime_data),
                     "strategy_candidates": len(strategy_candidates),
@@ -928,6 +929,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             logger.info(f"[FILTER] {layer}: {detail}")
         await self._save_scan_traces(result)
 
+        # 竞价强制空仓确认: 09:20后累计确认, 09:25后最终确认, 09:30后可立即执行pending
+        self._update_premarket_force_empty_state(result, realtime_data)
+        if self._should_execute_pending_force_empty():
+            reason = self._premarket_force_empty_state.get("reason") or result.force_empty_reason or "竞价弱市确认"
+            await self._execute_force_empty(reason)
+            self._premarket_force_empty_state["pending"] = False
+            return []
+
         # 强制空仓 → 清所有持仓
         if result.action == "empty":
             if not self._can_execute_force_empty_now():
@@ -1062,22 +1071,78 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         return [s.to_candidate() for s in signals]
 
     def _can_execute_force_empty_now(self) -> bool:
-        """强制空仓执行时间门禁。
+        """强制空仓执行时间门禁: 只有连续竞价阶段才允许真实清仓。"""
+        try:
+            from nodes.market_monitor.market_phase import MarketPhase
+            return MarketPhase.is_continuous_auction()
+        except Exception as e:
+            logger.warning(f"[FILTER] 强制空仓时间校验异常, 为安全禁止执行: {e}")
+            return False
 
-        盘前/集合竞价阶段的涨跌停统计不完整, 只能记录风险, 不能真实清仓；
-        午休/盘后也不能成交。早盘强制空仓至少等到 09:35 后, 给开盘市场宽度留出确认时间。
+    def _update_premarket_force_empty_state(self, result, realtime_data: Dict = None) -> None:
+        """竞价阶段累计强制空仓确认, 供09:30开盘后立即执行。
+
+        09:15-09:20只观察；09:20-09:25累计确认；09:25-09:30做最终确认。
+        出现全市场样本数过少或涨跌停统计剧烈跳变时标记异常, 不把本轮计入有效确认。
         """
         try:
             from datetime import datetime
-            from nodes.market_monitor.market_phase import MarketPhase
-            if not MarketPhase.is_continuous_auction():
-                return False
-            ct = datetime.now().strftime("%H:%M")
-            if "09:30" <= ct < "09:35":
-                return False
-            return True
+            ct = datetime.now().strftime("%H:%M:%S")
+            if not ("09:15:00" <= ct < "09:30:00"):
+                return
+            state = self._premarket_force_empty_state
+            realtime_data = realtime_data or {}
+            pcts = [float(v.get("pct_chg", v.get("auction_pct", 0)) or 0) for v in realtime_data.values() if isinstance(v, dict)]
+            limit_up = sum(1 for p in pcts if p >= 9.9)
+            limit_down = sum(1 for p in pcts if p <= -9.9)
+            total = len(pcts)
+            anomalies = []
+            if total < 3000:
+                anomalies.append(f"样本数不足({total})")
+            last_total = state.get("last_total_stocks")
+            last_up = state.get("last_limit_up")
+            last_down = state.get("last_limit_down")
+            if last_total and total and abs(total - last_total) / max(last_total, 1) > 0.25:
+                anomalies.append(f"样本数跳变({last_total}→{total})")
+            if last_up is not None and abs(limit_up - last_up) >= 30:
+                anomalies.append(f"涨停数跳变({last_up}→{limit_up})")
+            if last_down is not None and abs(limit_down - last_down) >= 20:
+                anomalies.append(f"跌停数跳变({last_down}→{limit_down})")
+            state["last_total_stocks"] = total
+            state["last_limit_up"] = limit_up
+            state["last_limit_down"] = limit_down
+            state["scan_count"] = int(state.get("scan_count", 0)) + 1
+            triggered = getattr(result, "action", "") == "empty"
+            valid = total >= 3000 and not anomalies
+            if valid:
+                state["valid_scan_count"] = int(state.get("valid_scan_count", 0)) + 1
+            if anomalies:
+                state.setdefault("anomalies", []).extend(anomalies)
+            item = {"time": ct, "limit_up_count": limit_up, "limit_down_count": limit_down,
+                    "total_stocks": total, "triggered": triggered, "valid": valid,
+                    "reason": getattr(result, "force_empty_reason", ""), "anomalies": anomalies}
+            state.setdefault("history", []).append(item)
+            state["history"] = state.get("history", [])[-20:]
+            if "09:20:00" <= ct < "09:30:00" and triggered and valid:
+                state["confirm_count"] = int(state.get("confirm_count", 0)) + 1
+                state["reason"] = getattr(result, "force_empty_reason", "") or state.get("reason", "")
+                if "09:25:00" <= ct < "09:30:00":
+                    state["final_confirm_count"] = int(state.get("final_confirm_count", 0)) + 1
+                if state.get("confirm_count", 0) >= 2 and state.get("final_confirm_count", 0) >= 1:
+                    state["pending"] = True
+            if state.get("pending"):
+                logger.warning(f"[FILTER] 竞价强制空仓待执行: {state.get('reason')} 确认{state.get('confirm_count')}次/最终{state.get('final_confirm_count')}次")
         except Exception as e:
-            logger.warning(f"[FILTER] 强制空仓时间校验异常, 为安全禁止执行: {e}")
+            logger.debug(f"[FILTER] 更新竞价强制空仓确认状态失败: {e}")
+
+    def _should_execute_pending_force_empty(self) -> bool:
+        """09:30后如竞价阶段已充分确认弱市, 立即执行pending强制空仓。"""
+        try:
+            if not self._premarket_force_empty_state.get("pending"):
+                return False
+            from nodes.market_monitor.market_phase import MarketPhase
+            return MarketPhase.is_continuous_auction()
+        except Exception:
             return False
 
     async def _execute_force_empty(self, reason: str) -> None:
