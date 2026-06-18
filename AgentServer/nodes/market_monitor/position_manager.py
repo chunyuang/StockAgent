@@ -834,8 +834,21 @@ class PositionManager:
         """风控线程执行卖出列表【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
 
         逐个执行PositionManager返回的to_sell列表, 超时/失败时记录到pending_sells。
+        
+        v2.9.98: 增加交易时间检查, 非交易时间不执行卖出
         """
         import asyncio
+        from nodes.market_monitor.market_phase import MarketPhase
+        
+        # 【v2.9.98】非交易时间不执行
+        if not MarketPhase.is_in_trading():
+            if to_sell:
+                logger.warning(
+                    f"[RISK_THREAD] 非交易时间跳过{len(to_sell)}笔卖出: "
+                    f"{', '.join(p.ts_code for p, _, _, _ in to_sell[:5])}"
+                )
+            return
+        
         scanner = self._scanner
         for pos, reason, price, risk in to_sell:
             if scanner._loop and not scanner._loop.is_closed():
