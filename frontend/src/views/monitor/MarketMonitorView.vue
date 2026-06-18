@@ -100,6 +100,16 @@ const fmtCompactDate = (d?: string) => {
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
 const visibleSignals = computed(() => filteredSignals.value)
+const signalFilterOptions = computed(() => {
+  const base = [{ k: 'all', l: '全部' }]
+  const order = ['halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao', 'anomaly']
+  const labels: Record<string, string> = { anomaly: '异动' }
+  return base.concat(order.map(k => ({ k, l: labels[k] || String(strategyMeta[k]?.cn || k) })))
+})
+const signalFilterHelp = computed(() => {
+  if (!signals.value.length) return '当前没有未过期活跃信号；扫描追踪里通过过的记录可能已经成交、过期、被执行拦截或只是历史扫描候选。'
+  return '活跃信号=当前内存中未过期/留存的信号；顶部按钮是策略筛选，不代表只有这些策略在运行。'
+})
 function toggleDateSection() {
   if (leftRailCollapsed.value) leftRailCollapsed.value = false
   dateSectionCollapsed.value = !dateSectionCollapsed.value
@@ -321,7 +331,8 @@ function formatTradeDateTime(rec: any): string {
 
       <!-- 右列: 信号+行情 -->
       <div class="mm-right signals-right">
-        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><ElTag v-for="f in signalFilterOptions" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="signal-help">{{ signalFilterHelp }}</div>
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
           <div v-for="sig in visibleSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
@@ -622,6 +633,8 @@ function formatTradeDateTime(rec: any): string {
 
 /* 【v2.9.97h-v8】一级标题 - 加粗+下划线增强层级 */
 .st { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: 4px; }
+.signal-filter-bar { display:inline-flex; flex-wrap:wrap; gap:2px; margin-left:6px; }
+.signal-help { margin: -4px 0 8px; padding: 5px 7px; border-radius: 6px; background: var(--bg-muted); color: var(--text-tertiary); font-size: 11px; line-height: 1.35; }
 
 .compact-st { justify-content: space-between; margin-bottom: 6px; white-space: nowrap; }
 .compact-pill { margin-left: auto; padding: 1px 6px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
