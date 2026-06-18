@@ -728,6 +728,16 @@ class SimulatedBroker:
             ts_code, stock_name, side, quantity, price, order_type, strategy, reason, source)
         order.decision_trace = decision_trace or {}
 
+        # 【v2.9.97h-v9】交易时间硬保护: 非连续竞价时段禁止直接撮合成交
+        # 09:25-09:30 集合竞价数据可用于预警/候选, 但不能被模拟 broker 直接标记 filled；午休同理。
+        try:
+            from nodes.market_monitor.market_phase import MarketPhase
+            if not MarketPhase.is_continuous_auction():
+                return self._reject_order(order, "非连续竞价时间，禁止自动成交")
+        except Exception as e:
+            logger.warning(f"[BROKER] 交易时间校验异常, 为安全拒单: {e}")
+            return self._reject_order(order, "交易时间校验失败，禁止自动成交")
+
         # 前置检查
         reject_reason = self._validate_prechecks(ts_code, quantity)
         if reject_reason is not None:

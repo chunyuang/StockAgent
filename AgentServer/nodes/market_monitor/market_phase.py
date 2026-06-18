@@ -26,6 +26,8 @@ class MarketPhase:
 
     # 交易时段集合(含早盘/午休/午盘/尾盘)
     TRADING_PHASES = {MORNING, LUNCH, AFTERNOON, LATE_TRADING}
+    # 可成交连续竞价时段(不含竞价/午休/盘后)
+    CONTINUOUS_AUCTION_PHASES = {MORNING, AFTERNOON, LATE_TRADING}
     # 可开仓时段(尾盘禁止新开仓)
     OPEN_ALLOWED_PHASES = {MORNING, AFTERNOON}
     # 活跃交易(不含午休)
@@ -88,3 +90,13 @@ class MarketPhase:
         """
         p = phase or MarketPhase.classify()
         return p in MarketPhase.TRADING_PHASES
+
+    @staticmethod
+    def is_continuous_auction(phase: str = None) -> bool:
+        """当前是否处于可真实成交的连续竞价时段。
+
+        只允许 09:30-11:30、13:00-15:00 直接撮合成交；
+        09:25-09:30 集合竞价、午休、盘后均不能被模拟 broker 直接标记 filled。
+        """
+        p = phase or MarketPhase.classify()
+        return p in MarketPhase.CONTINUOUS_AUCTION_PHASES

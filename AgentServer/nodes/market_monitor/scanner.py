@@ -930,6 +930,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
 
         # 强制空仓 → 清所有持仓
         if result.action == "empty":
+            if not self._can_execute_force_empty_now():
+                logger.warning(
+                    f"[FILTER] ⚠️ 强制空仓仅记录不执行: {result.force_empty_reason} "
+                    f"(竞价/非连续竞价阶段数据不完整, 等待开盘后确认)"
+                )
+                return []
             await self._execute_force_empty(result.force_empty_reason)
             return []
 
@@ -1054,6 +1060,25 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     def _signals_to_candidates(self, signals: List[ScanSignal]) -> List[Dict]:
         """将ScanSignal列表转换为filter_pipeline候选格式【v2.9.35:委托给ScanSignal.to_candidate】"""
         return [s.to_candidate() for s in signals]
+
+    def _can_execute_force_empty_now(self) -> bool:
+        """强制空仓执行时间门禁。
+
+        盘前/集合竞价阶段的涨跌停统计不完整, 只能记录风险, 不能真实清仓；
+        午休/盘后也不能成交。早盘强制空仓至少等到 09:35 后, 给开盘市场宽度留出确认时间。
+        """
+        try:
+            from datetime import datetime
+            from nodes.market_monitor.market_phase import MarketPhase
+            if not MarketPhase.is_continuous_auction():
+                return False
+            ct = datetime.now().strftime("%H:%M")
+            if "09:30" <= ct < "09:35":
+                return False
+            return True
+        except Exception as e:
+            logger.warning(f"[FILTER] 强制空仓时间校验异常, 为安全禁止执行: {e}")
+            return False
 
     async def _execute_force_empty(self, reason: str) -> None:
         """强制空仓: 卖出所有持仓+启动冷却期【v2.9.92w:与回测对齐】"""
