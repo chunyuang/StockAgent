@@ -100,15 +100,20 @@ const fmtCompactDate = (d?: string) => {
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
 const visibleSignals = computed(() => filteredSignals.value)
-const signalFilterOptions = computed(() => {
-  const base = [{ k: 'all', l: '全部' }]
-  const order = ['halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao', 'anomaly']
-  const labels: Record<string, string> = { anomaly: '异动' }
-  return base.concat(order.map(k => ({ k, l: labels[k] || String(strategyMeta[k]?.cn || k) })))
-})
+const signalFilterOptions = computed(() => [
+  { k: 'all', l: '全部', title: '显示所有当前活跃信号' },
+  { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号' },
+  { k: 'first_limit_up', l: '首板打板', title: '首板涨停封板强的打板信号' },
+  { k: 'limit_up_open', l: '涨停开板', title: '涨停炸板/开板后的回封观察信号' },
+  { k: 'dragon_head', l: '龙头低吸', title: '连板龙头回调低吸信号' },
+  { k: 'limit_down_qiao', l: '跌停翘板', title: '跌停撬板反弹信号' },
+  { k: 'anomaly', l: '异动', title: '异动聚合：急速拉升、涨停炸板、强势涨停' },
+])
 const signalFilterHelp = computed(() => {
-  if (!signals.value.length) return '当前没有未过期活跃信号；扫描追踪里通过过的记录可能已经成交、过期、被执行拦截或只是历史扫描候选。'
-  return '活跃信号=当前内存中未过期/留存的信号；顶部按钮是策略筛选，不代表只有这些策略在运行。'
+  const base = '活跃信号：当前仍有效、可关注/可操作的实时信号；历史扫描结果请看「扫描追踪」，这里的数量不等于今日全部扫描通过数。'
+  const anomaly = '异动=急速拉升/涨停炸板/强势涨停。'
+  if (!signals.value.length) return `${base} 当前无活跃信号，可能是信号已过期、已成交、被拦截、被后续扫描覆盖，或已进入历史记录。${anomaly}`
+  return `${base} 顶部按钮按买入策略筛选当前活跃信号。${anomaly}`
 })
 function toggleDateSection() {
   if (leftRailCollapsed.value) leftRailCollapsed.value = false
@@ -331,7 +336,7 @@ function formatTradeDateTime(rec: any): string {
 
       <!-- 右列: 信号+行情 -->
       <div class="mm-right signals-right">
-        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><ElTag v-for="f in signalFilterOptions" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><ElTag v-for="f in signalFilterOptions" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" :title="f.title" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
         <div class="signal-help">{{ signalFilterHelp }}</div>
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
