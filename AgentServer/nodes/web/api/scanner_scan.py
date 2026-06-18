@@ -1240,20 +1240,29 @@ async def get_premarket_timeline(date: str = None, mode: str = "production", inc
                     "final_status": c.get("final_status"),
                 })
             seen_times.add(scan_time)
+            l4 = _layer_brief(summary, "L4_premarket")
+            l5 = _layer_brief(summary, "L5_auction")
+            l6 = _layer_brief(summary, "L6_strategy")
+            strategy_hits = l4.get("output") or total
+            final_passed = passed or l6.get("output") or 0
             items.append({
                 "scan_id": str(doc.get("_id")),
                 "scan_time": scan_time,
                 "time": t,
                 "is_debug": doc.get("is_debug", False),
                 "session": doc.get("session") or ("trading" if not doc.get("is_debug") else "off_session"),
+                "source_label": "筛选链路",
                 "total_candidates": total,
-                "passed": passed,
-                "rejected": rejected,
-                "layers": {
-                    "L4_premarket": _layer_brief(summary, "L4_premarket"),
-                    "L5_auction": _layer_brief(summary, "L5_auction"),
-                    "L6_strategy": _layer_brief(summary, "L6_strategy"),
+                "passed": final_passed,
+                "rejected": max(strategy_hits - final_passed, 0),
+                "display_funnel": {
+                    "market_samples": l4.get("input") or 0,
+                    "strategy_hits": strategy_hits,
+                    "auction_passed": l5.get("output") or strategy_hits,
+                    "strategy_passed": l6.get("output") or final_passed,
+                    "final_passed": final_passed,
                 },
+                "layers": {"L4_premarket": l4, "L5_auction": l5, "L6_strategy": l6},
                 "sentiment": _parse_premarket_sentiment_from_trace(doc),
                 "top_candidates": top_candidates,
             })
@@ -1272,20 +1281,31 @@ async def get_premarket_timeline(date: str = None, mode: str = "production", inc
             ms = snap.get("market_snapshot") or {}
             fn = snap.get("funnel") or {}
             cands = snap.get("candidates") or []
+            market_samples = fn.get("total_scanned", ms.get("total_stocks", 0)) or 0
+            strategy_hits = fn.get("strategy_candidates", 0) or 0
+            final_passed = fn.get("after_pipeline", 0) or 0
             items.append({
                 "scan_id": str(snap.get("_id")),
                 "scan_time": scan_time,
                 "time": t,
                 "is_debug": False,
                 "session": "premarket",
+                "source_label": "竞价快照",
                 "note": snap.get("note", ""),
-                "total_candidates": fn.get("total_scanned", ms.get("total_stocks", 0)),
-                "passed": fn.get("after_pipeline", 0),
-                "rejected": max((fn.get("strategy_candidates", 0) or 0) - (fn.get("after_pipeline", 0) or 0), 0),
+                "total_candidates": strategy_hits,
+                "passed": final_passed,
+                "rejected": max(strategy_hits - final_passed, 0),
+                "display_funnel": {
+                    "market_samples": market_samples,
+                    "strategy_hits": strategy_hits,
+                    "auction_passed": strategy_hits,
+                    "strategy_passed": final_passed,
+                    "final_passed": final_passed,
+                },
                 "layers": {
-                    "L4_premarket": {"input": fn.get("total_scanned", 0), "output": fn.get("strategy_candidates", 0), "rejected": 0},
-                    "L5_auction": {"input": fn.get("strategy_candidates", 0), "output": fn.get("strategy_candidates", 0), "rejected": 0},
-                    "L6_strategy": {"input": fn.get("strategy_candidates", 0), "output": fn.get("after_pipeline", 0), "rejected": max((fn.get("strategy_candidates", 0) or 0) - (fn.get("after_pipeline", 0) or 0), 0)},
+                    "L4_premarket": {"input": market_samples, "output": strategy_hits, "rejected": 0},
+                    "L5_auction": {"input": strategy_hits, "output": strategy_hits, "rejected": 0},
+                    "L6_strategy": {"input": strategy_hits, "output": final_passed, "rejected": max(strategy_hits - final_passed, 0)},
                 },
                 "sentiment": {},
                 "market_snapshot": ms,
@@ -1293,7 +1313,24 @@ async def get_premarket_timeline(date: str = None, mode: str = "production", inc
                 "top_candidates": cands[:8],
             })
         items.sort(key=lambda x: x.get("scan_time") or "")
-        return _sanitize({"success": True, "data": {"items": items[:limit], "count": len(items[:limit]), "date": date_str, "mode": data_mode}})
+        # 同一秒可能同时写 scan_traces 和 premarket_snapshots；合并为一张卡片，避免前端重复难读。
+        merged = {}
+        for item in items:
+            key = item.get("time") or item.get("scan_time")
+            prev = merged.get(key)
+            if not prev:
+                merged[key] = item
+                continue
+            # 优先保留含市场快照/风控证据的竞价快照，同时补上筛选链路候选。
+            rich, other = (item, prev) if item.get("market_snapshot") else (prev, item)
+            if not rich.get("sentiment") and other.get("sentiment"):
+                rich["sentiment"] = other.get("sentiment")
+            if not rich.get("top_candidates") and other.get("top_candidates"):
+                rich["top_candidates"] = other.get("top_candidates")
+            rich["source_label"] = "竞价快照+筛选链路"
+            merged[key] = rich
+        deduped = sorted(merged.values(), key=lambda x: x.get("scan_time") or "")[:limit]
+        return _sanitize({"success": True, "data": {"items": deduped, "count": len(deduped), "date": date_str, "mode": data_mode}})
     except Exception as e:
         return {"success": False, "message": str(e), "data": {"items": [], "count": 0}}
 
