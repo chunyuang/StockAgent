@@ -1261,7 +1261,7 @@ async def get_premarket_timeline(date: str = None, mode: str = "production", inc
                 break
         # 额外合并 premarket_snapshots：即使本轮无策略候选，也能展示“空快照/异常快照”。
         async for snap in db["premarket_snapshots"].find(
-            {"trade_date": trade_date_query}, {"_id": 1, "scan_time": 1, "market_snapshot": 1, "funnel": 1, "candidates": 1, "note": 1}
+            {"trade_date": trade_date_query}, {"_id": 1, "scan_time": 1, "market_snapshot": 1, "funnel": 1, "candidates": 1, "note": 1, "force_empty_confirm": 1}
         ).sort("scan_time", 1).limit(fetch_limit):
             scan_time = str(snap.get("scan_time") or "")
             if scan_time in seen_times:
@@ -1289,6 +1289,7 @@ async def get_premarket_timeline(date: str = None, mode: str = "production", inc
                 },
                 "sentiment": {},
                 "market_snapshot": ms,
+                "force_empty_confirm": snap.get("force_empty_confirm") or {},
                 "top_candidates": cands[:8],
             })
         items.sort(key=lambda x: x.get("scan_time") or "")
@@ -1671,6 +1672,7 @@ async def get_premarket_status(date: str = None):
             "historical_hit_rate": historical_hit_rate,
             "limit_pools": await _build_limit_pools(scanner),
             "position_gaps": _build_position_gaps(scanner),
+            "force_empty_confirm": getattr(scanner, "_premarket_force_empty_state", {}) or {},
         }
         data["analysis"] = _build_premarket_analysis(
             data["market_snapshot"], data["sentiment"], data["limit_pools"],

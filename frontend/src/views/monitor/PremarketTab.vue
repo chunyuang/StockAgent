@@ -20,7 +20,7 @@ const {
   premarketAnalysis, premarketBlockedReasons, premarketFunnel,
   premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
   premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
-  auctionTopGainers, premarketTimeline, premarketTimelineLoading,
+  auctionTopGainers, premarketTimeline, premarketTimelineLoading, premarketForceEmptyConfirm,
   dryRun, strategyCN, strategyMeta,
   fetchPremarketData, quickBuy,
 } = m
@@ -32,6 +32,13 @@ const executedCount = computed(() =>
 const blockedCount = computed(() =>
   (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'blocked' || c.signal_status === 'skipped').length
 )
+const forceEmptyAnomalies = computed(() => (premarketForceEmptyConfirm.value?.anomalies || []).slice(-4))
+const forceEmptyStatusText = computed(() => {
+  const s = premarketForceEmptyConfirm.value || {}
+  if (s.pending) return `待开盘清仓 · 确认${s.confirm_count || 0}次/最终${s.final_confirm_count || 0}次`
+  if (s.confirm_count) return `观察中 · 确认${s.confirm_count || 0}次/最终${s.final_confirm_count || 0}次`
+  return `扫描${s.scan_count || 0}次 · 有效${s.valid_scan_count || 0}次`
+})
 
 // 手动触发盘前扫描
 const premarketScanRunning = ref(false)
@@ -129,6 +136,26 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 竞价强制空仓确认 -->
+      <div class="pm-force-empty-panel" :class="{ pending: premarketForceEmptyConfirm?.pending, warn: forceEmptyAnomalies.length }">
+        <div class="pm-fe-head">
+          <b>🛡️ 竞价强制空仓确认</b>
+          <ElTag size="small" :type="premarketForceEmptyConfirm?.pending ? 'danger' : forceEmptyAnomalies.length ? 'warning' : 'info'">
+            {{ forceEmptyStatusText }}
+          </ElTag>
+        </div>
+        <div class="pm-fe-body">
+          <span>09:15-09:20观察</span>
+          <span>09:20后累计确认</span>
+          <span>09:25后最终确认</span>
+          <span>09:30后如确认充分立即卖出</span>
+        </div>
+        <div v-if="premarketForceEmptyConfirm?.reason" class="pm-fe-reason">触发原因：{{ premarketForceEmptyConfirm.reason }}</div>
+        <div v-if="forceEmptyAnomalies.length" class="pm-fe-alert">
+          ⚠️ 竞价数据异常：{{ forceEmptyAnomalies.join('；') }}
+        </div>
+      </div>
+
       <!-- 竞价变化时间线 -->
       <div class="pm-auction-timeline">
         <div class="pm-tl-head">
@@ -149,6 +176,9 @@ onMounted(() => {
                 <span class="warn">淘汰 <b>{{ snap.rejected || 0 }}</b></span>
                 <span>情绪 <b>{{ snap.sentiment?.phase_name || '-' }}</b><sub>{{ snap.sentiment?.score ?? '-' }}分</sub></span>
                 <span>仓位 <b>{{ ((Number(snap.sentiment?.position_ratio) || 0) * 100).toFixed(0) }}%</b></span>
+                <span v-if="snap.market_snapshot">涨停/跌停 <b class="up">{{ snap.market_snapshot.limit_up_count || 0 }}</b>/<b class="down">{{ snap.market_snapshot.limit_down_count || 0 }}</b></span>
+                <span v-if="snap.force_empty_confirm?.pending" class="down">待清仓</span>
+                <span v-if="snap.force_empty_confirm?.anomalies?.length" class="warn">数据异常</span>
               </div>
               <div class="pm-tl-layers">
                 <span>L4 {{ snap.layers?.L4_premarket?.input || 0 }}→{{ snap.layers?.L4_premarket?.output || 0 }}</span>
@@ -558,6 +588,14 @@ onMounted(() => {
 
 .pm-empty-hint { font-size: 11px; color: var(--text-tertiary); }
 
+.pm-force-empty-panel { margin: 10px 0 12px; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 10px; }
+.pm-force-empty-panel.pending { border-color: var(--stock-up); background: var(--stock-up-bg); }
+.pm-force-empty-panel.warn { border-color: var(--el-color-warning); }
+.pm-fe-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pm-fe-body { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.pm-fe-body span { padding: 2px 7px; border-radius: 999px; background: var(--bg-muted); }
+.pm-fe-reason { margin-top: 8px; font-size: 12px; color: var(--text-primary); }
+.pm-fe-alert { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--warning-bg, rgba(230,162,60,.12)); color: var(--el-color-warning); font-size: 12px; }
 .pm-auction-timeline { margin: 10px 0 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 10px; padding: 10px; }
 .pm-tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .pm-tl-hint { font-size: 11px; color: var(--text-tertiary); }

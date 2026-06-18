@@ -38,6 +38,7 @@ export function usePremarketMonitor() {
   const auctionTopGainers = ref<any[]>([])
   const premarketTimeline = ref<any[]>([])
   const premarketTimelineLoading = ref(false)
+  const premarketForceEmptyConfirm = ref<any>({})
 
   // ==================== API ====================
   async function fetchPremarketData() {
@@ -87,6 +88,7 @@ export function usePremarketMonitor() {
         premarketLimitPools.value = p.data.limit_pools || null
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
+        premarketForceEmptyConfirm.value = p.data.force_empty_confirm || {}
         await fetchPremarketTimeline()
 
         // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
@@ -163,7 +165,7 @@ export function usePremarketMonitor() {
     premarketAnalysis, premarketBlockedReasons, premarketFunnel,
     premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
     premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
-    auctionTopGainers, premarketTimeline, premarketTimelineLoading,
+    auctionTopGainers, premarketTimeline, premarketTimelineLoading, premarketForceEmptyConfirm,
     // 方法
     fetchPremarketData, fetchPremarketTimeline, isNonTradingHours,
   }
