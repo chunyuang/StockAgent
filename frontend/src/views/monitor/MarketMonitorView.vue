@@ -73,10 +73,11 @@ const {
   wsStatus, wsIsConnected, wsRetryCount,
   stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
   openEditDialog, factorLabel,
-  // scanTrace/layerDebug/signalStatus/formatLayerTrace/formatDecisionDetail
-  // are accessed by ScanTraceTab via inject; not needed in this template
+  // scanTrace/layerDebug/signalStatus/formatDecisionDetail
+  // are accessed by ScanTraceTab via inject; active signal trace uses formatLayerTrace locally
   // compareVisible/compareData passed as ReviewTab props
   compareVisible, compareData,
+  formatLayerTrace,
   openScanTrace,
   reviewDate, reviewHero, reviewForward,
   backtestRunning, liveBacktestDiff, executionQuality,
@@ -87,6 +88,9 @@ const {
 const dateSectionCollapsed = ref(true)
 const leftRailCollapsed = ref(false)
 const expandedPositions = ref<Record<string, boolean>>({})
+const activeSignalTrace = ref<any>(null)
+const activeSignalTraceKey = computed(() => activeSignalTrace.value ? `${activeSignalTrace.value.ts_code || ''}:${activeSignalTrace.value.strategy || ''}` : '')
+const activeSignalTraceLines = computed(() => formatLayerTrace(activeSignalTrace.value?.layer_trace || {}))
 const leftPanelExpanded = computed(() => !leftRailCollapsed.value && (!dateSectionCollapsed.value || !stratSectionCollapsed.value))
 const anyPositionExpanded = computed(() => Object.values(expandedPositions.value).some(Boolean))
 const fmtCompactDate = (d?: string) => {
@@ -102,6 +106,14 @@ function toggleDateSection() {
 }
 function togglePositionCard(code: string) {
   expandedPositions.value[code] = !expandedPositions.value[code]
+}
+function toggleActiveSignalTrace(sig: any) {
+  const key = `${sig?.ts_code || ''}:${sig?.strategy || ''}`
+  if (activeSignalTraceKey.value === key) {
+    activeSignalTrace.value = null
+    return
+  }
+  activeSignalTrace.value = sig
 }
 function displayStrategyName(raw: any, fallback?: any) {
   const v = raw || fallback
@@ -313,7 +325,7 @@ function formatTradeDateTime(rec: any): string {
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
           <div v-for="sig in visibleSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
           </div>
         </div>
       </div>
@@ -509,7 +521,24 @@ function formatTradeDateTime(rec: any): string {
 
     <OpsTab v-if="activeTab === 'ops'" />
 
-    <!-- 【V50.1】信号链路追踪面板(可收起, 跨Tab) -->
+    <!-- 活跃信号自身链路追踪：从右侧信号行直接展开，重复点击同一信号可收起 -->
+    <div v-if="activeSignalTrace" class="active-signal-trace">
+      <div class="ast-head">
+        <div>
+          <b>信号链路追踪</b>
+          <span>{{ activeSignalTrace.ts_code }} {{ activeSignalTrace.stock_name || '' }} · {{ displayStrategyName(activeSignalTrace.strategy, activeSignalTrace.strategy_name) }}</span>
+        </div>
+        <ElButton size="small" plain @click="activeSignalTrace = null">关闭</ElButton>
+      </div>
+      <div v-if="activeSignalTraceLines.length" class="ast-lines">
+        <div v-for="(line, i) in activeSignalTraceLines" :key="i" class="ast-line">{{ line }}</div>
+      </div>
+      <div v-else class="ast-empty">
+        这条信号目前没有返回逐层链路明细。它仍然是后端真实活跃信号；可查看交易详情或扫描追踪页的最近扫描记录。
+      </div>
+    </div>
+
+    <!-- 【V50.1】全局扫描链路追踪面板(可收起, 跨Tab) -->
     <div v-if="signalTraceVisible" class="mm-trace">
       <SignalTracePanel @close="signalTraceVisible = false" />
     </div>
@@ -887,6 +916,13 @@ mm-tab-content {
 .emergency-btn.active { animation: emergency-pulse 1.5s infinite; }
 .emergency-btn.disabled { opacity: 0.4; cursor: not-allowed; animation: none; }
 .emergency-btn:not(.disabled):hover { background: var(--stock-up); color: var(--text-inverse); }
+.active-signal-trace { flex-shrink: 0; margin: 8px 10px 0; padding: 10px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-elevated); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.ast-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+.ast-head b { color: var(--text-primary); margin-right: 8px; }
+.ast-head span { color: var(--text-secondary); font-size: 12px; }
+.ast-lines { display: grid; gap: 4px; }
+.ast-line { padding: 5px 8px; border-radius: 5px; background: var(--bg-muted); color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.ast-empty { padding: 10px; border-radius: 6px; background: var(--warning-bg, rgba(230,162,60,0.12)); color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 .mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
 /* 【v2.9.97h-v8】信号行紧凑布局，禁止wrap，按钮 hover 才出 */
 .sig-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin-bottom: 3px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); font-size: 12px; flex-wrap: nowrap; min-width: 0; overflow: hidden; transition: all 0.15s; }
