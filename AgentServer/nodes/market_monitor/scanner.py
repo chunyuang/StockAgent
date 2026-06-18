@@ -929,12 +929,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             logger.info(f"[FILTER] {layer}: {detail}")
         await self._save_scan_traces(result)
 
-        # 竞价强制空仓确认: 09:20后累计确认, 09:25后最终确认, 09:30后可立即执行pending
+        # 竞价风险状态机: 数据质量+多轮确认+风险分级+开盘执行+新开仓联动
         self._update_premarket_force_empty_state(result, realtime_data)
         if self._should_execute_pending_force_empty():
-            reason = self._premarket_force_empty_state.get("reason") or result.force_empty_reason or "竞价弱市确认"
-            await self._execute_force_empty(reason)
-            self._premarket_force_empty_state["pending"] = False
+            await self._execute_pending_premarket_risk_action()
             return []
 
         # 强制空仓 → 清所有持仓
@@ -1079,23 +1077,110 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             logger.warning(f"[FILTER] 强制空仓时间校验异常, 为安全禁止执行: {e}")
             return False
 
-    def _update_premarket_force_empty_state(self, result, realtime_data: Dict = None) -> None:
-        """竞价阶段累计强制空仓确认, 供09:30开盘后立即执行。
+    def _build_premarket_position_risk(self, realtime_data: Dict = None) -> Dict[str, Any]:
+        """构建竞价持仓风险预览: 用于风险评分、Level2降仓和TAB证据链。"""
+        realtime_data = realtime_data or {}
+        positions = self._broker.get_positions() if self._broker else []
+        items = []
+        pcts = []
+        weak_codes = []
+        near_limit_down = 0
+        red_count = 0
+        for p in positions:
+            q = realtime_data.get(p.ts_code, {}) if isinstance(realtime_data, dict) else {}
+            pct = q.get("pct_chg", q.get("auction_pct", p.profit_pct)) if isinstance(q, dict) else p.profit_pct
+            try:
+                pct = float(pct or 0)
+            except Exception:
+                pct = 0.0
+            pcts.append(pct)
+            if pct >= 0:
+                red_count += 1
+            if pct <= -8.5:
+                near_limit_down += 1
+            if pct <= -3 or p.profit_pct <= -5:
+                weak_codes.append(p.ts_code)
+            items.append({
+                "ts_code": p.ts_code, "stock_name": p.stock_name, "strategy": p.strategy,
+                "available_qty": p.available_qty, "profit_pct": round(float(p.profit_pct or 0), 2),
+                "auction_pct_chg": round(pct, 2), "weak": pct <= -3 or p.profit_pct <= -5,
+                "near_limit_down": pct <= -8.5,
+            })
+        avg_pct = round(sum(pcts) / len(pcts), 2) if pcts else 0
+        return {
+            "count": len(items), "red_count": red_count, "weak_count": len(weak_codes),
+            "near_limit_down_count": near_limit_down, "avg_pct_chg": avg_pct,
+            "weak_codes": weak_codes, "items": items[:20],
+        }
 
-        09:15-09:20只观察；09:20-09:25累计确认；09:25-09:30做最终确认。
-        出现全市场样本数过少或涨跌停统计剧烈跳变时标记异常, 不把本轮计入有效确认。
+    def _score_premarket_risk(self, metrics: Dict[str, Any], result, position_risk: Dict[str, Any]) -> Tuple[int, str, List[str], str]:
+        """竞价风险评分: 市场宽度+短线情绪+持仓风险+原L1强制空仓信号。"""
+        score = 0
+        reasons = []
+        total = max(int(metrics.get("total_stocks") or 0), 1)
+        down_ratio = metrics.get("down_count", 0) / total
+        avg_pct = float(metrics.get("avg_pct_chg") or 0)
+        limit_up = int(metrics.get("limit_up_count") or 0)
+        limit_down = int(metrics.get("limit_down_count") or 0)
+        if down_ratio >= 0.70:
+            score += 20; reasons.append(f"下跌占比{down_ratio:.0%}")
+        if avg_pct <= -1.0:
+            score += 15; reasons.append(f"竞价均幅{avg_pct:.2f}%")
+        if limit_up <= 10:
+            score += 10; reasons.append(f"涨停仅{limit_up}只")
+        if limit_down >= 10:
+            score += 20; reasons.append(f"跌停{limit_down}只")
+        if limit_down >= 30:
+            score += 20; reasons.append("跌停扩散")
+        sentiment = self._filter_pipeline.get_sentiment_info() if self._filter_pipeline else {}
+        sentiment_score = float(sentiment.get("score", sentiment.get("emotion_score", 50)) or 50)
+        if sentiment_score < 35:
+            score += 20; reasons.append(f"情绪{sentiment_score:.0f}分")
+        if getattr(result, "action", "") == "empty":
+            score += 25; reasons.append(getattr(result, "force_empty_reason", "L1强制空仓信号") or "L1强制空仓信号")
+        if position_risk.get("avg_pct_chg", 0) <= -4:
+            score += 20; reasons.append(f"持仓均跌{position_risk.get('avg_pct_chg')}%")
+        if position_risk.get("near_limit_down_count", 0) > 0:
+            score += 15; reasons.append(f"持仓近跌停{position_risk.get('near_limit_down_count')}只")
+        if position_risk.get("weak_count", 0) >= max(1, position_risk.get("count", 0) // 2):
+            score += 10; reasons.append(f"弱势持仓{position_risk.get('weak_count')}只")
+        if score >= 80:
+            return score, "L3", reasons, "force_empty"
+        if score >= 55:
+            return score, "L2", reasons, "reduce_position"
+        if score >= 35:
+            return score, "L1", reasons, "warn"
+        return score, "L0", reasons, "none"
+
+    def _update_premarket_force_empty_state(self, result, realtime_data: Dict = None) -> None:
+        """竞价风控状态机: 数据质量层+多轮确认层+风险分级层+执行层。
+
+        09:15-09:20观察；09:20-09:25累计确认；09:25-09:30最终确认；
+        09:30后如Level2/Level3 pending则执行降仓/清仓，并联动新开仓控制。
         """
         try:
-            from datetime import datetime
             ct = datetime.now().strftime("%H:%M:%S")
             if not ("09:15:00" <= ct < "09:30:00"):
                 return
             state = self._premarket_force_empty_state
             realtime_data = realtime_data or {}
-            pcts = [float(v.get("pct_chg", v.get("auction_pct", 0)) or 0) for v in realtime_data.values() if isinstance(v, dict)]
+            pcts = []
+            for v in realtime_data.values():
+                if isinstance(v, dict):
+                    try:
+                        pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
+                    except Exception:
+                        pass
+            total = len(pcts)
+            up_count = sum(1 for p in pcts if p > 0)
+            down_count = sum(1 for p in pcts if p < 0)
             limit_up = sum(1 for p in pcts if p >= 9.9)
             limit_down = sum(1 for p in pcts if p <= -9.9)
-            total = len(pcts)
+            avg_pct = round(sum(pcts) / total, 2) if total else 0
+            metrics = {
+                "total_stocks": total, "up_count": up_count, "down_count": down_count,
+                "limit_up_count": limit_up, "limit_down_count": limit_down, "avg_pct_chg": avg_pct,
+            }
             anomalies = []
             if total < 3000:
                 anomalies.append(f"样本数不足({total})")
@@ -1108,35 +1193,60 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                 anomalies.append(f"涨停数跳变({last_up}→{limit_up})")
             if last_down is not None and abs(limit_down - last_down) >= 20:
                 anomalies.append(f"跌停数跳变({last_down}→{limit_down})")
-            state["last_total_stocks"] = total
-            state["last_limit_up"] = limit_up
-            state["last_limit_down"] = limit_down
+            state.update({"last_total_stocks": total, "last_limit_up": limit_up, "last_limit_down": limit_down})
             state["scan_count"] = int(state.get("scan_count", 0)) + 1
-            triggered = getattr(result, "action", "") == "empty"
             valid = total >= 3000 and not anomalies
             if valid:
                 state["valid_scan_count"] = int(state.get("valid_scan_count", 0)) + 1
+            else:
+                state["data_quality"] = "bad"
             if anomalies:
                 state.setdefault("anomalies", []).extend(anomalies)
-            item = {"time": ct, "limit_up_count": limit_up, "limit_down_count": limit_down,
-                    "total_stocks": total, "triggered": triggered, "valid": valid,
-                    "reason": getattr(result, "force_empty_reason", ""), "anomalies": anomalies}
+                state["anomalies"] = state.get("anomalies", [])[-20:]
+
+            position_risk = self._build_premarket_position_risk(realtime_data)
+            score, level, reasons, action = self._score_premarket_risk(metrics, result, position_risk)
+            item = {
+                "time": ct, **metrics, "valid": valid, "anomalies": anomalies,
+                "risk_score": score, "risk_level": level, "action": action,
+                "triggered": action in ("force_empty", "reduce_position"), "reasons": reasons[:6],
+                "position_risk": position_risk,
+            }
             state.setdefault("history", []).append(item)
-            state["history"] = state.get("history", [])[-20:]
-            if "09:20:00" <= ct < "09:30:00" and triggered and valid:
+            state["history"] = state.get("history", [])[-30:]
+            state.update({
+                "risk_score": score, "risk_level": level, "action": action,
+                "reasons": reasons[:8], "reason": "；".join(reasons[:4]),
+                "market_snapshot": metrics, "position_risk": position_risk,
+                "data_quality": "ok" if valid else "bad",
+            })
+
+            if "09:20:00" <= ct < "09:30:00" and valid and level in ("L2", "L3"):
                 state["confirm_count"] = int(state.get("confirm_count", 0)) + 1
-                state["reason"] = getattr(result, "force_empty_reason", "") or state.get("reason", "")
                 if "09:25:00" <= ct < "09:30:00":
                     state["final_confirm_count"] = int(state.get("final_confirm_count", 0)) + 1
                 if state.get("confirm_count", 0) >= 2 and state.get("final_confirm_count", 0) >= 1:
                     state["pending"] = True
+                    state["pending_action"] = "force_empty" if level == "L3" else "reduce_position"
+                    cap = 0.0 if level == "L3" else 0.3
+                    self._cooldown_info = {
+                        "trigger_date": datetime.now().strftime("%Y%m%d"),
+                        "cooldown_days": 1 if level == "L2" else 2,
+                        "position_cap": cap,
+                        "reason": f"竞价风险{level}: {state.get('reason')}",
+                        "risk_level": level,
+                        "block_new_buys": True,
+                    }
             if state.get("pending"):
-                logger.warning(f"[FILTER] 竞价强制空仓待执行: {state.get('reason')} 确认{state.get('confirm_count')}次/最终{state.get('final_confirm_count')}次")
+                logger.warning(
+                    f"[FILTER] 竞价风险待执行: level={state.get('risk_level')} score={state.get('risk_score')} "
+                    f"action={state.get('pending_action')} 确认{state.get('confirm_count')}次/最终{state.get('final_confirm_count')}次"
+                )
         except Exception as e:
-            logger.debug(f"[FILTER] 更新竞价强制空仓确认状态失败: {e}")
+            logger.debug(f"[FILTER] 更新竞价风险状态失败: {e}")
 
     def _should_execute_pending_force_empty(self) -> bool:
-        """09:30后如竞价阶段已充分确认弱市, 立即执行pending强制空仓。"""
+        """09:30后如竞价阶段已充分确认Level2/Level3风险, 立即执行pending动作。"""
         try:
             if not self._premarket_force_empty_state.get("pending"):
                 return False
@@ -1144,6 +1254,56 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             return MarketPhase.is_continuous_auction()
         except Exception:
             return False
+
+    async def _execute_pending_premarket_risk_action(self) -> None:
+        """执行竞价pending动作: Level3全清；Level2卖弱势持仓并禁开仓。"""
+        state = self._premarket_force_empty_state
+        action = state.get("pending_action") or state.get("action")
+        reason = state.get("reason") or "竞价风险确认"
+        if action == "force_empty":
+            await self._execute_force_empty(f"竞价L3强制空仓: {reason}")
+        elif action == "reduce_position":
+            weak_codes = set((state.get("position_risk") or {}).get("weak_codes") or [])
+            if weak_codes:
+                await self._liquidate_positions_by_codes(weak_codes, reason=f"竞价L2降仓: {reason}", source="auction_reduce")
+            self._cooldown_info = {
+                "trigger_date": datetime.now().strftime("%Y%m%d"),
+                "cooldown_days": 1,
+                "position_cap": 0.3,
+                "reason": f"竞价L2防守: {reason}",
+                "risk_level": "L2",
+                "block_new_buys": True,
+            }
+        state["executed"] = True
+        state["executed_at"] = datetime.now().isoformat()
+        state["pending"] = False
+
+    async def _liquidate_positions_by_codes(self, codes, reason: str, source: str) -> Tuple[int, int]:
+        """按代码卖出弱势持仓, 用于竞价Level2降仓。"""
+        if not self._broker:
+            return 0, 0
+        sold = failed = 0
+        for p in self._broker.get_positions():
+            if p.ts_code not in codes or p.available_qty <= 0:
+                continue
+            try:
+                self._broker.update_realtime(p.ts_code, p.current_price)
+                ok, msg, order = self._broker.place_order(
+                    ts_code=p.ts_code, stock_name=p.stock_name, side="sell",
+                    quantity=p.available_qty, price=p.current_price, order_type="market",
+                    strategy=p.strategy, reason=reason,
+                )
+                if ok:
+                    sold += 1
+                    await self._post_sell_cleanup(p, reason, order, p.available_qty, order.profit_pct, order.profit_amount, source=source)
+                else:
+                    failed += 1
+                    logger.warning(f"[{source.upper()}] {p.ts_code} 卖出失败: {msg}")
+            except Exception as e:
+                failed += 1
+                logger.error(f"[{source.upper()}] {p.ts_code} 异常: {e}")
+        logger.warning(f"[{source.upper()}] Level2降仓完成: 卖出{sold}只, 失败{failed}只")
+        return sold, failed
 
     async def _execute_force_empty(self, reason: str) -> None:
         """强制空仓: 卖出所有持仓+启动冷却期【v2.9.92w:与回测对齐】"""

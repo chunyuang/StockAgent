@@ -48,8 +48,11 @@ class ScannerInitializer:
         self._force_empty_cooldown_until: str = ""
         # 【v2.9.97h-v10】竞价强制空仓确认状态: 09:20后累计确认, 09:30开盘后立即执行pending
         self._premarket_force_empty_state: Dict[str, Any] = {
-            "pending": False, "reason": "", "confirm_count": 0, "final_confirm_count": 0,
-            "scan_count": 0, "valid_scan_count": 0, "anomalies": [], "history": [],
+            "pending": False, "pending_action": "none", "executed": False, "executed_at": "",
+            "reason": "", "reasons": [], "risk_level": "L0", "risk_score": 0, "action": "none",
+            "confirm_count": 0, "final_confirm_count": 0,
+            "scan_count": 0, "valid_scan_count": 0, "data_quality": "unknown",
+            "market_snapshot": {}, "position_risk": {}, "anomalies": [], "history": [],
             "last_limit_up": None, "last_limit_down": None, "last_total_stocks": None,
         }
         self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")

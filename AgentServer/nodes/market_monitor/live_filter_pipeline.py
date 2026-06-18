@@ -335,6 +335,12 @@ class LiveFilterPipeline:
                 now = datetime.now()
                 days_since = (now - trigger).days
                 if days_since <= cooldown_days * 2:  # 粗略：日历天≤2×交易日
+                    if cooldown_info.get('block_new_buys') or cooldown_cap <= 0:
+                        result.filtered_candidates = []
+                        result.position_ratio = 0
+                        result.layer_details["L8_cooldown"] = f"🧊 {cooldown_info.get('risk_level','风险')}防守期: 禁止新开仓({cooldown_info.get('reason','')})"
+                        logger.warning(f"[FILTER] 🧊 竞价风险防守期: 禁止新开仓 reason={cooldown_info.get('reason','')}")
+                        return result
                     final_ratio = min(final_ratio, cooldown_cap)
                     result.layer_details["L8_cooldown"] = f"🧊 冷却期({days_since}天/{cooldown_days}交易日) 仓位上限{cooldown_cap*100:.0f}%"
                     logger.info(f"[FILTER] 🧊 冷却期生效: 仓位上限{cooldown_cap*100:.0f}%")

@@ -35,10 +35,14 @@ const blockedCount = computed(() =>
 const forceEmptyAnomalies = computed(() => (premarketForceEmptyConfirm.value?.anomalies || []).slice(-4))
 const forceEmptyStatusText = computed(() => {
   const s = premarketForceEmptyConfirm.value || {}
-  if (s.pending) return `待开盘清仓 · 确认${s.confirm_count || 0}次/最终${s.final_confirm_count || 0}次`
-  if (s.confirm_count) return `观察中 · 确认${s.confirm_count || 0}次/最终${s.final_confirm_count || 0}次`
+  const action = s.pending_action === 'reduce_position' ? '降仓' : s.pending_action === 'force_empty' ? '清仓' : '观察'
+  if (s.pending) return `待开盘${action} · ${s.risk_level || 'L0'} ${s.risk_score || 0}分`
+  if (s.confirm_count) return `${s.risk_level || 'L0'}观察 · 确认${s.confirm_count || 0}次/最终${s.final_confirm_count || 0}次`
   return `扫描${s.scan_count || 0}次 · 有效${s.valid_scan_count || 0}次`
 })
+const forceEmptyReasons = computed(() => premarketForceEmptyConfirm.value?.reasons || [])
+const forceEmptyMarket = computed(() => premarketForceEmptyConfirm.value?.market_snapshot || {})
+const forceEmptyPositionRisk = computed(() => premarketForceEmptyConfirm.value?.position_risk || {})
 
 // 手动触发盘前扫描
 const premarketScanRunning = ref(false)
@@ -145,12 +149,24 @@ onMounted(() => {
           </ElTag>
         </div>
         <div class="pm-fe-body">
-          <span>09:15-09:20观察</span>
-          <span>09:20后累计确认</span>
-          <span>09:25后最终确认</span>
-          <span>09:30后如确认充分立即卖出</span>
+          <span>风险 {{ premarketForceEmptyConfirm?.risk_level || 'L0' }} / {{ premarketForceEmptyConfirm?.risk_score || 0 }}分</span>
+          <span>扫描 {{ premarketForceEmptyConfirm?.scan_count || 0 }} 次</span>
+          <span>有效 {{ premarketForceEmptyConfirm?.valid_scan_count || 0 }} 次</span>
+          <span>确认 {{ premarketForceEmptyConfirm?.confirm_count || 0 }} / 最终 {{ premarketForceEmptyConfirm?.final_confirm_count || 0 }}</span>
+          <span>动作 {{ premarketForceEmptyConfirm?.pending_action === 'force_empty' ? '强制空仓' : premarketForceEmptyConfirm?.pending_action === 'reduce_position' ? '降仓禁开' : '观察' }}</span>
+          <span>质量 {{ premarketForceEmptyConfirm?.data_quality || 'unknown' }}</span>
         </div>
-        <div v-if="premarketForceEmptyConfirm?.reason" class="pm-fe-reason">触发原因：{{ premarketForceEmptyConfirm.reason }}</div>
+        <div class="pm-fe-evidence">
+          <div><b>市场宽度</b> 涨/跌 {{ forceEmptyMarket.up_count || 0 }}/{{ forceEmptyMarket.down_count || 0 }}，涨停/跌停 {{ forceEmptyMarket.limit_up_count || 0 }}/{{ forceEmptyMarket.limit_down_count || 0 }}，均幅 {{ Number(forceEmptyMarket.avg_pct_chg || 0).toFixed(2) }}%</div>
+          <div><b>持仓风险</b> 持仓{{ forceEmptyPositionRisk.count || 0 }}只，弱势{{ forceEmptyPositionRisk.weak_count || 0 }}只，近跌停{{ forceEmptyPositionRisk.near_limit_down_count || 0 }}只，竞价均幅{{ Number(forceEmptyPositionRisk.avg_pct_chg || 0).toFixed(2) }}%</div>
+        </div>
+        <div v-if="forceEmptyReasons.length" class="pm-fe-reason">证据：{{ forceEmptyReasons.join('；') }}</div>
+        <div v-else-if="premarketForceEmptyConfirm?.reason" class="pm-fe-reason">触发原因：{{ premarketForceEmptyConfirm.reason }}</div>
+        <div v-if="forceEmptyPositionRisk.items?.length" class="pm-fe-positions">
+          <span v-for="p in forceEmptyPositionRisk.items.slice(0, 8)" :key="p.ts_code" :class="p.weak ? 'down' : p.auction_pct_chg >= 0 ? 'up' : ''">
+            {{ p.stock_name || p.ts_code?.slice(0,6) }} {{ Number(p.auction_pct_chg || 0).toFixed(1) }}%
+          </span>
+        </div>
         <div v-if="forceEmptyAnomalies.length" class="pm-fe-alert">
           ⚠️ 竞价数据异常：{{ forceEmptyAnomalies.join('；') }}
         </div>
@@ -177,7 +193,8 @@ onMounted(() => {
                 <span>情绪 <b>{{ snap.sentiment?.phase_name || '-' }}</b><sub>{{ snap.sentiment?.score ?? '-' }}分</sub></span>
                 <span>仓位 <b>{{ ((Number(snap.sentiment?.position_ratio) || 0) * 100).toFixed(0) }}%</b></span>
                 <span v-if="snap.market_snapshot">涨停/跌停 <b class="up">{{ snap.market_snapshot.limit_up_count || 0 }}</b>/<b class="down">{{ snap.market_snapshot.limit_down_count || 0 }}</b></span>
-                <span v-if="snap.force_empty_confirm?.pending" class="down">待清仓</span>
+                <span v-if="snap.force_empty_confirm?.risk_level">风险 <b>{{ snap.force_empty_confirm.risk_level }}</b><sub>{{ snap.force_empty_confirm.risk_score || 0 }}分</sub></span>
+                <span v-if="snap.force_empty_confirm?.pending" class="down">{{ snap.force_empty_confirm.pending_action === 'reduce_position' ? '待降仓' : '待清仓' }}</span>
                 <span v-if="snap.force_empty_confirm?.anomalies?.length" class="warn">数据异常</span>
               </div>
               <div class="pm-tl-layers">
@@ -594,7 +611,11 @@ onMounted(() => {
 .pm-fe-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .pm-fe-body { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .pm-fe-body span { padding: 2px 7px; border-radius: 999px; background: var(--bg-muted); }
+.pm-fe-evidence { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.pm-fe-evidence div { padding: 6px 8px; border-radius: 6px; background: var(--bg-muted); }
 .pm-fe-reason { margin-top: 8px; font-size: 12px; color: var(--text-primary); }
+.pm-fe-positions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.pm-fe-positions span { padding: 2px 7px; border-radius: 999px; background: var(--bg-muted); }
 .pm-fe-alert { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--warning-bg, rgba(230,162,60,.12)); color: var(--el-color-warning); font-size: 12px; }
 .pm-auction-timeline { margin: 10px 0 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 10px; padding: 10px; }
 .pm-tl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
