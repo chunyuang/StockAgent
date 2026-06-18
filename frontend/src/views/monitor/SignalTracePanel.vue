@@ -7,12 +7,13 @@ import { formatTradeDate } from '@/utils/scanner'
         <el-select v-model="selectedTraceId" placeholder="选择扫描记录" size="small" @change="loadTraceDetail">
           <el-option
             v-for="t in traceList"
-            :key="t._id"
+            :key="traceId(t)"
             :label="`${formatTradeDate(t.trade_date)} ${t.scan_time?.substring(11,19) || ''}`"
-            :value="t._id"
+            :value="traceId(t)"
           />
         </el-select>
         <el-button size="small" @click="loadTraces" :loading="loading">刷新</el-button>
+        <el-button size="small" plain @click="emit('close')">关闭</el-button>
       </div>
     </div>
 
@@ -129,6 +130,8 @@ import { formatTradeDate } from '@/utils/scanner'
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/client'
 
+const emit = defineEmits(['close'])
+
 const loading = ref(false)
 const traceList = ref([])
 const currentTrace = ref(null)
@@ -164,8 +167,12 @@ const maxPassed = computed(() => {
   return max || 1
 })
 
+function traceId(t) {
+  return t?.scan_id || t?._id || ''
+}
+
 function formatLayer(key) {
-  const found = pipelineLayers.find(l => l.key === key)
+  const found = pipelineLayers.value.find(l => l.key === key)
   return found ? found.label : key
 }
 
@@ -192,7 +199,7 @@ async function loadTraces() {
     if (data?.success) {
       traceList.value = data.data || []
       if (traceList.value.length > 0 && !selectedTraceId.value) {
-        selectedTraceId.value = traceList.value[0]._id
+        selectedTraceId.value = traceId(traceList.value[0])
         await loadTraceDetail()
       }
     }
