@@ -418,7 +418,7 @@ export function useScannerMonitor() {
     // 情绪 (子composable)
     ...sentiment,
     // 自动交易 (子composable)
-    autoTrades: autoTrade.autoTrades, paramCompare: autoTrade.paramCompare,
+    autoTrades: autoTrade.autoTrades, opsDate: autoTrade.opsDate, paramCompare: autoTrade.paramCompare,
     paramCompareLoading: autoTrade.paramCompareLoading,
     scanConfig: autoTrade.scanConfig, scanConfigLoading: autoTrade.scanConfigLoading,
     pnlOption: autoTrade.pnlOption,
