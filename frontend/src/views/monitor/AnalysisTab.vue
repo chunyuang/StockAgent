@@ -62,6 +62,15 @@ const monthly = computed(() => analysisData.value?.monthly || [])
 const dailyDetail = computed(() => analysisData.value?.daily_detail || [])
 const positions = computed(() => (analysisData.value?.positions || []).slice().sort((a: any, b: any) => (a.profit_pct || 0) - (b.profit_pct || 0)))
 const riskMonitor = computed(() => analysisData.value?.risk_monitor || {})
+const stratPerfSummary = computed(() => {
+  const ss = strategies.value
+  if (!ss.length) return ''
+  const totalTrades = ss.reduce((a: number, s: any) => a + (s.trades || 0), 0)
+  const totalProfit = ss.reduce((a: number, s: any) => a + (s.profit || 0), 0)
+  const avgWin = ss.reduce((a: number, s: any) => a + (s.win_rate || 0) * (s.trades || 0), 0) / (totalTrades || 1)
+  const profitSign = totalProfit >= 0 ? '+' : ''
+  return `${ss.length}策略 ${totalTrades}笔 胜率${avgWin.toFixed(0)}% ${profitSign}¥${(totalProfit / 10000).toFixed(1)}万`
+})
 const brokenStopLossCount = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken').length)
 const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: any) => s + r.count, 0) || 1)
 
@@ -168,13 +177,20 @@ async function showDayDetail(date: string) {
 
         <!-- ========== 概览 ========== -->
         <div :class="['section-content', { 'section-hidden': activeSection !== 'overview' }]">
-          <div v-if="strategies.length" class="chart-section">
-            <div class="chart-title">🔄 策略贡献</div>
+          <div class="chart-section">
+            <div class="chart-title collapsible" @click="toggleChart('stratContrib')">🔄 策略贡献 <span class="collapse-summary">{{ strategies.length }}策略 {{ strategies.reduce((a:any,s:any)=>a+s.trades,0) }}笔</span> <span class="collapse-arrow">{{ expandedCharts.stratContrib ? '▲' : '▼' }}</span></div>
+            <template v-if="expandedCharts.stratContrib">
             <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
               <tr v-for="s in strategies" :key="s.strategy" :class="(s.profit || 0) >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ m.strategyCN(s.strategy) || s.strategy }}</td><td>{{ s.trades }}</td><td :class="(s.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (s.win_rate || 0).toFixed(1) }}%</td><td :class="(s.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (s.profit || 0).toLocaleString() }}</td><td :class="(s.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (s.avg_profit_pct || 0).toFixed(2) }}%</td></tr>
             </tbody></table>
+            </template>
           </div>
-          <StrategyPerfBoard />
+          <div class="chart-section">
+            <div class="chart-title collapsible" @click="toggleChart('stratPerf')">📊 策略绩效 <span class="collapse-summary">{{ stratPerfSummary }}</span> <span class="collapse-arrow">{{ expandedCharts.stratPerf ? '▲' : '▼' }}</span></div>
+            <template v-if="expandedCharts.stratPerf">
+            <StrategyPerfBoard />
+            </template>
+          </div>
           <div class="chart-row">
             <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('dailyProfit')">📊 日收益率 <span class="collapse-arrow">{{ expandedCharts.dailyProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.dailyProfit"><VChart v-if="dailyProfitChart" :option="dailyProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
             <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('cumProfit')">📈 累计盈亏 <span class="collapse-arrow">{{ expandedCharts.cumProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.cumProfit"><VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
@@ -319,6 +335,7 @@ async function showDayDetail(date: string) {
 .chart-section { margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
 .chart-title.collapsible { cursor: pointer; user-select: none; &:hover { color: var(--el-color-primary); } }
 .collapse-arrow { font-size: 9px; color: var(--text-tertiary); margin-left: 4px; }
+.collapse-summary { font-size: 10px; color: var(--text-tertiary); margin-left: 6px; font-weight: 400; }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .chart-half { padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
