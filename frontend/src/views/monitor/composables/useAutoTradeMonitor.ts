@@ -25,11 +25,18 @@ interface CoreState {
 
 export function useAutoTradeMonitor(core: CoreState) {
   const autoTrades = ref<any[]>([])
-  const opsDate = ref('')
+  const opsDate = ref(getChinaDate())
   const paramCompare = ref<any>(null)
   const paramCompareLoading = ref(false)
   const scanConfig = ref<any>(null)
   const scanConfigLoading = ref(false)
+
+  /** 获取中国时区的日期字符串 YYYY-MM-DD */
+  function getChinaDate(): string {
+    const now = new Date()
+    const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+    return china.toISOString().slice(0, 10)
+  }
 
   function updatePnlHistory() {
     const pnl = core.totalPnl.value
