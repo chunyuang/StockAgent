@@ -9,6 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 import os
 import json
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
@@ -132,11 +133,19 @@ class PaperTradingEngine:
             logger.error(f"❌ 保存T+1阻塞集失败: {e}")
     
     def _save_accounts(self):
-        """保存账户数据"""
+        """保存账户数据（原子写入：先写临时文件再rename，防崩溃损坏）"""
         try:
             data = {acc_id: asdict(acc) for acc_id, acc in self.accounts.items()}
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # 【V67-P1:原子写入保护】先写临时文件再rename,避免进程崩溃导致数据损坏
+            dir_name = os.path.dirname(self.data_file)
+            fd, tmp_path = tempfile.mkstemp(suffix='.tmp', dir=dir_name)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, self.data_file)  # 原子rename
+            except Exception:
+                os.unlink(tmp_path) if os.path.exists(tmp_path) else None
+                raise
             logger.info("✅ 模拟账户数据已保存")
         except (OSError, TypeError) as e:
             logger.error(f"❌ 保存模拟账户失败: {e}")
@@ -302,7 +311,8 @@ class PaperTradingEngine:
         }
     
     async def close_position(self, account_id: str, ts_code: str, sell_price: float, 
-                           reason: str = "手动平仓", slippage: float = None) -> Dict:
+                           reason: str = "手动平仓", slippage: float = None,
+                           sell_shares: int = None) -> Dict:
         """模拟卖出平仓
         
         完整模拟实盘卖出流程：滑点计算 → 佣金+印花税 → 回款 → 平仓记录
@@ -313,6 +323,7 @@ class PaperTradingEngine:
             sell_price: 卖出申报价格（元）
             reason: 平仓原因，如 '手动平仓'/'止损'/'止盈'/'超期强制'
             slippage: 滑点比例，默认0.2%，超短打板滑点较大，模拟成交价=申报价×(1-滑点)
+            sell_shares: 卖出数量（股），None表示全部卖出。指定数量则支持减仓。
         
         Returns:
             Dict: {success: bool, msg: str, trade_record: dict(仅成功时)}
@@ -360,13 +371,55 @@ class PaperTradingEngine:
             actual_sell_price = sell_price * (1 - _effective_slippage)
         else:
             actual_sell_price = sell_price  # 止盈/止损/跳空止损等不扣滑点
-        total_income = actual_sell_price * target_pos["shares"]
+        
+        # 【V67-P1:支持部分卖出(减仓)】
+        # sell_shares=None: 全部卖出(原有行为); sell_shares<N: 减仓,保留剩余持仓
+        total_shares = target_pos["shares"]
+        actual_sell_shares = sell_shares if sell_shares is not None else total_shares
+        if actual_sell_shares <= 0:
+            return {"success": False, "msg": f"卖出数量必须>0"}
+        if actual_sell_shares > total_shares:
+            return {"success": False, "msg": f"卖出数量{actual_sell_shares}超过持仓{total_shares}"}
+        
+        is_partial = actual_sell_shares < total_shares  # 是否部分卖出(减仓)
+        
+        total_income = actual_sell_price * actual_sell_shares
         commission = max(total_income * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         stamp_tax = total_income * 0.001  # 印花税千1
         net_income = total_income - commission - stamp_tax
         
-        # 平仓
-        trade_record = pos_manager.close_position(ts_code, actual_sell_price, reason=reason)
+        if is_partial:
+            # 部分卖出: 更新持仓而非删除
+            pos_manager_partial = self.position_managers[account_id]
+            pos_obj = pos_manager_partial.positions.get(ts_code)
+            if pos_obj:
+                remaining_shares = total_shares - actual_sell_shares
+                # 更新持仓: shares减少, total_cost按比例减少, avg_cost_price不变
+                cost_per_share = pos_obj.total_cost / total_shares if total_shares > 0 else pos_obj.buy_price
+                pos_obj.shares = remaining_shares
+                pos_obj.total_cost = cost_per_share * remaining_shares
+                pos_manager_partial._save_positions()
+            # 记录部分卖出交易
+            profit = net_income - (target_pos["total_cost"] / total_shares * actual_sell_shares)
+            profit_pct = (actual_sell_price - target_pos["buy_price"]) / target_pos["buy_price"] * 100
+            trade_record = {
+                "ts_code": ts_code,
+                "name": target_pos["name"],
+                "buy_date": target_pos["buy_date"],
+                "sell_date": datetime.now().strftime("%Y%m%d"),
+                "buy_price": target_pos["buy_price"],
+                "sell_price": actual_sell_price,
+                "shares": actual_sell_shares,
+                "profit": profit,
+                "profit_pct": profit_pct,
+                "hold_days": 0,
+                "strategy": target_pos.get("strategy", "未知"),
+                "reason": f"{reason}(减仓{actual_sell_shares}/{total_shares}股)"
+            }
+            pos_manager_partial._add_trade_history(trade_record)
+        else:
+            # 全部卖出: 原有逻辑
+            trade_record = pos_manager.close_position(ts_code, actual_sell_price, reason=reason)
         
         # 增加资金
         account.current_balance += net_income
@@ -375,9 +428,10 @@ class PaperTradingEngine:
         self._update_account_performance(account_id)
         self._save_accounts()
         
+        action_desc = "减仓" if is_partial else "平仓"
         return {
             "success": True,
-            "msg": f"平仓成功：{target_pos['name']}({ts_code}) {target_pos['shares']}股，成交价{actual_sell_price:.2f}元，净收入{net_income:.2f}元",
+            "msg": f"{action_desc}成功：{target_pos['name']}({ts_code}) {actual_sell_shares}股，成交价{actual_sell_price:.2f}元，净收入{net_income:.2f}元",
             "trade_record": trade_record
         }
     
@@ -461,6 +515,11 @@ class PaperTradingEngine:
                             should_sell = True
                             reason = "利润锁定"
                             break
+                        # 【V67-P0:追踪止损盘后克底,与Scanner盘中逻辑对齐】
+                        elif "追踪止损" in a:
+                            should_sell = True
+                            reason = "追踪止损"
+                            break
                 
                 if should_sell:
                     # 【V47修复:止损用止损价/跳空用open,与回测对齐】
@@ -486,6 +545,11 @@ class PaperTradingEngine:
                         if open_p > 0:
                             sell_price = open_p
                         # 否则fallback到close(保守)
+                    # 【V67-P0:追踪止损用close价(与回测对齐,盘后无法用实时价)】
+                    elif pos and reason == "追踪止损":
+                        # 追踪止损: 盘后结算用close价卖出(回测也用close价)
+                        # sell_price已默认close价,无需特殊处理
+                        pass
                     # 【V48:利润保护/利润锁定用close价(默认)】
                     # 无需特殊处理,sell_price已默认close
                     if sell_price > 0:
