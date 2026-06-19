@@ -147,6 +147,7 @@ const pipelineLayerDefs = [
   { key: 'L6_strategy', label: 'L6 策略量能' },
   { key: 'L7_ranking', label: 'L7 综合排序' },
   { key: 'L8_position', label: 'L8 仓位控制' },
+  { key: 'L9_execute', label: 'L9 执行确认' },
 ]
 
 const pipelineLayers = computed(() =>

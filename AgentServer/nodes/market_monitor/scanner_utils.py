@@ -93,13 +93,8 @@ class ScannerUtils:
         mv = round(p.current_price * p.total_qty, 2)
         profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
         
-        strategy_cn = {
-            "halfway_chase": "半路追涨", "first_limit_up": "首板打板",
-            "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
-            "limit_up_open": "涨停开板",
-            "anomaly_surge": "急速拉升", "anomaly_broken": "涨停炸板", "anomaly_strong": "强势涨停",
-            "manual": "手动操作",
-        }.get(p.strategy, p.strategy)
+        # 【v2.9.98g】统一使用_get_strategy_display_name获取策略中文名
+        strategy_cn = ScannerUtils._get_strategy_display_name(p.strategy)
         
         return {
             "ts_code": p.ts_code, "stock_name": p.stock_name,
@@ -562,6 +557,25 @@ class ScannerUtils:
         return f" | 慢步骤: {', '.join(slow_marks)}" if slow_marks else ""
 
     @staticmethod
+    def _calc_stop_loss_status(pos, sl_price, sl_pct: float) -> Tuple[str, str]:
+        """计算止损状态和描述【v2.9.98g从build_position_dict拆分】"""
+        sl_price_v = sl_price if isinstance(sl_price, (int, float)) else 0
+        if pos.current_price <= sl_price_v and sl_price_v > 0:
+            return "broken", f"已破止损 -{sl_pct:.1f}%, 当前 {pos.profit_pct:.1f}%"
+        elif pos.current_price <= sl_price_v * 1.05 and sl_price_v > 0:
+            return "near", f"接近止损价 {sl_price_v:.2f}"
+        return "safe", ""
+
+    @staticmethod
+    def _get_strategy_display_name(strategy: str) -> str:
+        """获取策略显示名【v2.9.98g从build_position_dict+position_to_dict统一】"""
+        try:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+            return STRATEGY_CONFIGS.get(strategy, {}).get("display_name", strategy)
+        except Exception:
+            return strategy
+
+    @staticmethod
     def build_position_dict(pos, scanner, trailing_copy: Dict, risk_levels_copy: Dict) -> Dict:
         """将Broker持仓对象转换为API响应dict【v2.9.31:从get_positions提取】
         
@@ -580,23 +594,9 @@ class ScannerUtils:
         tp_pct = risk.get("take_profit_pct", 0.07) * 100
         mv = round(pos.current_price * pos.total_qty, 2)
         profit_amt = round((pos.current_price - pos.avg_cost) * pos.total_qty, 2)
-        sl_price_v = sl_price if isinstance(sl_price, (int, float)) else 0
-        # 【v2.9.97h-v7】补充stop_loss_status/desc + strategy_name (保持与unified/_build_position_dict一致)
-        if pos.current_price <= sl_price_v and sl_price_v > 0:
-            stop_loss_status = "broken"
-            stop_loss_desc = f"已破止损 -{sl_pct:.1f}%, 当前 {pos.profit_pct:.1f}%"
-        elif pos.current_price <= sl_price_v * 1.05 and sl_price_v > 0:
-            stop_loss_status = "near"
-            stop_loss_desc = f"接近止损价 {sl_price_v:.2f}"
-        else:
-            stop_loss_status = "safe"
-            stop_loss_desc = ""
-        # 获取策略中文名
-        try:
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
-            strategy_name_cn = STRATEGY_CONFIGS.get(pos.strategy, {}).get("display_name", pos.strategy)
-        except Exception:
-            strategy_name_cn = pos.strategy
+        # 【v2.9.98g】拆分止损状态+策略中文名到独立方法
+        stop_loss_status, stop_loss_desc = ScannerUtils._calc_stop_loss_status(pos, sl_price, sl_pct)
+        strategy_name_cn = ScannerUtils._get_strategy_display_name(pos.strategy)
         
         return {
             "ts_code": pos.ts_code,
