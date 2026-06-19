@@ -143,40 +143,16 @@ async function showStockDetail(tsCode: string) {
       <div v-if="loading" class="ana-loading">加载中...</div>
 
       <template v-if="analysisData && !loading">
-        <!-- KPI卡片: 2行4列 -->
-        <div class="kpi-grid">
-          <div :class="['kpi-chip', (kpi.total_profit || 0) >= 0 ? 'kpi-positive' : 'kpi-negative']">
-            <span class="kpi-label">📈 累计盈亏</span>
-            <span class="kpi-value">¥{{ (kpi.total_profit || 0).toLocaleString() }}</span>
-          </div>
-          <div :class="['kpi-chip', (kpi.win_rate || 0) >= 50 ? 'kpi-positive' : 'kpi-negative']">
-            <span class="kpi-label">🎯 胜率</span>
-            <span class="kpi-value">{{ (kpi.win_rate || 0).toFixed(1) }}%</span>
-          </div>
-          <div class="kpi-chip kpi-neutral">
-            <span class="kpi-label">🔢 交易笔数</span>
-            <span class="kpi-value">{{ kpi.total_trades || 0 }}</span>
-          </div>
-          <div :class="['kpi-chip', (kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-positive' : 'kpi-warning']">
-            <span class="kpi-label">⚖️ 盈亏比</span>
-            <span class="kpi-value">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</span>
-          </div>
-          <div class="kpi-chip kpi-warning">
-            <span class="kpi-label">⬇️ 最大回撤</span>
-            <span class="kpi-value">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</span>
-          </div>
-          <div class="kpi-chip kpi-neutral">
-            <span class="kpi-label">📊 均盈亏%</span>
-            <span class="kpi-value" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</span>
-          </div>
-          <div class="kpi-chip kpi-accent">
-            <span class="kpi-label">✅ 均盈利%</span>
-            <span class="kpi-value up">{{ (kpi.avg_win_pct || 0).toFixed(2) }}%</span>
-          </div>
-          <div class="kpi-chip kpi-warning">
-            <span class="kpi-label">❌ 均亏损%</span>
-            <span class="kpi-value down">{{ (kpi.avg_loss_pct || 0).toFixed(2) }}%</span>
-          </div>
+        <!-- KPI指标条 — 单行紧凑, 同复盘风格 -->
+        <div class="metric-strip">
+          <span class="ms">累计盈亏 <b :class="(kpi.total_profit || 0) >= 0 ? 'up' : 'down'">¥{{ (kpi.total_profit || 0).toLocaleString() }}</b></span>
+          <span class="ms">胜率 <b :class="(kpi.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (kpi.win_rate || 0).toFixed(1) }}%</b></span>
+          <span class="ms">交易笔数 <b>{{ kpi.total_trades || 0 }}</b></span>
+          <span class="ms">盈亏比 <b :class="(kpi.profit_loss_ratio || 0) >= 2 ? 'up' : ''">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</b></span>
+          <span class="ms">最大回撤 <b class="down">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</b></span>
+          <span class="ms">均盈亏 <b :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</b></span>
+          <span class="ms">均盈利 <b class="up">{{ (kpi.avg_win_pct || 0).toFixed(2) }}%</b></span>
+          <span class="ms">均亏损 <b class="down">{{ (kpi.avg_loss_pct || 0).toFixed(2) }}%</b></span>
         </div>
 
         <!-- 卖出分布条 -->
@@ -321,10 +297,9 @@ async function showStockDetail(tsCode: string) {
 .ana-loading { padding: 40px 0; text-align: center; color: var(--text-tertiary); }
 .ana-stat { font-size: 10px; color: var(--text-tertiary); font-weight: 400; }
 
-.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
-.kpi-chip { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 8px; border: 1px solid var(--border-default); text-align: center; min-width: 0; transition: box-shadow 0.2s, transform 0.15s; &:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); } }
-.kpi-icon { font-size: 20px; flex-shrink: 0; }
-.kpi-body { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+/* 指标条 — 同复盘风格, 单行紧凑 */
+.metric-strip { display: flex; flex-wrap: wrap; gap: 2px 6px; padding: 2px 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; font-size: 10px; color: var(--text-tertiary); margin-bottom: 8px; }
+.metric-strip .ms b { font-weight: 600; color: var(--text-primary); font-size: 11px; margin-left: 2px; }
 .kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
 .kpi-value { font-size: 16px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .kpi-positive { background: linear-gradient(135deg, rgba(103,194,58,0.08) 0%, rgba(103,194,58,0.02) 100%); border-color: rgba(103,194,58,0.2); .kpi-value { color: var(--stock-down); } }
