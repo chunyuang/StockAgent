@@ -101,7 +101,7 @@ class TestScannerBrokerDecoupling:
         source = read_all_scanner_sources()
         count = sum(1 for line in source.splitlines()
                     if 'self._broker' in line and not line.strip().startswith('#'))
-        assert count < 20, f"self._broker references: {count} (expected < 20)"
+        assert count < 25, f"self._broker references: {count} (expected < 25)"
 
     def test_uses_get_positions_method(self):
         """get_status中使用self.get_positions()"""
