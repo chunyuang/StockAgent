@@ -94,7 +94,9 @@ export function useUnifiedDateBar() {
   
   // 日期选择器单元格染色(给ElDatePicker用)
   function dateCellClass(date: Date): string {
-    const key = date.toISOString().slice(0, 10).replace(/-/g, '')
+    // 【v2.9.98修复】用本地日期组件避免UTC时区偏移
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    const key = `${y}${m}${d}`
     const info = dateAvailability.value[key]
     if (!info) return ''
     if (info.status === 'weekend') return 'date-weekend'
@@ -105,7 +107,8 @@ export function useUnifiedDateBar() {
   // 禁用未来日期(中国时区)
   function disabledDate(date: Date): boolean {
     const chinaToday = getChinaDate()
-    return date.toISOString().slice(0, 10) > chinaToday
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}` > chinaToday
   }
   
   onMounted(() => {
