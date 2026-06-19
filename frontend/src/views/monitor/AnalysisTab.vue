@@ -6,6 +6,7 @@ import { useChartColors } from './useChartColors'
  * 含: 日收益率、累计收益、绩效雷达、盈亏分布、交易占比、卖出原因、月度收益、策略贡献、持仓
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
 import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
 import { api } from '@/api/client'
