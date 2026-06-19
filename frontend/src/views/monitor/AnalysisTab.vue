@@ -23,9 +23,16 @@ const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard
 const m = useScannerMonitorInject()
 const { activeTab } = m
 const loading = ref(false)
-const selectedDate = ref(new Date().toISOString().slice(0, 10))
+const selectedDate = ref(getChinaDate())
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
+
+/** 获取中国时区的日期字符串 YYYY-MM-DD */
+function getChinaDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return china.toISOString().slice(0, 10)
+}
 
 // date managed by UnifiedDateBar
 
@@ -42,7 +49,7 @@ async function fetchAnalysis() {
   finally { loading.value = false }
 }
 
-onMounted(() => { fetchAnalysis() })
+// 仅在Tab激活时自动刷新(不与UnifiedDateBar的change事件重复)
 watch(activeTab, (t) => { if (t === 'analysis') fetchAnalysis() })
 
 const kpi = computed(() => analysisData.value?.kpi || {})
@@ -127,7 +134,7 @@ async function showStockDetail(tsCode: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
+        <UnifiedDateBar @change="(_d: string, _dApi: string) => { selectedDate = _d; fetchAnalysis() }" />
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 

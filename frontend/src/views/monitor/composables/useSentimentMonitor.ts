@@ -11,9 +11,16 @@ import { parseResponse } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
 
+/** 获取中国时区的日期字符串 YYYY-MM-DD */
+function getChinaDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return china.toISOString().slice(0, 10)
+}
+
 export function useSentimentMonitor() {
   const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
-  const sentimentDate = ref(new Date().toISOString().slice(0, 10))
+  const sentimentDate = ref(getChinaDate())
   const hoveredPoint = ref<any>(null)
   // 每个模式独立缓存, 切换时不会清空
   const sentimentCache = ref<Record<string, any[]>>({})

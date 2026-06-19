@@ -16,7 +16,15 @@ const c = useChartColors().value
 const loading = ref(false)
 const kpiData = ref<any>(null)  // KPI/账户资金(仍从/analysis获取)
 const activeSection = ref('overview')
-const selectedDate = ref(new Date().toISOString().slice(0, 10))
+
+/** 获取中国时区的日期字符串 YYYY-MM-DD */
+function getChinaDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return china.toISOString().slice(0, 10)
+}
+
+const selectedDate = ref(getChinaDate())
 // date managed by UnifiedDateBar
 
 // 【v2.9.97d】统一数据层: 持仓从 unified 读取(唯一真相源)

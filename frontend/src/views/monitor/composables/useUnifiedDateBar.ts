@@ -11,16 +11,24 @@ import { api } from '@/api/client'
  * 4. 前/后一天导航
  */
 
+/** 获取中国时区的日期字符串 YYYY-MM-DD */
+function getChinaDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return china.toISOString().slice(0, 10)
+}
+
 export function useUnifiedDateBar() {
   // 当前选中日期 (YYYY-MM-DD 格式, 与ElDatePicker一致)
-  const selectedDate = ref(new Date().toISOString().slice(0, 10))
+  // 使用中国时区初始化, 避免UTC时区问题(凌晨0-8点toISOString返回前一天)
+  const selectedDate = ref(getChinaDate())
   
   // 交易日数据 { '20260616': { status: 'trades'|'no-trades'|'weekend', count: 5, ... } }
   const dateAvailability = ref<Record<string, any>>({})
   const availabilityLoading = ref(false)
   
-  // 今天
-  const today = computed(() => new Date().toISOString().slice(0, 10))
+  // 今天(中国时区)
+  const today = computed(() => getChinaDate())
   const isToday = computed(() => selectedDate.value === today.value)
   
   // 日期转API格式 (YYYYMMDD)
@@ -28,16 +36,17 @@ export function useUnifiedDateBar() {
   
   // 前一天
   function prevDay() {
-    const d = new Date(selectedDate.value)
+    const d = new Date(selectedDate.value + 'T00:00:00')
     d.setDate(d.getDate() - 1)
     selectedDate.value = d.toISOString().slice(0, 10)
   }
   
   // 后一天
   function nextDay() {
-    const d = new Date(selectedDate.value)
+    const d = new Date(selectedDate.value + 'T00:00:00')
     d.setDate(d.getDate() + 1)
-    if (d <= new Date()) {
+    const chinaToday = getChinaDate()
+    if (d.toISOString().slice(0, 10) <= chinaToday) {
       selectedDate.value = d.toISOString().slice(0, 10)
     }
   }
@@ -88,9 +97,10 @@ export function useUnifiedDateBar() {
     return 'date-no-trades'
   }
   
-  // 禁用未来日期
+  // 禁用未来日期(中国时区)
   function disabledDate(date: Date): boolean {
-    return date > new Date()
+    const chinaToday = getChinaDate()
+    return date.toISOString().slice(0, 10) > chinaToday
   }
   
   onMounted(() => {
