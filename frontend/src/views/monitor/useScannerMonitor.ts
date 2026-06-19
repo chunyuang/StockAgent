@@ -186,6 +186,10 @@ export function useScannerMonitor() {
     } catch (e) { console.error('[Tab] error:', e) }
   })
 
+  // 页面初始化时预加载运维数据(避免切tab时出现加载中)
+  autoTrade.fetchScanConfig()
+  autoTrade.fetchAutoTrades()
+
   // ==================== 🌅 盘前竞价 (子composable) ====================
   const premarket = usePremarketMonitor()
 
