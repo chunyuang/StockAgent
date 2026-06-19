@@ -778,7 +778,20 @@ class EmotionCycleManager:
     async def _persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
                                        up_count, down_count, up_down_ratio, data_source, missing_data,
                                        zt_premium=0.0) -> None:
-        """持久化情绪得分到MongoDB"""
+        """持久化情绪得分到MongoDB
+        
+        【v2.9.98h防护】写入前校验: 因子全0时score不可能>22(冰点)
+        如果score与因子不一致,以因子重算,并强制missing_data=True
+        """
+        # 防护: 所有因子=0但score>22 → 数据不一致,强制重算
+        if lu == 0 and ld == 0 and up_count == 0 and down_count == 0 and score > 22:
+            logger.warning(
+                f"[EMOTION] {td_int} 因子全0但score={score}>22, 强制重算为冰点并标记missing_data=True"
+            )
+            score = 22
+            period = "BEARISH"
+            missing_data = True
+            data_source = f"{data_source}(forced_missing)"
         from datetime import datetime as _dt
         await db["sentiment_scores"].update_one(
             {"trade_date": td_int},
