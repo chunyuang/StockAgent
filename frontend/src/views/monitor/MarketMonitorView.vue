@@ -12,17 +12,19 @@ import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorIn
 import { useThemeStore } from '@/stores/theme'
 // 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
-const ReviewTab = defineAsyncComponent(() => import('./ReviewTab.vue'))
-const OpsTab = defineAsyncComponent(() => import('./OpsTab.vue'))
-const PremarketTab = defineAsyncComponent(() => import('./PremarketTab.vue'))
-const SentimentTab = defineAsyncComponent(() => import('./SentimentTab.vue'))
-const HistoryTab = defineAsyncComponent(() => import('./HistoryTab.vue'))
-const AnalysisTab = defineAsyncComponent(() => import('./AnalysisTab.vue'))
-const AccountTab = defineAsyncComponent(() => import('./AccountTab.vue'))
-const ScanTraceTab = defineAsyncComponent(() => import('./ScanTraceTab.vue'))
-const PositionRiskMatrix = defineAsyncComponent(() => import('./PositionRiskMatrix.vue'))
-const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
-const SignalTracePanel = defineAsyncComponent(() => import('./SignalTracePanel.vue'))
+// 【v2.9.98】异步组件统一错误处理: 加载失败时显示错误占位而非白屏
+const asyncOpts = { onError: (err: Error) => console.error('[AsyncComponent] load failed:', err) }
+const ReviewTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ReviewTab.vue') })
+const OpsTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./OpsTab.vue') })
+const PremarketTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PremarketTab.vue') })
+const SentimentTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./SentimentTab.vue') })
+const HistoryTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./HistoryTab.vue') })
+const AnalysisTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AnalysisTab.vue') })
+const AccountTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AccountTab.vue') })
+const ScanTraceTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ScanTraceTab.vue') })
+const PositionRiskMatrix = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PositionRiskMatrix.vue') })
+const MiniKline = defineAsyncComponent({ ...asyncOpts, loader: () => import('./MiniKline.vue') })
+const SignalTracePanel = defineAsyncComponent({ ...asyncOpts, loader: () => import('./SignalTracePanel.vue') })
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 import UnifiedDateBar from '@/components/UnifiedDateBar.vue'
 
