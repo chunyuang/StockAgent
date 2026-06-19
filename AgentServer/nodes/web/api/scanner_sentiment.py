@@ -502,6 +502,30 @@ async def get_market_sentiment_detail(date: str = None):
         except Exception:
             pass
 
+        # 【v2.9.98修复-Issue3a53d130d1bc】增加date和is_stale标记
+        _actual_date = None
+        _is_stale = False
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                _requested_date = int(date) if date else int(datetime.now().strftime("%Y%m%d"))
+                _exact_doc = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": _requested_date})
+                if _exact_doc and not _exact_doc.get("missing_data"):
+                    _actual_date = _requested_date
+                    _is_stale = False
+                elif _exact_doc and _exact_doc.get("missing_data"):
+                    _actual_date = _requested_date
+                    _is_stale = True
+                else:
+                    # 无当日数据，用的是fallback数据
+                    _latest_doc = await mongo_manager.db["sentiment_scores"].find_one(
+                        {"missing_data": {"$ne": True}}, sort=[("trade_date", -1)]
+                    )
+                    _actual_date = _latest_doc.get("trade_date") if _latest_doc else None
+                    _is_stale = True
+        except Exception:
+            pass
+
         # can_open: 与EmotionCycleManager.CAN_OPEN对齐(冰点禁止开仓)
         _can_open = sentiment_period not in ("冰点", "冰点(数据缺失)", "bearish", "BEARISH")
         return _sanitize({"success": True, "data": {
@@ -513,6 +537,9 @@ async def get_market_sentiment_detail(date: str = None):
             "max_continue": max_continue,
             "up_down_ratio": round(up_down_ratio, 3),
             "zt_premium": round(zt_premium, 2),
+            # 【v2.9.98新增-Issue3a53d130d1bc】日期+新鲜度标记
+            "date": _actual_date,
+            "is_stale": _is_stale,
             "ranges": [
                 {"label": "冰点", "min": 0, "max": _chaos_th, "color": "#67c23a"},
                 {"label": "震荡", "min": _chaos_th, "max": _diff_th, "color": "#e6a23c"},
