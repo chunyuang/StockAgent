@@ -244,7 +244,7 @@ const posPie = computed(() => {
                   <span :class="t.action === 'buy' ? 'up' : 'down'" style="font-weight:600">{{ t.action === 'buy' ? '买入' : '卖出' }}</span>
                   <span>{{ t.shares }}股@¥{{ t.price?.toFixed(2) }}</span>
                   <span class="muted">¥{{ (t.amount || 0).toLocaleString() }}</span>
-                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct.toFixed(1) }}%</span>
+                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct?.toFixed(1) }}%</span>
                   <span class="pd-trade-reason">{{ t.reason }}</span>
                 </div>
               </template>

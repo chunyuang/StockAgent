@@ -123,7 +123,7 @@ const closedStats = computed(() => {
   if (!items.length) return null
   const totalProfit = items.reduce((s: number, c: any) => s + (c.profit_amount || 0), 0)
   const wins = items.filter((c: any) => c.profit_pct >= 0).length
-  return { count: items.length, totalProfit, winRate: (wins / items.length * 100).toFixed(0), wins }
+  return { count: items.length, totalProfit, winRate: items.length > 0 ? (wins / items.length * 100).toFixed(0) : '0', wins }
 })
 </script>
 
