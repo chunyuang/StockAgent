@@ -6,6 +6,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
