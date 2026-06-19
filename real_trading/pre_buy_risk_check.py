@@ -396,6 +396,70 @@ class PreBuyRiskChecker:
         
         return True, f"{ts_code}个股风险检查通过，市值{stock_info.get('market_cap', 0)}亿元，20日波动率{stock_info.get('volatility_20d', 0)*100:.1f}%", details
     
+    def _check_position_limits(self, account_id: str, ts_code: str,
+                                 buy_amount: float,
+                                 initial_balance: float = None) -> Tuple[bool, str, Dict]:
+        """检查仓位比例限制
+        
+        验证买入后不会超过:
+        - 单票最大仓位 (max_position_per_stock, 默认35%)
+        - 总仓位上限 (max_total_position, 默认75%)
+        
+        Args:
+            account_id: 账户ID
+            ts_code: 股票代码
+            buy_amount: 买入金额
+            initial_balance: 初始资金
+        
+        Returns:
+            Tuple[bool, str, Dict]: (是否通过, 原因说明, 详细数据)
+        """
+        try:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            max_per_stock = GLOBAL_RISK.get("max_position_per_stock", 0.35)
+            max_total = GLOBAL_RISK.get("max_total_position", 0.75)
+        except ImportError:
+            max_per_stock = 0.35
+            max_total = 0.75
+        
+        total_capital = initial_balance or 1_000_000
+        
+        # 计算当前持仓市值(从trade_history估算,简略版)
+        # 更精确的方式应从PositionManager获取,但风控模块不应依赖交易引擎
+        current_positions_value = 0
+        current_stock_value = 0
+        try:
+            # 尝试从trade_history中估算
+            for t in self.trade_history:
+                if t["account_id"] == account_id and t.get("result") == "pending":
+                    current_positions_value += t.get("buy_amount", 0)
+                    if t.get("ts_code") == ts_code:
+                        current_stock_value += t.get("buy_amount", 0)
+        except Exception:
+            pass
+        
+        # 检查单票仓位
+        stock_position_after = (current_stock_value + buy_amount) / total_capital
+        # 检查总仓位
+        total_position_after = (current_positions_value + buy_amount) / total_capital
+        
+        details = {
+            "current_stock_position_pct": round(current_stock_value / total_capital * 100, 1) if total_capital > 0 else 0,
+            "after_stock_position_pct": round(stock_position_after * 100, 1),
+            "max_per_stock_pct": round(max_per_stock * 100, 1),
+            "current_total_position_pct": round(current_positions_value / total_capital * 100, 1) if total_capital > 0 else 0,
+            "after_total_position_pct": round(total_position_after * 100, 1),
+            "max_total_position_pct": round(max_total * 100, 1),
+        }
+        
+        if stock_position_after > max_per_stock:
+            return False, f"单票仓位超限：买入后{ts_code}仓位{stock_position_after*100:.1f}%，超过上限{max_per_stock*100:.0f}%", details
+        
+        if total_position_after > max_total:
+            return False, f"总仓位超限：买入后总仓位{total_position_after*100:.1f}%，超过上限{max_total*100:.0f}%", details
+        
+        return True, f"仓位检查通过：单票{stock_position_after*100:.1f}%≤{max_per_stock*100:.0f}%，总仓{total_position_after*100:.1f}%≤{max_total*100:.0f}%", details
+    
     def check_before_buy(self, account_id: str, ts_code: str, 
                        buy_price: float, buy_amount: float,
                        initial_balance: float = None,
@@ -477,7 +541,23 @@ class PreBuyRiskChecker:
                 timestamp=timestamp
             )
         
-        # 5. 涨跌停板检查
+        # 5. 仓位比例检查（单票/总仓位）
+        position_passed, position_reason, position_details = self._check_position_limits(
+            account_id, ts_code, buy_amount, initial_balance
+        )
+        details["position_limit_check"] = position_details
+        all_reasons.append(f"仓位限制: {position_reason}")
+        
+        if not position_passed:
+            return RiskCheckResult(
+                allowed=False,
+                reason=position_reason,
+                risk_level="medium",
+                details=details,
+                timestamp=timestamp
+            )
+        
+        # 6. 涨跌停板检查
         limit_check_details = {"ts_code": ts_code, "buy_price": buy_price}
         # TODO: 接入实时行情判断当前是否涨停/跌停
         # 涨停板无法买入，跌停板次日谨慎
