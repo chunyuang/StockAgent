@@ -56,14 +56,14 @@
   "filter_pipeline": {
     "position_ratio": "float",
     "sentiment": {
-      "score": "int",
+      "score": "float",
       "period": "str"
     }
   },
   "risk_watchdog": {
     "overall_status": "str",
     "uptime_seconds": "float",
-    "scanner_heartbeat_age": "int",
+    "scanner_heartbeat_age": "float",
     "alert_count": "int",
     "checks": {}
   },
@@ -94,7 +94,22 @@
   "tiered_scanner": {},
   "quote_degrade_level": "int",
   "quote_degrade_desc": "str",
-  "trailing_stops": {},
+  "trailing_stops": {
+    "002283.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "002297.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    }
+  },
   "position_risk_levels": {},
   "execution_stats": {
     "total_slippage_pct": "float",
@@ -113,7 +128,7 @@
   "health": {
     "status": "str",
     "is_healthy": "bool",
-    "scan_lag_seconds": "int",
+    "scan_lag_seconds": "float",
     "risk_check_lag_seconds": "int",
     "quote_staleness_seconds": "float",
     "risk_thread_alive": "bool",
@@ -121,7 +136,18 @@
     "warnings": [
       "str"
     ],
-    "event_bus_stats": {}
+    "event_bus_stats": {
+      "scan_completed": {
+        "emitted": "int",
+        "handled": "int",
+        "errors": "int"
+      },
+      "signal_generated": {
+        "emitted": "int",
+        "handled": "int",
+        "errors": "int"
+      }
+    }
   },
   "market_status": "str",
   "current_time": "str",
@@ -136,16 +162,33 @@
     "filtered": "int"
   },
   "data_sources": [
-    "<empty_list>"
+    {
+      "name": "str",
+      "available": "bool",
+      "stocks": "int",
+      "calls": "int",
+      "limit": "int",
+      "note": "str"
+    }
   ],
   "sentiment": {
-    "score": "int",
+    "score": "float",
     "period": "str"
   },
   "position_ratio": "float",
   "position_count": "int",
   "signals": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "price": "float",
+      "pct_chg": "float",
+      "reason": "str",
+      "created_at": "float",
+      "signal_status": "str"
+    }
   ],
   "circuit_breaker": {
     "trading_paused": "bool",

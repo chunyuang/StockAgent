@@ -1,12 +1,6 @@
 {
   "levels": {
     "normal": [
-      "<empty_list>"
-    ],
-    "warning": [
-      "<empty_list>"
-    ],
-    "critical": [
       {
         "ts_code": "str",
         "stock_name": "str",
@@ -25,7 +19,7 @@
         "take_profit_price": "float",
         "volatility": "float",
         "turnover_rate": "float",
-        "risk_score": "int",
+        "risk_score": "float",
         "risk_level": "str",
         "trailing_stop": {
           "high_price": "float",
@@ -36,6 +30,12 @@
         },
         "total_qty": "int"
       }
+    ],
+    "warning": [
+      "<empty_list>"
+    ],
+    "critical": [
+      "<empty_list>"
     ]
   },
   "summary": {

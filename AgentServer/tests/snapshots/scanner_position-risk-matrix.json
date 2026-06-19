@@ -18,7 +18,7 @@
       "take_profit_price": "float",
       "volatility": "float",
       "turnover_rate": "float",
-      "risk_score": "int",
+      "risk_score": "float",
       "risk_level": "str",
       "trailing_stop": {
         "high_price": "float",
