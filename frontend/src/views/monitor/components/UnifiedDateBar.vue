@@ -13,6 +13,10 @@ import { ElDatePicker } from 'element-plus'
 import { onMounted, nextTick } from 'vue'
 import { useUnifiedDateBar } from '../composables/useUnifiedDateBar'
 
+const props = defineProps<{
+  defaultDate?: string  // 外部初始日期 YYYY-MM-DD, 覆盖默认今天
+}>()
+
 const emit = defineEmits<{
   (e: 'change', date: string, dateApi: string): void
 }>()
@@ -23,23 +27,40 @@ const {
   dateCellClass, disabledDate,
 } = useUnifiedDateBar()
 
+// 如果外部传了defaultDate, 设置初始值
+if (props.defaultDate) {
+  selectedDate.value = props.defaultDate
+}
+
 function onDateChange(val: string | null) {
   if (val) {
+    selectedDate.value = val
     emit('change', val, val.replace(/-/g, ''))
   }
 }
 
-// 初始化时触发一次(延迟到mounted后, 避免父组件还没准备好)
-onMounted(() => {
-  nextTick(() => {
-    emit('change', selectedDate.value, dateForApi.value)
-  })
-})
+function onNavPrev() {
+  prevDay()
+  emit('change', selectedDate.value, dateForApi.value)
+}
+
+function onNavNext() {
+  nextDay()
+  emit('change', selectedDate.value, dateForApi.value)
+}
+
+function onGoToday() {
+  goToday()
+  emit('change', selectedDate.value, dateForApi.value)
+}
+
+// 不在mounted自动emit, 各Tab自己处理初始数据加载
+// (避免tab切换重新挂载时覆盖用户已选的日期)
 </script>
 
 <template>
   <div class="unified-date-bar">
-    <button class="nav-btn" @click="prevDay" title="前一天">◀</button>
+    <button class="nav-btn" @click="onNavPrev" title="前一天">◀</button>
     <ElDatePicker
       :modelValue="selectedDate"
       type="date"
@@ -51,8 +72,8 @@ onMounted(() => {
       style="width: 130px"
       @update:modelValue="onDateChange"
     />
-    <button class="nav-btn" @click="nextDay" :disabled="isToday" title="后一天">▶</button>
-    <button class="today-btn" :class="{ active: isToday }" @click="goToday" :disabled="isToday">今天</button>
+    <button class="nav-btn" @click="onNavNext" :disabled="isToday" title="后一天">▶</button>
+    <button class="today-btn" :class="{ active: isToday }" @click="onGoToday" :disabled="isToday">今天</button>
   </div>
 </template>
 
