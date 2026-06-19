@@ -4,7 +4,7 @@
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取】
  */
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import SystemHealth from './SystemHealth.vue'
 import { ElButton, ElTag, ElInput, ElSelect, ElOption, ElInputNumber } from 'element-plus'
@@ -15,6 +15,7 @@ const m = useScannerMonitorInject()
 
 // 【v2.9.96】展开决策详情
 const expandedOrderIds = ref<Set<string>>(new Set())
+const tradesExpanded = ref(false)  // 自动交易列表默认折叠
 function toggleTradeExpand(orderId: string) {
   if (expandedOrderIds.value.has(orderId)) expandedOrderIds.value.delete(orderId)
   else expandedOrderIds.value.add(orderId)
@@ -67,6 +68,14 @@ function fmt(v: any, digits = 2): string {
 function hasDecisionTrace(t: any): boolean {
   return !!(t?.decision_trace && Object.keys(t.decision_trace).length)
 }
+const autoTradesSummary = computed(() => {
+  const trades = m.autoTrades.value || []
+  if (!trades.length) return '无记录'
+  const buys = trades.filter((t: any) => t.side === 'buy').length
+  const sells = trades.filter((t: any) => t.side === 'sell').length
+  return `${trades.length}笔 (买${buys} 卖${sells})`
+})
+
 function shortTradeReason(reason: string): string {
   if (!reason) return '-'
   return reason
@@ -110,10 +119,10 @@ const {
   <div class="mm-tab-content">
     <div class="mm-tab-scroll">
       <!-- 自动交易操作流 -->
-      <div class="st">🤖 自动交易操作流
-        <UnifiedDateBar @change="(_d: string) => { opsDate = _d; fetchAutoTrades() }" />
-        <ElButton size="small" @click="fetchAutoTrades" :loading="loading">🔄</ElButton>
+      <div class="st collapsible" @click="tradesExpanded = !tradesExpanded">🤖 自动交易操作流 <span class="collapse-summary">{{ autoTradesSummary }}</span> <span class="collapse-arrow">{{ tradesExpanded ? '▲' : '▼' }}</span>
+        <UnifiedDateBar @change="(_d: string) => { opsDate = _d; fetchAutoTrades() }" @click.stop />
       </div>
+      <template v-if="tradesExpanded">
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
         <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因/详情</span></div>
@@ -233,6 +242,7 @@ const {
           </div>
         </template>
       </div>
+      </template>
 
       <!-- 扫描器配置 -->
       <div class="st" style="margin-top:16px">⏱️ 扫描器配置</div>
@@ -248,7 +258,8 @@ const {
         <div class="sc-item"><span class="sc-label">交易模式</span><span class="sc-value">{{ scanConfig.trade_mode === 'simulated' ? '模拟' : scanConfig.trade_mode === 'gm' ? '掘金' : scanConfig.trade_mode }}</span></div>
         <div class="sc-item"><span class="sc-label">运行状态</span><span class="sc-value" :style="{ color: scanConfig.is_running ? 'var(--el-color-success)' : 'var(--el-color-danger)' }">{{ scanConfig.is_running ? '🟢 运行中' : '🔴 未启动' }}</span></div>
       </div>
-      <div v-else class="empty" style="padding:8px">加载中...</div>
+      <div v-else-if="scanConfigLoading" class="empty" style="padding:8px"><span style="animation:pulse 1s infinite">⏳</span> 加载中...</div>
+      <div v-else class="empty" style="padding:8px;color:var(--text-tertiary)">未获取到配置</div>
 
       <!-- 系统健康 -->
       <div class="st" style="margin-top:16px">💻 系统健康</div>
@@ -303,6 +314,10 @@ const {
 </template>
 
 <style scoped lang="scss">
+.st.collapsible { cursor: pointer; user-select: none; &:hover { color: var(--el-color-primary); } }
+.collapse-arrow { font-size: 9px; color: var(--text-tertiary); margin-left: 4px; }
+.collapse-summary { font-size: 10px; color: var(--text-tertiary); margin-left: 6px; font-weight: 400; }
+
 .mf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .mf-row { display: flex; gap: 4px; min-width: 0; flex-wrap: wrap; }
