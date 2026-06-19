@@ -4,6 +4,7 @@
     {
       "trade_date": "int",
       "scan_time": "str",
+      "session": "str",
       "account_id": "str",
       "is_debug": "bool",
       "summary": {
@@ -79,10 +80,18 @@
         "L2_special_period": "str",
         "L3_sentiment": "str",
         "L3_sentiment_data": {
-          "score": "int",
+          "score": "float",
           "period": "str",
           "position_ratio": "float",
-          "l3_drop_count": "int"
+          "l3_drop_count": "int",
+          "formula": "str",
+          "limit_up": "int",
+          "limit_down": "int",
+          "up_down_ratio": "float",
+          "momentum": "float",
+          "broken": "int",
+          "broken_rate": "float",
+          "today_premium": "float"
         },
         "L4_premarket": "str",
         "L5_auction": "str",
@@ -105,5 +114,6 @@
     "buys": "int",
     "blocked": "int",
     "block_reasons": {}
-  }
+  },
+  "mode": "str"
 }

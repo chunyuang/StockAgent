@@ -31,12 +31,10 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "矿物制品": "float",
-      "化工原料": "float",
-      "区域地产": "float",
-      "环境保护": "float",
-      "装修装饰": "float",
-      "出版业": "float"
+      "IT设备": "float",
+      "汽车配件": "float",
+      "航空": "float",
+      "通信设备": "float"
     },
     "position_count": "int",
     "risk_summary": {

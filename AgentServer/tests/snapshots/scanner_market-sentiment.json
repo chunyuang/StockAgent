@@ -11,6 +11,11 @@
   "board_distribution": {
     "1": "int"
   },
+  "max_continue": "int",
+  "up_down_ratio": "float",
+  "zt_premium": "float",
+  "date": "int",
+  "is_stale": "bool",
   "ranges": [
     {
       "label": "str",

@@ -356,6 +356,31 @@ async def get_historical_review(date: str = None, mode: str = "production", incl
                 pos = ss_doc.get("position_ratio", 0)
                 sentiment_snap = f"{period} {score}分 仓位{int(pos*100)}%"
         
+        # 【v2.9.98修复-Issue9941d7b62236】聚合子模块数据: trade_attributions/discipline_check/execution_quality/forward_advice
+        _sub_data = {"trade_attributions": [], "discipline_check": {}, "execution_quality": {}, "forward_advice": {}}
+        try:
+            from nodes.web.api.scanner_review import get_trade_attribution, get_discipline_check, get_review_forward
+            from nodes.web.api.scanner_scan import get_execution_quality
+            import asyncio as _asyncio
+            _results = await _asyncio.gather(
+                get_trade_attribution(date),
+                get_discipline_check(date),
+                get_execution_quality(date),
+                get_review_forward(date),
+                return_exceptions=True,
+            )
+            _keys = ["trade_attributions", "discipline_check", "execution_quality", "forward_advice"]
+            for i, key in enumerate(_keys):
+                r = _results[i]
+                if isinstance(r, Exception):
+                    logger.warning(f"historical-review: {key} aggregation failed: {r}")
+                elif isinstance(r, dict) and r.get("success"):
+                    _sub_data[key] = r.get("data", _sub_data[key])
+                elif isinstance(r, dict):
+                    logger.warning(f"historical-review: {key} returned: {r.get('message','')}")
+        except Exception as e:
+            logger.warning(f"historical-review: sub-module aggregation error: {e}")
+
         return {"success": True, "data": {
             "date": date,
             "buys": [{"ts_code": b.get("ts_code"), "stock_name": b.get("stock_name", ""), "strategy": b.get("strategy", ""), "price": b.get("filled_price", 0), "qty": b.get("filled_qty", 0), "time": b.get("fill_time", "")} for b in buys],
@@ -364,6 +389,11 @@ async def get_historical_review(date: str = None, mode: str = "production", incl
             "scan_stats": {"scan_count": scan_count, "debug_scan_count": debug_count, "total_signals": total_passed, "buy_count": len(buys), "sell_count": len(sells)},
             "funnel_summary": {k: dict(v) for k, v in funnel_agg.items()},
             "sentiment_snapshot": sentiment_snap,
+            # 【v2.9.98新增-Issue9941d7b62236】聚合子模块数据
+            "trade_attributions": _sub_data["trade_attributions"],
+            "discipline_check": _sub_data["discipline_check"],
+            "execution_quality": _sub_data["execution_quality"],
+            "forward_advice": _sub_data["forward_advice"],
         }}
     except Exception as e:
         return {"success": True, "data": None, "message": str(e)}
