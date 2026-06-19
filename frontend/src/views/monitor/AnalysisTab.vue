@@ -27,7 +27,8 @@ const loading = ref(false)
 const selectedDate = ref(getChinaDate())
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
-const overviewExpanded = ref(false)  // 概览图表默认折叠
+const expandedCharts = ref<Record<string, boolean>>({})  // 每个图表独立折叠, 默认收起
+function toggleChart(key: string) { expandedCharts.value[key] = !expandedCharts.value[key] }
 
 /** 获取中国时区的日期字符串 YYYY-MM-DD */
 function getChinaDate(): string {
@@ -167,26 +168,19 @@ async function showDayDetail(date: string) {
 
         <!-- ========== 概览 ========== -->
         <div :class="['section-content', { 'section-hidden': activeSection !== 'overview' }]">
-          <!-- 折叠控制 -->
-          <div class="collapse-bar" @click="overviewExpanded = !overviewExpanded">
-            <span class="chart-title" style="margin:0">📊 图表分析</span>
-            <span class="collapse-hint">{{ overviewExpanded ? '收起 ▲' : '展开 ▼' }}</span>
-          </div>
-          <template v-if="overviewExpanded">
           <div class="chart-row">
-            <div class="chart-half"><div class="chart-title">📊 日收益率</div><VChart v-if="dailyProfitChart" :option="dailyProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
-            <div class="chart-half"><div class="chart-title">📈 累计盈亏</div><VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('dailyProfit')">📊 日收益率 <span class="collapse-arrow">{{ expandedCharts.dailyProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.dailyProfit"><VChart v-if="dailyProfitChart" :option="dailyProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('cumProfit')">📈 累计盈亏 <span class="collapse-arrow">{{ expandedCharts.cumProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.cumProfit"><VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
           </div>
           <div class="chart-row">
-            <div class="chart-half"><div class="chart-title">🎯 绩效雷达</div><VChart v-if="radarChart" :option="radarChart" autoresize style="height:300px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
-            <div class="chart-half"><div class="chart-title">🍩 盈亏分布</div><VChart v-if="profitDistChart" :option="profitDistChart" autoresize style="height:300px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('radar')">🎯 绩效雷达 <span class="collapse-arrow">{{ expandedCharts.radar ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.radar"><VChart v-if="radarChart" :option="radarChart" autoresize style="height:300px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('profitDist')">🍩 盈亏分布 <span class="collapse-arrow">{{ expandedCharts.profitDist ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.profitDist"><VChart v-if="profitDistChart" :option="profitDistChart" autoresize style="height:300px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
           </div>
           <div class="chart-row">
-            <div class="chart-half"><div class="chart-title">🔄 交易占比(策略)</div><VChart v-if="strategyPieChart" :option="strategyPieChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
-            <div class="chart-half"><div class="chart-title">📤 卖出原因</div><VChart v-if="sellReasonChart" :option="sellReasonChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('strategyPie')">🔄 交易占比(策略) <span class="collapse-arrow">{{ expandedCharts.strategyPie ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.strategyPie"><VChart v-if="strategyPieChart" :option="strategyPieChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
+            <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('sellReason')">📤 卖出原因 <span class="collapse-arrow">{{ expandedCharts.sellReason ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.sellReason"><VChart v-if="sellReasonChart" :option="sellReasonChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
           </div>
-          <div v-if="monthly.length" class="chart-section"><div class="chart-title">📅 月度收益</div><VChart v-if="monthlyChart" :option="monthlyChart" autoresize style="height:300px;width:100%" /></div>
-          </template>
+          <div v-if="monthly.length" class="chart-section"><div class="chart-title collapsible" @click="toggleChart('monthly')">📅 月度收益 <span class="collapse-arrow">{{ expandedCharts.monthly ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.monthly"><VChart v-if="monthlyChart" :option="monthlyChart" autoresize style="height:300px;width:100%" /></template></div>
           <div v-if="strategies.length" class="chart-section">
             <div class="chart-title">🔄 策略贡献</div>
             <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
@@ -326,8 +320,8 @@ async function showDayDetail(date: string) {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .chart-section { margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
-.collapse-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); cursor: pointer; margin-bottom: 8px; transition: background 0.15s; &:hover { background: var(--bg-muted); } }
-.collapse-hint { font-size: 11px; color: var(--text-secondary); }
+.chart-title.collapsible { cursor: pointer; user-select: none; &:hover { color: var(--el-color-primary); } }
+.collapse-arrow { font-size: 9px; color: var(--text-tertiary); margin-left: 4px; }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .chart-half { padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
