@@ -23,6 +23,21 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
 
 
+def _get_effective_sentiment_thresholds() -> Dict:
+    """获取运行时有效的情绪阈值(默认+覆盖)"""
+    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+    thresholds = dict(GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40}))
+    try:
+        from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+        if _overrides_loaded and _override_global_risk:
+            override_st = _override_global_risk.get("sentiment_thresholds", {})
+            if override_st:
+                thresholds.update(override_st)
+    except Exception:
+        pass
+    return thresholds
+
+
 def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> float:
     """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)
     
@@ -104,8 +119,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                 if raw_period in _en_to_cn:
                     raw_period = _en_to_cn[raw_period]
                 if raw_period not in _cn_periods:
-                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    _th = _get_effective_sentiment_thresholds()
                     if raw_score >= _th["rising"]: raw_period = "高潮"
                     elif raw_score >= _th["differentiation"]: raw_period = "分化"
                     elif raw_score >= _th["chaos"]: raw_period = "震荡"
@@ -145,8 +159,8 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                     total_ld = sum(p.get("limit_down", 0) for p in grp)
                     has_missing = any(p.get("missing_data") for p in grp)
                     # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
-                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    # 【V75-审计修复】读取运行时覆盖后的有效阈值
+                    _th = _get_effective_sentiment_thresholds()
                     if avg_score >= _th["rising"]: period = "高潮"
                     elif avg_score >= _th["differentiation"]: period = "分化"
                     elif avg_score >= _th["chaos"]: period = "震荡"
@@ -224,8 +238,7 @@ async def get_sentiment_strategy_matrix(date: str = None):
                 period = _en_to_cn_period[period]
             # 非标准period(如"daily")兜底: 根据score推断
             if period not in _cn_periods and period not in ("数据缺失", ""):
-                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                _th = _get_effective_sentiment_thresholds()
                 if score >= _th["rising"]: period = "高潮"
                 elif score >= _th["differentiation"]: period = "分化"
                 elif score >= _th["chaos"]: period = "震荡"
@@ -446,8 +459,8 @@ async def get_market_sentiment_detail(date: str = None):
         broken_rate = broken / max(limit_up + broken, 1) * 100
 
         # 【v2.9.85修复】情绪阈值从strategy_defaults统一读取,不再硬编码
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        # 【V75-审计修复】读取运行时覆盖后的有效阈值
+        _th = _get_effective_sentiment_thresholds()
         _rising_th = _th["rising"]
         _diff_th = _th["differentiation"]
         _chaos_th = _th["chaos"]

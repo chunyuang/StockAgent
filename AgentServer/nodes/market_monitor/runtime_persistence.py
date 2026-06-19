@@ -1368,9 +1368,15 @@ class RuntimePersistence:
                             "riskParams": {**base_cfg.get("riskParams", {}), **api_risk_overrides.get(sid, {})},
                         }
                 
-                # 合并全局风控: scanner.config.global_risk + API覆盖
+                # 合并全局风控: scanner.config.global_risk + API覆盖(深层合并, 避免嵌套dict被整体替换)
                 merged_global_risk = {k: v for k, v in global_risk.items() if not k.startswith("__")} if global_risk else {}
-                merged_global_risk.update(api_global_risk)
+                for k, v in api_global_risk.items():
+                    if k in merged_global_risk and isinstance(merged_global_risk[k], dict) and isinstance(v, dict):
+                        merged_dict = dict(merged_global_risk[k])
+                        merged_dict.update(v)
+                        merged_global_risk[k] = merged_dict
+                    else:
+                        merged_global_risk[k] = v
                 
                 snapshot = {
                     "date": today,
