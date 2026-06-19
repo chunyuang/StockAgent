@@ -15,7 +15,10 @@ const scannerApi = '/scanner'
 function getChinaDate(): string {
   const now = new Date()
   const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return china.toISOString().slice(0, 10)
+  const y = china.getFullYear()
+  const m = String(china.getMonth() + 1).padStart(2, '0')
+  const d = String(china.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export function useSentimentMonitor() {
