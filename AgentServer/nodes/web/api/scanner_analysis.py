@@ -197,6 +197,36 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             buy_match = {"$and": [{"side": "buy", "status": "filled"}, df]} if "$or" in df else {"side": "buy", "status": "filled", **df}
         buy_count = await db["broker_orders"].count_documents(buy_match)
         
+        # 【v2.9.98f】从买入记录构建avg_cost索引, 用于修正卖出记录中缺失的盈亏数据
+        # 原因: broker._sync_save_order_and_position在_execute_sell之后调用, 
+        # 但_execute_sell会删除已清仓的持仓, 导致avg_cost未写入卖出记录; 
+        # 同时部分卖出记录的profit_pct/profit_amount为0(同步写入时序问题)
+        buy_records = await db["broker_orders"].find(
+            {"side": "buy", "status": "filled"}
+        ).to_list(5000)
+        avg_cost_map = {}  # ts_code -> avg_cost
+        for b in buy_records:
+            tc = b.get("ts_code", "")
+            fp = b.get("filled_price", 0) or 0
+            # 每只股票可能有多次买入, 用最近一次的成本
+            avg_cost_map[tc] = fp  # filled_price含佣金近似为avg_cost
+        
+        # 修正卖出记录的盈亏数据
+        for s in sells:
+            profit_pct = s.get("profit_pct", 0) or 0
+            profit_amount = s.get("profit_amount", 0) or 0
+            if profit_pct == 0 and profit_amount == 0:
+                # 盈亏数据缺失, 从买入记录推算
+                fp = s.get("filled_price", 0) or 0
+                tc = s.get("ts_code", "")
+                cost = avg_cost_map.get(tc, 0)
+                if cost > 0 and fp > 0:
+                    qty = s.get("filled_qty", 0) or s.get("quantity", 0)
+                    profit_pct = round((fp - cost) / cost * 100, 2)
+                    profit_amount = round((fp - cost) * qty, 2)
+                    s["profit_pct"] = profit_pct
+                    s["profit_amount"] = profit_amount
+        
         # 2. 计算KPI
         sell_count = len(sells)
         total_trades = buy_count + sell_count  # 完整成交笔数
