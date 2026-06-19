@@ -235,7 +235,7 @@ const {
       </div>
 
       <!-- 扫描器配置 -->
-      <div class="st" style="margin-top:16px">⏱️ 扫描器配置 <ElButton size="small" @click="fetchScanConfig" :loading="scanConfigLoading">🔄</ElButton></div>
+      <div class="st" style="margin-top:16px">⏱️ 扫描器配置</div>
       <div v-if="scanConfig" class="scan-config-grid">
         <div class="sc-item"><span class="sc-label">自动扫描间隔</span><span class="sc-value">{{ scanConfig.scan_interval_desc || scanConfig.scan_interval_sec + '秒' }}</span></div>
         <div class="sc-item"><span class="sc-label">持仓检查间隔</span><span class="sc-value">{{ scanConfig.position_check_interval_sec }}秒</span></div>
