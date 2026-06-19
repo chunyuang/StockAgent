@@ -27,6 +27,7 @@ const loading = ref(false)
 const selectedDate = ref(getChinaDate())
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
+const overviewExpanded = ref(false)  // 概览图表默认折叠
 
 /** 获取中国时区的日期字符串 YYYY-MM-DD */
 function getChinaDate(): string {
@@ -166,6 +167,12 @@ async function showDayDetail(date: string) {
 
         <!-- ========== 概览 ========== -->
         <div :class="['section-content', { 'section-hidden': activeSection !== 'overview' }]">
+          <!-- 折叠控制 -->
+          <div class="collapse-bar" @click="overviewExpanded = !overviewExpanded">
+            <span class="chart-title" style="margin:0">📊 图表分析</span>
+            <span class="collapse-hint">{{ overviewExpanded ? '收起 ▲' : '展开 ▼' }}</span>
+          </div>
+          <template v-if="overviewExpanded">
           <div class="chart-row">
             <div class="chart-half"><div class="chart-title">📊 日收益率</div><VChart v-if="dailyProfitChart" :option="dailyProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
             <div class="chart-half"><div class="chart-title">📈 累计盈亏</div><VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
@@ -179,6 +186,7 @@ async function showDayDetail(date: string) {
             <div class="chart-half"><div class="chart-title">📤 卖出原因</div><VChart v-if="sellReasonChart" :option="sellReasonChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></div>
           </div>
           <div v-if="monthly.length" class="chart-section"><div class="chart-title">📅 月度收益</div><VChart v-if="monthlyChart" :option="monthlyChart" autoresize style="height:300px;width:100%" /></div>
+          </template>
           <div v-if="strategies.length" class="chart-section">
             <div class="chart-title">🔄 策略贡献</div>
             <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
@@ -318,6 +326,8 @@ async function showDayDetail(date: string) {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .chart-section { margin-bottom: 12px; padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
+.collapse-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); cursor: pointer; margin-bottom: 8px; transition: background 0.15s; &:hover { background: var(--bg-muted); } }
+.collapse-hint { font-size: 11px; color: var(--text-secondary); }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .chart-half { padding: 12px; border-radius: 8px; background: var(--bg-elevated, var(--bg-muted)); border: 1px solid var(--border-default); }
