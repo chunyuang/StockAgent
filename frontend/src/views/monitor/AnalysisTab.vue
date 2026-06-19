@@ -139,20 +139,44 @@ async function showStockDetail(tsCode: string) {
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 
-      <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="点击刷新加载数据" /></div>
+      <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="选择日期后点击刷新加载数据" /></div>
       <div v-if="loading" class="ana-loading">加载中...</div>
 
       <template v-if="analysisData && !loading">
-        <!-- KPI卡片 -->
-        <div class="kpi-strip">
-          <div :class="['kpi-chip', (kpi.total_profit || 0) >= 0 ? 'kpi-positive' : 'kpi-negative']"><div class="kpi-icon">📈</div><div class="kpi-body"><span class="kpi-label">累计盈亏</span><span class="kpi-value">¥{{ (kpi.total_profit || 0).toLocaleString() }}</span></div></div>
-          <div :class="['kpi-chip', (kpi.win_rate || 0) >= 50 ? 'kpi-positive' : 'kpi-negative']"><div class="kpi-icon">🎯</div><div class="kpi-body"><span class="kpi-label">胜率</span><span class="kpi-value">{{ (kpi.win_rate || 0).toFixed(1) }}%</span></div></div>
-          <div class="kpi-chip kpi-neutral"><div class="kpi-icon">🔢</div><div class="kpi-body"><span class="kpi-label">交易笔数</span><span class="kpi-value">{{ kpi.total_trades || 0 }}</span></div></div>
-          <div :class="['kpi-chip', (kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-positive' : 'kpi-warning']"><div class="kpi-icon">⚖️</div><div class="kpi-body"><span class="kpi-label">盈亏比</span><span class="kpi-value">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</span></div></div>
-          <div class="kpi-chip kpi-warning"><div class="kpi-icon">⬇️</div><div class="kpi-body"><span class="kpi-label">最大回撤</span><span class="kpi-value">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</span></div></div>
-          <div class="kpi-chip kpi-neutral"><div class="kpi-icon">📊</div><div class="kpi-body"><span class="kpi-label">均盈亏%</span><span class="kpi-value" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</span></div></div>
-          <div class="kpi-chip kpi-accent"><div class="kpi-icon">✅</div><div class="kpi-body"><span class="kpi-label">均盈利%</span><span class="kpi-value up">{{ (kpi.avg_win_pct || 0).toFixed(2) }}%</span></div></div>
-          <div class="kpi-chip kpi-warning"><div class="kpi-icon">❌</div><div class="kpi-body"><span class="kpi-label">均亏损%</span><span class="kpi-value down">{{ (kpi.avg_loss_pct || 0).toFixed(2) }}%</span></div></div>
+        <!-- KPI卡片: 2行4列 -->
+        <div class="kpi-grid">
+          <div :class="['kpi-chip', (kpi.total_profit || 0) >= 0 ? 'kpi-positive' : 'kpi-negative']">
+            <span class="kpi-label">📈 累计盈亏</span>
+            <span class="kpi-value">¥{{ (kpi.total_profit || 0).toLocaleString() }}</span>
+          </div>
+          <div :class="['kpi-chip', (kpi.win_rate || 0) >= 50 ? 'kpi-positive' : 'kpi-negative']">
+            <span class="kpi-label">🎯 胜率</span>
+            <span class="kpi-value">{{ (kpi.win_rate || 0).toFixed(1) }}%</span>
+          </div>
+          <div class="kpi-chip kpi-neutral">
+            <span class="kpi-label">🔢 交易笔数</span>
+            <span class="kpi-value">{{ kpi.total_trades || 0 }}</span>
+          </div>
+          <div :class="['kpi-chip', (kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-positive' : 'kpi-warning']">
+            <span class="kpi-label">⚖️ 盈亏比</span>
+            <span class="kpi-value">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</span>
+          </div>
+          <div class="kpi-chip kpi-warning">
+            <span class="kpi-label">⬇️ 最大回撤</span>
+            <span class="kpi-value">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</span>
+          </div>
+          <div class="kpi-chip kpi-neutral">
+            <span class="kpi-label">📊 均盈亏%</span>
+            <span class="kpi-value" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</span>
+          </div>
+          <div class="kpi-chip kpi-accent">
+            <span class="kpi-label">✅ 均盈利%</span>
+            <span class="kpi-value up">{{ (kpi.avg_win_pct || 0).toFixed(2) }}%</span>
+          </div>
+          <div class="kpi-chip kpi-warning">
+            <span class="kpi-label">❌ 均亏损%</span>
+            <span class="kpi-value down">{{ (kpi.avg_loss_pct || 0).toFixed(2) }}%</span>
+          </div>
         </div>
 
         <!-- 卖出分布条 -->
@@ -297,8 +321,8 @@ async function showStockDetail(tsCode: string) {
 .ana-loading { padding: 40px 0; text-align: center; color: var(--text-tertiary); }
 .ana-stat { font-size: 10px; color: var(--text-tertiary); font-weight: 400; }
 
-.kpi-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-.kpi-chip { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-default); transition: box-shadow 0.2s, transform 0.15s; &:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); } }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+.kpi-chip { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 8px; border: 1px solid var(--border-default); text-align: center; min-width: 0; transition: box-shadow 0.2s, transform 0.15s; &:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); } }
 .kpi-icon { font-size: 20px; flex-shrink: 0; }
 .kpi-body { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
