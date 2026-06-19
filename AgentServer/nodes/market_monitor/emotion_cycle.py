@@ -639,15 +639,42 @@ class EmotionCycleManager:
 
     @staticmethod
     async def update_sentiment_score(scanner, trade_date: str) -> None:
-        """收盘后更新当日情绪预计算(编排方法)"""
+        """收盘后更新当日情绪预计算(编排方法)
+
+        【v2.9.90修复】当limit_list和stock_daily_ak_full都无当日数据时，
+        不应返回limit_up=0/score=22的虚假冰点，而应标记为数据缺失并
+        用最近有数据的交易日作为fallback参考值。
+        """
         if not mongo_manager.is_initialized: return
         db, td_int = mongo_manager.db, int(trade_date)
         lu, ld, max_lb, src = await EmotionCycleManager._fetch_limit_stats(scanner, db, td_int)
         up, down, ud_ratio = await EmotionCycleManager._fetch_up_down_ratio(db, td_int)
         zt_premium = await EmotionCycleManager._fetch_zt_premium_for_update(db, td_int)
         # 【v2.9.85】补充zt_premium(旧bug:缺此维度导致MongoDB情绪分偏低)
+        missing = (lu == 0 and ld == 0 and up == 0 and down == 0)
+
+        # 【v2.9.90】当所有数据源都没有当日数据时，用最近交易日的sentiment_scores
+        # 作为fallback参考，而不是返回limit_up=0/score=22的虚假冰点
+        if missing:
+            prev_doc = await db["sentiment_scores"].find_one(
+                {"trade_date": {"$lt": td_int}, "missing_data": {"$ne": True}},
+                sort=[("trade_date", -1)]
+            )
+            if prev_doc:
+                lu = prev_doc.get("limit_up", 0)
+                ld = prev_doc.get("limit_down", 0)
+                max_lb = prev_doc.get("max_continue", 1)
+                up = prev_doc.get("up_count", 0)
+                down = prev_doc.get("down_count", 0)
+                ud_ratio = prev_doc.get("up_down_ratio", 0.0)
+                zt_premium = prev_doc.get("zt_premium", 0.0)
+                src = f"prev_day_fallback({prev_doc.get('trade_date', '?')})"
+                logger.info(
+                    f"[EMOTION] 当日{td_int}数据缺失，用{prev_doc.get('trade_date')}作为fallback: "
+                    f"limit_up={lu}, score={prev_doc.get('score')}"
+                )
+
         score, period = EmotionCycleManager._calc_sentiment_score(lu, ld, max_lb, ud_ratio, zt_premium)
-        missing = (lu == 0 and ld == 0)
         await EmotionCycleManager._persist_sentiment_score(
             db, td_int, score, period, lu, ld, max_lb, up, down, ud_ratio, src, missing, zt_premium=zt_premium)
 

@@ -126,12 +126,13 @@ async def backtest_compare(date: str = None):
                 else:
                     # error或无数据
                     backtest_type = "same_period_failed"
-                    backtest_results = {}  # fallback到文件
+                    backtest_results = {}  # fallback到文件或historical
+                    logger.info(f"[BACKTEST-COMPARE] same_period回测失败: {raw_summary.get('error', 'unknown')}")
 
-            # 2b. fallback: 普通回测
+            # 2b. fallback: 普通回测(排除有error的)
             if not backtest_results:
                 async for doc in mongo_manager.db["backtest_results"].find(
-                    {"status": "completed"},
+                    {"status": "completed", "result.summary.error": {"$exists": False}},
                     {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
                 ).sort("created_at", -1).limit(5):
                     strategies = doc.get("params", {}).get("strategy_ids", [])
