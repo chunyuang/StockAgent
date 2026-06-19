@@ -208,15 +208,17 @@ async function showDayDetail(date: string) {
 
         <!-- ========== 持仓 ========== -->
         <div :class="['section-content', { 'section-hidden': activeSection !== 'position' }]">
-          <div class="chart-section"><div class="chart-title">💼 持仓盈亏分布 <span class="ana-stat">{{ positions.length }}只</span>
-            <span v-if="brokenStopLossCount > 0" class="ana-stat" style="color:var(--stock-up);background:var(--stock-up-dim,rgba(8,153,129,0.1))">🔴 {{ brokenStopLossCount }}只破止损</span>
-            <span v-if="riskMonitor.status && riskMonitor.status !== 'healthy'" class="ana-stat" style="color:#e6a23c;background:rgba(230,162,60,0.1)">⚠️ {{ riskMonitor.desc }}</span>
-          </div><VChart v-if="positionChart" :option="positionChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="空仓或无数据" :image-size="40" /></div>
+          <div class="chart-section"><div class="chart-title collapsible" @click="toggleChart('posDist')">💼 持仓盈亏分布 <span class="collapse-summary">{{ positions.length }}只{{ brokenStopLossCount > 0 ? ' 🔴' + brokenStopLossCount + '破止损' : '' }}</span> <span class="collapse-arrow">{{ expandedCharts.posDist ? '▲' : '▼' }}</span></div>
+            <span v-if="expandedCharts.posDist && brokenStopLossCount > 0" class="ana-stat" style="color:var(--stock-up);background:var(--stock-up-dim,rgba(8,153,129,0.1))">🔴 {{ brokenStopLossCount }}只破止损</span>
+            <span v-if="expandedCharts.posDist && riskMonitor.status && riskMonitor.status !== 'healthy'" class="ana-stat" style="color:#e6a23c;background:rgba(230,162,60,0.1)">⚠️ {{ riskMonitor.desc }}</span>
+          <template v-if="expandedCharts.posDist"><VChart v-if="positionChart" :option="positionChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="空仓或无数据" :image-size="40" /></template></div>
           <div v-if="positions.length" class="chart-section">
-            <div class="chart-title">📋 持仓明细</div>
+            <div class="chart-title collapsible" @click="toggleChart('posDetail')">📋 持仓明细 <span class="collapse-summary">{{ positions.length }}只</span> <span class="collapse-arrow">{{ expandedCharts.posDetail ? '▲' : '▼' }}</span></div>
+            <template v-if="expandedCharts.posDetail">
             <table class="ana-tbl"><thead><tr><th>代码</th><th>名称</th><th>策略</th><th>数量</th><th>成本</th><th>最新收盘</th><th>止损价</th><th>盈亏%</th><th>盈亏额</th><th>市值</th><th>状态</th><th></th></tr></thead><tbody>
               <tr v-for="p in positions" :key="p.ts_code" :class="(p.profit_pct || 0) >= 0 ? 'row-up' : 'row-down'"><td>{{ p.ts_code?.slice(0,6) }}</td><td>{{ p.stock_name }}</td><td>{{ m.strategyCN(p.strategy) || p.strategy }}</td><td>{{ p.shares }}</td><td>¥{{ p.cost_price || '-' }}</td><td>¥{{ p.current_price || '-' }}</td><td :style="{color: p.stop_loss_status === 'broken' ? 'var(--stock-up)' : p.stop_loss_status === 'near' ? '#e6a23c' : 'var(--text-tertiary)'}">¥{{ p.stop_loss_price || '-' }}</td><td :class="(p.profit_pct || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (p.profit_pct || 0) >= 0 ? '+' : '' }}{{ (p.profit_pct || 0).toFixed(1) }}%</td><td :class="(p.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ (p.profit_amount || 0).toLocaleString() }}</td><td>¥{{ (p.market_value || 0).toLocaleString() }}</td><td><span v-if="p.stop_loss_status === 'broken'" style="color:var(--stock-up);font-weight:600;font-size:11px">🔴破止损</span><span v-else-if="p.stop_loss_status === 'near'" style="color:#e6a23c;font-size:11px">⚠近止损</span><span v-else style="color:var(--text-tertiary);font-size:11px">安全</span><span v-if="p.risk_monitor_desc" :title="p.risk_monitor_desc" style="color:#e6a23c;font-size:10px;margin-left:2px">⚡</span></td><td><ElButton size="small" text type="primary" @click="showStockDetail(p.ts_code)">详情</ElButton></td></tr>
             </tbody></table>
+            </template>
           </div>
         </div>
 
