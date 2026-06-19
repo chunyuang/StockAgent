@@ -22,7 +22,12 @@ const activeSection = ref('overview')
 function getChinaDate(): string {
   const now = new Date()
   const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return china.toISOString().slice(0, 10)
+  // 【v2.9.98修复】用本地日期组件而非toISOString()，避免UTC时区偏移
+  // toISOString()返回UTC时间，UTC+8凌晨0-8点会返回前一天的日期
+  const y = china.getFullYear()
+  const m = String(china.getMonth() + 1).padStart(2, '0')
+  const d = String(china.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 const selectedDate = ref(getChinaDate())
