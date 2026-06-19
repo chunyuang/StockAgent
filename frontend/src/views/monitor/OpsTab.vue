@@ -118,6 +118,25 @@ const {
 <template>
   <div class="mm-tab-content">
     <div class="mm-tab-scroll">
+      <!-- 快捷操作 -->
+      <div class="st">⚡ 快捷操作</div>
+      <div class="ops-grid">
+        <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
+        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
+        <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
+        <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
+        <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
+        <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
+        <ElButton size="small" @click="layerDebugVisible = true" :loading="layerDebugLoading">🧪 9层调试</ElButton>
+        <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
+        <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
+        <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton>
+        <ElButton size="small" @click="exportTradeLog">📥 导出日志</ElButton>
+        <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
+        <ElButton size="small" type="warning" @click="resetAccount">🗑️ 清仓重置</ElButton>
+        <ElButton size="small" @click="sellAllPositions">💰 一键清仓</ElButton>
+      </div>
+
       <!-- 自动交易操作流 -->
       <div class="st collapsible" @click="tradesExpanded = !tradesExpanded">🤖 自动交易操作流 <span class="collapse-summary">{{ autoTradesSummary }}</span> <span class="collapse-arrow">{{ tradesExpanded ? '▲' : '▼' }}</span>
         <UnifiedDateBar @change="(_d: string) => { opsDate = _d; fetchAutoTrades() }" @click.stop />
@@ -260,27 +279,7 @@ const {
       </div>
 
       <!-- 系统健康 -->
-      <div class="st" style="margin-top:16px">💻 系统健康</div>
       <SystemHealth />
-
-      <!-- 快捷操作 -->
-      <div class="st" style="margin-top:16px">⚡ 快捷操作</div>
-      <div class="ops-grid">
-        <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
-        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
-        <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
-        <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
-        <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
-        <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
-        <ElButton size="small" @click="layerDebugVisible = true" :loading="layerDebugLoading">🧪 9层调试</ElButton>
-        <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
-        <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
-        <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton>
-        <ElButton size="small" @click="exportTradeLog">📥 导出日志</ElButton>
-        <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
-        <ElButton size="small" type="warning" @click="resetAccount">🗑️ 清仓重置</ElButton>
-        <ElButton size="small" @click="sellAllPositions">💰 一键清仓</ElButton>
-      </div>
 
       <!-- 手动下单 -->
       <div class="st" style="margin-top:16px">🔧 手动下单</div>
