@@ -10,6 +10,7 @@
  *   watch(() => dateBar.selectedDate.value, () => { fetchMyData() })
  */
 import { ElDatePicker } from 'element-plus'
+import { onMounted, nextTick } from 'vue'
 import { useUnifiedDateBar } from '../composables/useUnifiedDateBar'
 
 const emit = defineEmits<{
@@ -28,8 +29,12 @@ function onDateChange(val: string | null) {
   }
 }
 
-// 初始化时触发一次
-emit('change', selectedDate.value, dateForApi.value)
+// 初始化时触发一次(延迟到mounted后, 避免父组件还没准备好)
+onMounted(() => {
+  nextTick(() => {
+    emit('change', selectedDate.value, dateForApi.value)
+  })
+})
 </script>
 
 <template>

@@ -12,11 +12,18 @@ import { parseResponse } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
 
+/** 获取中国时区的日期字符串 YYYY-MM-DD */
+function getChinaDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return china.toISOString().slice(0, 10)
+}
+
 export function useReviewMonitor() {
   // ==================== 复盘状态 ====================
   const reviewTab = ref<'daily' | 'weekly' | 'monthly'>('daily')
   const reviewLoading = ref(false)
-  const reviewDate = ref(new Date().toISOString().slice(0, 10))
+  const reviewDate = ref(getChinaDate())
   const reviewHero = ref<any>(null)
   const reviewForward = ref<any>(null)
   const dailyReportData = ref<any>(null)
@@ -58,7 +65,7 @@ export function useReviewMonitor() {
     try {
       const promises: Promise<any>[] = []
       const opts = { timeout: 60000 }
-      const today = new Date().toISOString().slice(0, 10)
+      const today = getChinaDate()
       const dateParam = reviewDate.value.replace(/-/g, '')
       const isToday = reviewDate.value === today
 

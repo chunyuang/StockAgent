@@ -21,8 +21,12 @@ import { computed, ref } from 'vue'
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
+/** 获取中国时区的日期字符串 YYYYMMDD */
+function getChinaDateInt(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); return china.toISOString().slice(0, 10).replace(/-/g, '') }
+function getChinaDateStr(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); return china.toISOString().slice(0, 10) }
+
 // 检测 timeline 是否包含历史回放数据(trade_date != today)
-const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+const todayStr = getChinaDateInt()
 const hasHistoricalFallback = computed(() => {
   return timeline.value.some((t: any) => t._historical_fallback || (t.trade_date && String(t.trade_date) !== todayStr))
 })
@@ -31,7 +35,7 @@ const hasHistoricalFallback = computed(() => {
 const isHistoricalMode = computed(() => {
   // 选了日期 且 不是今天 → 历史模式
   if (!historyDate.value) return false
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getChinaDateStr()
   return historyDate.value !== today
 })
 

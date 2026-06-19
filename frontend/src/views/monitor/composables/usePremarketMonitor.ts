@@ -43,10 +43,11 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      const today = new Date()
-      const todayStr = today.toISOString().slice(0, 10)
+      const now = new Date()
+      const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+      const todayStr = china.toISOString().slice(0, 10)
       const isOtherDate = premarketDate.value && premarketDate.value !== todayStr
-      const isWeekend = today.getDay() === 0 || today.getDay() === 6
+      const isWeekend = now.getDay() === 0 || now.getDay() === 6
       
       // 决定是否用debug/sim API:
       // 1. 用户手动开了debug → 用
