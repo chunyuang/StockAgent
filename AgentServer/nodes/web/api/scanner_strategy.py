@@ -418,7 +418,7 @@ async def get_strategy_params_compare():
         
         # 获取所有策略参数(实盘)
         live_params = {}
-        for strategy_id in ['halfway_chase', 'first_limit_up', 'dragon_head', 'limit_down_qiao']:
+        for strategy_id in ['halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao']:
             params = await param_center.get_strategy_params(strategy_id)
             if params:
                 live_params[strategy_id] = params

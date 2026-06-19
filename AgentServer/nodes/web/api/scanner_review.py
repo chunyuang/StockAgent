@@ -722,23 +722,21 @@ async def get_review_forward(date: str = None):
         # 3. 生成建议
         strategy_recommendations = []
         strategy_switches = []
-        period_strategy_map = {
+        # 【V75-审计修复】统一构建period_strategy_map, 避免中文/英文大小写三重重复
+        # 核心映射(中文key) → 自动派生英文key(RISING/rising等)
+        _cn_period_map = {
             "高潮": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
             "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
             "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
             "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
-            # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等),大小写均支持
-            "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
-            "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
-            "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
-            "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
-            "rising": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
-            "differentiation": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
-            "chaos": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
-            "bearish": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
         }
-
-        switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+                     "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
+        # 标准化period → 中文key
+        norm_period = _en_to_cn.get(raw_period, _en_to_cn.get(raw_period.lower() if raw_period else "", raw_period))
+        if norm_period not in _cn_period_map:
+            norm_period = cn_period  # fallback: 用cn_period
+        switches = _cn_period_map.get(norm_period, {"open":[],"close":[]})
         for strat in switches["open"]:
             st = strat_stats.get(strat, {})
             wr = st.get("wins",0) / max(st.get("count",1),1) * 100
@@ -1197,8 +1195,14 @@ async def param_snapshot(date: str = None):
             "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
             "strategies": {},
         }
-        # 应用全局风控覆盖
-        snapshot["global_risk"].update(override_global_risk)
+        # 应用全局风控覆盖(深层合并, 避免sentiment_position_map等嵌套dict被整体替换)
+        for k, v in override_global_risk.items():
+            if k in snapshot["global_risk"] and isinstance(snapshot["global_risk"][k], dict) and isinstance(v, dict):
+                merged = dict(snapshot["global_risk"][k])
+                merged.update(v)
+                snapshot["global_risk"][k] = merged
+            else:
+                snapshot["global_risk"][k] = v
         
         for sid, cfg in STRATEGY_CONFIGS.items():
             # 从默认值开始
