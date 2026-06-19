@@ -248,7 +248,7 @@ const {
         <div class="sc-item"><span class="sc-label">交易模式</span><span class="sc-value">{{ scanConfig.trade_mode === 'simulated' ? '模拟' : scanConfig.trade_mode === 'gm' ? '掘金' : scanConfig.trade_mode }}</span></div>
         <div class="sc-item"><span class="sc-label">运行状态</span><span class="sc-value" :style="{ color: scanConfig.is_running ? 'var(--el-color-success)' : 'var(--el-color-danger)' }">{{ scanConfig.is_running ? '🟢 运行中' : '🔴 未启动' }}</span></div>
       </div>
-      <div v-else class="empty" style="padding:8px">点击刷新加载扫描配置</div>
+      <div v-else class="empty" style="padding:8px">加载中...</div>
 
       <!-- 系统健康 -->
       <div class="st" style="margin-top:16px">💻 系统健康</div>

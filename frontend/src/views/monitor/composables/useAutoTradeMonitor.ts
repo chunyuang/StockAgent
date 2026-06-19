@@ -31,11 +31,16 @@ export function useAutoTradeMonitor(core: CoreState) {
   const scanConfig = ref<any>(null)
   const scanConfigLoading = ref(false)
 
-  /** 获取中国时区的日期字符串 YYYY-MM-DD */
+  /** 获取最近交易日的日期字符串 YYYY-MM-DD */
   function getChinaDate(): string {
     const now = new Date()
     const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-    return china.toISOString().slice(0, 10)
+    const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
+    // 周六→回退到周五, 周日→回退到周五
+    const dow = china.getDay()
+    if (dow === 6) return `${y}-${m}-${String(china.getDate() - 1).padStart(2, '0')}`
+    if (dow === 0) return `${y}-${m}-${String(china.getDate() - 2).padStart(2, '0')}`
+    return `${y}-${m}-${d}`
   }
 
   function updatePnlHistory() {
