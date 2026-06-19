@@ -118,7 +118,7 @@ const monthlyClosedLoopExpanded = ref(false)
         <div v-if="Object.keys(dailyReportData.positions?.strategy_summary || {}).length" class="review-section" style="margin-top:4px">
           <span class="section-title title-red">🎯 策略贡献</span>
           <span class="section-detail">
-            <template v-for="(data, key) in dailyReportData.positions.strategy_summary" :key="key">
+            <template v-for="(data, key) in dailyReportData.positions?.strategy_summary" :key="key">
               <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">
                 {{ strategyCN(key) }}<b>{{ data.count || 0 }}</b>只持仓
                 <span :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
@@ -276,7 +276,7 @@ const monthlyClosedLoopExpanded = ref(false)
 
           <div v-if="Object.keys(monthlyReviewData?.strategy_stats || {}).length" class="review-section" style="margin-top:4px">
             <span class="section-title title-red" style="cursor:pointer" @click="monthlyStrategyExpanded = !monthlyStrategyExpanded">🎯 策略贡献 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ monthlyStrategyExpanded ? '▼' : '▶' }}</span></span>
-            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ Object.keys(monthlyReviewData.strategy_stats || {}).length }}</b>个策略 | 总盈亏<b :class="Object.values(monthlyReviewData.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0) >= 0 ? 'up' : 'down'">{{ Object.values(monthlyReviewData.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0).toFixed(1) }}%</b></span>
+            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ Object.keys(monthlyReviewData?.strategy_stats || {}).length }}</b>个策略 | 总盈亏<b :class="Object.values(monthlyReviewData?.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0) >= 0 ? 'up' : 'down'">{{ Object.values(monthlyReviewData?.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0).toFixed(1) }}%</b></span>
           </div>
           <div v-if="monthlyStrategyExpanded && Object.keys(monthlyReviewData?.strategy_stats || {}).length" class="strategy-stacked">
             <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
