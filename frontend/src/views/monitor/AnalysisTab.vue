@@ -168,6 +168,13 @@ async function showDayDetail(date: string) {
 
         <!-- ========== 概览 ========== -->
         <div :class="['section-content', { 'section-hidden': activeSection !== 'overview' }]">
+          <div v-if="strategies.length" class="chart-section">
+            <div class="chart-title">🔄 策略贡献</div>
+            <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
+              <tr v-for="s in strategies" :key="s.strategy" :class="(s.profit || 0) >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ m.strategyCN(s.strategy) || s.strategy }}</td><td>{{ s.trades }}</td><td :class="(s.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (s.win_rate || 0).toFixed(1) }}%</td><td :class="(s.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (s.profit || 0).toLocaleString() }}</td><td :class="(s.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (s.avg_profit_pct || 0).toFixed(2) }}%</td></tr>
+            </tbody></table>
+          </div>
+          <StrategyPerfBoard />
           <div class="chart-row">
             <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('dailyProfit')">📊 日收益率 <span class="collapse-arrow">{{ expandedCharts.dailyProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.dailyProfit"><VChart v-if="dailyProfitChart" :option="dailyProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
             <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('cumProfit')">📈 累计盈亏 <span class="collapse-arrow">{{ expandedCharts.cumProfit ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.cumProfit"><VChart v-if="cumProfitChart" :option="cumProfitChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
@@ -181,16 +188,6 @@ async function showDayDetail(date: string) {
             <div class="chart-half"><div class="chart-title collapsible" @click="toggleChart('sellReason')">📤 卖出原因 <span class="collapse-arrow">{{ expandedCharts.sellReason ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.sellReason"><VChart v-if="sellReasonChart" :option="sellReasonChart" autoresize style="height:280px;width:100%" /><ElEmpty v-else description="暂无数据" :image-size="40" /></template></div>
           </div>
           <div v-if="monthly.length" class="chart-section"><div class="chart-title collapsible" @click="toggleChart('monthly')">📅 月度收益 <span class="collapse-arrow">{{ expandedCharts.monthly ? '▲' : '▼' }}</span></div><template v-if="expandedCharts.monthly"><VChart v-if="monthlyChart" :option="monthlyChart" autoresize style="height:300px;width:100%" /></template></div>
-          <div v-if="strategies.length" class="chart-section">
-            <div class="chart-title">🔄 策略贡献</div>
-            <table class="ana-tbl"><thead><tr><th>策略</th><th>笔数</th><th>胜率</th><th>盈亏</th><th>均盈亏%</th></tr></thead><tbody>
-              <tr v-for="s in strategies" :key="s.strategy" :class="(s.profit || 0) >= 0 ? 'row-up' : 'row-down'"><td class="td-strat">{{ m.strategyCN(s.strategy) || s.strategy }}</td><td>{{ s.trades }}</td><td :class="(s.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (s.win_rate || 0).toFixed(1) }}%</td><td :class="(s.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (s.profit || 0).toLocaleString() }}</td><td :class="(s.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (s.avg_profit_pct || 0).toFixed(2) }}%</td></tr>
-            </tbody></table>
-          </div>
-          <div class="chart-section">
-            <div class="chart-title">📊 策略绩效</div>
-            <StrategyPerfBoard />
-          </div>
         </div>
 
         <!-- ========== 持仓 ========== -->
