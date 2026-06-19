@@ -36,14 +36,16 @@ export function useUnifiedDateBar() {
   
   // 前一天
   function prevDay() {
-    const d = new Date(selectedDate.value + 'T00:00:00')
+    // 【v2.9.98修复】用T12:00:00解析避免时区偏移导致日期跳变
+    // T00:00:00在UTC+8下解析为UTC-8h, toISOString()取UTC日期会少一天
+    const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() - 1)
     selectedDate.value = d.toISOString().slice(0, 10)
   }
   
   // 后一天
   function nextDay() {
-    const d = new Date(selectedDate.value + 'T00:00:00')
+    const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() + 1)
     const chinaToday = getChinaDate()
     if (d.toISOString().slice(0, 10) <= chinaToday) {
