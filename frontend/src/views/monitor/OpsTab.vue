@@ -111,8 +111,8 @@ const {
     <div class="mm-tab-scroll">
       <!-- 自动交易操作流 -->
       <div class="st">🤖 自动交易操作流
-        <UnifiedDateBar @change="(_d: string) => { opsDate = _d }" />
-        <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton>
+        <UnifiedDateBar @change="(_d: string) => { opsDate = _d; fetchAutoTrades() }" />
+        <ElButton size="small" @click="fetchAutoTrades" :loading="loading">🔄</ElButton>
       </div>
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
