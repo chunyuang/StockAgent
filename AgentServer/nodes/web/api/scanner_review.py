@@ -524,8 +524,12 @@ async def get_review_hero(date: str = None):
             conclusion = f"🟡 今日小赚 +{total_pct:.1f}% {'跑赢' if total_pct > benchmark_pct else '落后'}大盘{abs(total_pct - benchmark_pct):.1f}%"
             conclusion_type = "slight_profit"
         elif total_pct > -2:
-            conclusion = f"🟠 今日小亏 {total_pct:.1f}% {'仍跑赢大盘' if total_pct > benchmark_pct else '落后大盘'} 止损{len(stop_losses)}笔"
-            conclusion_type = "slight_loss"
+            if total_pct == 0 or abs(total_pct) < 0.05:
+                conclusion = f"📋 今日持平 {'跑赢' if total_pct > benchmark_pct else '落后'}大盘{abs(total_pct - benchmark_pct):.1f}% 止损{len(stop_losses)}笔"
+                conclusion_type = "neutral"
+            else:
+                conclusion = f"🟠 今日小亏 {total_pct:.1f}% {'仍跑赢大盘' if total_pct > benchmark_pct else '落后大盘'} 止损{len(stop_losses)}笔"
+                conclusion_type = "slight_loss"
         else:
             conclusion = f"🔴 今日亏损 {total_pct:.1f}% 止损{len(stop_losses)}笔过多 建议降仓检查策略"
             conclusion_type = "loss"
