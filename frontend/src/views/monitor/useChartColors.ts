@@ -1,7 +1,7 @@
 /**
  * 获取CSS变量的实际颜色值(echarts不解析CSS变量,需要传实际值)
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const colors = ref({
   stockUp: '#f23645',

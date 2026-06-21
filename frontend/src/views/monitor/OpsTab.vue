@@ -44,7 +44,7 @@ function formatLayerName(key: string): string {
   }
   return map[key] || key
 }
-function formatLayerDetail(key: string, layer: any): string {
+function formatLayerDetail(_key: string, layer: any): string {
   if (!layer) return '无数据'
   const detail = layer.detail || layer
   if (typeof detail !== 'object' || Object.keys(detail).length === 0) return '未触发/无数据'
@@ -98,14 +98,14 @@ function entriesOf(obj: any): Array<[string, any]> {
 // 解构需要的变量(从inject对象)
 const {
   loading, isRunning, dryRun, circuitBreakerPaused,
-  autoTrades, opsDate, scanConfig, scanConfigLoading,
-  timeline, orders, historyData, historyDate, historyLoading,
+  autoTrades, opsDate, scanConfig,
+  timeline, orders, historyData, historyLoading,
   manualTrade, manualQuote,
   cumulativePnl,
   strategyCN,
   // 方法
   manualScan, forceScan, dailySettlement, openTradeAudit,
-  fetchAutoTrades, fetchScanConfig, fetchDailyReport,
+  fetchAutoTrades, fetchDailyReport,
   openWeeklyReport, toggleDryRun, resetCircuitBreaker,
   exportTradeLog, saveSnapshot, resetAccount, sellAllPositions,
   loadCompare, compareLoading, layerDebugVisible, layerDebugLoading,
@@ -204,7 +204,7 @@ const {
                 <div class="tb-title">📋 选股参数(当前策略)</div>
                 <div class="tb-kv">
                   <template v-for="(v, k) in t.decision_trace.selection_params" :key="k">
-                    <template v-if="v !== null && v !== undefined && v !== '' && k !== 'strategy'">
+                    <template v-if="v !== null && v !== undefined && v !== '' && String(k) !== 'strategy'">
                       <span>{{ k }}</span><b>{{ v }}</b>
                     </template>
                   </template>

@@ -56,7 +56,7 @@ export function usePremarketMonitor() {
       // 3. 周末/节假日 → 用(没有实时数据)
       // 4. 交易日非竞价时段 → 也用! (scanner没运行时premarket-status返回空数据)
       //    竞价时段(9:00-9:25)且scanner运行中 → 用premarket-status
-      const hhmm = today.getHours() * 100 + today.getMinutes()
+      const hhmm = new Date().getHours() * 100 + new Date().getMinutes()
       const isInAuctionWindow = !isWeekend && hhmm >= 900 && hhmm < 925
       const useDebug = premarketDebugMode.value || isOtherDate || isWeekend || !isInAuctionWindow
       

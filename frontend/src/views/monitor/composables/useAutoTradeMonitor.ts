@@ -79,10 +79,10 @@ export function useAutoTradeMonitor(core: CoreState) {
     try {
       let url = '/unified/trades?limit=50'
       if (opsDate.value) url += `&date=${opsDate.value.replace(/-/g, '')}`
-      console.log('[OpsTab] fetchAutoTrades url:', url, 'opsDate:', opsDate.value)
+      if (__DEV__) console.log('[OpsTab] fetchAutoTrades url:', url, 'opsDate:', opsDate.value)
       const r = await api.get(url)
       const p = parseResponse(r)
-      console.log('[OpsTab] fetchAutoTrades result:', p.success, 'trades count:', p.data?.trades?.length)
+      if (__DEV__) console.log('[OpsTab] fetchAutoTrades result:', p.success, 'trades count:', p.data?.trades?.length)
       if (p.success) {
         // unified/trades 返回 { trades: [...], summary: {...} }
         autoTrades.value = (p.data?.trades || []).map((t: any) => ({
@@ -121,7 +121,7 @@ export function useAutoTradeMonitor(core: CoreState) {
     try {
       const r = await api.get(`${scannerApi}/scan-config`)
       const p = parseResponse(r)
-      console.log('[OpsTab] fetchScanConfig result:', p.success, 'data:', !!p.data)
+      if (__DEV__) console.log('[OpsTab] fetchScanConfig result:', p.success, 'data:', !!p.data)
       if (p.success) scanConfig.value = p.data
     } catch (e) { console.error('[OpsTab] fetchScanConfig error:', e) }
     finally { scanConfigLoading.value = false }

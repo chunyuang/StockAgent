@@ -258,7 +258,7 @@ export function useCoreMethods(refs: CoreRefs) {
     _unwatchWs = watch(() => wsHook.isConnected.value, (connected: boolean, prev: boolean) => {
       if (connected && !prev) {
         // WS从断开恢复到连接 → 主动fetch一次全量数据恢复
-        console.log('[WS] 重连成功, 主动fetch恢复数据')
+        if (__DEV__) console.log('[WS] 重连成功, 主动fetch恢复数据')
         fetchScanner()
         fetchHealth()
         // 重新订阅scanner频道(携带last_stream_id断线补发)

@@ -13,8 +13,8 @@ import { parseResponse } from '@/utils/scanner'
 const m = useScannerMonitorInject()
 const {
   sentimentMode, sentimentDate, hoveredPoint, sentimentTimeline,
-  sentimentTrades, displayTimeline, isIntradayFallback,
-  xAxisLabels, sentimentMatrix, sentimentRecommendations, sentimentLoading,
+  displayTimeline, isIntradayFallback,
+  xAxisLabels, sentimentMatrix, sentimentLoading,
   sentimentLive, phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
   fetchSentimentData, strategyCN,
 } = m
@@ -65,9 +65,6 @@ const dailyScorePoints = computed(() => {
   return tl.map((p: Record<string, any>, i: number) => `${i * 20},${100 - (p.score || 0)}`).join(' ')
 })
 const scoredTimeline = computed(() => (displayTimeline.value as Array<Record<string, any>>).filter((p: Record<string, any>) => p.score != null))
-const dailyTradeMarkers = computed(() =>
-  (sentimentTrades.value as Array<Record<string, any>>).map((t: Record<string, any>) => ({ ...t, leftPct: (() => { const tl = displayTimeline.value as Array<Record<string, any>>; const idx = tl.findIndex((p: Record<string, any>) => (p.date as string) >= (t.date as string)); return tl.length ? idx / Math.max(tl.length - 1, 1) * 100 : 50 })() }))
-)
 function matrixTotal(periods: Record<string, any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as Record<string, any>).count as number || 0), 0) }
 function dailyDotBottom(p: Record<string, any>): number { return (p.score || 0) as number }
 

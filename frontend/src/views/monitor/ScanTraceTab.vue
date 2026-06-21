@@ -13,7 +13,7 @@ const m = useScannerMonitorInject()
 
 const {
   scanTraceDate, scanTraceFilter, scanTraceLoadingMore, selectedScanIdx,
-  scanDateCellClass, scanHistory, scanHistoryByHour, scanHistoryLoading,
+  scanHistory, scanHistoryByHour, scanHistoryLoading,
   scanTraceDebugMode,
   switchScanTraceFilter, fetchScanHistory, fetchScanTrace, toggleScanHour,
   scanTraceDetail, layerLabel, layerDesc, rejectionLayerCN,
@@ -313,12 +313,12 @@ onMounted(async () => {
         </div>
         <div class="scan-hours">
           <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
-            <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) > 0 }" @click="toggleScanHour(group.hour)">
+            <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) > 0 }" @click="toggleScanHour(group.hour)">
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
               <span class="sc-hour-label">{{ group.hour }}:00</span>
               <span class="sc-hour-count">{{ group.items.length }}轮</span>
               <span class="sc-hour-types">{{ scanHourTypeSummary(group.items) }}</span>
-              <span class="sc-hour-summary">{{ group.items.reduce((a,s) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a,s) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a,s) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
+              <span class="sc-hour-summary">{{ group.items.reduce((a:any,s:any) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a:any,s:any) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
               <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">

@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { api } from '@/api/client'
 
 /**
@@ -80,7 +80,7 @@ export function useUnifiedDateBar() {
     if (availabilityLoading.value) return
     availabilityLoading.value = true
     try {
-      const r = await api.get('/unified/date-availability?days=60')
+      const r: any = await api.get('/unified/date-availability?days=60')
       const p = r?.data ? r : (r?.success !== false ? r : null)
       if (p?.data) {
         dateAvailability.value = p.data
