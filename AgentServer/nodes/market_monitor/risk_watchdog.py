@@ -392,13 +392,16 @@ class RiskWatchdog:
                 msg = f"🔴 {len(breached)}只持仓跌破止损价未被止损: {', '.join(breached[:3])}"
                 logger.warning(f"[WATCHDOG] {msg}")
                 # 发送CRITICAL告警
-                if self._alert_callback:
-                    await self._alert_callback({
-                        "level": "CRITICAL",
-                        "type": "stop_loss_breach",
-                        "message": msg,
-                        "breached": breached,
-                    })
+                for handler in self._alert_channels:
+                    try:
+                        await handler({
+                            "level": "CRITICAL",
+                            "type": "stop_loss_breach",
+                            "message": msg,
+                            "breached": breached,
+                        })
+                    except Exception as _ae:
+                        logger.debug(f"[WATCHDOG] 止损告警通道异常: {_ae}")
                 return HealthCheck(
                     name="stop_loss_breach", status=HealthStatus.CRITICAL,
                     value=f"{len(breached)}只破止损", threshold="0只",
