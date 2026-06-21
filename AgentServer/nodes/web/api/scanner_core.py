@@ -1437,9 +1437,9 @@ async def get_position_risk_matrix():
                 "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in sorted(industry_exp.items(), key=lambda x: -x[1])},
                 "position_count": len(positions),
                 "risk_summary": {
-                    "normal": sum(1 for m in matrix if m["risk_score"] < 40),
-                    "warning": sum(1 for m in matrix if 40 <= m["risk_score"] < 70),
-                    "critical": sum(1 for m in matrix if m["risk_score"] >= 70),
+                    "normal": sum(1 for m in matrix if m.get("risk_level") == "normal"),
+                    "warning": sum(1 for m in matrix if m.get("risk_level") == "warning"),
+                    "critical": sum(1 for m in matrix if m.get("risk_level") == "critical"),
                 }
             }
         }})
