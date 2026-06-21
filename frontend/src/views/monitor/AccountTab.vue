@@ -175,9 +175,9 @@ const posPie = computed(() => {
             <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏 ──</span><span></span></div>
             <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
               <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
-              <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
+              <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (Number(p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
             </div>
-            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (Number(totalAssets || 0) / 10000).toFixed(2) }}万</span></div>
           </div>
         </div>
       </div>

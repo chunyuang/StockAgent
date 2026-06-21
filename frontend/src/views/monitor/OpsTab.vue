@@ -288,7 +288,7 @@ const {
         <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
         <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
         <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" class="w-full">下单</ElButton>
-        <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ Number(manualQuote.pct_chg || 0).toFixed(2) }}%</span></div>
+        <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ Number(manualQuote.price || 0).toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="Number(manualQuote.pct_chg) >= 0 ? 'up' : 'down'">{{ Number(manualQuote.pct_chg) >= 0 ? '+' : '' }}{{ Number(manualQuote.pct_chg || 0).toFixed(2) }}%</span></div>
       </div>
 
       <!-- 交易时间线 -->
