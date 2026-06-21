@@ -1122,6 +1122,8 @@ class RuntimePersistence:
         
         # 2. 批量从stock_daily_ak_full回填pct_chg(填补实时行情未覆盖的)
         # daily_basic原始数据不含pct_chg,必须从stock_daily_ak_full补
+        # 【v2.9.99修复】扩大回填范围: 不仅填null，也填pct_chg=0但stock_daily有非零值的
+        # (eastmoney_daily_basic.py可能写入pct_chg=0.0当f3字段不可用时)
         try:
             pipeline = [
                 {"$match": {"trade_date": td_int, "pct_chg": {"$ne": None}}},
@@ -1130,9 +1132,20 @@ class RuntimePersistence:
             fill_ops = []
             filled = 0
             async for doc in db["stock_daily_ak_full"].aggregate(pipeline):
+                src_pct = doc.get("pct_chg")
+                # 回填条件: daily_basic中pct_chg为null/不存在，或为0但source有非零值
                 fill_ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": doc["ts_code"], "pct_chg": None},
-                    {"$set": {"pct_chg": doc["pct_chg"], "data_source": "stock_daily_ak_full"}}
+                    {
+                        "trade_date": td_int,
+                        "ts_code": doc["ts_code"],
+                        # 匹配null/不存在 或 pct_chg=0但source非零
+                        "$or": [
+                            {"pct_chg": None},
+                            {"pct_chg": {"$exists": False}},
+                            {"pct_chg": 0, "$and": [{"$expr": {"$ne": [src_pct, 0]}}]},
+                        ],
+                    },
+                    {"$set": {"pct_chg": src_pct, "data_source": "stock_daily_ak_full"}}
                 ))
                 filled += 1
                 if len(fill_ops) >= 500:

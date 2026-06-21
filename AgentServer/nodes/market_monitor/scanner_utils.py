@@ -572,7 +572,7 @@ class ScannerUtils:
         try:
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
             return STRATEGY_CONFIGS.get(strategy, {}).get("display_name", strategy)
-        except Exception:
+        except Exception as _e:
             return strategy
 
     @staticmethod

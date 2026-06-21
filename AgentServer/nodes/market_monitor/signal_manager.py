@@ -26,7 +26,7 @@ from nodes.market_monitor.scanner import ScanSignal
 # 事故时间2026-06-15 13:32:08，scan #8 首次产生信号走到 A7 过滤行崩溃 → scan_loop 死三分钟。
 try:
     from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-except Exception:
+except Exception as _e:
     GLOBAL_RISK = {}
 
 logger = logging.getLogger("signal_manager")
@@ -150,7 +150,7 @@ class SignalManager:
                 try:
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                         sig.strategy_name, "信号已在进行中, 本轮不重复下单", sig)
-                except Exception:
+                except Exception as _e:
                     pass
                 for s in self.active_signals:
                     if s.ts_code + "|" + s.strategy == key:
@@ -295,7 +295,7 @@ class SignalManager:
                     try:
                         self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                             sig.strategy_name, f"非交易时间({phase}), 不下单", sig)
-                    except Exception:
+                    except Exception as _e:
                         pass
                 logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
                 return

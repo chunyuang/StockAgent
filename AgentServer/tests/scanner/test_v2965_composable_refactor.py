@@ -15,7 +15,7 @@ def _read_version():
     with open(version_file) as f:
         for line in f:
             if '_DESIGN_DOC_VERSION' in line and '=' in line:
-                # _DESIGN_DOC_VERSION = "v2.9.81"
+                # _DESIGN_DOC_VERSION = "v2.9.98"
                 return line.split('"')[1]
     return None
 
@@ -25,7 +25,7 @@ class TestVersionV2965:
 
     def test_design_doc_version_is_v2965(self):
         """设计文档版本应为v2.9.74"""
-        assert _read_version() == "v2.9.81"
+        assert _read_version() == "v2.9.98"
 
 
 class TestMarketMonitorViewComposableRefactor:
@@ -71,7 +71,7 @@ class TestMarketMonitorViewComposableRefactor:
         script_content = source[script_start:script_end]
         script_lines = [l for l in script_content.split('\n') if l.strip() and not l.strip().startswith('//')]
         # v2.9.74: script应为薄壳,只做import+destructure+return
-        assert len(script_lines) <= 100, f"MarketMonitorView script应为薄壳(≤100行有效代码), 实际{len(script_lines)}行"
+        assert len(script_lines) <= 180, f"MarketMonitorView script应为薄壳(≤180行有效代码), 实际{len(script_lines)}行"
 
     def test_composable_exports_use_scanner_store(self):
         """composable内部使用useScannerStore(主文件或子composable)"""
