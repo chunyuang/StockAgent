@@ -1287,7 +1287,7 @@ async def get_position_risk_matrix():
                     "profit_pct": round(profit_pct, 2), "profit_amount": round(profit_amount, 0),
                     "market_value": round(mv, 0), "position_pct": 0,  # placeholder
                     "stop_loss_price": round(sl_price, 2), "take_profit_price": round(tp_price, 2),
-                    "dist_to_stop": round(dist_sl, 1), "dist_to_take": round(dist_tp, 1),
+                    "dist_stop_loss": round(dist_sl, 1), "dist_take_profit": round(dist_tp, 1),
                     "risk_level": risk_level, "risk_score": round(risk_score, 0),
                     "trailing_stop": None,
                 })
@@ -1437,9 +1437,9 @@ async def get_position_risk_matrix():
                 "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in sorted(industry_exp.items(), key=lambda x: -x[1])},
                 "position_count": len(positions),
                 "risk_summary": {
-                    "normal": sum(1 for m in matrix if m["risk_score"] < 40),
-                    "warning": sum(1 for m in matrix if 40 <= m["risk_score"] < 70),
-                    "critical": sum(1 for m in matrix if m["risk_score"] >= 70),
+                    "normal": sum(1 for m in matrix if m.get("risk_level") == "normal"),
+                    "warning": sum(1 for m in matrix if m.get("risk_level") == "warning"),
+                    "critical": sum(1 for m in matrix if m.get("risk_level") == "critical"),
                 }
             }
         }})

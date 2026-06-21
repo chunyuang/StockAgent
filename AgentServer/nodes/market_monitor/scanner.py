@@ -675,7 +675,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             logger.debug(traceback.format_exc())
             try:
                 await self._save_premarket_snapshot(trade_date, datetime.now().isoformat(), note=f"扫描异常: {e}")
-            except Exception:
+            except Exception as _e:
                 pass
             return 0
 
@@ -1060,7 +1060,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                                 getattr(dropped_sig, 'strategy_name', ''),
                                 f"同行业「{ind}」已选{remaining_slots}只信号,本只被集中度过滤剔除",
                                 dropped_sig)
-                        except Exception:
+                        except Exception as _e:
                             pass
             
             if removed > 0:
@@ -1098,7 +1098,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             pct = q.get("pct_chg", q.get("auction_pct", p.profit_pct)) if isinstance(q, dict) else p.profit_pct
             try:
                 pct = float(pct or 0)
-            except Exception:
+            except Exception as _e:
                 pct = 0.0
             pcts.append(pct)
             if pct >= 0:
@@ -1176,7 +1176,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                 if isinstance(v, dict):
                     try:
                         pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
-                    except Exception:
+                    except Exception as _e:
                         pass
             total = len(pcts)
             up_count = sum(1 for p in pcts if p > 0)
@@ -1259,7 +1259,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                 return False
             from nodes.market_monitor.market_phase import MarketPhase
             return MarketPhase.is_continuous_auction()
-        except Exception:
+        except Exception as _e:
             return False
 
     async def _execute_pending_premarket_risk_action(self) -> None:

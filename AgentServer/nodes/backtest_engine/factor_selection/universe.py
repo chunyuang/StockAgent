@@ -1,9 +1,9 @@
 """
 股票池管理器
 
-管理回测的股票池范围，支持:
+管理回测的股票池范围,支持:
 - 全市场 A 股
-- 排除规则（ST、次新股、涨跌停）
+- 排除规则(ST、次新股、涨跌停)
 - 获取调仓日期列表
 """
 
@@ -46,16 +46,16 @@ class UniverseManager:
     - limit_list: 获取涨跌停信息
     """
 
-    # 次新股定义：上市不满多少个交易日
+    # 次新股定义:上市不满多少个交易日
     NEW_STOCK_DAYS = 250
-    
+
     # 🚀 交易日历缓存
     _all_trade_dates_cache: list[int] | None = None
     _st_stocks_cache: set[str] | None = None
     _cache_lock = asyncio.Lock()
-    _cache_timestamp: float = 0.0  # 【修复#34：缓存时间戳，24小时过期】
+    _cache_timestamp: float = 0.0  # 【修复#34:缓存时间戳,24小时过期】
     _CACHE_TTL_SECONDS: int = 86400  # 24小时
-    # 【P2-3修复：当日可交易股票缓存，同一天内复用】
+    # 【P2-3修复:当日可交易股票缓存,同一天内复用】
     _tradable_stocks_cache: dict[str, set[str]] = {}  # {trade_date: set[ts_code]}
 
     async def get_universe(
@@ -75,7 +75,7 @@ class UniverseManager:
         Returns:
             股票代码集合
         """
-        # 1. 获取基础股票池（当日有交易的股票）
+        # 1. 获取基础股票池(当日有交易的股票)
         logger.debug(f"[{trade_date}] Getting tradable stocks...")
         stocks = await self._get_tradable_stocks(trade_date)
 
@@ -94,11 +94,11 @@ class UniverseManager:
         return stocks
 
     async def _get_tradable_stocks(self, trade_date: str) -> set[str]:
-        """获取当日有交易的股票（带日期级缓存）"""
-        # 【P2-3修复：同一天内复用缓存】
+        """获取当日有交易的股票(带日期级缓存)"""
+        # 【P2-3修复:同一天内复用缓存】
         if trade_date in self._tradable_stocks_cache:
             return self._tradable_stocks_cache[trade_date].copy()
-        
+
         result = await mongo_manager.find_many(
             C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
@@ -114,7 +114,7 @@ class UniverseManager:
         trade_date: str,
         rules: list[ExcludeRule],
     ) -> set[str]:
-        """应用排除规则，返回需要排除的股票集合"""
+        """应用排除规则,返回需要排除的股票集合"""
         excluded = set()
 
         for rule in rules:
@@ -137,19 +137,19 @@ class UniverseManager:
         return excluded
 
     async def _get_st_stocks(self) -> set[str]:
-        """获取 ST 股票（从 stock_basic 表）"""
-        # 【修复#34：缓存添加24小时TTL，超过时间自动失效】
+        """获取 ST 股票(从 stock_basic 表)"""
+        # 【修复#34:缓存添加24小时TTL,超过时间自动失效】
         import time
         now = time.time()
         if now - self._cache_timestamp > self._CACHE_TTL_SECONDS:
             self._st_stocks_cache = None
             self._all_trade_dates_cache = None
             logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
-        
-        # 【修复#24：ST股票查询缓存，ST名单不会每日变化，缓存一次永久有效】
+
+        # 【修复#24:ST股票查询缓存,ST名单不会每日变化,缓存一次永久有效】
         if self._st_stocks_cache is not None:
             return self._st_stocks_cache.copy()
-        
+
         # ST 股票名称包含 ST
         result = await mongo_manager.find_many(
             C.STOCK_BASIC,
@@ -161,32 +161,32 @@ class UniverseManager:
         return self._st_stocks_cache.copy()
 
     async def _get_new_stocks(self, trade_date: str) -> set[str]:
-        """获取次新股（上市不满 {self.NEW_STOCK_DAYS} 个交易日）"""
-        # 🔧 修复#25：次新股判断使用交易日 250 天而非自然日 365 天
-        # 🔧 BUG修复: 统一转为字符串，处理int/str类型不一致
+        """获取次新股(上市不满 {self.NEW_STOCK_DAYS} 个交易日)"""
+        # 🔧 修复#25:次新股判断使用交易日 250 天而非自然日 365 天
+        # 🔧 BUG修复: 统一转为字符串,处理int/str类型不一致
         import bisect
         trade_date = str(trade_date)
-        
-        # 获取所有交易日历，找到 {self.NEW_STOCK_DAYS} 个交易日前的截止日期
-        # 【修复#34：先检查缓存是否过期】
+
+        # 获取所有交易日历,找到 {self.NEW_STOCK_DAYS} 个交易日前的截止日期
+        # 【修复#34:先检查缓存是否过期】
         import time
         now = time.time()
         if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
             UniverseManager._all_trade_dates_cache = None
             UniverseManager._st_stocks_cache = None
             logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
-        
+
         if self._all_trade_dates_cache is None:
             await self._get_trade_dates_from_mongo("19900101", "21000101")
-        
-        # 找到截止日期：当前日期往前数 {self.NEW_STOCK_DAYS} 个交易日
+
+        # 找到截止日期:当前日期往前数 {self.NEW_STOCK_DAYS} 个交易日
         all_dates = sorted(self._all_trade_dates_cache)
         # 二分查找找到当前日期在列表中的位置
         trade_date_int = int(trade_date)
         idx = bisect.bisect_right(all_dates, trade_date_int)
         cutoff_idx = max(0, idx - self.NEW_STOCK_DAYS)
         cutoff_date_int = all_dates[cutoff_idx]
-        
+
         # 上市日期晚于截止日期的都是次新股
         result = await mongo_manager.find_many(
             C.STOCK_BASIC,
@@ -196,14 +196,14 @@ class UniverseManager:
         return {doc["ts_code"] for doc in result}
 
     async def _get_limit_up_stocks(self, trade_date: str) -> set[str]:
-        """获取涨停股（一字板：开盘=最低=涨停价）
-        【P2-3修复：区分板块涨跌停阈值】
+        """获取涨停股(一字板:开盘=最低=涨停价)
+        【P2-3修复:区分板块涨跌停阈值】
         主板(60/00): 9.8%
         创业板(30): 19.8%
         科创板(68): 19.8%
         北交所(8/4): 29.8%
         """
-        # 从 stock_daily_ak_full 获取当日数据，按板块分别判断涨停
+        # 从 stock_daily_ak_full 获取当日数据,按板块分别判断涨停
         result = await mongo_manager.find_many(
             C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
@@ -221,9 +221,9 @@ class UniverseManager:
                 threshold = 29.8  # 北交所 30%
             else:
                 threshold = 9.8   # 主板 10%
-            
+
             if pct >= threshold and doc.get("open") and doc.get("low") and doc.get("close"):
-                # 一字板判断：开盘价和最低价差异 < 0.01%
+                # 一字板判断:开盘价和最低价差异 < 0.01%
                 if doc["open"] > 0 and abs(doc["open"] - doc["low"]) / doc["open"] < 0.0001:
                     limit_up.add(ts_code)
 
@@ -231,9 +231,9 @@ class UniverseManager:
 
     async def _get_limit_down_stocks(self, trade_date: str) -> set[str]:
         """获取跌停股
-        【P2-3修复：区分板块涨跌停阈值】
+        【P2-3修复:区分板块涨跌停阈值】
         """
-        # 获取所有当日数据，按板块分别判断
+        # 获取所有当日数据,按板块分别判断
         result = await mongo_manager.find_many(
             C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
@@ -272,8 +272,8 @@ class UniverseManager:
         """
         # 获取交易日历
         logger.info(f"UNIVERSE: Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
-        # 🚀 100% 从本地MongoDB获取交易日历，完全不依赖任何外部API
-        # 本地MongoDB已经有完整的 daily 数据，直接从中提取所有交易日期
+        # 🚀 100% 从本地MongoDB获取交易日历,完全不依赖任何外部API
+        # 本地MongoDB已经有完整的 daily 数据,直接从中提取所有交易日期
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
         if not trade_dates:
             logger.error(f"UNIVERSE: No trade dates found in local MongoDB for {start_date} -> {end_date}")
@@ -348,15 +348,15 @@ class UniverseManager:
     async def _get_trade_dates_from_mongo(self, start_date: str, end_date: str) -> list[str]:
         """从本地MongoDB stock_daily_ak_full表中获取日期范围内的所有交易日"""
         try:
-            # 【修复#34：先检查缓存是否过期，24小时TTL】
+            # 【修复#34:先检查缓存是否过期,24小时TTL】
             import time
             now = time.time()
             if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
                 UniverseManager._all_trade_dates_cache = None
                 UniverseManager._st_stocks_cache = None
                 logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
-            
-            # 🚀 优先从缓存读取，缓存命中直接返回，永远不需要再查询
+
+            # 🚀 优先从缓存读取,缓存命中直接返回,永远不需要再查询
             if UniverseManager._all_trade_dates_cache is not None:
                 all_dates = UniverseManager._all_trade_dates_cache
                 start_int = int(start_date)
@@ -364,17 +364,17 @@ class UniverseManager:
                 filtered = [d for d in all_dates if start_int <= d <= end_int]
                 # 统一转换成字符串格式
                 return [str(int(d)) for d in filtered]
-            
-            # 缓存未命中，获取全局锁后重新查询
+
+            # 缓存未命中,获取全局锁后重新查询
             async with UniverseManager._cache_lock:
-                # 双重检查，避免竞态条件
+                # 双重检查,避免竞态条件
                 if UniverseManager._all_trade_dates_cache is not None:
                     all_dates = UniverseManager._all_trade_dates_cache
                     start_int = int(start_date)
                     end_int = int(end_date)
                     filtered = [d for d in all_dates if start_int <= d <= end_int]
                     return [str(int(d)) for d in filtered]
-                
+
                 # 第一次查询：获取整个表中所有不同的交易日，存入缓存
                 logger.info("UNIVERSE: 首次查询: 从MongoDB获取全部交易日(可能较慢)...")
                 pipeline = [
@@ -382,23 +382,49 @@ class UniverseManager:
                     {"$sort": {"_id": 1}}
                 ]
                 result = await mongo_manager.aggregate(C.STOCK_DAILY, pipeline)
-                
+
                 # 存入全局缓存
                 UniverseManager._all_trade_dates_cache = [doc["_id"] for doc in result]
                 import time
                 UniverseManager._cache_timestamp = time.time()  # 【修复#34：更新缓存时间戳】
                 logger.info(f"UNIVERSE: Cached all trade dates: {len(UniverseManager._all_trade_dates_cache)} dates total")
-                
+
+                # 【v2.9.90修复P1】stock_daily_ak_full可能数据不完整(如刚启动时数据未下载完)，
+                # fallback到trade_cal集合获取交易日历
+                if not UniverseManager._all_trade_dates_cache:
+                    logger.warning("UNIVERSE: stock_daily_ak_full无数据，fallback到trade_cal集合")
+                    try:
+                        cal_docs = await mongo_manager.db["trade_cal"].find(
+                            {"is_open": 1, "cal_date": {"$gte": int(start_date), "$lte": int(end_date)}},
+                            {"cal_date": 1, "_id": 0}
+                        ).to_list(1000)
+                        UniverseManager._all_trade_dates_cache = sorted([d["cal_date"] for d in cal_docs])
+                        logger.info(f"UNIVERSE: trade_cal fallback: {len(UniverseManager._all_trade_dates_cache)} dates")
+                    except Exception as cal_err:
+                        logger.error(f"UNIVERSE: trade_cal fallback也失败: {cal_err}")
+
                 # 过滤日期范围
                 all_dates = UniverseManager._all_trade_dates_cache
                 start_int = int(start_date)
                 end_int = int(end_date)
                 filtered = [d for d in all_dates if start_int <= d <= end_int]
-                
+
                 # 🔴 强制统一转换成字符串格式，确保类型一致
                 return [str(int(d)) for d in filtered]
         except Exception as e:
             logger.warn('UNIVERSE', f"从MongoDB获取交易日失败: {e}")
+            # 【v2.9.90修复P1】异常时也尝试trade_cal fallback
+            try:
+                cal_docs = await mongo_manager.db["trade_cal"].find(
+                    {"is_open": 1, "cal_date": {"$gte": int(start_date), "$lte": int(end_date)}},
+                    {"cal_date": 1, "_id": 0}
+                ).to_list(1000)
+                if cal_docs:
+                    dates = sorted([d["cal_date"] for d in cal_docs])
+                    logger.info(f"UNIVERSE: 异常fallback到trade_cal: {len(dates)} dates")
+                    return [str(d) for d in dates]
+            except Exception:
+                pass
             return []
 
     async def get_all_trade_dates(
@@ -406,9 +432,9 @@ class UniverseManager:
         start_date: str,
         end_date: str,
     ) -> list[str]:
-        """获取日期范围内的所有交易日，100%从本地MongoDB获取，完全不依赖任何外部API"""
-        # 🚀 彻底不依赖任何外部网络API，完全使用本地数据
-        # 本地MongoDB已经存储了完整的日线数据，直接从中提取交易日历
+        """获取日期范围内的所有交易日,100%从本地MongoDB获取,完全不依赖任何外部API"""
+        # 🚀 彻底不依赖任何外部网络API,完全使用本地数据
+        # 本地MongoDB已经存储了完整的日线数据,直接从中提取交易日历
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
         if not trade_dates:
             logger.error(f"UNIVERSE: No trade dates found in local MongoDB for {start_date} -> {end_date}")

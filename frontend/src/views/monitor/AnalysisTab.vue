@@ -34,7 +34,10 @@ function toggleChart(key: string) { expandedCharts.value[key] = !expandedCharts.
 function getChinaDate(): string {
   const now = new Date()
   const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return china.toISOString().slice(0, 10)
+  const y = china.getFullYear()
+  const m = String(china.getMonth() + 1).padStart(2, '0')
+  const d = String(china.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 // date managed by UnifiedDateBar
@@ -69,7 +72,7 @@ const stratPerfSummary = computed(() => {
   const totalProfit = ss.reduce((a: number, s: any) => a + (s.profit || 0), 0)
   const avgWin = ss.reduce((a: number, s: any) => a + (s.win_rate || 0) * (s.trades || 0), 0) / (totalTrades || 1)
   const profitSign = totalProfit >= 0 ? '+' : ''
-  return `${ss.length}策略 ${totalTrades}笔 胜率${avgWin.toFixed(0)}% ${profitSign}¥${(totalProfit / 10000).toFixed(1)}万`
+  return `${ss.length}策略 ${totalTrades}笔 胜率${isFinite(avgWin) ? avgWin.toFixed(0) : '0'}% ${profitSign}¥${(totalProfit / 10000).toFixed(1)}万`
 })
 const brokenStopLossCount = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken').length)
 const totalReasonCount = computed(() => sellReasons.value.reduce((s: number, r: any) => s + r.count, 0) || 1)
@@ -163,7 +166,7 @@ async function showDayDetail(date: string) {
           <span class="sell-reason-label">卖出分布</span>
           <div class="sell-reason-items">
             <span v-for="r in sellReasons" :key="r.reason" :class="['sell-reason-item', r.profit >= 0 ? 'reason-profit' : 'reason-loss']">
-              <span class="reason-dot"></span>{{ r.reason }}{{ r.count }}笔({{ (r.count / totalReasonCount * 100).toFixed(0) }}%)
+              <span class="reason-dot"></span>{{ r.reason }}{{ r.count }}笔({{ totalReasonCount > 0 ? (r.count / totalReasonCount * 100).toFixed(0) : '0' }}%)
             </span>
           </div>
         </div>
@@ -284,8 +287,8 @@ async function showDayDetail(date: string) {
                   <td>{{ t.date }}</td><td>{{ t.time }}</td>
                   <td :class="t.action === 'buy' ? 'up' : 'down'">{{ t.action === 'buy' ? '买入' : '卖出' }}</td>
                   <td>{{ t.shares }}</td><td>¥{{ t.price }}</td>
-                  <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(1) + '%' : '-' }}</td>
-                  <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount.toFixed(0) : '-' }}</td>
+                  <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct?.toFixed(1) + '%' : '-' }}</td>
+                  <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount?.toFixed(0) : '-' }}</td>
                   <td style="font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td>
                 </tr>
               </tbody>

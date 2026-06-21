@@ -65,7 +65,7 @@ async function runPremarketScan() {
 }
 
 /** 获取中国时区的日期字符串 YYYYMMDD */
-function getChinaDateIntPM(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); return china.toISOString().slice(0, 10).replace(/-/g, '') }
+function getChinaDateIntPM(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0'); return `${y}${m}${d}` }
 
 // 检测盘前数据是否为历史回放(非今日)
 const todayStrPM = getChinaDateIntPM()

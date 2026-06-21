@@ -3,9 +3,10 @@
   "conclusion": "str",
   "conclusion_type": "str",
   "metrics": {
-    "total_pct": "float",
+    "total_pct": "int",
     "win_rate": "float",
     "trades": "int",
+    "closed_trades": "int",
     "buys": "int",
     "stop_loss_count": "int",
     "take_profit_count": "int",
@@ -13,8 +14,8 @@
     "discipline_score": "int",
     "max_consecutive_loss": "int",
     "avg_win": "float",
-    "avg_loss": "float",
-    "profit_loss_ratio": "float"
+    "avg_loss": "int",
+    "profit_loss_ratio": "int"
   },
   "benchmark": {
     "name": "str",

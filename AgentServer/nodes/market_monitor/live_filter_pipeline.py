@@ -768,7 +768,7 @@ class LiveFilterPipeline:
                 override_spm = _override_global_risk.get("sentiment_position_map", {})
                 if override_spm:
                     spm = {**spm, **override_spm}
-        except Exception:
+        except Exception as _e:
             pass
         if score >= 70:
             phase, ratio = "rising", spm.get("rising", 1.0)

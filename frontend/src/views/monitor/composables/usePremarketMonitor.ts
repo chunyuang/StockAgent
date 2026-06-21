@@ -45,7 +45,8 @@ export function usePremarketMonitor() {
     try {
       const now = new Date()
       const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-      const todayStr = china.toISOString().slice(0, 10)
+      const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
+      const todayStr = `${y}-${m}-${d}`
       const isOtherDate = premarketDate.value && premarketDate.value !== todayStr
       const isWeekend = now.getDay() === 0 || now.getDay() === 6
       

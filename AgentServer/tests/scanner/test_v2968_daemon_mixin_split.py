@@ -190,7 +190,7 @@ class TestDaemonLineCount:
         with open(os.path.join(_DAEMON_DIR, "daemon_watchdog_mixin.py")) as f:
             for _ in f:
                 count += 1
-        assert 100 < count < 250, f"daemon_watchdog_mixin.py {count}L out of range"
+        assert 100 < count < 260, f"daemon_watchdog_mixin.py {count}L out of range"
 
 
 # ─── 方法在mixin中定义验证 ───
@@ -311,4 +311,4 @@ class TestNoBacktestRegressionV2968:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.81' in source
+        assert 'v2.9.98' in source

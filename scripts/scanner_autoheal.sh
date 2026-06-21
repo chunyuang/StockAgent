@@ -75,6 +75,34 @@ for i in 1 2 3; do
     sleep 2
 done
 
+# 2.5 【v2.9.98h修复】周末/非交易时段不启动scanner
+# autoheal判断逻辑: is_running&&(scan_count>0||status!='red')
+# 周末health永远是red导致反复POST /scanner/start, 时间线累积到2400条
+# 解决: 非交易时段跳过start, 只检查进程存活+API可达
+DOW=$(date +%u)  # 1=Monday, 7=Sunday
+HHMM=$(date +%H%M | sed 's/^0*//')  # 去前导0
+IS_WEEKEND=false
+IS_OFF_HOURS=false
+if [ "$DOW" -ge 6 ]; then
+    IS_WEEKEND=true
+fi
+if [ -z "$HHMM" ] || [ "$HHMM" -lt 900 ] 2>/dev/null || [ "$HHMM" -ge 1530 ] 2>/dev/null; then
+    IS_OFF_HOURS=true
+fi
+
+if [ "$IS_WEEKEND" = "true" ]; then
+    log "⏭️ 周末不启动scanner, 仅检查进程+API存活"
+    # 确保进程存活+API可达即可, 不启动scanner
+    if [ "$IS_RUNNING" = "true" ]; then
+        log "✅ scanner进程运行中, 周末无需启动扫描循环"
+    fi
+    exit 0
+fi
+if [ "$IS_OFF_HOURS" = "true" ]; then
+    log "⏭️ 非交易时段($HHMM), 仅检查进程+API存活"
+    exit 0
+fi
+
 # 3. 检查扫描循环是否激活
 STATUS=$(curl -sf "$API_BASE/scanner/status" 2>/dev/null || echo '{}')
 IS_RUNNING=$(echo "$STATUS" | python3 -c "

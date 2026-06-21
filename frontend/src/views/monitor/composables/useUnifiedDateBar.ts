@@ -15,7 +15,10 @@ import { api } from '@/api/client'
 function getChinaDate(): string {
   const now = new Date()
   const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return china.toISOString().slice(0, 10)
+  const y = china.getFullYear()
+  const m = String(china.getMonth() + 1).padStart(2, '0')
+  const d = String(china.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export function useUnifiedDateBar() {
@@ -36,14 +39,16 @@ export function useUnifiedDateBar() {
   
   // 前一天
   function prevDay() {
-    const d = new Date(selectedDate.value + 'T00:00:00')
+    // 【v2.9.98修复】用T12:00:00解析避免时区偏移导致日期跳变
+    // T00:00:00在UTC+8下解析为UTC-8h, toISOString()取UTC日期会少一天
+    const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() - 1)
     selectedDate.value = d.toISOString().slice(0, 10)
   }
   
   // 后一天
   function nextDay() {
-    const d = new Date(selectedDate.value + 'T00:00:00')
+    const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() + 1)
     const chinaToday = getChinaDate()
     if (d.toISOString().slice(0, 10) <= chinaToday) {
@@ -89,7 +94,9 @@ export function useUnifiedDateBar() {
   
   // 日期选择器单元格染色(给ElDatePicker用)
   function dateCellClass(date: Date): string {
-    const key = date.toISOString().slice(0, 10).replace(/-/g, '')
+    // 【v2.9.98修复】用本地日期组件避免UTC时区偏移
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    const key = `${y}${m}${d}`
     const info = dateAvailability.value[key]
     if (!info) return ''
     if (info.status === 'weekend') return 'date-weekend'
@@ -100,7 +107,8 @@ export function useUnifiedDateBar() {
   // 禁用未来日期(中国时区)
   function disabledDate(date: Date): boolean {
     const chinaToday = getChinaDate()
-    return date.toISOString().slice(0, 10) > chinaToday
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}` > chinaToday
   }
   
   onMounted(() => {

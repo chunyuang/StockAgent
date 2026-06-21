@@ -22,7 +22,12 @@ const activeSection = ref('overview')
 function getChinaDate(): string {
   const now = new Date()
   const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return china.toISOString().slice(0, 10)
+  // 【v2.9.98修复】用本地日期组件而非toISOString()，避免UTC时区偏移
+  // toISOString()返回UTC时间，UTC+8凌晨0-8点会返回前一天的日期
+  const y = china.getFullYear()
+  const m = String(china.getMonth() + 1).padStart(2, '0')
+  const d = String(china.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 const selectedDate = ref(getChinaDate())
@@ -244,7 +249,7 @@ const posPie = computed(() => {
                   <span :class="t.action === 'buy' ? 'up' : 'down'" style="font-weight:600">{{ t.action === 'buy' ? '买入' : '卖出' }}</span>
                   <span>{{ t.shares }}股@¥{{ t.price?.toFixed(2) }}</span>
                   <span class="muted">¥{{ (t.amount || 0).toLocaleString() }}</span>
-                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct.toFixed(1) }}%</span>
+                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct?.toFixed(1) }}%</span>
                   <span class="pd-trade-reason">{{ t.reason }}</span>
                 </div>
               </template>

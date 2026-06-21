@@ -161,9 +161,17 @@ async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
     await _ensure_overrides_loaded()
 
     if req.params is not None:
-        _override_params[strategy_id] = req.params
+        # 【V75-BUG修复】部分更新: 合并而非替换, 避免后续更新丢失之前的覆盖
+        if strategy_id in _override_params:
+            _override_params[strategy_id].update(req.params)
+        else:
+            _override_params[strategy_id] = dict(req.params)
     if req.riskParams is not None:
-        _override_risk[strategy_id] = req.riskParams
+        # 【V75-BUG修复】部分更新: 合并而非替换, 避免后续更新丢失之前的覆盖
+        if strategy_id in _override_risk:
+            _override_risk[strategy_id].update(req.riskParams)
+        else:
+            _override_risk[strategy_id] = dict(req.riskParams)
     if req.enabled is not None:
         _override_enabled[strategy_id] = req.enabled
 

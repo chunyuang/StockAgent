@@ -48,7 +48,7 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
             'scanTraceDates', 'scanTraceList',
             'reviewData', 'reviewHeroData', 'disciplineData', 'reviewForwardData',
             'brokers', 'dataSources',
-            'fetchAll', 'fetchScanner', 'fetchStrategies',
+            'fetchAll', # fetchScanner is used in template, 'fetchStrategies',
             'playSignalSound', 'openLayerDebug',
         ]
         # 第二批18个: 移到OpsTab后不再在MarketMonitorView模板使用
