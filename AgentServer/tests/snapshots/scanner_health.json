@@ -3,7 +3,7 @@
   "health": {
     "overall_status": "str",
     "uptime_seconds": "float",
-    "scanner_heartbeat_age": "float",
+    "scanner_heartbeat_age": "int",
     "alert_count": "int",
     "checks": {
       "halfway_chase": {
@@ -29,18 +29,6 @@
         "value": "str",
         "threshold": "str",
         "message": "str"
-      },
-      "datasource_eastmoney": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
-      },
-      "datasource_biying": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
       }
     },
     "circuit_breaker": {
@@ -57,17 +45,11 @@
       "max_consecutive_losses": "int"
     },
     "data_sources": [
-      {
-        "name": "str",
-        "available": "bool",
-        "stocks": "int",
-        "calls": "int",
-        "limit": "int"
-      }
+      "<empty_list>"
     ],
     "health_score": "int",
     "data_freshness": "str",
-    "scan_lag_seconds": "float",
+    "scan_lag_seconds": "int",
     "risk_check_lag_seconds": "int",
     "warnings": [
       "str"
@@ -76,7 +58,7 @@
     "scanner_health": {
       "status": "str",
       "is_healthy": "bool",
-      "scan_lag_seconds": "float",
+      "scan_lag_seconds": "int",
       "risk_check_lag_seconds": "int",
       "quote_staleness_seconds": "float",
       "risk_thread_alive": "bool",
@@ -84,18 +66,7 @@
       "warnings": [
         "str"
       ],
-      "event_bus_stats": {
-        "scan_completed": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
-        "signal_generated": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        }
-      }
+      "event_bus_stats": {}
     },
     "pending_sells_detail": [
       "<empty_list>"
