@@ -610,6 +610,7 @@ async def get_discipline_check(date: str = None):
             "first_limit_up": {"高潮": True, "分化": False, "震荡": False, "冰点": False},
             "limit_down_qiao": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
             "dragon_head": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
+            "limit_up_open": {"高潮": True, "分化": False, "震荡": False, "冰点": False},  # 【V77-补全】涨停开板仅高潮期适合
         }
 
         violations = []
