@@ -482,7 +482,8 @@ async def get_market_sentiment_detail(date: str = None):
             elif sentiment_score >= _diff_th: pi = ("分化", _diff_th, _rising_th)
             elif sentiment_score >= _chaos_th: pi = ("震荡", _chaos_th, _diff_th)
             else: pi = ("冰点", 0, _chaos_th)
-            sentiment_period = pi[0]
+        # 【v2.9.99修复】统一period返回中文(之前英文period如DIFFERENTIATION直接返回)
+        sentiment_period = pi[0]
 
         # 【v2.9.96g】充补 5维拆解字段(max_continue/up_down_ratio/zt_premium)供前端得分拆解展示
         max_continue = 0
