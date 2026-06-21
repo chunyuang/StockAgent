@@ -183,7 +183,7 @@ class TestVersionV2972(unittest.TestCase):
 
     def test_version_is_v2972(self):
         from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.81")
+        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.98")
 
 
 class TestNoBacktestRegressionV2972(unittest.TestCase):
