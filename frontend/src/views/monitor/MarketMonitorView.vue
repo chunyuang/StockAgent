@@ -80,7 +80,7 @@ const {
   // compareVisible/compareData passed as ReviewTab props
   compareVisible, compareData,
   formatLayerTrace,
-  openScanTrace,
+
   reviewDate, reviewHero, reviewForward,
   backtestRunning, liveBacktestDiff, executionQuality,
   tradeAttributions, paramDriftData, factorEffectData,
@@ -278,7 +278,7 @@ function formatTradeDateTime(rec: any): string {
           <span class="sc-arrow">{{ dateSectionCollapsed ? '▶' : '▼' }}</span>
         </div>
         <div v-if="!leftRailCollapsed && !dateSectionCollapsed" class="date-panel">
-          <UnifiedDateBar @change="(_d: string, dApi: string) => fetchScanner(dApi)" />
+          <UnifiedDateBar @change="(_d: string) => fetchScanner(_d.replace(/-/g, ''))" />
         </div>
         <div class="st cp compact-st" @click="toggleStrategySection" style="margin-top:4px">
           <span class="nav-icon">🎛️</span>

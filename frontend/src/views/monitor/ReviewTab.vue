@@ -14,7 +14,7 @@ import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { formatTradeDate, formatFullDate } from '@/utils/scanner'
 import FactorEffectSection from './components/FactorEffectSection.vue'
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   strategyCN: (s: string | number) => string | number
   strategyMeta: Record<string, any>
@@ -67,6 +67,8 @@ const monthlyTrendExpanded = ref(false)
 const monthlyBehaviorExpanded = ref(false)
 const monthlyCalendarExpanded = ref(false)
 const monthlyStrategyExpanded = ref(false)
+const monthlyStrategyCount = computed(() => Object.keys(props.monthlyReviewData?.strategy_stats || {}).length)
+const monthlyStrategyPnl = computed(() => (Object.values(props.monthlyReviewData?.strategy_stats || ({} as any)) as any[]).reduce((s: number, d: any) => s + (d.pnl || 0), 0))
 const monthlyParamExpanded = ref(false)
 const monthlyFactorExpanded = ref(false)
 const monthlyClosedLoopExpanded = ref(false)
@@ -176,7 +178,7 @@ const monthlyClosedLoopExpanded = ref(false)
         <!-- 逐笔滑点明细 — 折叠, 底部 -->
         <div v-if="deviationData?.details?.slippage?.length" class="review-section" style="margin-top:4px">
           <span class="section-title title-blue" style="cursor:pointer" @click="slippageDetailExpanded = !slippageDetailExpanded">📋 逐笔滑点 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ slippageDetailExpanded ? '▼' : '▶' }}</span></span>
-          <span class="section-detail" v-if="!slippageDetailExpanded"><b>{{ deviationData.details.slippage.length }}</b>笔 | 最大滑点<b :class="Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))) > 0.5 ? 'down' : ''">{{ Math.max(...deviationData.details.slippage.map(s => Math.abs(s.slippage_pct || 0))).toFixed(2) }}%</b></span>
+          <span class="section-detail" v-if="!slippageDetailExpanded"><b>{{ deviationData.details.slippage.length }}</b>笔 | 最大滑点<b :class="Math.max(...deviationData.details.slippage.map((s: any) => Math.abs(s.slippage_pct || 0))) > 0.5 ? 'down' : ''">{{ Math.max(...deviationData.details.slippage.map((s: any) => Math.abs(s.slippage_pct || 0))).toFixed(2) }}%</b></span>
         </div>
         <div v-if="slippageDetailExpanded && deviationData?.details?.slippage?.length" class="review-section" style="margin-top:1px">
           <span class="section-detail">
@@ -234,7 +236,7 @@ const monthlyClosedLoopExpanded = ref(false)
             <span class="ms">盈亏 <b :class="(monthlyReviewData.summary?.pnl || 0) >= 0 ? 'up' : 'down'">{{ (monthlyReviewData.summary?.pnl || 0) >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</b></span>
             <span class="ms">参数漂移 <b :class="(paramDriftData?.drifts?.length || 0) > 0 ? 'down' : 'up'">{{ paramDriftData?.drifts?.length || 0 }}</b>项</span>
             <span class="ms">闭环建议 <b>{{ closedLoopData?.suggestions?.length || 0 }}</b>条</span>
-            <span class="ms">策略数 <b>{{ Object.keys(monthlyReviewData?.strategy_stats || {}).length }}</b></span>
+            <span class="ms">策略数 <b>{{ monthlyStrategyCount }}</b></span>
           </div>
 
           <div v-if="monthlyReviewData?.weekly_trend?.length" class="review-section" style="margin-top:4px">
@@ -264,7 +266,7 @@ const monthlyClosedLoopExpanded = ref(false)
 
           <div v-if="monthlyReviewData?.daily_breakdown?.length" class="review-section" style="margin-top:4px">
             <span class="section-title title-cyan" style="cursor:pointer" @click="monthlyCalendarExpanded = !monthlyCalendarExpanded">🗓️ 日历热力 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ monthlyCalendarExpanded ? '▼' : '▶' }}</span></span>
-            <span class="section-detail" v-if="!monthlyCalendarExpanded"><b>{{ monthlyReviewData.daily_breakdown.length }}</b>个交易日 | 盈利日<b class="up">{{ monthlyReviewData.daily_breakdown.filter(d => (d.pnl || 0) > 0).length }}</b>天 | 亏损日<b class="down">{{ monthlyReviewData.daily_breakdown.filter(d => (d.pnl || 0) < 0).length }}</b>天</span>
+            <span class="section-detail" v-if="!monthlyCalendarExpanded"><b>{{ monthlyReviewData.daily_breakdown.length }}</b>个交易日 | 盈利日<b class="up">{{ monthlyReviewData.daily_breakdown.filter((d: any) => (d.pnl || 0) > 0).length }}</b>天 | 亏损日<b class="down">{{ monthlyReviewData.daily_breakdown.filter((d: any) => (d.pnl || 0) < 0).length }}</b>天</span>
           </div>
           <div v-if="monthlyCalendarExpanded && monthlyReviewData?.daily_breakdown?.length" class="calendar-heatmap">
             <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="(d.pnl || 0) > 0 ? 'cal-up' : (d.pnl || 0) < 0 ? 'cal-down' : 'cal-neutral'">
@@ -274,12 +276,12 @@ const monthlyClosedLoopExpanded = ref(false)
             </div>
           </div>
 
-          <div v-if="Object.keys(monthlyReviewData?.strategy_stats || {}).length" class="review-section" style="margin-top:4px">
+          <div v-if="monthlyStrategyCount" class="review-section" style="margin-top:4px">
             <span class="section-title title-red" style="cursor:pointer" @click="monthlyStrategyExpanded = !monthlyStrategyExpanded">🎯 策略贡献 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ monthlyStrategyExpanded ? '▼' : '▶' }}</span></span>
-            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ Object.keys(monthlyReviewData?.strategy_stats || {}).length }}</b>个策略 | 总盈亏<b :class="Object.values(monthlyReviewData?.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0) >= 0 ? 'up' : 'down'">{{ Object.values(monthlyReviewData?.strategy_stats || {}).reduce((s:any,d:any)=>s+(d.pnl||0),0).toFixed(1) }}%</b></span>
+            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ monthlyStrategyCount }}</b>个策略 | 总盈亏<b :class="monthlyStrategyPnl >= 0 ? 'up' : 'down'">{{ monthlyStrategyPnl.toFixed(1) }}%</b></span>
           </div>
-          <div v-if="monthlyStrategyExpanded && Object.keys(monthlyReviewData?.strategy_stats || {}).length" class="strategy-stacked">
-            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+          <div v-if="monthlyStrategyExpanded && monthlyStrategyCount" class="strategy-stacked">
+            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats as any) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
               <span class="stacked-label">{{ strategyCN(key) }}</span>
               <span class="stacked-val">{{ (data.pnl || 0) >= 0 ? '+' : '' }}{{ data.pnl || 0 }}%</span>
             </div>

@@ -40,6 +40,7 @@ export const GLOBAL_RISK = {
     chaos: 0.5,
     bearish: 0.3,
   },
+  next_day_open_sell_pct: 0.02,
   sentiment_thresholds: {
     rising: 70,
     differentiation: 55,

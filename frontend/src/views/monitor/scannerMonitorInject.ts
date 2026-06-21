@@ -28,6 +28,7 @@ export interface ScanSignal {
   key_factors?: Record<string, string>
   decision_detail?: Record<string, any>
   signal_status?: string
+  _historical_signal?: boolean
   layer_trace?: Record<string, any>
   created_at?: number
 }

@@ -54,6 +54,7 @@ export interface UnifiedPosition {
   take_profit_pct: number
   stop_loss_status: 'safe' | 'near' | 'broken'
   stop_loss_desc: string
+  risk_monitor_desc?: string
   buy_date: string
 }
 

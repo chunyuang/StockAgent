@@ -8,7 +8,7 @@ import { useChartColors } from './useChartColors'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
-import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 import VChart from 'vue-echarts'
@@ -127,12 +127,21 @@ const profitDistChart = computed(() => {
 const selectedDay = ref('')
 const dailyTrades = ref<any[]>([])
 const dailyTradesLoading = ref(false)
+
+// 个股详情
+const stockDetailVisible = ref(false)
+const stockDetail = ref<any>(null)
+const stockDetailLoading = ref(false)
+async function showStockDetail(tsCode: string) {
+  stockDetailVisible.value = true; stockDetailLoading.value = true; stockDetail.value = null
+  try { const r = await api.get(`/scanner/analysis/stock/${tsCode}`); const p = parseResponse(r); if (p.success) stockDetail.value = p.data } catch {} finally { stockDetailLoading.value = false }
+}
+
 async function showDayDetail(date: string) {
   if (selectedDay.value === date) { selectedDay.value = ''; dailyTrades.value = []; return }
   selectedDay.value = date; dailyTradesLoading.value = true
   // 【v2.9.97】切换到统一数据源
   try { const d = date.replace(/-/g, ''); const r = await api.get(`/unified/trades?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {} finally { dailyTradesLoading.value = false }
-  try { const r = await api.get(`/scanner/analysis/stock/${tsCode}`); const p = parseResponse(r); if (p.success) stockDetail.value = p.data } catch {} finally { stockDetailLoading.value = false }
 }
 </script>
 

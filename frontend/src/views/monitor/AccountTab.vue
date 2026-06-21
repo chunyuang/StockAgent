@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -9,7 +9,6 @@ import { useChartColors } from './useChartColors'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
-import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { GLOBAL_RISK } from '@/config/strategyDefaults'
 import { useUnifiedData } from './composables/useUnifiedData'
 
@@ -44,13 +43,6 @@ watch(activeSection, () => {
 const expandedCode = ref<string | null>(null)
 const detailData = ref<any>(null)
 const detailLoading = ref(false)
-
-const monitorData = inject(SCANNER_MONITOR_KEY, null)
-const setActiveTab = (tab: string) => {
-  if (monitorData?.activeTab) {
-    monitorData.activeTab.value = tab
-  }
-}
 
 const fetchKpi = async () => {
   loading.value = true

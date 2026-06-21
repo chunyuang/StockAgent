@@ -94,7 +94,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       
       // 【v2.9.49】连接成功后发送auth消息(替代URL token)
       wsInstance.onopen = () => {
-        console.log('[WebSocket] Connected')
+        if (__DEV__) console.log('[WebSocket] Connected')
         const token = localStorage.getItem('access_token')
         if (token) {
           wsInstance!.send(JSON.stringify({ type: 'auth', token }))
@@ -109,7 +109,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       }
       
       wsInstance.onclose = (event) => {
-        console.log('[WebSocket] Closed', event.code, event.reason)
+        if (__DEV__) console.log('[WebSocket] Closed', event.code, event.reason)
         status.value = 'disconnected'
         stopHeartbeat()
         
@@ -226,7 +226,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           break
           
         case 'connected':
-          console.log('[WebSocket] Server confirmed connection', message.user_id)
+          if (__DEV__) console.log('[WebSocket] Server confirmed connection', message.user_id)
           break
           
         // 【v2.9.49】P1修复: Scanner事件类型映射
@@ -301,7 +301,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     status.value = 'reconnecting'
     retryCount.value++
     
-    console.log(`[WebSocket] Reconnecting in ${retryInterval}ms (${retryCount.value}/${maxRetries})`)
+    if (__DEV__) console.log(`[WebSocket] Reconnecting in ${retryInterval}ms (${retryCount.value}/${maxRetries})`)
     
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null
@@ -331,7 +331,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     refCount = Math.max(0, refCount - 1)
     if (refCount === 0 && status.value === 'connected') {
       // 【v2.9.49】最后一个使用者释放时断开连接
-      console.log('[WebSocket] Last subscriber released, disconnecting')
+      if (__DEV__) console.log('[WebSocket] Last subscriber released, disconnecting')
       disconnect()
     }
   }

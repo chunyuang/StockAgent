@@ -4,7 +4,7 @@
  * v2.9.92g: 双栏紧凑布局 — 左栏timeline，右栏订单+平仓+审计
  */
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElTag } from 'element-plus'
+import { ElButton } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
 const m = useScannerMonitorInject()
@@ -14,7 +14,7 @@ const {
   exportTradeLog, exportJSON, fetchAuditLog, historyData, historyDate, historyOrders, historyLoading,
   loadHistory,
   openTradeAudit, openTradeDetail, orders,
-  saveSnapshot, strategyCN, strategyMeta, timeline,
+  strategyCN, timeline,
 } = m
 
 import { computed, ref } from 'vue'

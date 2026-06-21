@@ -10,7 +10,7 @@
  *   watch(() => dateBar.selectedDate.value, () => { fetchMyData() })
  */
 import { ElDatePicker } from 'element-plus'
-import { onMounted, nextTick } from 'vue'
+// nextTick available if needed
 import { useUnifiedDateBar } from '../composables/useUnifiedDateBar'
 
 const props = defineProps<{
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 }>()
 
 const {
-  selectedDate, dateForApi, today, isToday,
+  selectedDate, dateForApi, isToday,
   prevDay, nextDay, goToday,
   dateCellClass, disabledDate,
 } = useUnifiedDateBar()
