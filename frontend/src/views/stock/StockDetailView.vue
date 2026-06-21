@@ -191,27 +191,35 @@ async function analyzeStock(): Promise<void> {
 
 function formatPrice(val?: number): string {
   if (val === undefined || val === null) return '--'
-  return val.toFixed(2)
+  const n = Number(val)
+  if (isNaN(n)) return '--'
+  return n.toFixed(2)
 }
 
 function formatPctChg(val?: number): string {
   if (val === undefined || val === null) return '--'
-  const sign = val > 0 ? '+' : ''
-  return `${sign}${val.toFixed(2)}%`
+  const n = Number(val)
+  if (isNaN(n)) return '--'
+  const sign = n > 0 ? '+' : ''
+  return `${sign}${n.toFixed(2)}%`
 }
 
 function formatVol(val?: number): string {
   if (!val) return '--'
-  if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿'
-  if (val >= 10000) return (val / 10000).toFixed(2) + '万'
-  return val.toFixed(0)
+  const n = Number(val)
+  if (isNaN(n)) return '--'
+  if (n >= 100000000) return (n / 100000000).toFixed(2) + '亿'
+  if (n >= 10000) return (n / 10000).toFixed(2) + '万'
+  return n.toFixed(0)
 }
 
 function formatAmount(val?: number): string {
   if (!val) return '--'
-  if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿'
-  if (val >= 10000) return (val / 10000).toFixed(2) + '万'
-  return val.toFixed(0)
+  const n = Number(val)
+  if (isNaN(n)) return '--'
+  if (n >= 100000000) return (n / 100000000).toFixed(2) + '亿'
+  if (n >= 10000) return (n / 10000).toFixed(2) + '万'
+  return n.toFixed(0)
 }
 </script>
 

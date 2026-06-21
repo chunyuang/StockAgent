@@ -654,7 +654,7 @@ const sweepChartOption = computed(() => {
   const r = sweepResult.value
   const values = r.results.map((item: any) => {
     const param = SWEEP_PARAMS.find((p: any) => p.value === r.sweep_param)
-    return param ? +(item.value * param.factor).toFixed(2) : item.value
+    return param ? +(Number(item.value) * param.factor).toFixed(2) : Number(item.value)
   })
   return {
     tooltip: { trigger: 'axis' },
@@ -672,19 +672,19 @@ const sweepChartOption = computed(() => {
     series: [
       {
         name: '收益率(%)', type: 'line',
-        data: r.results.map((item: any) => +(item.total_return).toFixed(2)),
+        data: r.results.map((item: any) => +Number(item.total_return).toFixed(2)),
         lineStyle: { color: 'var(--stock-down)', width: 2 },
         itemStyle: { color: 'var(--stock-down)' },
       },
       {
         name: '胜率(%)', type: 'line',
-        data: r.results.map((item: any) => +(item.win_rate).toFixed(1)),
+        data: r.results.map((item: any) => +Number(item.win_rate).toFixed(1)),
         lineStyle: { color: 'var(--el-color-primary)', width: 2 },
         itemStyle: { color: 'var(--el-color-primary)' },
       },
       {
         name: '最大回撤(%)', type: 'line', yAxisIndex: 1,
-        data: r.results.map((item: any) => +(item.max_drawdown).toFixed(2)),
+        data: r.results.map((item: any) => +Number(item.max_drawdown).toFixed(2)),
         lineStyle: { color: 'var(--stock-up)', width: 2, type: 'dashed' },
         itemStyle: { color: 'var(--stock-up)' },
       },
@@ -744,15 +744,15 @@ const reviewReport = computed(() => {
   if (!r) return null
 
   const days = r.net_value_series?.length || 0
-  const totalReturn = r.total_return ?? 0
-  const annualReturn = r.annualized_return ?? 0
-  const maxDD = r.max_drawdown ?? 0
-  const winRate = r.win_rate ?? 0
-  const sharpe = r.sharpe_ratio ?? 0
-  const calmar = r.calmar_ratio ?? 0
-  const profitLossRatio = r.profit_loss_ratio ?? 0
-  const totalTrades = r.total_trades ?? 0
-  const totalSignals = r.total_signals ?? 0
+  const totalReturn = Number(r.total_return) || 0
+  const annualReturn = Number(r.annualized_return) || 0
+  const maxDD = Number(r.max_drawdown) || 0
+  const winRate = Number(r.win_rate) || 0
+  const sharpe = Number(r.sharpe_ratio) || 0
+  const calmar = Number(r.calmar_ratio) || 0
+  const profitLossRatio = Number(r.profit_loss_ratio) || 0
+  const totalTrades = Number(r.total_trades) || 0
+  const totalSignals = Number(r.total_signals) || 0
 
   // 策略表现
   const strategyResults = r.strategy_results || {}
@@ -1026,27 +1026,27 @@ function onViewLogs(_taskId: string) {
         <div class="review-cards">
           <div class="review-card" :class="reviewReport.totalReturn >= 0 ? 'positive' : 'negative'">
             <div class="rc-label">总收益</div>
-            <div class="rc-value">{{ reviewReport.totalReturn.toFixed(1) }}%</div>
+            <div class="rc-value">{{ Number(reviewReport.totalReturn || 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">年化收益</div>
-            <div class="rc-value">{{ reviewReport.annualReturn.toFixed(1) }}%</div>
+            <div class="rc-value">{{ Number(reviewReport.annualReturn || 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card negative">
             <div class="rc-label">最大回撤</div>
-            <div class="rc-value">-{{ reviewReport.maxDD.toFixed(1) }}%</div>
+            <div class="rc-value">-{{ Number(reviewReport.maxDD || 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">夏普比率</div>
-            <div class="rc-value">{{ reviewReport.sharpe.toFixed(2) }}</div>
+            <div class="rc-value">{{ Number(reviewReport.sharpe || 0).toFixed(2) }}</div>
           </div>
           <div class="review-card">
             <div class="rc-label">胜率</div>
-            <div class="rc-value">{{ reviewReport.winRate.toFixed(1) }}%</div>
+            <div class="rc-value">{{ Number(reviewReport.winRate || 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">盈亏比</div>
-            <div class="rc-value">{{ reviewReport.profitLossRatio.toFixed(2) }}</div>
+            <div class="rc-value">{{ Number(reviewReport.profitLossRatio || 0).toFixed(2) }}</div>
           </div>
         </div>
 
@@ -1076,9 +1076,9 @@ function onViewLogs(_taskId: string) {
             </div>
           </div>
           <div v-if="reviewReport.bestStrategy" class="rs-summary">
-            最优策略: <strong>{{ reviewReport.bestStrategy }}</strong> ({{ reviewReport.bestReturn.toFixed(1) }}%)
+            最优策略: <strong>{{ reviewReport.bestStrategy }}</strong> ({{ Number(reviewReport.bestReturn || 0).toFixed(1) }}%)
             <span v-if="reviewReport.worstStrategy && reviewReport.worstStrategy !== reviewReport.bestStrategy">
-              · 最差: {{ reviewReport.worstStrategy }} ({{ reviewReport.worstReturn.toFixed(1) }}%)
+              · 最差: {{ reviewReport.worstStrategy }} ({{ Number(reviewReport.worstReturn || 0).toFixed(1) }}%)
             </span>
           </div>
         </div>
@@ -1105,9 +1105,9 @@ function onViewLogs(_taskId: string) {
           <div class="rs-title">📝 回测概览</div>
           <div class="review-overview">
             回测区间 {{ reviewReport.days }} 个交易日，共产生 {{ reviewReport.totalSignals }} 个信号，成交 {{ reviewReport.totalTrades }} 笔交易。
-            总收益率 {{ reviewReport.totalReturn.toFixed(1) }}%，年化 {{ reviewReport.annualReturn.toFixed(1) }}%。
-            最大回撤 {{ reviewReport.maxDD.toFixed(1) }}%，夏普比率 {{ reviewReport.sharpe.toFixed(2) }}，卡尔玛比率 {{ reviewReport.calmar.toFixed(2) }}。
-            胜率 {{ reviewReport.winRate.toFixed(1) }}%，盈亏比 {{ reviewReport.profitLossRatio.toFixed(2) }}。
+            总收益率 {{ Number(reviewReport.totalReturn || 0).toFixed(1) }}%，年化 {{ Number(reviewReport.annualReturn || 0).toFixed(1) }}%。
+            最大回撤 {{ Number(reviewReport.maxDD || 0).toFixed(1) }}%，夏普比率 {{ Number(reviewReport.sharpe || 0).toFixed(2) }}，卡尔玛比率 {{ Number(reviewReport.calmar || 0).toFixed(2) }}。
+            胜率 {{ Number(reviewReport.winRate || 0).toFixed(1) }}%，盈亏比 {{ Number(reviewReport.profitLossRatio || 0).toFixed(2) }}。
           </div>
         </div>
       </div>

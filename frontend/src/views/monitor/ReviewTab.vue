@@ -125,7 +125,7 @@ const monthlyClosedLoopExpanded = ref(false)
                 {{ strategyCN(key) }}<b>{{ data.count || 0 }}</b>只持仓
                 <span :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
                 <span class="ir-dim">| 闭环胜率{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span>
-                <span v-if="data.market_value" class="ir-dim">| 市值¥{{ (data.market_value/10000).toFixed(1) }}万</span>
+                <span v-if="data.market_value" class="ir-dim">| 市值¥{{ (Number(data.market_value)/10000).toFixed(1) }}万</span>
               </span>
             </template>
           </span>
@@ -167,7 +167,7 @@ const monthlyClosedLoopExpanded = ref(false)
               <span v-if="t.buy_price" class="ir-dim">买入价¥{{ Number(t.buy_price).toFixed(2) }}</span>
               <span v-if="t.sell_price" class="ir-dim">卖出价¥{{ Number(t.sell_price).toFixed(2) }}</span>
               <span v-if="t.signal_price" class="ir-dim">信号价¥{{ Number(t.signal_price).toFixed(2) }}</span>
-              <span class="attr-pct" :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓' : ((t.profit_pct || 0) >= 0 ? '+' : '') + (t.profit_pct || 0).toFixed(1) + '%' }}</span>
+              <span class="attr-pct" :class="(Number(t.profit_pct) || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓' : ((Number(t.profit_pct) || 0) >= 0 ? '+' : '') + Number(t.profit_pct || 0).toFixed(1) + '%' }}</span>
               <span v-if="t.profit_amount" class="ir-dim">盈亏¥{{ Number(t.profit_amount).toFixed(0) }}</span>
               <span v-if="t.hold_days" class="ir-dim">持有{{ t.hold_days }}日</span>
               <span v-if="t.sell_reason" class="attr-reason">{{ t.sell_reason }}</span>
@@ -183,7 +183,7 @@ const monthlyClosedLoopExpanded = ref(false)
         <div v-if="slippageDetailExpanded && deviationData?.details?.slippage?.length" class="review-section" style="margin-top:1px">
           <span class="section-detail">
             <div v-for="s in deviationData.details.slippage" :key="s.ts_code" class="v-item" :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'sev-high' : 'sev-medium'">
-              {{ s.ts_code }} {{ s.stock_name }} | 信号价¥{{ s.signal_price?.toFixed(2) }}→成交价¥{{ s.filled_price?.toFixed(2) }} | 滑点<b :class="Math.abs(s.slippage_pct || 0) > 0.3 ? 'down' : ''">{{ s.slippage_pct?.toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
+              {{ s.ts_code }} {{ s.stock_name }} | 信号价¥{{ Number(s.signal_price || 0).toFixed(2) }}→成交价¥{{ Number(s.filled_price || 0).toFixed(2) }} | 滑点<b :class="Math.abs(Number(s.slippage_pct) || 0) > 0.3 ? 'down' : ''">{{ Number(s.slippage_pct || 0).toFixed(2) }}%</b> | {{ strategyCN(s.strategy) }}
             </div>
           </span>
         </div>
@@ -278,7 +278,7 @@ const monthlyClosedLoopExpanded = ref(false)
 
           <div v-if="monthlyStrategyCount" class="review-section" style="margin-top:4px">
             <span class="section-title title-red" style="cursor:pointer" @click="monthlyStrategyExpanded = !monthlyStrategyExpanded">🎯 策略贡献 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ monthlyStrategyExpanded ? '▼' : '▶' }}</span></span>
-            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ monthlyStrategyCount }}</b>个策略 | 总盈亏<b :class="monthlyStrategyPnl >= 0 ? 'up' : 'down'">{{ monthlyStrategyPnl.toFixed(1) }}%</b></span>
+            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ monthlyStrategyCount }}</b>个策略 | 总盈亏<b :class="monthlyStrategyPnl >= 0 ? 'up' : 'down'">{{ monthlyStrategyPnl >= 0 ? '+' : '' }}{{ Number(monthlyStrategyPnl || 0).toFixed(1) }}%</b></span>
           </div>
           <div v-if="monthlyStrategyExpanded && monthlyStrategyCount" class="strategy-stacked">
             <div v-for="(data, key) in (monthlyReviewData?.strategy_stats as any) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
@@ -424,12 +424,12 @@ const monthlyClosedLoopExpanded = ref(false)
     <div v-for="c in compareData" :key="c.strategy" class="cl-r">
       <span class="code">{{ strategyCN(c.strategy) }}</span>
       <span>{{ c.live_trades }}笔</span>
-      <span :class="c.live_win_rate >= 50 ? 'up' : 'down'">{{ c.live_win_rate }}%</span>
-      <span :class="(c.live_pnl || 0) >= 0 ? 'up' : 'down'">{{ (c.live_pnl || 0) >= 0 ? '+' : '' }}{{ (c.live_pnl || 0).toFixed(0) }}</span>
-      <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
-      <span>{{ c.bt_win_rate }}%</span>
-      <span class="text-stock-up">{{ c.bt_drawdown }}%</span>
-      <span>{{ c.bt_sharpe }}</span>
+      <span :class="(Number(c.live_win_rate) || 0) >= 50 ? 'up' : 'down'">{{ Number(c.live_win_rate || 0).toFixed(0) }}%</span>
+      <span :class="(Number(c.live_pnl) || 0) >= 0 ? 'up' : 'down'">{{ (Number(c.live_pnl) || 0) >= 0 ? '+' : '' }}{{ Number(c.live_pnl || 0).toFixed(0) }}</span>
+      <span :class="(Number(c.bt_return) || 0) >= 0 ? 'up' : 'down'">{{ Number(c.bt_return || 0).toFixed(1) }}%</span>
+      <span>{{ Number(c.bt_win_rate || 0).toFixed(0) }}%</span>
+      <span class="text-stock-up">{{ Number(c.bt_drawdown || 0).toFixed(1) }}%</span>
+      <span>{{ Number(c.bt_sharpe || 0).toFixed(2) }}</span>
     </div>
   </div>
   <div v-else class="empty">暂无对比数据（需先运行回测）</div>

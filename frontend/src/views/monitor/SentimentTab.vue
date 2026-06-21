@@ -172,7 +172,7 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
             </template>
             <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${dailyHoverLeft()}%`, bottom: `${dailyHoverBottom()}%` }">
               <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
-              <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
+              <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ Number(hoveredPoint.score || 0).toFixed(1) }} {{ hoveredPoint.period }}</div>
               <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }}</div>
             </div>
           </div>
