@@ -2,5 +2,6 @@
   "success": "bool",
   "data": [
     "<empty_list>"
-  ]
+  ],
+  "historical": "bool"
 }

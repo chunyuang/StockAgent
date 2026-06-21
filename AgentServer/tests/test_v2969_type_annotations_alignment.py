@@ -239,9 +239,9 @@ class TestAlignmentStatsAPIV2969:
         assert 'get_alignment_stats' in source
 
     def test_design_doc_version_v2969(self):
-        """版本常量v2.9.81"""
+        """版本常量v2.9.98"""
         source = open(os.path.join(AGENT_SERVER, "nodes", "web", "api", "scanner_system.py")).read()
-        assert 'v2.9.81' in source
+        assert 'v2.9.98' in source
 
     def test_alignment_stats_endpoint_has_recommendation(self):
         """API端点包含切换建议逻辑"""

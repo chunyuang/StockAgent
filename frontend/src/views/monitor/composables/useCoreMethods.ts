@@ -277,7 +277,11 @@ export function useCoreMethods(refs: CoreRefs) {
   function unmount() {
     if (refreshTimer) clearInterval(refreshTimer)
     if (nowTimer) clearInterval(nowTimer)
-    _wsSubscribed = false
+    // 【v2.9.98修复】unmount时退订scanner WS频道,避免离屏后仍收到WS推送
+    if (_wsSubscribed) {
+      wsHook.unsubscribeScanner()
+      _wsSubscribed = false
+    }
     if (_wsUnsubFn) { _wsUnsubFn(); _wsUnsubFn = null }
     if (_unwatchWs) { _unwatchWs(); _unwatchWs = null }
     // 重置WS数据新鲜度时间戳, 避免下次mount时wsDataStale判断错误
@@ -289,7 +293,7 @@ export function useCoreMethods(refs: CoreRefs) {
     watch(() => scannerStore.signals, (v: any) => { if (v != null) refs.signals.value = v }, { deep: true })
     watch(() => scannerStore.positions, (v: any) => { if (v != null) refs.positions.value = v }, { deep: true })
     watch(() => scannerStore.timeline, (v: any) => { if (v != null) refs.timeline.value = v }, { deep: true })
-    watch(() => scannerStore.status, (v: any) => { if (v) refs.status.value = { ...refs.status.value, ...v } }, { deep: true })
+    watch(() => scannerStore.status, (v: any) => { if (v) refs.status.value = { ...(refs.status.value || {}), ...v } }, { deep: true })
     watch(() => scannerStore.lastError, (v: string) => { if (v) ElMessage({ type: 'error', message: `Scanner异常: ${v}`, duration: 8000 }) })
   }
 

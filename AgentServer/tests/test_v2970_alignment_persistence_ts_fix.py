@@ -202,11 +202,11 @@ class TestVersionV2970:
     """版本常量v2.9.70"""
 
     def test_design_doc_version(self):
-        """_DESIGN_DOC_VERSION = v2.9.81"""
+        """_DESIGN_DOC_VERSION = v2.9.98"""
         filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'nodes', 'web', 'api', 'scanner_system.py')
         with open(filepath) as f:
             content = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.81"' in content
+        assert '_DESIGN_DOC_VERSION = "v2.9.98"' in content
 
 
 class TestFrontendTSFixes:

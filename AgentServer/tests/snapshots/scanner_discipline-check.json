@@ -5,6 +5,13 @@
   "execution_rate": "float",
   "violation_count": "int",
   "violations": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "strategy": "str",
+      "side": "str",
+      "violation": "str",
+      "severity": "str",
+      "detail": "str"
+    }
   ]
 }

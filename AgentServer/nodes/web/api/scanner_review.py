@@ -126,12 +126,13 @@ async def backtest_compare(date: str = None):
                 else:
                     # error或无数据
                     backtest_type = "same_period_failed"
-                    backtest_results = {}  # fallback到文件
+                    backtest_results = {}  # fallback到文件或historical
+                    logger.info(f"[BACKTEST-COMPARE] same_period回测失败: {raw_summary.get('error', 'unknown')}")
 
-            # 2b. fallback: 普通回测
+            # 2b. fallback: 普通回测(排除有error的)
             if not backtest_results:
                 async for doc in mongo_manager.db["backtest_results"].find(
-                    {"status": "completed"},
+                    {"status": "completed", "result.summary.error": {"$exists": False}},
                     {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
                 ).sort("created_at", -1).limit(5):
                     strategies = doc.get("params", {}).get("strategy_ids", [])
@@ -523,8 +524,12 @@ async def get_review_hero(date: str = None):
             conclusion = f"🟡 今日小赚 +{total_pct:.1f}% {'跑赢' if total_pct > benchmark_pct else '落后'}大盘{abs(total_pct - benchmark_pct):.1f}%"
             conclusion_type = "slight_profit"
         elif total_pct > -2:
-            conclusion = f"🟠 今日小亏 {total_pct:.1f}% {'仍跑赢大盘' if total_pct > benchmark_pct else '落后大盘'} 止损{len(stop_losses)}笔"
-            conclusion_type = "slight_loss"
+            if total_pct == 0 or abs(total_pct) < 0.05:
+                conclusion = f"📋 今日持平 {'跑赢' if total_pct > benchmark_pct else '落后'}大盘{abs(total_pct - benchmark_pct):.1f}% 止损{len(stop_losses)}笔"
+                conclusion_type = "neutral"
+            else:
+                conclusion = f"🟠 今日小亏 {total_pct:.1f}% {'仍跑赢大盘' if total_pct > benchmark_pct else '落后大盘'} 止损{len(stop_losses)}笔"
+                conclusion_type = "slight_loss"
         else:
             conclusion = f"🔴 今日亏损 {total_pct:.1f}% 止损{len(stop_losses)}笔过多 建议降仓检查策略"
             conclusion_type = "loss"
@@ -721,23 +726,21 @@ async def get_review_forward(date: str = None):
         # 3. 生成建议
         strategy_recommendations = []
         strategy_switches = []
-        period_strategy_map = {
+        # 【V75-审计修复】统一构建period_strategy_map, 避免中文/英文大小写三重重复
+        # 核心映射(中文key) → 自动派生英文key(RISING/rising等)
+        _cn_period_map = {
             "高潮": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
             "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
             "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
             "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
-            # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等),大小写均支持
-            "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
-            "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
-            "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
-            "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
-            "rising": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
-            "differentiation": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
-            "chaos": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
-            "bearish": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
         }
-
-        switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+                     "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
+        # 标准化period → 中文key
+        norm_period = _en_to_cn.get(raw_period, _en_to_cn.get(raw_period.lower() if raw_period else "", raw_period))
+        if norm_period not in _cn_period_map:
+            norm_period = cn_period  # fallback: 用cn_period
+        switches = _cn_period_map.get(norm_period, {"open":[],"close":[]})
         for strat in switches["open"]:
             st = strat_stats.get(strat, {})
             wr = st.get("wins",0) / max(st.get("count",1),1) * 100
@@ -1196,8 +1199,14 @@ async def param_snapshot(date: str = None):
             "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
             "strategies": {},
         }
-        # 应用全局风控覆盖
-        snapshot["global_risk"].update(override_global_risk)
+        # 应用全局风控覆盖(深层合并, 避免sentiment_position_map等嵌套dict被整体替换)
+        for k, v in override_global_risk.items():
+            if k in snapshot["global_risk"] and isinstance(snapshot["global_risk"][k], dict) and isinstance(v, dict):
+                merged = dict(snapshot["global_risk"][k])
+                merged.update(v)
+                snapshot["global_risk"][k] = merged
+            else:
+                snapshot["global_risk"][k] = v
         
         for sid, cfg in STRATEGY_CONFIGS.items():
             # 从默认值开始

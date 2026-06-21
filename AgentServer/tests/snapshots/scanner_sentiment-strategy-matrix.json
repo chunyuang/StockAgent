@@ -1,5 +1,15 @@
 {
   "matrix": {
+    "limit_up_open": {
+      "冰点": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      }
+    },
     "halfway_chase": {
       "未知": {
         "count": "int",
@@ -12,9 +22,17 @@
     }
   },
   "strategy_names": {
+    "limit_up_open": "str",
     "halfway_chase": "str"
   },
   "strategy_totals": {
+    "limit_up_open": {
+      "count": "int",
+      "wins": "int",
+      "losses": "int",
+      "win_rate": "float",
+      "total_pnl": "int"
+    },
     "halfway_chase": {
       "count": "int",
       "wins": "int",

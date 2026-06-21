@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import json
 import asyncio
+import tempfile
 from datetime import datetime
 from typing import List, Dict
 from dataclasses import dataclass, asdict
@@ -207,11 +208,19 @@ class PositionManager:
             logger.info("ℹ️  无历史持仓数据，初始化空持仓")
     
     def _save_positions(self):
-        """保存持仓数据"""
+        """保存持仓数据（原子写入：先写临时文件再rename，防崩溃损坏）"""
         try:
             data = {ts_code: asdict(pos) for ts_code, pos in self.positions.items()}
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # 【V67-P1:原子写入保护】先写临时文件再rename,避免进程崩溃导致数据损坏
+            dir_name = os.path.dirname(self.data_file)
+            fd, tmp_path = tempfile.mkstemp(suffix='.tmp', dir=dir_name)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, self.data_file)  # 原子rename
+            except Exception:
+                os.unlink(tmp_path) if os.path.exists(tmp_path) else None
+                raise
             logger.info("✅ 持仓数据已保存")
         except (OSError, TypeError) as e:
             logger.error(f"❌ 保存持仓数据失败: {e}")
@@ -584,6 +593,30 @@ class PositionManager:
                         # 【V63-P0-4:利润锁定用success级别,与paper_trading.py处理一致】
                         if not alert.get("level"):
                             alert["level"] = "success"
+
+            # 3. 【V67-P0:盘后trailing_stop检查,与Scanner盘中逻辑对齐】
+            # 盘中由Scanner实时监控trailing_stop,但盘后如果Scanner未运行,需要daily_settlement兜底
+            # 逻辑: 如果曾盈利>=trailing_stop_pct(策略级), 且收盘价从最高价回撤>=trailing_stop_pct, 则触发
+            if high_price > 0 and close_price > 0 and pos.buy_price > 0:
+                high_rise = (high_price / pos.buy_price - 1)
+                # 从策略级读取trailing_stop_pct
+                _ts_pct = strategy_risk_params.get('trailing_stop_pct',
+                            GLOBAL_RISK.get('trailing_stop_pct', 0.02))
+                # 只有盈利>=trailing_stop_pct时才激活追踪止损
+                if high_rise >= _ts_pct and close_price < high_price:
+                    pullback_from_high = (high_price - close_price) / high_price
+                    # 追踪止损线 = 最高价 * (1 - trailing_stop_pct)
+                    trailing_stop_price = high_price * (1 - _ts_pct)
+                    if close_price <= trailing_stop_price:
+                        close_rise = (close_price / pos.buy_price - 1)
+                        alert["alerts"].append(
+                            f"🔄 追踪止损: 盘中最高{high_price:.2f}(+{high_rise*100:.1f}%), "
+                            f"收盘{close_price:.2f}(+{close_rise*100:.1f}%), "
+                            f"从高点回撤{pullback_from_high*100:.1f}%≥{_ts_pct*100:.0f}%, "
+                            f"建议以{close_price:.2f}卖出"
+                        )
+                        if not alert.get("level") or alert.get("level") == "warning":
+                            alert["level"] = "success"  # 追踪止损时仍在盈利,用success级别
         except Exception as e:
             logger.warning(f"⚠️ {pos.ts_code} 卖出信号检查失败: {e}")
 

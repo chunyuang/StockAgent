@@ -118,13 +118,13 @@ class TestBrokerMethodExtraction(unittest.TestCase):
         self.assertIsNotNone(m)
         param_names = [a.arg for a in m.args.args if a.arg != 'self']
         expected = ['ts_code', 'stock_name', 'side', 'quantity', 'price',
-                    'order_type', 'strategy', 'reason', 'source']
+                    'order_type', 'strategy', 'reason', 'source', 'decision_trace']
         self.assertEqual(param_names, expected)
 
     def test_reject_order_small(self):
-        """_reject_order应≤10行(简单拒绝+记录)"""
+        """_reject_order应≤12行(简单拒绝+记录)"""
         size = self._method_size("SimulatedBroker", "_reject_order")
-        self.assertLessEqual(size, 10, f"_reject_order应为≤10行, 实际{size}行")
+        self.assertLessEqual(size, 12, f"_reject_order应为≤12行, 实际{size}行")
 
 
 if __name__ == "__main__":

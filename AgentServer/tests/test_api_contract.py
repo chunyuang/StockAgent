@@ -151,6 +151,11 @@ FRONTEND_EXPECTED_FIELDS = {
         "required": [],
         "item_fields": [],
     },
+    "/scanner/premarket-scan": {
+        # POST端点, 手动触发盘前扫描
+        "required": [],  # POST, 不在GET测试中
+        "item_fields": [],
+    },
     
     # === 参数API ===
     "/scanner/param-snapshot": {
@@ -443,6 +448,7 @@ class TestAPIContract:
             "/scanner/sell-all",
             "/scanner/snapshot",
             "/scanner/scan-once",
+            "/scanner/premarket-scan",
             "/scanner/daily-settlement",
             "/scanner/backtest-same-period",
             "/scanner/emergency-liquidate",

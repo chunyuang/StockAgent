@@ -23,6 +23,21 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
 
 
+def _get_effective_sentiment_thresholds() -> Dict:
+    """获取运行时有效的情绪阈值(默认+覆盖)"""
+    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+    thresholds = dict(GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40}))
+    try:
+        from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+        if _overrides_loaded and _override_global_risk:
+            override_st = _override_global_risk.get("sentiment_thresholds", {})
+            if override_st:
+                thresholds.update(override_st)
+    except Exception:
+        pass
+    return thresholds
+
+
 def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> float:
     """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)
     
@@ -104,8 +119,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                 if raw_period in _en_to_cn:
                     raw_period = _en_to_cn[raw_period]
                 if raw_period not in _cn_periods:
-                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    _th = _get_effective_sentiment_thresholds()
                     if raw_score >= _th["rising"]: raw_period = "高潮"
                     elif raw_score >= _th["differentiation"]: raw_period = "分化"
                     elif raw_score >= _th["chaos"]: raw_period = "震荡"
@@ -145,8 +159,8 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                     total_ld = sum(p.get("limit_down", 0) for p in grp)
                     has_missing = any(p.get("missing_data") for p in grp)
                     # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
-                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    # 【V75-审计修复】读取运行时覆盖后的有效阈值
+                    _th = _get_effective_sentiment_thresholds()
                     if avg_score >= _th["rising"]: period = "高潮"
                     elif avg_score >= _th["differentiation"]: period = "分化"
                     elif avg_score >= _th["chaos"]: period = "震荡"
@@ -224,8 +238,7 @@ async def get_sentiment_strategy_matrix(date: str = None):
                 period = _en_to_cn_period[period]
             # 非标准period(如"daily")兜底: 根据score推断
             if period not in _cn_periods and period not in ("数据缺失", ""):
-                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-                _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                _th = _get_effective_sentiment_thresholds()
                 if score >= _th["rising"]: period = "高潮"
                 elif score >= _th["differentiation"]: period = "分化"
                 elif score >= _th["chaos"]: period = "震荡"
@@ -446,8 +459,8 @@ async def get_market_sentiment_detail(date: str = None):
         broken_rate = broken / max(limit_up + broken, 1) * 100
 
         # 【v2.9.85修复】情绪阈值从strategy_defaults统一读取,不再硬编码
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        # 【V75-审计修复】读取运行时覆盖后的有效阈值
+        _th = _get_effective_sentiment_thresholds()
         _rising_th = _th["rising"]
         _diff_th = _th["differentiation"]
         _chaos_th = _th["chaos"]
@@ -469,7 +482,8 @@ async def get_market_sentiment_detail(date: str = None):
             elif sentiment_score >= _diff_th: pi = ("分化", _diff_th, _rising_th)
             elif sentiment_score >= _chaos_th: pi = ("震荡", _chaos_th, _diff_th)
             else: pi = ("冰点", 0, _chaos_th)
-            sentiment_period = pi[0]
+        # 【v2.9.99修复】统一period返回中文(之前英文period如DIFFERENTIATION直接返回)
+        sentiment_period = pi[0]
 
         # 【v2.9.96g】充补 5维拆解字段(max_continue/up_down_ratio/zt_premium)供前端得分拆解展示
         max_continue = 0
@@ -502,6 +516,30 @@ async def get_market_sentiment_detail(date: str = None):
         except Exception:
             pass
 
+        # 【v2.9.98修复-Issue3a53d130d1bc】增加date和is_stale标记
+        _actual_date = None
+        _is_stale = False
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                _requested_date = int(date) if date else int(datetime.now().strftime("%Y%m%d"))
+                _exact_doc = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": _requested_date})
+                if _exact_doc and not _exact_doc.get("missing_data"):
+                    _actual_date = _requested_date
+                    _is_stale = False
+                elif _exact_doc and _exact_doc.get("missing_data"):
+                    _actual_date = _requested_date
+                    _is_stale = True
+                else:
+                    # 无当日数据，用的是fallback数据
+                    _latest_doc = await mongo_manager.db["sentiment_scores"].find_one(
+                        {"missing_data": {"$ne": True}}, sort=[("trade_date", -1)]
+                    )
+                    _actual_date = _latest_doc.get("trade_date") if _latest_doc else None
+                    _is_stale = True
+        except Exception:
+            pass
+
         # can_open: 与EmotionCycleManager.CAN_OPEN对齐(冰点禁止开仓)
         _can_open = sentiment_period not in ("冰点", "冰点(数据缺失)", "bearish", "BEARISH")
         return _sanitize({"success": True, "data": {
@@ -513,6 +551,9 @@ async def get_market_sentiment_detail(date: str = None):
             "max_continue": max_continue,
             "up_down_ratio": round(up_down_ratio, 3),
             "zt_premium": round(zt_premium, 2),
+            # 【v2.9.98新增-Issue3a53d130d1bc】日期+新鲜度标记
+            "date": _actual_date,
+            "is_stale": _is_stale,
             "ranges": [
                 {"label": "冰点", "min": 0, "max": _chaos_th, "color": "#67c23a"},
                 {"label": "震荡", "min": _chaos_th, "max": _diff_th, "color": "#e6a23c"},

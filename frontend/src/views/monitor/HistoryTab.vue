@@ -22,8 +22,8 @@ import { computed, ref } from 'vue'
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
 /** 获取中国时区的日期字符串 YYYYMMDD */
-function getChinaDateInt(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); return china.toISOString().slice(0, 10).replace(/-/g, '') }
-function getChinaDateStr(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); return china.toISOString().slice(0, 10) }
+function getChinaDateInt(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0'); return `${y}${m}${d}` }
+function getChinaDateStr(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0'); return `${y}-${m}-${d}` }
 
 // 检测 timeline 是否包含历史回放数据(trade_date != today)
 const todayStr = getChinaDateInt()
@@ -123,7 +123,7 @@ const closedStats = computed(() => {
   if (!items.length) return null
   const totalProfit = items.reduce((s: number, c: any) => s + (c.profit_amount || 0), 0)
   const wins = items.filter((c: any) => c.profit_pct >= 0).length
-  return { count: items.length, totalProfit, winRate: (wins / items.length * 100).toFixed(0), wins }
+  return { count: items.length, totalProfit, winRate: items.length > 0 ? (wins / items.length * 100).toFixed(0) : '0', wins }
 })
 </script>
 
