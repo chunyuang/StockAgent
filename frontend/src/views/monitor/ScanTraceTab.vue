@@ -226,12 +226,16 @@ onMounted(async () => {
   if (!scanTraceDate.value && dates?.length) {
     // 先找今天(20260622 格式)
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }).replace(/-/g, '')
-    let bestDate = dates.find((d: any) => String(d.date || d) === todayStr)
-    // 没找到今天才用最新日期
-    if (!bestDate) {
-      bestDate = dates[0]?.date || dates[0]
+    const bestDateObj = dates.find((d: any) => String(d.date || d) === todayStr)
+    let bestDateStr: string
+    if (bestDateObj) {
+      // bestDateObj 是 {date, count, is_debug} 对象, 取 .date
+      bestDateStr = bestDateObj.date || String(bestDateObj)
+    } else {
+      // dates[0] 同样可能是对象或字符串
+      bestDateStr = dates[0]?.date || String(dates[0])
     }
-    scanTraceDate.value = String(bestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+    scanTraceDate.value = String(bestDateStr).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
     fetchScanHistory()
   }
 })
