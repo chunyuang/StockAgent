@@ -103,7 +103,7 @@
     "positions": "int"
   },
   "sentiment": {
-    "score": "int",
+    "score": "float",
     "period": "str"
   },
   "position_ratio": "float"

@@ -2,11 +2,42 @@
   "success": "bool",
   "data": [
     {
-      "strategy": "str",
-      "trade_date": "int",
       "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "signal_type": "str",
+      "price": "float",
+      "pct_chg": "float",
+      "volume_ratio": "float",
+      "turnover_rate": "float",
+      "is_limit_up": "bool",
+      "limit_up_count": "int",
+      "confidence": "float",
+      "reason": "str",
+      "scan_time": "str",
+      "factors": {
+        "pct_chg": "float",
+        "volume_ratio": "int",
+        "turnover_rate": "float",
+        "circ_mv": "int",
+        "ma5": "float",
+        "is_limit_up": "int",
+        "limit_up_count": "int",
+        "open": "float",
+        "high": "float",
+        "low": "float",
+        "close": "float",
+        "pre_close": "float",
+        "first_limit_up": "int"
+      },
+      "signal_status": "str",
       "created_at": "float",
-      "created_doc_at": "str",
+      "expire_remaining": "int",
+      "key_factors": {
+        "limit_count": "str",
+        "turnover_rate": "str"
+      },
       "decision_detail": {
         "filter_pipeline": {
           "layers_applied": {
@@ -71,21 +102,6 @@
         },
         "scan_time": "str"
       },
-      "factors": {
-        "pct_chg": "float",
-        "volume_ratio": "int",
-        "turnover_rate": "float",
-        "circ_mv": "int",
-        "ma5": "float",
-        "is_limit_up": "int",
-        "limit_up_count": "int",
-        "open": "float",
-        "high": "float",
-        "low": "float",
-        "close": "float",
-        "pre_close": "float",
-        "first_limit_up": "int"
-      },
       "layer_trace": {
         "L6_strategy": {
           "detail": "str",
@@ -139,21 +155,13 @@
         "L8_position": {
           "position_ratio": "float",
           "action": "str"
+        },
+        "execution": {
+          "mode": "str",
+          "reason": "str",
+          "phase": "str"
         }
-      },
-      "pct_chg": "float",
-      "price": "float",
-      "reason": "str",
-      "scan_time": "str",
-      "signal_status": "str",
-      "signal_type": "str",
-      "stock_name": "str",
-      "strategy_name": "str",
-      "turnover_rate": "float",
-      "updated_at": "str",
-      "volume_ratio": "float",
-      "_historical_signal": "bool",
-      "name": "str"
+      }
     }
   ],
   "historical": "bool"
