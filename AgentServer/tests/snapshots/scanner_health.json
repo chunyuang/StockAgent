@@ -29,18 +29,6 @@
         "value": "str",
         "threshold": "str",
         "message": "str"
-      },
-      "datasource_eastmoney": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
-      },
-      "datasource_biying": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
       }
     },
     "circuit_breaker": {
@@ -57,13 +45,7 @@
       "max_consecutive_losses": "int"
     },
     "data_sources": [
-      {
-        "name": "str",
-        "available": "bool",
-        "stocks": "int",
-        "calls": "int",
-        "limit": "int"
-      }
+      "<empty_list>"
     ],
     "health_score": "int",
     "data_freshness": "str",

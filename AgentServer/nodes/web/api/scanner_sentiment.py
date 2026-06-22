@@ -118,6 +118,17 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                 _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
                 if raw_period in _en_to_cn:
                     raw_period = _en_to_cn[raw_period]
+                # 【v2.9.99修复】score与period不一致时以score为准重算period
+                # 之前只修正非标准period(如"daily"),未修正已知但错误的period
+                if raw_period in _cn_periods:
+                    _th = _get_effective_sentiment_thresholds()
+                    _expected = None
+                    if raw_score >= _th["rising"]: _expected = "高潮"
+                    elif raw_score >= _th["differentiation"]: _expected = "分化"
+                    elif raw_score >= _th["chaos"]: _expected = "震荡"
+                    else: _expected = "冰点"
+                    if raw_period != _expected:
+                        raw_period = _expected
                 if raw_period not in _cn_periods:
                     _th = _get_effective_sentiment_thresholds()
                     if raw_score >= _th["rising"]: raw_period = "高潮"

@@ -270,6 +270,23 @@ async def get_trade_attribution(date: str = None):
                     # profit_pct=0: 保本卖出，买入价≈卖出价
                     buy_price = round(filled_price, 2)
 
+            # 【v2.9.99修复】profit_pct/profit_amount为0时，从reason字段提取(与historical-review对齐)
+            if profit_pct == 0 and sell_reason:
+                import re as _re
+                # 优先从reason提取"曾盈X%"或"盈+X%"等格式
+                pct_match = _re.search(r'曾盈([\d.]+)%', sell_reason) or _re.search(r'盈[+]?([\d.]+)%', sell_reason)
+                if not pct_match:
+                    # fallback: 任意百分号前的数字
+                    pct_match = _re.search(r'(-?[\d.]+)%', sell_reason)
+                if pct_match:
+                    profit_pct = float(pct_match.group(1))
+                    # 止损原因时强制为负值
+                    if "止损" in sell_reason and "追踪" not in sell_reason and profit_pct > 0:
+                        profit_pct = -abs(profit_pct)
+            if doc.get("profit_amount", 0) == 0 and profit_pct != 0 and filled_price > 0 and filled_qty > 0:
+                # 从profit_pct反推profit_amount
+                doc["profit_amount"] = round(filled_price * filled_qty * profit_pct / 100, 2)
+
             # 查找scan_trace(买入漏斗) — 策略名可能存在别名(anomaly_surge vs halfway_chase)
             scan_info = None
             try:
