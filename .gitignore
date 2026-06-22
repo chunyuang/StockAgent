@@ -124,3 +124,4 @@ backtest_verify_result.json
 
 # 构建产物(由npm run deploy生成)
 AgentServer/static/
+AgentServer/backtest_result_2y.json
