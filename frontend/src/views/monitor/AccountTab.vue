@@ -77,12 +77,12 @@ const toggleDetail = async (code: string) => {
   detailLoading.value = false
 }
 
-// 【v2.9.99修复】移除onMounted(fetchKpi): unified的watch({immediate:true})会自动触发首次fetch
-// fetchKpi内调用unified.setDate(d)会触发下方watch→fetchKpi，无需onMounted重复调用
-// watch(() => unified.currentDate.value, ...) 已覆盖日期变化场景
-
-// 【v2.9.97g】监听全局日期变更
-watch(() => unified.currentDate.value, () => { fetchKpi() })
+// 【v2.9.97h-v12修复】v2.9.99 移除 onMounted(fetchKpi) 但遗漏了 immediate: true
+// 后果: unified 的 immediate watch 只刷 trades/positions, 不调 fetchKpi
+//       AccountTab 自己的 watch 默认非 immediate, 首次 mount 不触发
+//       fetchKpi 全天从未调用 → kpiData=null → risk_monitor={} → UI全部显示❌
+// 修复: watch 加 immediate, 首次 mount 立即调用一次
+watch(() => unified.currentDate.value, () => { fetchKpi() }, { immediate: true })
 
 const acc = computed(() => kpiData.value?.account || {})
 const riskMonitor = computed(() => kpiData.value?.risk_monitor || {})
