@@ -24,10 +24,7 @@ const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard
 const m = useScannerMonitorInject()
 const { activeTab } = m
 const loading = ref(false)
-// 【v2.9.97h-v11修复】默认不限日期，看全部历史数据（“结果分析”应为多日统计）
-// 用户可通过 UnifiedDateBar 手动选某一天切到单日视图
-const selectedDate = ref('')  // 空字符串 = 全部历史
-const rangeMode = ref<'all' | 'date'>('all')  // 'all'=全部 / 'date'=单日
+const selectedDate = ref(getChinaDate())
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
 const expandedCharts = ref<Record<string, boolean>>({})  // 每个图表独立折叠, 默认收起
@@ -48,35 +45,14 @@ function getChinaDate(): string {
 async function fetchAnalysis() {
   loading.value = true
   try {
-    // 【v2.9.97h-v11】全部模式不传 date，后端返回全部历史多日明细
-    const url = rangeMode.value === 'date' && selectedDate.value
-      ? `/scanner/analysis?date=${selectedDate.value.replace(/-/g, '')}`
-      : `/scanner/analysis`
-    const r = await api.get(url)
+    const d = selectedDate.value.replace(/-/g, '')
+    const r = await api.get(`/scanner/analysis?date=${d}`)
     const p = parseResponse(r)
     if (p.success) analysisData.value = p.data
-    // 同步获取当日交易（用今天作默认，主表格不依赖这个）
-    try {
-      const today = getChinaDate().replace(/-/g, '')
-      const d = rangeMode.value === 'date' && selectedDate.value ? selectedDate.value.replace(/-/g, '') : today
-      const r2 = await api.get(`/unified/trades?date=${d}`)
-      const p2 = parseResponse(r2)
-      if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side }))
-    } catch {}
+    // 同步获取当日交易
+    try { const r2 = await api.get(`/unified/trades?date=${d}`); const p2 = parseResponse(r2); if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {}
   } catch (e) { console.error('[Analysis]', e) }
   finally { loading.value = false }
-}
-
-function onSwitchToAll() {
-  rangeMode.value = 'all'
-  selectedDate.value = ''
-  fetchAnalysis()
-}
-
-function onDateChange(d: string) {
-  rangeMode.value = 'date'
-  selectedDate.value = d
-  fetchAnalysis()
 }
 
 // 仅在Tab激活时自动刷新(不与UnifiedDateBar的change事件重复)
@@ -174,10 +150,7 @@ async function showDayDetail(date: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <span class="ana-range-hint" v-if="rangeMode === 'all'">全部历史</span>
-        <span class="ana-range-hint" v-else-if="selectedDate">{{ selectedDate }} 单日</span>
-        <ElButton size="small" :type="rangeMode === 'all' ? 'primary' : 'default'" @click="onSwitchToAll">📅 全部</ElButton>
-        <UnifiedDateBar @change="onDateChange" />
+        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 
@@ -273,7 +246,7 @@ async function showDayDetail(date: string) {
                   <div v-if="dailyTradesLoading" style="font-size:11px;color:var(--text-tertiary)">加载中...</div>
                   <div v-else-if="!dailyTrades.length" style="font-size:11px;color:var(--text-tertiary)">无交易记录</div>
                   <table v-else class="sub-tbl"><thead><tr><th>时间</th><th>方向</th><th>代码</th><th>名称</th><th>价格</th><th>数量</th><th>盈亏%</th><th>盈亏额</th><th>原因</th></tr></thead><tbody>
-                    <tr v-for="(t, i) in dailyTrades" :key="i"><td>{{ t.time }}</td><td :class="t.action === 'buy' ? 'up' : t.action === 'sell' ? 'down' : ''">{{ t.action === 'buy' ? '买' : t.action === 'sell' ? '卖' : '⛔' }}</td><td>{{ t.ts_code?.slice(0,6) }}</td><td>{{ t.stock_name }}</td><td>{{ t.price }}</td><td>{{ t.shares }}</td><td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td><td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td><td style="font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td></tr>
+                    <tr v-for="(t, i) in dailyTrades" :key="i"><td>{{ t.time }}</td><td :class="t.action === 'buy' ? 'up' : t.action === 'sell' ? 'down' : ''">{{ t.action === 'buy' ? '买' : t.action === 'sell' ? '卖' : '⛔' }}</td><td>{{ t.ts_code?.slice(0,6) }}</td><td>{{ t.stock_name }}</td><td>{{ t.price }}</td><td>{{ t.shares }}</td><td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(1) + '%' : '-' }}</td><td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount.toFixed(0) : '-' }}</td><td style="font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td></tr>
                   </tbody></table>
                 </td></tr>
               </template>
@@ -290,7 +263,7 @@ async function showDayDetail(date: string) {
           <div class="sd-summary">
             <div class="sd-kpi" :class="(stockDetail.summary.holding_profit_pct ?? 0) >= 0 ? 'sd-up' : 'sd-down'">
               <div class="sd-kpi-label">持仓盈亏</div>
-              <div class="sd-kpi-val">{{ stockDetail.summary?.holding_profit_pct != null ? ((Number(stockDetail.summary.holding_profit_pct) >= 0 ? '+' : '') + Number(stockDetail.summary.holding_profit_pct).toFixed(1) + '%') : '--' }}</div>
+              <div class="sd-kpi-val">{{ stockDetail.summary?.holding_profit_pct != null ? ((stockDetail.summary.holding_profit_pct >= 0 ? '+' : '') + stockDetail.summary.holding_profit_pct.toFixed(1) + '%') : '--' }}</div>
             </div>
             <div class="sd-kpi" :class="stockDetail.summary.realized_profit >= 0 ? 'sd-up' : 'sd-down'">
               <div class="sd-kpi-label">已实现盈亏</div>
@@ -302,7 +275,7 @@ async function showDayDetail(date: string) {
             </div>
             <div class="sd-kpi sd-neutral">
               <div class="sd-kpi-label">现价/市值</div>
-              <div class="sd-kpi-val">¥{{ Number(stockDetail.summary?.current_price || 0).toFixed(2) }} / ¥{{ (stockDetail.summary?.market_value || 0).toLocaleString() }}</div>
+              <div class="sd-kpi-val">¥{{ stockDetail.summary.current_price }} / ¥{{ stockDetail.summary.market_value?.toLocaleString() }}</div>
             </div>
             <div class="sd-kpi sd-neutral">
               <div class="sd-kpi-label">买卖次数</div>
@@ -323,8 +296,8 @@ async function showDayDetail(date: string) {
                   <td>{{ t.date }}</td><td>{{ t.time }}</td>
                   <td :class="t.action === 'buy' ? 'up' : 'down'">{{ t.action === 'buy' ? '买入' : '卖出' }}</td>
                   <td>{{ t.shares }}</td><td>¥{{ t.price }}</td>
-                  <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (Number(t.profit_pct) >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td>
-                  <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td>
+                  <td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct?.toFixed(1) + '%' : '-' }}</td>
+                  <td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + t.profit_amount?.toFixed(0) : '-' }}</td>
                   <td style="font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td>
                 </tr>
               </tbody>
@@ -340,7 +313,6 @@ async function showDayDetail(date: string) {
 .ana-wrap { display: flex; flex-direction: column; gap: 8px; }
 .ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); flex-wrap: nowrap; }
 .ana-title { font-size: 14px; font-weight: 700; }
-.ana-range-hint { font-size: 12px; color: var(--text-secondary); padding: 2px 8px; background: var(--bg-secondary); border-radius: 10px; border: 1px solid var(--border-default); }
 .ana-empty { padding: 60px 0; text-align: center; }
 .ana-empty-sm { padding: 16px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }
 .ana-loading { padding: 40px 0; text-align: center; color: var(--text-tertiary); }

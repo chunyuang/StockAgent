@@ -220,22 +220,12 @@ const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
 
 // 挂载时自动加载日期数据(用于日期选择器高亮)
 // 并自动选择最近有数据的日期加载扫描历史
-// 【v2.9.97h-v14】优先选今天(如果今天有数据), 再 fallback 到 dates[0]
 onMounted(async () => {
   const dates = await fetchScanTraceDates()
   if (!scanTraceDate.value && dates?.length) {
-    // 先找今天(20260622 格式)
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }).replace(/-/g, '')
-    const bestDateObj = dates.find((d: any) => String(d.date || d) === todayStr)
-    let bestDateStr: string
-    if (bestDateObj) {
-      // bestDateObj 是 {date, count, is_debug} 对象, 取 .date
-      bestDateStr = bestDateObj.date || String(bestDateObj)
-    } else {
-      // dates[0] 同样可能是对象或字符串
-      bestDateStr = dates[0]?.date || String(dates[0])
-    }
-    scanTraceDate.value = String(bestDateStr).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+    // scan-dates返回降序(最新在前), 取第一个作为最新交易日
+    const latestDate = dates[0]?.date || dates[0]
+    scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
     fetchScanHistory()
   }
 })
@@ -285,7 +275,7 @@ onMounted(async () => {
                   <span class="es-group-dot"></span>
                   <span class="es-group-name">{{ g.label }}</span>
                   <span class="es-group-count">{{ g.count }}次</span>
-                  <span class="es-group-pct">{{ Number(g.pct ?? 0).toFixed(0) }}%</span>
+                  <span class="es-group-pct">{{ (g.pct ?? 0).toFixed(0) }}%</span>
                 </button>
               </div>
             </div>
@@ -295,7 +285,7 @@ onMounted(async () => {
                 <span class="es-reason-name">{{ shortReason(r.reason) }}</span>
                 <div class="es-reason-bar"><div class="es-reason-fill" :style="{ width: Math.max(3, r.pct) + '%' }"></div></div>
                 <span class="es-reason-num">{{ r.count }}次</span>
-                <span class="es-reason-pct">{{ Number(r.pct ?? 0).toFixed(1) }}%</span>
+                <span class="es-reason-pct">{{ (r.pct ?? 0).toFixed(1) }}%</span>
               </div>
             </div>
             <div v-else class="es-detail-hint">
@@ -392,7 +382,7 @@ onMounted(async () => {
                 <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid et-strategy" effect="dark">{{ strategyCN(sig.strategy) }}</ElTag>
                 <span class="et-code">{{ sig.ts_code }}</span>
                 <span class="et-name">{{ sig.stock_name || '-' }}</span>
-                <span class="et-pct" :class="(Number(sig.pct_chg) || 0) >= 0 ? 'up' : 'down'">{{ (Number(sig.pct_chg) || 0) >= 0 ? '+' : '' }}{{ Number(sig.pct_chg ?? 0).toFixed(2) }}%</span>
+                <span class="et-pct" :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg ?? 0).toFixed(2) }}%</span>
                 <span v-if="sig.price" class="et-price">¥{{ Number(sig.price).toFixed(2) }}</span>
               </div>
               <div class="et-row2">

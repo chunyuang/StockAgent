@@ -115,7 +115,7 @@ onUnmounted(() => clearInterval(timer))
         <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
           <span class="ind-label">{{ name }}</span>
           <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min((pct ?? 0), 100).toFixed(0) + '%' }"></div></div>
-          <span class="ind-pct">{{ Number(pct ?? 0).toFixed(0) }}%</span>
+          <span class="ind-pct">{{ (pct ?? 0).toFixed(0) }}%</span>
         </div>
       </div>
     </div>
@@ -131,15 +131,15 @@ onUnmounted(() => clearInterval(timer))
           <span class="rm-sname">{{ p.stock_name }}</span>
           <span class="rm-ind-tag">{{ p.industry }}</span>
         </div>
-        <div class="rm-cell" :class="(Number(p.profit_pct) || 0) >= 0 ? 'up' : 'down'">{{ (Number(p.profit_pct) || 0) >= 0 ? '+' : '' }}{{ Number(p.profit_pct || 0).toFixed(1) }}%</div>
+        <div class="rm-cell" :class="(p.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (p.profit_pct || 0) >= 0 ? '+' : '' }}{{ (p.profit_pct || 0).toFixed(1) }}%</div>
         <div class="rm-cell">
           <span class="rm-bar-wrap">
             <span class="rm-bar" :style="{ width: Math.max(0, Math.min((p.dist_stop_loss || 0) / 10 * 100, 100)) + '%', background: slColor(p.dist_stop_loss || 0) }"></span>
           </span>
-          <span class="rm-bar-val" :style="{ color: slColor(p.dist_stop_loss || 0) }">{{ Number(p.dist_stop_loss || 0).toFixed(1) }}%</span>
+          <span class="rm-bar-val" :style="{ color: slColor(p.dist_stop_loss || 0) }">{{ (p.dist_stop_loss || 0).toFixed(1) }}%</span>
         </div>
-        <div class="rm-cell">{{ Number(p.dist_take_profit || 0).toFixed(1) }}%</div>
-        <div class="rm-cell">{{ Number(p.position_pct || 0).toFixed(1) }}%</div>
+        <div class="rm-cell">{{ (p.dist_take_profit || 0).toFixed(1) }}%</div>
+        <div class="rm-cell">{{ (p.position_pct || 0).toFixed(1) }}%</div>
         <div class="rm-cell">
           <span class="rm-score" :style="{ background: riskBg(p.risk_score || 0), color: riskColor(p.risk_score || 0) }">{{ p.risk_score ?? '-' }}</span>
         </div>

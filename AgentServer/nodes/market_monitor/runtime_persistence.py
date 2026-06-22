@@ -353,21 +353,15 @@ class RuntimePersistence:
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
             # 【v2.9.89优化】同步更新scan_date_cache缓存(供scan-dates API秒级查询)
-            # 【v2.9.97h-v14】强制 int 类型, 防止 BSON 混合类型排序bug
             try:
-                trade_date_raw = trace_doc.get("trade_date")
+                trade_date = trace_doc.get("trade_date")
                 is_debug = trace_doc.get("is_debug", False)
-                if trade_date_raw is not None:
-                    try:
-                        trade_date = int(trade_date_raw)
-                    except (TypeError, ValueError):
-                        trade_date = None
-                    if trade_date is not None:
-                        await mongo_manager.db["scan_date_cache"].update_one(
-                            {"date": trade_date},
-                            {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
-                            upsert=True
-                        )
+                if trade_date:
+                    await mongo_manager.db["scan_date_cache"].update_one(
+                        {"date": trade_date},
+                        {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
+                        upsert=True
+                    )
             except Exception:
                 pass  # 非关键, 不影响主流程
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
@@ -606,13 +600,8 @@ class RuntimePersistence:
             logger.warning(f"[SCANNER] 卖出后运行时快照失败: {_e}")
         # 【v2.9.94修复】卖出后立即保存timeline到MongoDB，防止进程崩溃时丢失
         # P0事故2026-06-15: 5笔卖出后scanner重启，timeline只在内存中未持久化，导致前端无当日交易明细
-        # 【V77-BUG修复】_persist_sell_state是@staticmethod，无self，需通过scanner实例调用
         try:
-            rp = getattr(scanner, '_runtime_persistence', None)
-            if rp:
-                await rp.save_timeline()
-            else:
-                await scanner._save_timeline()
+            await self.save_timeline()
         except Exception as _e:
             logger.warning(f"[SCANNER] 卖出后Timeline保存失败: {_e}")
 

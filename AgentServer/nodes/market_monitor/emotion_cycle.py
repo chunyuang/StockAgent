@@ -792,26 +792,6 @@ class EmotionCycleManager:
             period = "BEARISH"
             missing_data = True
             data_source = f"{data_source}(forced_missing)"
-        # 【v2.9.99防护】score与period不一致时以score为准修正period
-        # 防止写入score=50+period=冰点这种不一致数据
-        _period_score_check = {
-            '高潮': 70, '分化': 55, '震荡': 40, '冰点': 0,
-            'RISING': 70, 'DIFFERENTIATION': 55, 'CHAOS': 40, 'BEARISH': 0,
-        }
-        _score_to_cn = {'RISING': '高潮', 'DIFFERENTIATION': '分化', 'CHAOS': '震荡', 'BEARISH': '冰点'}
-        if period in _period_score_check and not missing_data:
-            expected_min = _period_score_check[period]
-            # 简单校验: period对应的最小score必须<=实际score
-            if expected_min > score:
-                cn_p = _score_to_cn.get(period, period)
-                if score >= 70: correct_period = '高潮'
-                elif score >= 55: correct_period = '分化'
-                elif score >= 40: correct_period = '震荡'
-                else: correct_period = '冰点'
-                logger.warning(
-                    f"[EMOTION] {td_int} period/score不一致: period={period}(需≥{expected_min})但score={score}, 修正为{correct_period}"
-                )
-                period = correct_period
         from datetime import datetime as _dt
         await db["sentiment_scores"].update_one(
             {"trade_date": td_int},

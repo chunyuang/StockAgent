@@ -77,12 +77,10 @@ const toggleDetail = async (code: string) => {
   detailLoading.value = false
 }
 
-// 【v2.9.97h-v12修复】v2.9.99 移除 onMounted(fetchKpi) 但遗漏了 immediate: true
-// 后果: unified 的 immediate watch 只刷 trades/positions, 不调 fetchKpi
-//       AccountTab 自己的 watch 默认非 immediate, 首次 mount 不触发
-//       fetchKpi 全天从未调用 → kpiData=null → risk_monitor={} → UI全部显示❌
-// 修复: watch 加 immediate, 首次 mount 立即调用一次
-watch(() => unified.currentDate.value, () => { fetchKpi() }, { immediate: true })
+onMounted(fetchKpi)
+
+// 【v2.9.97g】监听全局日期变更
+watch(() => unified.currentDate.value, () => { fetchKpi() })
 
 const acc = computed(() => kpiData.value?.account || {})
 const riskMonitor = computed(() => kpiData.value?.risk_monitor || {})
@@ -175,9 +173,9 @@ const posPie = computed(() => {
             <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏 ──</span><span></span></div>
             <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
               <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
-              <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (Number(p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
+              <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
             </div>
-            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (Number(totalAssets || 0) / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets / 10000).toFixed(2) }}万</span></div>
           </div>
         </div>
       </div>
@@ -205,16 +203,16 @@ const posPie = computed(() => {
                 <span v-if="p.stop_loss_status === 'broken'" class="sl-broken">🔴破止损</span>
                 <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
               </div>
-              <div :class="['pos-pnl', cls(Number(p.profit_pct) || 0)]">
-                <span class="pos-pnl-pct">{{ (Number(p.profit_pct) || 0) >= 0 ? '+' : '' }}{{ Number(p.profit_pct || 0).toFixed(1) }}%</span>
-                <span class="pos-pnl-amt">{{ (Number(p.profit_amount) || 0) >= 0 ? '+' : '' }}¥{{ (Number(p.profit_amount) || 0).toLocaleString() }}</span>
+              <div :class="['pos-pnl', cls(p.profit_pct)]">
+                <span class="pos-pnl-pct">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct?.toFixed(1) }}%</span>
+                <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (p.profit_amount || 0).toLocaleString() }}</span>
               </div>
             </div>
             <!-- Row 2: Key numbers -->
             <div class="pos-metrics">
-              <div class="pos-m"><span class="pos-ml">成本</span><span>¥{{ Number(p.cost_price || 0).toFixed(2) }}</span></div>
-              <div class="pos-m"><span class="pos-ml">现价</span><span>¥{{ Number(p.current_price || 0).toFixed(2) }}</span></div>
-              <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price ? Number(p.stop_loss_price).toFixed(2) : '-' }}</span></div>
+              <div class="pos-m"><span class="pos-ml">成本</span><span>¥{{ p.cost_price?.toFixed(2) }}</span></div>
+              <div class="pos-m"><span class="pos-ml">现价</span><span>¥{{ p.current_price?.toFixed(2) }}</span></div>
+              <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price?.toFixed(2) || '-' }}</span></div>
               <div class="pos-m"><span class="pos-ml">数量</span><span>{{ p.shares }}</span></div>
               <div class="pos-m"><span class="pos-ml">市值</span><span>¥{{ (p.market_value || 0).toLocaleString() }}</span></div>
               <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ totalAssets > 0 ? ((p.market_value || 0) / totalAssets * 100).toFixed(1) : 0 }}%</span></div>
@@ -229,10 +227,10 @@ const posPie = computed(() => {
                 <div class="pd-grid">
                   <div class="pd-cell"><span class="pd-cl">策略</span><span>{{ detailData.strategy }}</span></div>
                   <div class="pd-cell"><span class="pd-cl">持仓量</span><span>{{ detailData.summary?.holding_qty }}</span></div>
-                  <div class="pd-cell"><span class="pd-cl">均价</span><span>¥{{ Number(detailData.summary?.avg_cost || 0).toFixed(2) }}</span></div>
-                  <div class="pd-cell"><span class="pd-cl">现价</span><span>¥{{ Number(detailData.summary?.current_price || 0).toFixed(2) }}</span></div>
-                  <div class="pd-cell"><span class="pd-cl">浮盈亏</span><span :class="cls(Number(detailData.summary?.holding_profit_pct) || 0)">{{ Number(detailData.summary?.holding_profit_pct || 0).toFixed(1) }}%</span></div>
-                  <div class="pd-cell"><span class="pd-cl">浮盈亏额</span><span :class="cls(Number(detailData.summary?.holding_profit_amount) || 0)">¥{{ Number(detailData.summary?.holding_profit_amount || 0).toLocaleString() }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">均价</span><span>¥{{ detailData.summary?.avg_cost?.toFixed(2) }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">现价</span><span>¥{{ detailData.summary?.current_price?.toFixed(2) }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏</span><span :class="cls(detailData.summary?.holding_profit_pct || 0)">{{ (detailData.summary?.holding_profit_pct || 0).toFixed(1) }}%</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏额</span><span :class="cls(detailData.summary?.holding_profit_amount || 0)">¥{{ (detailData.summary?.holding_profit_amount || 0).toLocaleString() }}</span></div>
                   <div class="pd-cell"><span class="pd-cl">持仓天数</span><span>{{ detailData.summary?.hold_days }}天</span></div>
                   <div class="pd-cell"><span class="pd-cl">市值</span><span>¥{{ (detailData.summary?.market_value || 0).toLocaleString() }}</span></div>
                 </div>
@@ -241,9 +239,9 @@ const posPie = computed(() => {
                 <div v-for="(t, i) in detailData.trades" :key="i" class="pd-trade">
                   <span class="pd-trade-date">{{ t.date }} {{ t.time }}</span>
                   <span :class="t.action === 'buy' ? 'up' : 'down'" style="font-weight:600">{{ t.action === 'buy' ? '买入' : '卖出' }}</span>
-                  <span>{{ t.shares }}股@¥{{ Number(t.price || 0).toFixed(2) }}</span>
-                  <span class="muted">¥{{ Number(t.amount || 0).toLocaleString() }}</span>
-                  <span v-if="t.profit_pct != null" :class="cls(Number(t.profit_pct) || 0)">{{ Number(t.profit_pct) >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(1) }}%</span>
+                  <span>{{ t.shares }}股@¥{{ t.price?.toFixed(2) }}</span>
+                  <span class="muted">¥{{ (t.amount || 0).toLocaleString() }}</span>
+                  <span v-if="t.profit_pct != null" :class="cls(t.profit_pct)">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct?.toFixed(1) }}%</span>
                   <span class="pd-trade-reason">{{ t.reason }}</span>
                 </div>
               </template>
@@ -269,7 +267,7 @@ const posPie = computed(() => {
           <div class="at-risk-row"><span>⚠️ 接近止损</span><span class="warn">{{ nearSL.length }}只</span></div>
           <div class="at-risk-row"><span>✅ 安全</span><span class="ok">{{ positions.length - brokenSL.length - nearSL.length }}只</span></div>
           <div v-if="brokenSL.length" class="at-broken-list">
-            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ Number(p.profit_pct || 0).toFixed(1) }}% (止损¥{{ p.stop_loss_price || '-' }})</div>
+            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ p.profit_pct?.toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
           </div>
         </div>
       </div>

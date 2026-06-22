@@ -286,34 +286,14 @@ async def get_scan_trace_dates():
             return {"success": True, "data": []}
         db = mongo_manager.db
         
-        # 【v2.9.97h-v14修复】scan_date_cache.date 字段有 int/str 混合污染,
-        # MongoDB BSON 混合类型 sort 不会跨类型正确排序 (str > int)
-        # 后果: dates[0] = '20260615'(str) 而不是 20260622(int=今天)
-        # 修复: 拉下后在 Python 层统一转 int 重新排序, 顺便去重
-        cache_docs = await db["scan_date_cache"].find({}).to_list(None)
+        # 优先从缓存集合读取(写入时同步维护)
+        cache_docs = await db["scan_date_cache"].find({}).sort("date", -1).to_list(None)
         if cache_docs:
-            # 按 日朝desc, 同日期合并 (阅 count 实际记录位置带上 is_debug)
-            merged = {}  # int_date -> {count, is_debug}
-            for d in cache_docs:
-                try:
-                    di = int(d["date"])
-                except (TypeError, ValueError, KeyError):
-                    continue
-                cnt = d.get("count", 0) or 0
-                is_dbg = d.get("is_debug", False)
-                if di in merged:
-                    merged[di]["count"] += cnt
-                    # 优先留不是debug的状态(用户着重看 production 数据)
-                    if not is_dbg:
-                        merged[di]["is_debug"] = False
-                else:
-                    merged[di] = {"count": cnt, "is_debug": is_dbg}
-            sorted_dates = sorted(merged.keys(), reverse=True)
             return {"success": True, "data": [{
-                "date": str(di),
-                "count": merged[di]["count"],
-                "is_debug": merged[di]["is_debug"],
-            } for di in sorted_dates]}
+                "date": str(d["date"]),
+                "count": d.get("count", 0),
+                "is_debug": d.get("is_debug", False),
+            } for d in cache_docs]}
         
         # 缓存为空时,回退到distinct()构建缓存(仅首次)
         distinct_dates = await db["scan_traces"].distinct("trade_date")

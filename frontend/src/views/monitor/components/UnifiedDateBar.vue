@@ -78,53 +78,40 @@ function onGoToday() {
 </template>
 
 <style scoped>
-/* 【v2.9.97h-v9 】统一日期栏样式 — 使用 CSS 变量适配 dark mode */
 .unified-date-bar {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-left: auto;
   flex-shrink: 0;
-  padding: 2px 4px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
 }
 .nav-btn, .today-btn {
-  border: 1px solid var(--border-default);
-  background: var(--bg-secondary);
+  border: 1px solid #dcdfe6;
+  background: #fff;
   border-radius: 4px;
-  padding: 1px 8px;
+  padding: 1px 7px;
   font-size: 12px;
   cursor: pointer;
-  color: var(--text-primary);
+  color: #606266;
   line-height: 22px;
   height: 24px;
   transition: all 0.15s;
 }
 .nav-btn:hover, .today-btn:hover:not(:disabled) {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary-light-5);
-  background: var(--el-color-primary-light-9);
+  color: #409eff;
+  border-color: #c6e2ff;
+  background: #ecf5ff;
 }
 .nav-btn:disabled, .today-btn:disabled {
-  color: var(--text-tertiary);
+  color: #c0c4cc;
   cursor: not-allowed;
-  background: var(--bg-muted);
-  border-color: var(--border-light);
+  background: #f5f7fa;
+  border-color: #e4e7ed;
 }
 .today-btn.active {
-  color: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  color: #409eff;
+  border-color: #409eff;
   font-weight: 600;
-}
-.unified-date-bar :deep(.el-input__wrapper) {
-  background: var(--bg-secondary) !important;
-  box-shadow: 0 0 0 1px var(--border-default) inset !important;
-}
-.unified-date-bar :deep(.el-input__inner) {
-  color: var(--text-primary) !important;
 }
 </style>
 

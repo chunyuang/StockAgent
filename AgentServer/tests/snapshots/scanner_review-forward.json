@@ -7,7 +7,12 @@
   },
   "advice": "str",
   "strategy_recommendations": [
-    "<empty_list>"
+    {
+      "strategy": "str",
+      "action": "str",
+      "win_rate": "float",
+      "count": "int"
+    }
   ],
   "strategy_switches": [
     {

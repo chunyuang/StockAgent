@@ -49,7 +49,6 @@ export function useScannerMonitor() {
   const positions = ref<PositionInfo[]>([])
   const timeline = ref<TimelineItem[]>([])
   const orders = ref<any[]>([])
-  const todayClosedTrades = ref<any[]>([])  // 【v2.9.97h-v19】今日已平仓交易
   const closedPositions = computed(() => {
     const tlBuys = timeline.value.filter(t => t.action === 'buy')
     const tlSells = timeline.value.filter(t => t.action === 'sell')
@@ -183,23 +182,7 @@ export function useScannerMonitor() {
       if (tab === 'scan-trace') { scanTrace.fetchScanTraceDates(); scanTrace.fetchScanHistory() }
       if (tab === 'review') { review.fetchReviewData(); autoTrade.fetchParamCompare() }
       if (tab === 'sentiment') { sentiment.fetchSentimentData() }
-  // 【v2.9.97h-v9 修复】切到 ops Tab 时如果 opsDate 仍是初始值，重置到当前交易日
-      if (tab === 'ops') {
-        const today = (() => {
-          const now = new Date()
-          const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-          const dow = china.getDay()
-          if (dow === 6) china.setDate(china.getDate() - 1)
-          else if (dow === 0) china.setDate(china.getDate() - 2)
-          const y = china.getFullYear()
-          const m = String(china.getMonth() + 1).padStart(2, '0')
-          const d = String(china.getDate()).padStart(2, '0')
-          return `${y}-${m}-${d}`
-        })()
-        autoTrade.opsDate.value = today
-        autoTrade.fetchAutoTrades()
-        autoTrade.fetchScanConfig()
-      }
+      if (tab === 'ops') { autoTrade.fetchAutoTrades(); autoTrade.fetchScanConfig() }
     } catch (e) { console.error('[Tab] error:', e) }
   })
 
@@ -251,7 +234,7 @@ export function useScannerMonitor() {
 
   // ==================== 🔧 核心方法 (子composable) ====================
   const core = useCoreMethods({
-    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders, todayClosedTrades,
+    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders,
     nowMs, signalFilter, focusIndex, tradeMode, replayDate, activeTab, limitPools,
     strategies, globalRisk, healthData, confirmVisible, confirmLoading, confirmData,
     manualTrade, manualQuote, riskBarCollapsed, trailEditPct, trailSaving,
@@ -423,7 +406,7 @@ export function useScannerMonitor() {
     // 【v2.9.97】统一数据层 - 8个Tab共用
     unified,
     // 核心状态
-    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders, todayClosedTrades,
+    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders,
     signalFilter, filteredSignals, closedPositions, isRunning: core.isRunning,
     accountInfo: core.accountInfo, totalPnl: core.totalPnl, positionRatio,
     circuitBreakerPaused: core.circuitBreakerPaused, focusIndex, nowMs,

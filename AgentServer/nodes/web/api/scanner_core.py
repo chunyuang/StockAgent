@@ -5,8 +5,6 @@ import logging
 import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-import logging
-logger = logging.getLogger("api.scanner_core")
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -25,10 +23,8 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
 
 
-async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 500) -> List[Dict[str, Any]]:
-    """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。
-    【v2.9.97h-v17】limit 从 50 提升到 500, 避免上午 9点-12点信号被截断。
-    按扫描时间升序返回(方便前端按小时分组)。"""
+async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。"""
     try:
         from core.managers import mongo_manager
         if not getattr(mongo_manager, "is_initialized", False):
@@ -83,42 +79,16 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
     status_resp = await get_scanner_status()
     status_data = status_resp.get("data", {}) if isinstance(status_resp, dict) else {}
     
-    # 信号: 【v2.9.97h-v17】合并内存 active + MongoDB 全天历史, 去重后返回
-    # 原逻辑: 内存 active 优先; 仅 active 为空才读历史 -> 造成上午信号被截断不可见
-    # 新逻辑: 今日 active + 今日全天历史 union, 便于前端按小时分组查看全天信号过程
-    active_signals = scanner.get_signals()
-    _fill_stock_names(active_signals, scanner)
-    history_signals: List[Dict[str, Any]] = []
-    try:
-        if not is_historical:
-            # 今日查看: 补充今日全天历史 (上午信号)
-            history_signals = await _load_recent_signal_history(scanner, date_int=today_int)
-        else:
-            # 历史日期查看: 只读历史
-            history_signals = await _load_recent_signal_history(scanner, date_int=date_int)
-    except Exception:
-        history_signals = []
-    # 去重: 同 (ts_code, strategy, scan_time) 为唯一键, 内存 active 优先
-    signals_data = []
-    seen: set = set()
-    # active 不打上 _historical_signal=True (仍是实时可交易)
-    for s in active_signals:
-        key = (s.get("ts_code"), s.get("strategy"), s.get("scan_time"))
-        seen.add(key)
-        signals_data.append(s)
-    for s in history_signals:
-        key = (s.get("ts_code"), s.get("strategy"), s.get("scan_time"))
-        if key in seen:
-            continue
-        seen.add(key)
-        signals_data.append(s)
-    # 按 scan_time 升序 (方便前端按小时分组)
-    signals_data.sort(key=lambda x: x.get("scan_time") or "")
-    signals_is_history = is_historical or (not active_signals and bool(history_signals))
+    # 信号: 实时优先；无实时信号时回退最近一次历史信号，方便非交易时间回看
+    signals_data = scanner.get_signals()
+    _fill_stock_names(signals_data, scanner)
+    signals_is_history = False
+    if not signals_data:
+        signals_data = await _load_recent_signal_history(scanner, date_int=date_int)
+        signals_is_history = bool(signals_data)
     
     # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []
-    today_closed = []  # 【v2.9.97h-v19】默认空, 避免历史路径 NameError
     try:
         from core.managers import mongo_manager
         if mongo_manager.db is not None:
@@ -135,39 +105,6 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                 # 当日: 从broker_positions读(唯一真相源)
                 from nodes.web.api.scanner_analysis import _compute_positions_from_broker
                 positions_data = await _compute_positions_from_broker(mongo_manager.db, account_id)
-                # 【v2.9.97h-v19】补充今日已平仓记录 (涉及今天卖出的所有成交, 买入可能早于今天)
-                today_closed = []
-                try:
-                    # 1. 先找今天所有 filled 卖出
-                    today_sells = await mongo_manager.db["broker_orders"].find(
-                        {"account_id": account_id, "trade_date": {"$in": [today_int, str(today_int)]}, "status": "filled", "side": {"$in": ["sell", "SELL"]}}
-                    ).sort("create_time", 1).to_list(500)
-                    for sell in today_sells:
-                        tc = sell.get("ts_code", "")
-                        if not tc:
-                            continue
-                        # 2. 找对应的买入记录 (按 ts_code, trade_date <= today, side=buy, 最近一次)
-                        buy = await mongo_manager.db["broker_orders"].find_one(
-                            {"account_id": account_id, "ts_code": tc, "trade_date": {"$lte": today_int}, "status": "filled", "side": {"$in": ["buy", "BUY"]}},
-                            sort=[("trade_date", -1), ("create_time", -1)]
-                        )
-                        entry = {
-                            "ts_code": tc,
-                            "stock_name": sell.get("stock_name", ""),
-                            "buy_time": buy.get("create_time") or buy.get("fill_time") or "" if buy else "",
-                            "buy_price": round(float(buy.get("filled_price") or buy.get("price") or 0), 2) if buy else 0,
-                            "buy_qty": int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0,
-                            "buy_date": buy.get("trade_date", "") if buy else "",
-                            "sell_time": sell.get("create_time") or sell.get("fill_time") or "",
-                            "sell_price": round(float(sell.get("filled_price") or sell.get("price") or 0), 2),
-                            "sell_qty": int(sell.get("filled_qty") or sell.get("quantity") or 0),
-                            "profit_pct": round(float(sell.get("profit_pct") or 0), 2),
-                            "profit_amount": round(float(sell.get("profit_amount") or 0), 0),
-                        }
-                        today_closed.append(entry)
-                    today_closed.sort(key=lambda x: x.get("sell_time") or "")
-                except Exception:
-                    today_closed = []
                 # 用scanner内存补充实时字段
                 if scanner._broker:
                     scanner_positions = {p.get("ts_code"): p for p in scanner.get_positions()}
@@ -288,7 +225,6 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
             "status": status_data,
             "signals": signals_data,
             "positions": positions_data,
-            "today_closed_trades": today_closed,  # 【v2.9.97h-v19】今日已平仓记录
             "timeline": timeline_data,
             "orders": orders_data,
             "_historical": is_historical,

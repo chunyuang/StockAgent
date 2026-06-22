@@ -327,6 +327,7 @@ class LiveFilterPipeline:
         # 【v2.9.92w】冷却期检查(强制空仓后N天内仓位上限)
         cooldown_info = getattr(self._scanner, '_cooldown_info', {})
         if cooldown_info and cooldown_info.get('trigger_date'):
+            from datetime import datetime, timedelta
             try:
                 trigger = datetime.strptime(cooldown_info['trigger_date'], '%Y%m%d')
                 cooldown_days = cooldown_info.get('cooldown_days', 2)
@@ -335,15 +336,9 @@ class LiveFilterPipeline:
                 days_since = (now - trigger).days
                 if days_since <= cooldown_days * 2:  # 粗略：日历天≤2×交易日
                     if cooldown_info.get('block_new_buys') or cooldown_cap <= 0:
-                        result.candidates = []
+                        result.filtered_candidates = []
                         result.position_ratio = 0
                         result.layer_details["L8_cooldown"] = f"🧊 {cooldown_info.get('risk_level','风险')}防守期: 禁止新开仓({cooldown_info.get('reason','')})"
-                        for t in result.trace_candidates:
-                            t.layer_results["L8_position"] = {"passed": False, "reason": "冷却期禁止新开仓"}
-                            t.final_status = "rejected"
-                            t.final_rejection_layer = "L8_position"
-                            t.final_rejection_reason = "冷却期禁止新开仓"
-                        self._build_trace_summary(result)
                         logger.warning(f"[FILTER] 🧊 竞价风险防守期: 禁止新开仓 reason={cooldown_info.get('reason','')}")
                         return result
                     final_ratio = min(final_ratio, cooldown_cap)
@@ -360,6 +355,7 @@ class LiveFilterPipeline:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
                     # 查询上证指数最近60天close
+                    import asyncio
                     index_docs = await mongo_manager.find_many(
                         "index_daily",
                         {"ts_code": "000001.SH"},

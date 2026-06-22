@@ -169,7 +169,7 @@ const closedStats = computed(() => {
               <span class="tl-name">{{ item.stock_name }}</span>
               <template v-if="item.action !== 'blocked'">
                 <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
-                <span class="tl-qty">{{ item.shares }}@¥{{ Number(item.price || 0).toFixed(2) }}</span>
+                <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
                 <span v-if="item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
               </template>
               <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
@@ -207,7 +207,7 @@ const closedStats = computed(() => {
                 <span class="ord-dir" :class="o.side === 'buy' ? 'up' : 'down'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
                 <span class="ord-code">{{ o.ts_code?.slice(0,6) }}</span>
                 <span class="ord-name">{{ o.stock_name }}</span>
-                <span class="ord-qty">{{ o.filled_qty }}@¥{{ Number(o.filled_price || 0).toFixed(2) }}</span>
+                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price?.toFixed(2) }}</span>
                 <span class="ord-time">{{ String(o.create_time || '').slice(0,8) }}</span>
               </div>
             </div>

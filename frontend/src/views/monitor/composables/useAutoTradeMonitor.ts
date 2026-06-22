@@ -31,17 +31,15 @@ export function useAutoTradeMonitor(core: CoreState) {
   const scanConfig = ref<any>(null)
   const scanConfigLoading = ref(false)
 
-  /** 获取最近交易日的日期字符串 YYYY-MM-DD（修复跨月/跨年 bug; 周末回退用 Date 运算） */
+  /** 获取最近交易日的日期字符串 YYYY-MM-DD */
   function getChinaDate(): string {
     const now = new Date()
     const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+    const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
+    // 周六→回退到周五, 周日→回退到周五
     const dow = china.getDay()
-    // 周六→回退到周五(-1天), 周日→回退到周五(-2天)；其余使用当天
-    if (dow === 6) china.setDate(china.getDate() - 1)
-    else if (dow === 0) china.setDate(china.getDate() - 2)
-    const y = china.getFullYear()
-    const m = String(china.getMonth() + 1).padStart(2, '0')
-    const d = String(china.getDate()).padStart(2, '0')
+    if (dow === 6) return `${y}-${m}-${String(china.getDate() - 1).padStart(2, '0')}`
+    if (dow === 0) return `${y}-${m}-${String(china.getDate() - 2).padStart(2, '0')}`
     return `${y}-${m}-${d}`
   }
 

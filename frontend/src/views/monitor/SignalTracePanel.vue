@@ -23,7 +23,7 @@ import { formatTradeDate } from '@/utils/scanner'
         候选总数: <strong>{{ currentTrace.summary?.total_candidates || 0 }}</strong>
         → 通过: <strong style="color:var(--success)">{{ currentTrace.summary?.passed || 0 }}</strong>
         → 拒绝: <strong style="color:var(--stock-up)">{{ (currentTrace.summary?.total_candidates || 0) - (currentTrace.summary?.passed || 0) }}</strong>
-        <el-tag size="small" style="margin-left:8px">仓位系数: {{ formatPositionRatio(currentTrace) }}</el-tag>
+        <el-tag size="small" style="margin-left:8px">仓位系数: {{ ((Number(currentTrace.summary?.L8_position?.ratio ?? 0) || 0) * 100).toFixed(0) }}%</el-tag>
       </div>
 
       <div class="pipeline-bars">
@@ -87,7 +87,7 @@ import { formatTradeDate } from '@/utils/scanner'
               <span class="candidate-code">{{ c.ts_code }}</span>
               <el-tag :type="getStrategyColor(c.strategy)" size="small">{{ c.strategy_name }}</el-tag>
               <span v-if="c.pct_chg" :class="c.pct_chg >= 0 ? 'up' : 'down'">{{ formatPct(c.pct_chg) }}</span>
-              <span class="price">¥{{ Number(c.price || 0).toFixed(2) }}</span>
+              <span class="price">¥{{ c.price?.toFixed(2) }}</span>
             </div>
             <div class="candidate-layers">
               <span v-for="(lr, key) in c.layer_results" :key="key"
@@ -168,22 +168,6 @@ const maxPassed = computed(() => {
   return max || 1
 })
 
-function formatPositionRatio(trace) {
-  // 优先从 L3_sentiment_data.position_ratio 获取
-  const l3data = trace?.layer_details?.L3_sentiment_data
-  if (l3data?.position_ratio != null && l3data.position_ratio > 0) {
-    return (Number(l3data.position_ratio) * 100).toFixed(0) + '%'
-  }
-  // 从 L8_position 文本描述中提取(如"总仓位上限=70%")
-  const l8text = trace?.layer_details?.L8_position || ''
-  const m = l8text.match(/总仓位上限[=＝]([\d.]+)%/)
-  if (m) return m[1] + '%'
-  // fallback: 从 summary.L8_position.ratio(旧数据兼容)
-  const ratio = trace?.summary?.L8_position?.ratio
-  if (ratio != null && ratio > 0) return (Number(ratio) * 100).toFixed(0) + '%'
-  return '—'
-}
-
 function traceId(t) {
   return t?.scan_id || t?._id || ''
 }
@@ -196,7 +180,7 @@ function formatLayer(key) {
 function formatPct(v) {
   if (v === null || v === undefined) return '-'
   if (typeof v !== 'number' || isNaN(v)) return '-'
-  return (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
 }
 
 function getStrategyColor(strategy) {

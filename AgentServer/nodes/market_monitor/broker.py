@@ -437,7 +437,6 @@ class SimulatedBroker:
                 profit_pct=doc.get("profit_pct", 0),
                 today_buy_qty=doc.get("today_buy_qty", 0),
                 strategy=doc.get("strategy", ""),
-                buy_date=doc.get("buy_date", ""),  # 【v2.9.99修复】恢复buy_date，超时强卖依赖此字段
             )
             loaded += 1
         if loaded:

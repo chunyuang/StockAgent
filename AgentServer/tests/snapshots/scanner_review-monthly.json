@@ -7,12 +7,12 @@
     "pnl": "int"
   },
   "strategy_stats": {
-    "halfway_chase": {
+    "limit_up_open": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "int"
     },
-    "limit_up_open": {
+    "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "int"
