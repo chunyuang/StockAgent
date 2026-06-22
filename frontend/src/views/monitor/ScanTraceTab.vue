@@ -220,12 +220,18 @@ const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
 
 // 挂载时自动加载日期数据(用于日期选择器高亮)
 // 并自动选择最近有数据的日期加载扫描历史
+// 【v2.9.97h-v14】优先选今天(如果今天有数据), 再 fallback 到 dates[0]
 onMounted(async () => {
   const dates = await fetchScanTraceDates()
   if (!scanTraceDate.value && dates?.length) {
-    // scan-dates返回降序(最新在前), 取第一个作为最新交易日
-    const latestDate = dates[0]?.date || dates[0]
-    scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+    // 先找今天(20260622 格式)
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }).replace(/-/g, '')
+    let bestDate = dates.find((d: any) => String(d.date || d) === todayStr)
+    // 没找到今天才用最新日期
+    if (!bestDate) {
+      bestDate = dates[0]?.date || dates[0]
+    }
+    scanTraceDate.value = String(bestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
     fetchScanHistory()
   }
 })

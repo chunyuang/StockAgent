@@ -353,15 +353,21 @@ class RuntimePersistence:
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
             # 【v2.9.89优化】同步更新scan_date_cache缓存(供scan-dates API秒级查询)
+            # 【v2.9.97h-v14】强制 int 类型, 防止 BSON 混合类型排序bug
             try:
-                trade_date = trace_doc.get("trade_date")
+                trade_date_raw = trace_doc.get("trade_date")
                 is_debug = trace_doc.get("is_debug", False)
-                if trade_date:
-                    await mongo_manager.db["scan_date_cache"].update_one(
-                        {"date": trade_date},
-                        {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
-                        upsert=True
-                    )
+                if trade_date_raw is not None:
+                    try:
+                        trade_date = int(trade_date_raw)
+                    except (TypeError, ValueError):
+                        trade_date = None
+                    if trade_date is not None:
+                        await mongo_manager.db["scan_date_cache"].update_one(
+                            {"date": trade_date},
+                            {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
+                            upsert=True
+                        )
             except Exception:
                 pass  # 非关键, 不影响主流程
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
