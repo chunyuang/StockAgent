@@ -49,6 +49,7 @@ export function useScannerMonitor() {
   const positions = ref<PositionInfo[]>([])
   const timeline = ref<TimelineItem[]>([])
   const orders = ref<any[]>([])
+  const todayClosedTrades = ref<any[]>([])  // 【v2.9.97h-v19】今日已平仓交易
   const closedPositions = computed(() => {
     const tlBuys = timeline.value.filter(t => t.action === 'buy')
     const tlSells = timeline.value.filter(t => t.action === 'sell')
@@ -250,7 +251,7 @@ export function useScannerMonitor() {
 
   // ==================== 🔧 核心方法 (子composable) ====================
   const core = useCoreMethods({
-    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders,
+    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders, todayClosedTrades,
     nowMs, signalFilter, focusIndex, tradeMode, replayDate, activeTab, limitPools,
     strategies, globalRisk, healthData, confirmVisible, confirmLoading, confirmData,
     manualTrade, manualQuote, riskBarCollapsed, trailEditPct, trailSaving,
@@ -422,7 +423,7 @@ export function useScannerMonitor() {
     // 【v2.9.97】统一数据层 - 8个Tab共用
     unified,
     // 核心状态
-    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders,
+    loading, autoRefresh, soundEnabled, status, signals, positions, timeline, orders, todayClosedTrades,
     signalFilter, filteredSignals, closedPositions, isRunning: core.isRunning,
     accountInfo: core.accountInfo, totalPnl: core.totalPnl, positionRatio,
     circuitBreakerPaused: core.circuitBreakerPaused, focusIndex, nowMs,

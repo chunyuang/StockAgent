@@ -25,6 +25,7 @@ interface CoreRefs {
   positions: Ref<any[]>
   timeline: Ref<any[]>
   orders: Ref<any[]>
+  todayClosedTrades: Ref<any[]>
   nowMs: Ref<number>
   signalFilter: Ref<string>
   focusIndex: Ref<number>
@@ -135,6 +136,7 @@ export function useCoreMethods(refs: CoreRefs) {
         if (d.positions && Array.isArray(d.positions)) refs.positions.value = d.positions
         if (d.timeline) refs.timeline.value = d.timeline
         if (d.orders) refs.orders.value = d.orders
+        if (d.today_closed_trades) refs.todayClosedTrades.value = d.today_closed_trades
       }
       fetchLimitPools()
     } catch (e: any) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') console.error(e) }

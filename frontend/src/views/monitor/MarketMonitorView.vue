@@ -39,7 +39,7 @@ const {
   // 【v2.9.97】统一日期选择器
   unified,
   loading, autoRefresh,
-  status, signals, positions,
+  status, signals, positions, todayClosedTrades,
   signalFilter, filteredSignals,
   isRunning, accountInfo, positionRatio, totalPnl,
   circuitBreakerPaused, focusIndex, emergencyLiquidating,
@@ -90,6 +90,22 @@ const {
 const dateSectionCollapsed = ref(true)
 const leftRailCollapsed = ref(false)
 const expandedPositions = ref<Record<string, boolean>>({})
+// 【v2.9.97h-v19】今日已平仓状态 + computed
+const closedTradesCollapsed = ref(false)
+const closedTradesProfitTotal = computed(() => {
+  return (todayClosedTrades.value || []).reduce((s: number, t: any) => s + (Number(t.profit_amount) || 0), 0)
+})
+const todayInt = computed(() => {
+  const d = new Date()
+  const china = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  return `${china.getFullYear()}${String(china.getMonth() + 1).padStart(2, '0')}${String(china.getDate()).padStart(2, '0')}`
+})
+function formatBuyDateShort(bd: any) {
+  if (!bd) return ''
+  const s = String(bd).replace(/\D/g, '')
+  if (s.length >= 8) return `${s.slice(4, 6)}-${s.slice(6, 8)}买入`
+  return s
+}
 const activeSignalTrace = ref<any>(null)
 const activeSignalTraceKey = computed(() => activeSignalTrace.value ? `${activeSignalTrace.value.ts_code || ''}:${activeSignalTrace.value.strategy || ''}` : '')
 const activeSignalTraceLines = computed(() => formatLayerTrace(activeSignalTrace.value?.layer_trace || {}))
@@ -197,18 +213,18 @@ function positionActionLabel(pos: any) {
   return '持仓'
 }
 function formatPositionTime(pos: any) {
-  // 【v2.9.97h-v18】格式化持仓买入日期: 优先具体时间, 否则回退到完整日期
-  const raw = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time || pos?.created_at
-  if (raw) {
-    const s = String(raw)
-    const hhmm = s.match(/(\d{1,2}):(\d{2})/)
-    if (hhmm) return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`
+  // 【v2.9.97h-v19】优先显示具体成交时间 (HH:MM:SS), 没有才回退到日期
+  const t = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time
+  if (t) {
+    const s = String(t)
+    const hms = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/)
+    if (hms) return hms[3] ? `${hms[1].padStart(2, '0')}:${hms[2]}:${hms[3]}` : `${hms[1].padStart(2, '0')}:${hms[2]}`
   }
-  // 只取 buy_date: 格式化为 YYYY-MM-DD
+  // 没有具体时间: 折合日期, 但只取 MM-DD 避免过长跳股名
   const bd = pos?.buy_date || pos?.trade_date
   if (bd) {
     const s = String(bd).replace(/\D/g, '')
-    if (s.length >= 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+    if (s.length >= 8) return `${s.slice(4, 6)}-${s.slice(6, 8)}`
   }
   return ''
 }
@@ -394,9 +410,45 @@ function formatTradeDateTime(rec: any): string {
           </div>
         </div>
 
-      </div>
+        <!-- 【v2.9.97h-v19】今日已平仓交易 -->
+        <div v-if="todayClosedTrades && todayClosedTrades.length" class="closed-trades-section">
+          <div class="closed-trades-header cp" @click="closedTradesCollapsed = !closedTradesCollapsed">
+            <span class="ct-arrow">{{ closedTradesCollapsed ? '▶' : '▼' }}</span>
+            <span class="ct-title">💰 今日已平仓</span>
+            <ElTag size="small" type="info" class="ct-count">{{ todayClosedTrades.length }}笔</ElTag>
+            <span class="ct-total" :class="closedTradesProfitTotal >= 0 ? 'up' : 'down'">
+              总盈亏 {{ closedTradesProfitTotal >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal).toFixed(0) }}
+            </span>
+          </div>
+          <div v-show="!closedTradesCollapsed" class="closed-trades-body">
+            <div v-for="t in todayClosedTrades" :key="t.ts_code + t.sell_time" class="closed-trade-row" :class="t.profit_pct >= 0 ? 'row-up' : 'row-down'">
+              <div class="ct-line1">
+                <span class="ct-name">{{ t.stock_name }}</span>
+                <span class="ct-code">{{ t.ts_code }}</span>
+                <span :class="t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
+                  {{ t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
+                </span>
+                <span :class="t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
+                  {{ t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
+                </span>
+              </div>
+              <div class="ct-line2">
+                <span class="ct-tag-buy">买</span>
+                <span class="ct-time">{{ t.buy_time || '--' }}</span>
+                <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
+                <span class="ct-qty">x{{ t.buy_qty }}</span>
+                <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
+                <span class="ct-arrow-trade">→</span>
+                <span class="ct-tag-sell">卖</span>
+                <span class="ct-time">{{ t.sell_time || '--' }}</span>
+                <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
+                <span class="ct-qty">x{{ t.sell_qty }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <!-- 右列: 信号+行情 -->
+      </div>
       <div class="mm-right signals-right">
         <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><ElTag v-for="f in signalFilterOptions" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" :title="f.title" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
         <div class="signal-help">{{ signalFilterHelp }}</div>
@@ -984,10 +1036,10 @@ mm-tab-content {
 .pos-info .pamt { font-weight: 600; font-size: 12px; }
 .compact-pos { display: block; padding: 0; overflow: hidden; }
 .compact-pos:hover { transform: none; }
-.pos-summary { display: grid; grid-template-columns: auto 44px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
+.pos-summary { display: grid; grid-template-columns: auto 52px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
 .pos-summary:hover { background: var(--bg-hover); }
 .action-tag { min-width: 44px; text-align: center; justify-content: center; }
-.pos-time { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.pos-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-secondary); white-space: nowrap; min-width: 48px; text-align: left; }
 .pos-name-main { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pos-code-sub { color: var(--text-tertiary); font-size: 12px; }
 .pos-toggle { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
@@ -1031,6 +1083,33 @@ mm-tab-content {
 .sig-hour-label { flex: 1; }
 .sig-hour-count { font-size: 11px; }
 .sig-hour-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px; grid-column: 1 / -1; }
+
+/* 【v2.9.97h-v19】今日已平仓 */
+.closed-trades-section { margin-top: 8px; border-top: 1px dashed var(--border-default); padding-top: 6px; }
+.closed-trades-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg-muted); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); user-select: none; transition: background 0.15s; }
+.closed-trades-header:hover { background: var(--bg-hover); }
+.ct-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
+.ct-title { flex: 0 0 auto; }
+.ct-count { font-size: 11px; }
+.ct-total { flex: 1; text-align: right; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.closed-trades-body { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.closed-trade-row { padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.15s; }
+.closed-trade-row.row-up { border-left: 3px solid var(--stock-up); }
+.closed-trade-row.row-down { border-left: 3px solid var(--stock-down); }
+.closed-trade-row:hover { border-color: var(--el-color-primary); }
+.ct-line1 { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 2px; }
+.ct-name { font-weight: 600; color: var(--text-primary); }
+.ct-code { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.ct-pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; min-width: 56px; text-align: right; }
+.ct-amount { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; }
+.ct-line2 { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; }
+.ct-tag-buy { color: var(--text-inverse); background: var(--stock-up); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
+.ct-tag-sell { color: var(--text-inverse); background: var(--stock-down); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
+.ct-time { font-variant-numeric: tabular-nums; min-width: 50px; }
+.ct-price { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.ct-qty { font-size: 10px; color: var(--text-tertiary); }
+.ct-buy-date { font-size: 10px; color: var(--el-color-info); background: var(--info-bg); padding: 0 4px; border-radius: 2px; }
+.ct-arrow-trade { color: var(--text-tertiary); padding: 0 2px; }
 .risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
 .risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
