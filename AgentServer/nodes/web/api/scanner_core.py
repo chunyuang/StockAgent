@@ -23,8 +23,10 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
 
 
-async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
-    """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。"""
+async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 500) -> List[Dict[str, Any]]:
+    """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。
+    【v2.9.97h-v17】limit 从 50 提升到 500, 避免上午 9点-12点信号被截断。
+    按扫描时间升序返回(方便前端按小时分组)。"""
     try:
         from core.managers import mongo_manager
         if not getattr(mongo_manager, "is_initialized", False):
@@ -79,13 +81,38 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
     status_resp = await get_scanner_status()
     status_data = status_resp.get("data", {}) if isinstance(status_resp, dict) else {}
     
-    # 信号: 实时优先；无实时信号时回退最近一次历史信号，方便非交易时间回看
-    signals_data = scanner.get_signals()
-    _fill_stock_names(signals_data, scanner)
-    signals_is_history = False
-    if not signals_data:
-        signals_data = await _load_recent_signal_history(scanner, date_int=date_int)
-        signals_is_history = bool(signals_data)
+    # 信号: 【v2.9.97h-v17】合并内存 active + MongoDB 全天历史, 去重后返回
+    # 原逻辑: 内存 active 优先; 仅 active 为空才读历史 -> 造成上午信号被截断不可见
+    # 新逻辑: 今日 active + 今日全天历史 union, 便于前端按小时分组查看全天信号过程
+    active_signals = scanner.get_signals()
+    _fill_stock_names(active_signals, scanner)
+    history_signals: List[Dict[str, Any]] = []
+    try:
+        if not is_historical:
+            # 今日查看: 补充今日全天历史 (上午信号)
+            history_signals = await _load_recent_signal_history(scanner, date_int=today_int)
+        else:
+            # 历史日期查看: 只读历史
+            history_signals = await _load_recent_signal_history(scanner, date_int=date_int)
+    except Exception:
+        history_signals = []
+    # 去重: 同 (ts_code, strategy, scan_time) 为唯一键, 内存 active 优先
+    signals_data = []
+    seen: set = set()
+    # active 不打上 _historical_signal=True (仍是实时可交易)
+    for s in active_signals:
+        key = (s.get("ts_code"), s.get("strategy"), s.get("scan_time"))
+        seen.add(key)
+        signals_data.append(s)
+    for s in history_signals:
+        key = (s.get("ts_code"), s.get("strategy"), s.get("scan_time"))
+        if key in seen:
+            continue
+        seen.add(key)
+        signals_data.append(s)
+    # 按 scan_time 升序 (方便前端按小时分组)
+    signals_data.sort(key=lambda x: x.get("scan_time") or "")
+    signals_is_history = is_historical or (not active_signals and bool(history_signals))
     
     # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []

@@ -6,7 +6,7 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide, defineAsyncComponent, ref, computed } from 'vue'
+import { provide, defineAsyncComponent, ref, computed, watch } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useThemeStore } from '@/stores/theme'
@@ -102,6 +102,36 @@ const fmtCompactDate = (d?: string) => {
 const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
 const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
 const visibleSignals = computed(() => filteredSignals.value)
+// 【v2.9.97h-v17】信号按小时分组 + 折叠状态
+// signalsByHour: { '09': [...], '10': [...], '11': [...], '13': [...], '14': [...] }
+const signalsByHour = computed(() => {
+  const groups: Record<string, any[]> = {}
+  for (const sig of visibleSignals.value as any[]) {
+    const t = String(sig.scan_time || '')
+    const hour = t && t.includes(':') ? t.slice(0, 2) : '无时间'
+    if (!groups[hour]) groups[hour] = []
+    groups[hour].push(sig)
+  }
+  // 返回按小时升序的数组: [{hour:'09', signals:[...], count:139}, ...]
+  return Object.entries(groups)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([hour, sigs]) => ({ hour, signals: sigs, count: sigs.length }))
+})
+// 默认最近一个小时展开, 其他折叠
+const signalHourCollapse = ref<Record<string, boolean>>({})
+const toggleSignalHour = (h: string) => { signalHourCollapse.value[h] = !signalHourCollapse.value[h] }
+// 初始化: 默认最后一个小时展开, 其他折叠
+const signalHourInitialized = ref(false)
+watch(signalsByHour, (groups) => {
+  if (!signalHourInitialized.value && groups.length) {
+    const lastHour = groups[groups.length - 1].hour
+    for (const g of groups) {
+      // signalHourCollapse[hour]=true 表示折叠
+      signalHourCollapse.value[g.hour] = (g.hour !== lastHour)
+    }
+    signalHourInitialized.value = true
+  }
+}, { immediate: true })
 const signalFilterOptions = computed(() => [
   { k: 'all', l: '全部', title: '显示所有当前活跃信号' },
   { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号' },
@@ -342,9 +372,18 @@ function formatTradeDateTime(rec: any): string {
         <div class="signal-help">{{ signalFilterHelp }}</div>
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
-          <div v-for="sig in visibleSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n扫描时间: ${sig.scan_time || '--'}\n量比: ${Number(sig.volume_ratio || 0).toFixed(1) || '-'}\n换手: ${Number(sig.turnover_rate || 0).toFixed(1) || '-'}%\n${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(Number(sig.pct_chg) || 0) >= 0 ? 'up' : 'down'" class="pct" style="font-weight:600">{{ (Number(sig.pct_chg) || 0) >= 0 ? '+' : '' }}{{ Number(sig.pct_chg || 0).toFixed(1) }}%</span><span class="scan-time">{{ sig.scan_time || '--' }}</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
-          </div>
+          <template v-for="group in signalsByHour" :key="group.hour">
+            <div class="sig-hour-header" @click="toggleSignalHour(group.hour)">
+              <span class="sig-hour-arrow">{{ signalHourCollapse[group.hour] ? '▶' : '▼' }}</span>
+              <span class="sig-hour-label">🕐 {{ group.hour }}:00 — {{ group.hour }}:59</span>
+              <ElTag size="small" class="sig-hour-count">{{ group.count }}条</ElTag>
+            </div>
+            <div v-show="!signalHourCollapse[group.hour]" class="sig-hour-body">
+              <div v-for="sig in group.signals" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n扫描时间: ${sig.scan_time || '--'}\n量比: ${Number(sig.volume_ratio || 0).toFixed(1) || '-'}\n换手: ${Number(sig.turnover_rate || 0).toFixed(1) || '-'}%\n${sig.reason}`">
+                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(Number(sig.pct_chg) || 0) >= 0 ? 'up' : 'down'" class="pct" style="font-weight:600">{{ (Number(sig.pct_chg) || 0) >= 0 ? '+' : '' }}{{ Number(sig.pct_chg || 0).toFixed(1) }}%</span><span class="scan-time">{{ sig.scan_time || '--' }}</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -955,6 +994,13 @@ mm-tab-content {
 /* 【v2.9.97h-v16】信号列表网格多列, 每行最多 2 条信号, 防止一行只显示一只股票 */
 .signals-right .sl { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px; }
 .signals-right .sl .empty { grid-column: 1 / -1; }
+/* 【v2.9.97h-v17】小时分组折叠 */
+.sig-hour-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg-muted); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-secondary); grid-column: 1 / -1; transition: background 0.15s; user-select: none; }
+.sig-hour-header:hover { background: var(--bg-hover); }
+.sig-hour-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
+.sig-hour-label { flex: 1; }
+.sig-hour-count { font-size: 11px; }
+.sig-hour-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px; grid-column: 1 / -1; }
 .risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
 .risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
