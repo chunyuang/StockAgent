@@ -220,7 +220,7 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
           <tbody>
             <tr v-for="(l, i) in liveLogs" :key="l.time + i" :class="i === 0 ? 'live-log-latest' : ''">
               <td class="ll-time">{{ l.time }}</td>
-              <td class="ll-score" :style="{ color: scoreColor(l.score), fontWeight: 'bold' }">{{ Number(l.score).toFixed(1) }}</td>
+              <td class="ll-score" :style="{ color: scoreColor(l.score), fontWeight: 'bold' }">{{ Number(l.score || 0).toFixed(1) }}</td>
               <td><span class="ll-phase" :style="{ color: phaseColors[l.phase_label] || '#888' }">{{ l.phase_label }}</span></td>
               <td>{{ ((l.position_ratio || 0) * 100).toFixed(0) }}%</td>
               <td class="up">{{ l.limit_up }}</td>

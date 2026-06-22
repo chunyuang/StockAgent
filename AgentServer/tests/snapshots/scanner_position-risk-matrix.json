@@ -17,10 +17,16 @@
       "stop_loss_price": "float",
       "take_profit_price": "float",
       "volatility": "float",
-      "turnover_rate": "int",
+      "turnover_rate": "float",
       "risk_score": "float",
       "risk_level": "str",
-      "trailing_stop": {},
+      "trailing_stop": {
+        "high_price": "float",
+        "trailing_stop_pct": "float",
+        "activated": "bool",
+        "activated_at": "NoneType",
+        "stop_price": "float"
+      },
       "total_qty": "int"
     }
   ],
@@ -31,10 +37,16 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "IT设备": "float",
-      "汽车配件": "float",
+      "农业综合": "float",
+      "通信设备": "float",
+      "专用机械": "float",
       "航空": "float",
-      "通信设备": "float"
+      "机械基件": "float",
+      "电气设备": "float",
+      "铅锌": "float",
+      "化工原料": "float",
+      "元器件": "float",
+      "铝": "float"
     },
     "position_count": "int",
     "risk_summary": {

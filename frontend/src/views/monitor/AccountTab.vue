@@ -97,7 +97,7 @@ const riskParams = GLOBAL_RISK  // 前端参数与后端strategy_defaults.py完�
 const brokenSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken'))
 const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'near'))
 
-const fmt = (v: number) => `¥${(v/10000).toFixed(2)}万`
+const fmt = (v: number) => `¥${((v || 0) / 10000).toFixed(2)}万`
 const cls = (v: number) => v >= 0 ? 'up' : 'down'
 
 const realizedPnl = computed(() => {
@@ -169,13 +169,13 @@ const posPie = computed(() => {
           <div class="at-scroll">
             <div class="at-eq-row at-eq-head"><span>项目</span><span>金额</span></div>
             <div class="at-eq-row"><span>初始资金</span><span>¥100.00万</span></div>
-            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(realizedPnl)">{{ realizedPnl >= 0 ? '+' : '' }}¥{{ (realizedPnl / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(realizedPnl)">{{ (realizedPnl >= 0 ? '+' : '') }}¥{{ ((realizedPnl || 0) / 10000).toFixed(2) }}万</span></div>
             <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏 ──</span><span></span></div>
             <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
               <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
               <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
             </div>
-            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ ((totalAssets || 0) / 10000).toFixed(2) }}万</span></div>
           </div>
         </div>
       </div>

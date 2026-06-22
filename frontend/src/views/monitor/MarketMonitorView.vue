@@ -323,7 +323,7 @@ function formatTradeDateTime(rec: any): string {
               <div class="pos-prices-row">
                 <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
                 <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
-                <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ Number(pos.trailing_stop.stop_price || 0).toFixed(2) }}({{ ((Number(pos.trailing_stop.trailing_stop_pct) || 0) * 100).toFixed(0) }}%)</span>
+                <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ Number(pos.trailing_stop.stop_price || 0).toFixed(2) }}({{ ((Number(pos.trailing_stop.trailing_stop_pct || 0) || 0) * 100).toFixed(0) }}%)</span>
                 <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
               </div>
               <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">

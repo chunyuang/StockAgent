@@ -42,6 +42,21 @@
           "pnl": "int"
         }
       }
+    },
+    "20260622": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "int"
+        }
+      }
     }
   },
   "strategy_summary": {

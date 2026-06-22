@@ -88,7 +88,7 @@ export function useCoreMethods(refs: CoreRefs) {
   // computed
   const isRunning = computed(() => refs.status.value?.is_running ?? false)
   const accountInfo = computed(() => refs.status.value?.account ?? { total_assets: 0, available_cash: 0, market_value: 0, total_profit: 0 })
-  const totalPnl = computed(() => accountInfo.value.total_profit)
+  const totalPnl = computed(() => accountInfo.value.total_profit ?? 0)
   const circuitBreakerPaused = computed(() => refs.status.value?.circuit_breaker?.trading_paused ?? false)
   const dryRun = computed(() => refs.tradeMode.value === 'dry_run' || (refs.status.value?.dry_run ?? false))
 
