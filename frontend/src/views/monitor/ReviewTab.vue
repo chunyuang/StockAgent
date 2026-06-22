@@ -8,7 +8,7 @@
  * Props: review composable的展开状态 + 策略映射
  * Emits: fetchReviewData, runBacktest, saveParamSnapshot
  */
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElButton, ElTag } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { formatTradeDate, formatFullDate } from '@/utils/scanner'
@@ -164,11 +164,11 @@ const monthlyClosedLoopExpanded = ref(false)
               <span class="mono">{{ t.ts_code }}</span>
               <span class="attr-name">{{ t.stock_name }}</span>
               <ElTag size="small" class="tag-solid tag-xs" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'">{{ strategyCN(t.strategy) }}</ElTag>
-              <span v-if="t.buy_price" class="ir-dim">买入价¥{{ Number(t.buy_price).toFixed(2) }}</span>
-              <span v-if="t.sell_price" class="ir-dim">卖出价¥{{ Number(t.sell_price).toFixed(2) }}</span>
-              <span v-if="t.signal_price" class="ir-dim">信号价¥{{ Number(t.signal_price).toFixed(2) }}</span>
+              <span v-if="t.buy_price != null" class="ir-dim">买入价¥{{ Number(t.buy_price).toFixed(2) }}</span>
+              <span v-if="t.sell_price != null" class="ir-dim">卖出价¥{{ Number(t.sell_price).toFixed(2) }}</span>
+              <span v-if="t.signal_price != null" class="ir-dim">信号价¥{{ Number(t.signal_price).toFixed(2) }}</span>
               <span class="attr-pct" :class="(Number(t.profit_pct) || 0) >= 0 ? 'up' : 'down'">{{ t.status === 'open' ? '持仓' : ((Number(t.profit_pct) || 0) >= 0 ? '+' : '') + Number(t.profit_pct || 0).toFixed(1) + '%' }}</span>
-              <span v-if="t.profit_amount" class="ir-dim">盈亏¥{{ Number(t.profit_amount).toFixed(0) }}</span>
+              <span v-if="t.profit_amount != null" class="ir-dim">盈亏¥{{ Number(t.profit_amount).toFixed(0) }}</span>
               <span v-if="t.hold_days" class="ir-dim">持有{{ t.hold_days }}日</span>
               <span v-if="t.sell_reason" class="attr-reason">{{ t.sell_reason }}</span>
             </div>
