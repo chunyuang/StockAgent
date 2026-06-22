@@ -182,7 +182,23 @@ export function useScannerMonitor() {
       if (tab === 'scan-trace') { scanTrace.fetchScanTraceDates(); scanTrace.fetchScanHistory() }
       if (tab === 'review') { review.fetchReviewData(); autoTrade.fetchParamCompare() }
       if (tab === 'sentiment') { sentiment.fetchSentimentData() }
-      if (tab === 'ops') { autoTrade.fetchAutoTrades(); autoTrade.fetchScanConfig() }
+  // 【v2.9.97h-v9 修复】切到 ops Tab 时如果 opsDate 仍是初始值，重置到当前交易日
+      if (tab === 'ops') {
+        const today = (() => {
+          const now = new Date()
+          const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+          const dow = china.getDay()
+          if (dow === 6) china.setDate(china.getDate() - 1)
+          else if (dow === 0) china.setDate(china.getDate() - 2)
+          const y = china.getFullYear()
+          const m = String(china.getMonth() + 1).padStart(2, '0')
+          const d = String(china.getDate()).padStart(2, '0')
+          return `${y}-${m}-${d}`
+        })()
+        autoTrade.opsDate.value = today
+        autoTrade.fetchAutoTrades()
+        autoTrade.fetchScanConfig()
+      }
     } catch (e) { console.error('[Tab] error:', e) }
   })
 
