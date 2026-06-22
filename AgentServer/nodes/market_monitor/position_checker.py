@@ -333,12 +333,13 @@ class PositionChecker:
         )
 
         # 超时强卖
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        from nodes.market_monitor.position_manager import _get_global_risk as _pgr
+        _gr = _pgr()
         for pos in self.broker.get_positions():
             if pos.available_qty <= 0 or not pos.buy_date:
                 continue
             risk = scanner._get_strategy_risk(pos.strategy)
-            max_hold = risk.get("max_hold_days", GLOBAL_RISK.get("max_hold_days", 999))
+            max_hold = risk.get("max_hold_days", _gr.get("max_hold_days", 999))
             if max_hold >= 999:
                 continue
             try:

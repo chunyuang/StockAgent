@@ -22,18 +22,39 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
 
 # Lazy import to avoid circular dependency; resolved at runtime
-_GLOBAL_RISK = None
+_DEFAULT_GLOBAL_RISK = None
 
 
 def _get_global_risk():
-    global _GLOBAL_RISK
-    if _GLOBAL_RISK is None:
+    """获取有效全局风控参数(默认值+运行时覆盖)
+    
+    【V75-审计修复】优先从strategy-config API覆盖读取,
+    确保前端修改的全局风控参数在position_manager中生效。
+    旧问题: 只读GLOBAL_RISK(Python模块变量,默认值),用户通过strategy-config API修改后不生效。
+    注意: 不缓存结果,因为覆盖可能随时变更(热更新)。
+    """
+    global _DEFAULT_GLOBAL_RISK
+    if _DEFAULT_GLOBAL_RISK is None:
         try:
             from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR
-            _GLOBAL_RISK = _GR
+            _DEFAULT_GLOBAL_RISK = dict(_GR)  # 默认值缓存一次(不变)
         except ImportError:
-            _GLOBAL_RISK = {"take_profit_pct": 0.07, "pullback_profit_lock_threshold": 0}
-    return _GLOBAL_RISK
+            _DEFAULT_GLOBAL_RISK = {"take_profit_pct": 0.07, "pullback_profit_lock_threshold": 0}
+    result = dict(_DEFAULT_GLOBAL_RISK)
+    # 读取运行时覆盖(strategy-config API修改的值)
+    try:
+        from nodes.web.api.strategy_config import _override_global_risk, _overrides_loaded
+        if _overrides_loaded and _override_global_risk:
+            for k, v in _override_global_risk.items():
+                if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                    merged = dict(result[k])
+                    merged.update(v)
+                    result[k] = merged
+                else:
+                    result[k] = v
+    except Exception:
+        pass
+    return result
 
 logger = logging.getLogger("position_manager")
 
@@ -347,10 +368,10 @@ class PositionManager:
         if pos.avg_cost <= 0 or pos.current_price <= 0:
             return None
         
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        min_high_rise = risk.get("intraday_lock_min_high_rise", GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.06))
-        pullback_pct = risk.get("intraday_lock_pullback_pct", GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.025))
-        min_profit = risk.get("intraday_lock_min_profit", GLOBAL_RISK.get("intraday_lock_min_profit", 0.02))
+        _gr = _get_global_risk()
+        min_high_rise = risk.get("intraday_lock_min_high_rise", _gr.get("intraday_lock_min_high_rise", 0.06))
+        pullback_pct = risk.get("intraday_lock_pullback_pct", _gr.get("intraday_lock_pullback_pct", 0.025))
+        min_profit = risk.get("intraday_lock_min_profit", _gr.get("intraday_lock_min_profit", 0.02))
         
         # 从追踪止损获取盘中最高价(更精确), 回退到current_price
         trailing = self._get_trailing_stop_safe(pos.ts_code)
@@ -378,9 +399,9 @@ class PositionManager:
         if not pos.buy_date:
             return None
         
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        exit_days = risk.get("dragon_head_early_exit_days", GLOBAL_RISK.get("dragon_head_early_exit_days", 5))
-        min_profit = risk.get("dragon_head_early_exit_min_profit", GLOBAL_RISK.get("dragon_head_early_exit_min_profit", 0.03))
+        _gr = _get_global_risk()
+        exit_days = risk.get("dragon_head_early_exit_days", _gr.get("dragon_head_early_exit_days", 5))
+        min_profit = risk.get("dragon_head_early_exit_min_profit", _gr.get("dragon_head_early_exit_min_profit", 0.03))
         
         # 从scanner获取trade_date(运行时始终有值)
         scanner = self._scanner
@@ -584,13 +605,13 @@ class PositionManager:
     def check_timeout_sell(self, positions, trade_date: str) -> List[Tuple]:
         """超时强卖检查"""
         to_sell = []
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        _gr = _get_global_risk()
         
         for pos in positions:
             if pos.available_qty <= 0 or not pos.buy_date:
                 continue
             risk = self._scanner._get_strategy_risk(pos.strategy)
-            max_hold = risk.get("max_hold_days", _get_global_risk().get("max_hold_days", 999))
+            max_hold = risk.get("max_hold_days", _gr.get("max_hold_days", 999))
             if max_hold >= 999:
                 continue
             try:

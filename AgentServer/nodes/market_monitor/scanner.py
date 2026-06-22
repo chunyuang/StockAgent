@@ -999,8 +999,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         if not signals or len(signals) <= 1:
             return signals
         
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        sector_top_n = GLOBAL_RISK.get("sector_concentration_top_n", 3)
+        from nodes.market_monitor.position_manager import _get_global_risk as _pgr
+        sector_top_n = _pgr().get("sector_concentration_top_n", 3)
         
         try:
             from core.managers import mongo_manager
@@ -1318,9 +1318,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
         
         # 【v2.9.92w】冷却期: 强制空仓后N天内仓位上限60%(与回测GLOBAL_RISK对齐)
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        cooldown_days = GLOBAL_RISK.get("force_empty_cooldown_days", 2)
-        cooldown_cap = GLOBAL_RISK.get("force_empty_cooldown_position_cap", 0.6)
+        from nodes.market_monitor.position_manager import _get_global_risk as _pgr
+        _gr = _pgr()
+        cooldown_days = _gr.get("force_empty_cooldown_days", 2)
+        cooldown_cap = _gr.get("force_empty_cooldown_position_cap", 0.6)
         self._force_empty_cooldown_until = datetime.now().strftime("%Y%m%d")  # 当天
         # 简单实现: 标记冷却期开始日期，在仓位系数计算时检查
         self._cooldown_info = {
