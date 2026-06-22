@@ -54,7 +54,7 @@
           "sell_count": "int",
           "amount": "float",
           "wins": "int",
-          "pnl": "float"
+          "pnl": "int"
         }
       }
     }
@@ -73,7 +73,7 @@
       "sell_count": "int",
       "amount": "float",
       "wins": "int",
-      "pnl": "float",
+      "pnl": "int",
       "win_rate": "float"
     }
   },

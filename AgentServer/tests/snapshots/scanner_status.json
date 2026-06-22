@@ -9,24 +9,31 @@
       "stock_name": "str",
       "strategy": "str",
       "strategy_name": "str",
-      "strategy_en": "str",
       "shares": "int",
       "available_qty": "int",
-      "today_buy": "int",
-      "today_buy_qty": "int",
       "cost_price": "float",
       "current_price": "float",
       "profit_pct": "float",
       "profit_amount": "float",
       "market_value": "float",
-      "stop_loss_price": "float",
+      "today_buy": "int",
       "stop_loss_pct": "float",
-      "take_profit_price": "float",
       "take_profit_pct": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
       "stop_loss_status": "str",
       "stop_loss_desc": "str",
+      "distance_to_stop": "float",
+      "buy_date": "str",
+      "trailing_stop": {
+        "high_price": "float",
+        "trailing_stop_pct": "float",
+        "activated": "bool",
+        "activated_at": "str",
+        "stop_price": "float"
+      },
       "risk_level": "str",
-      "buy_date": "str"
+      "effective_stop_price": "float"
     }
   ],
   "stocks_scanned": "int",
@@ -87,7 +94,29 @@
   "tiered_scanner": {},
   "quote_degrade_level": "int",
   "quote_degrade_desc": "str",
-  "trailing_stops": {},
+  "trailing_stops": {
+    "000048.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "000060.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "000612.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    }
+  },
   "position_risk_levels": {},
   "execution_stats": {
     "total_slippage_pct": "float",
@@ -101,7 +130,7 @@
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
   "realtime_cache_age_sec": "NoneType",
-  "smart_check_interval": "NoneType",
+  "smart_check_interval": "float",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",
@@ -114,7 +143,13 @@
     "warnings": [
       "str"
     ],
-    "event_bus_stats": {}
+    "event_bus_stats": {
+      "daily_settled": {
+        "emitted": "int",
+        "handled": "int",
+        "errors": "int"
+      }
+    }
   },
   "market_status": "str",
   "current_time": "str",

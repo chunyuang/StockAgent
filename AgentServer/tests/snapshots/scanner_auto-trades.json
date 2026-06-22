@@ -18,8 +18,6 @@
       "status": "str",
       "create_time": "str",
       "fill_time": "str",
-      "profit_pct": "float",
-      "profit_amount": "float",
       "decision_trace": {
         "version": "str",
         "trace_quality": "str",
