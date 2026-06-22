@@ -77,7 +77,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="sent-m">
           <span class="sent-ml">炸板率</span>
-          <span class="sent-mv" :class="(data.broken_rate ?? 0) > 30 ? 'warn' : ''">{{ (data.broken_rate ?? 0).toFixed(1) }}%</span>
+          <span class="sent-mv" :class="(data.broken_rate || 0) > 30 ? 'warn' : ''">{{ (data.broken_rate || 0).toFixed(1) }}%</span>
         </div>
         <div class="sent-m">
           <span class="sent-ml">周期</span>

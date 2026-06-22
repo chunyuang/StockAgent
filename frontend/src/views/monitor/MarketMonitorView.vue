@@ -201,7 +201,7 @@ function formatTradeDateTime(rec: any): string {
         <span class="ha">资产<span class="hv">{{ ((accountInfo.total_assets || 0) / 10000).toFixed(1) }}万</span></span>
         <span class="ha">可用<span class="hv">{{ ((accountInfo.available_cash || 0) / 10000).toFixed(1) }}万</span></span>
         <span class="ha">仓位<span class="hv">{{ positionRatio }}%</span></span>
-        <span class="ha">盈亏<span class="hv" :class="(totalPnl ?? 0) >= 0 ? 'up' : 'down'">{{ (totalPnl ?? 0) >= 0 ? '+' : '' }}{{ (totalPnl ?? 0).toFixed(0) }}</span></span>
+        <span class="ha">盈亏<span class="hv" :class="(totalPnl || 0) >= 0 ? 'up' : 'down'">{{ (totalPnl || 0) >= 0 ? '+' : '' }}{{ (totalPnl || 0).toFixed(0) }}</span></span>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>

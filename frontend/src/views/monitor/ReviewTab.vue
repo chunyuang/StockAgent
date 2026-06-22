@@ -123,8 +123,8 @@ const monthlyClosedLoopExpanded = ref(false)
             <template v-for="(data, key) in dailyReportData.positions?.strategy_summary" :key="key">
               <span class="ir-strat" :style="{borderColor: strategyMeta[key]?.color || 'var(--text-tertiary)'}">
                 {{ strategyCN(key) }}<b>{{ data.count || 0 }}</b>只持仓
-                <span :class="(Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit ?? data.total_profit ?? 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
-                <span class="ir-dim">| 闭环胜率{{ Number(data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span>
+                <span :class="(Number(data.closed_profit || data.total_profit || 0)) >= 0 ? 'up' : 'down'">{{ (Number(data.closed_profit || data.total_profit || 0)) >= 0 ? '+' : '' }}¥{{ Number(data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
+                <span class="ir-dim">| 闭环胜率{{ Number(data.closed_win_rate || data.win_rate || 0).toFixed(0) }}%</span>
                 <span v-if="data.market_value" class="ir-dim">| 市值¥{{ (data.market_value/10000).toFixed(1) }}万</span>
               </span>
             </template>

@@ -114,8 +114,8 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-industry" v-if="Object.keys(globalRisk?.industry_exposure || {}).length > 1">
         <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
           <span class="ind-label">{{ name }}</span>
-          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min((pct ?? 0), 100).toFixed(0) + '%' }"></div></div>
-          <span class="ind-pct">{{ (pct ?? 0).toFixed(0) }}%</span>
+          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min((pct || 0), 100).toFixed(0) + '%' }"></div></div>
+          <span class="ind-pct">{{ (pct || 0).toFixed(0) }}%</span>
         </div>
       </div>
     </div>

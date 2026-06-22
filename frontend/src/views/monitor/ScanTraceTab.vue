@@ -275,7 +275,7 @@ onMounted(async () => {
                   <span class="es-group-dot"></span>
                   <span class="es-group-name">{{ g.label }}</span>
                   <span class="es-group-count">{{ g.count }}次</span>
-                  <span class="es-group-pct">{{ (g.pct ?? 0).toFixed(0) }}%</span>
+                  <span class="es-group-pct">{{ (g.pct || 0).toFixed(0) }}%</span>
                 </button>
               </div>
             </div>
@@ -285,7 +285,7 @@ onMounted(async () => {
                 <span class="es-reason-name">{{ shortReason(r.reason) }}</span>
                 <div class="es-reason-bar"><div class="es-reason-fill" :style="{ width: Math.max(3, r.pct) + '%' }"></div></div>
                 <span class="es-reason-num">{{ r.count }}次</span>
-                <span class="es-reason-pct">{{ (r.pct ?? 0).toFixed(1) }}%</span>
+                <span class="es-reason-pct">{{ (r.pct || 0).toFixed(1) }}%</span>
               </div>
             </div>
             <div v-else class="es-detail-hint">
@@ -382,7 +382,7 @@ onMounted(async () => {
                 <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid et-strategy" effect="dark">{{ strategyCN(sig.strategy) }}</ElTag>
                 <span class="et-code">{{ sig.ts_code }}</span>
                 <span class="et-name">{{ sig.stock_name || '-' }}</span>
-                <span class="et-pct" :class="(sig.pct_chg ?? 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg ?? 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg ?? 0).toFixed(2) }}%</span>
+                <span class="et-pct" :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(2) }}%</span>
                 <span v-if="sig.price" class="et-price">¥{{ Number(sig.price).toFixed(2) }}</span>
               </div>
               <div class="et-row2">

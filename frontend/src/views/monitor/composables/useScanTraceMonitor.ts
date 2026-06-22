@@ -272,7 +272,7 @@ export function useScanTraceMonitor() {
     if (detail.sell_reason) {
       lines.push('【卖出决策】')
       lines.push(`  原因: ${detail.sell_reason}`)
-      if (detail.profit_pct) lines.push(`  盈亏: ${Number(detail.profit_pct ?? 0).toFixed(2)}%`)
+      if (detail.profit_pct) lines.push(`  盈亏: ${Number(detail.profit_pct || 0).toFixed(2)}%`)
     }
     return lines
   }
