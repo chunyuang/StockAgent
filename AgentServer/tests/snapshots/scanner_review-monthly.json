@@ -4,15 +4,15 @@
     "trades": "int",
     "wins": "int",
     "win_rate": "float",
-    "pnl": "int"
+    "pnl": "float"
   },
   "strategy_stats": {
-    "limit_up_open": {
+    "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
-      "pnl": "int"
+      "pnl": "float"
     },
-    "halfway_chase": {
+    "limit_up_open": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "int"

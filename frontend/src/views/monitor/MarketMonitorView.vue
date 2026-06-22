@@ -1,256 +1,67 @@
 <script setup lang="ts">
-/**
- * MarketMonitorView — 超短量化实盘监控
- * 
- * 逻辑已拆到 useScannerMonitor.ts composable
- * 此文件只负责: 调用composable + 渲染template
- * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
- */
-import { provide, defineAsyncComponent, ref, computed, watch } from 'vue'
+import { provide, ref } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useThemeStore } from '@/stores/theme'
-// 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
-// 【v2.9.98】异步组件统一错误处理: 加载失败时显示错误占位而非白屏
-const asyncOpts = { onError: (err: Error) => console.error('[AsyncComponent] load failed:', err) }
-const ReviewTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ReviewTab.vue') })
-const OpsTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./OpsTab.vue') })
-const PremarketTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PremarketTab.vue') })
-const SentimentTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./SentimentTab.vue') })
-const HistoryTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./HistoryTab.vue') })
-const AnalysisTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AnalysisTab.vue') })
-const AccountTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AccountTab.vue') })
-const ScanTraceTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ScanTraceTab.vue') })
-const PositionRiskMatrix = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PositionRiskMatrix.vue') })
-const MiniKline = defineAsyncComponent({ ...asyncOpts, loader: () => import('./MiniKline.vue') })
-const SignalTracePanel = defineAsyncComponent({ ...asyncOpts, loader: () => import('./SignalTracePanel.vue') })
+import { ReviewTab, OpsTab, PremarketTab, SentimentTab, HistoryTab, AnalysisTab, AccountTab, ScanTraceTab, PositionRiskMatrix, MiniKline, SignalTracePanel } from './lazyTabs'
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 import UnifiedDateBar from '@/components/UnifiedDateBar.vue'
+import { useViewHelpers } from './useViewHelpers'
 
 const monitorData = useScannerMonitor()
 provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
-
-// 确保themeStore独立初始化(避免composable返回undefined的问题)
 const themeStore = monitorData.themeStore || useThemeStore()
 
-// 在模板中使用的变量仍需解构(vue-tsc要求) — 必须从同一个实例解构
 const {
-  // 【v2.9.97】统一日期选择器
-  unified,
-  loading, autoRefresh,
+  unified, loading, autoRefresh,
   status, signals, positions, todayClosedTrades,
   signalFilter, filteredSignals,
   isRunning, accountInfo, positionRatio, totalPnl,
   circuitBreakerPaused, focusIndex, emergencyLiquidating,
-  activeTab, reviewTab,
-  strategies,
-  editingStrategy, editDialogVisible, editTab, editParams, editRiskParams, saving,
-  sigRemaining,
+  activeTab, reviewTab, strategies,
+  editingStrategy, editDialogVisible, editTab, editParams, editRiskParams, saving, sigRemaining,
   dailyReport, dailyReportData, dailyReportVisible, weeklyReportVisible,
-  premarketSignals,
-  reviewLoading,
+  premarketSignals, reviewLoading,
   monthlyReviewData, weeklyReviewData, weeklyReportData,
   deviationData, closedLoopData,
   signalTraceVisible, tradeDetailVisible, tradeDetailData,
   tradeAuditVisible, tradeAuditData,
   confirmVisible, confirmLoading, confirmData,
   manualTrade, trailEditPct, trailSaving,
-  tradeMode, replayDate, replayDateInput,
-  replayDateVisible,
+  tradeMode, replayDate, replayDateInput, replayDateVisible,
   startScanner, stopScanner, fetchScanner,
   manualScan, forceScan, quickBuy, quickSell, fetchReviewData, fetchSentimentData,
-  // sentiment sub-composable
-  openTradeDetail,
-  runBacktest, saveParamSnapshot,
-  setTrailingStop,
-  showConfirm: _showConfirm, handleConfirm, emergencyLiquidate,
-  saveStrategy,
-  layerLabel,
-  posSort, sortedPositions,
-  strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining,
-  modeMeta,
+  openTradeDetail, runBacktest, saveParamSnapshot, setTrailingStop,
+  showConfirm: _showConfirm, handleConfirm, emergencyLiquidate, saveStrategy,
+  layerLabel, posSort, sortedPositions,
+  strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining, modeMeta,
   onModeChange, confirmReplay, cancelReplay, dryRun,
-  // 【v2.9.71: WS连接状态】
   wsStatus, wsIsConnected, wsRetryCount,
-  stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
-  openEditDialog, factorLabel,
-  // scanTrace/layerDebug/signalStatus/formatDecisionDetail
-  // are accessed by ScanTraceTab via inject; active signal trace uses formatLayerTrace locally
-  // compareVisible/compareData passed as ReviewTab props
-  compareVisible, compareData,
-  formatLayerTrace,
-
+  stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy, openEditDialog, factorLabel,
+  compareVisible, compareData, formatLayerTrace,
   reviewDate, reviewHero, reviewForward,
   backtestRunning, liveBacktestDiff, executionQuality,
-  tradeAttributions, paramDriftData, factorEffectData,
-  disciplineCheck,
+  tradeAttributions, paramDriftData, factorEffectData, disciplineCheck,
 } = monitorData
 
 const dateSectionCollapsed = ref(true)
 const leftRailCollapsed = ref(false)
-const expandedPositions = ref<Record<string, boolean>>({})
-// 【v2.9.97h-v19】今日已平仓状态 + computed
-const closedTradesCollapsed = ref(false)
-const closedTradesProfitTotal = computed(() => {
-  return (todayClosedTrades.value || []).reduce((s: number, t: any) => s + (Number(t.profit_amount) || 0), 0)
-})
-const todayInt = computed(() => {
-  const d = new Date()
-  const china = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  return `${china.getFullYear()}${String(china.getMonth() + 1).padStart(2, '0')}${String(china.getDate()).padStart(2, '0')}`
-})
-function formatBuyDateShort(bd: any) {
-  if (!bd) return ''
-  const s = String(bd).replace(/\D/g, '')
-  if (s.length >= 8) return `${s.slice(4, 6)}-${s.slice(6, 8)}买入`
-  return s
-}
-const activeSignalTrace = ref<any>(null)
-const activeSignalTraceKey = computed(() => activeSignalTrace.value ? `${activeSignalTrace.value.ts_code || ''}:${activeSignalTrace.value.strategy || ''}` : '')
-const activeSignalTraceLines = computed(() => formatLayerTrace(activeSignalTrace.value?.layer_trace || {}))
-const leftPanelExpanded = computed(() => !leftRailCollapsed.value && (!dateSectionCollapsed.value || !stratSectionCollapsed.value))
-const anyPositionExpanded = computed(() => Object.values(expandedPositions.value).some(Boolean))
-const fmtCompactDate = (d?: string) => {
-  const s = String(d || '').replace(/-/g, '')
-  return s.length === 8 ? `${s.slice(4, 6)}-${s.slice(6, 8)}` : '今日'
-}
-const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
-const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
-const visibleSignals = computed(() => filteredSignals.value)
-// 【v2.9.97h-v17】信号按小时分组 + 折叠状态
-// signalsByHour: { '09': [...], '10': [...], '11': [...], '13': [...], '14': [...] }
-const signalsByHour = computed(() => {
-  const groups: Record<string, any[]> = {}
-  for (const sig of visibleSignals.value as any[]) {
-    const t = String(sig.scan_time || '')
-    const hour = t && t.includes(':') ? t.slice(0, 2) : '无时间'
-    if (!groups[hour]) groups[hour] = []
-    groups[hour].push(sig)
-  }
-  // 返回按小时升序的数组: [{hour:'09', signals:[...], count:139}, ...]
-  return Object.entries(groups)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([hour, sigs]) => ({ hour, signals: sigs, count: sigs.length }))
-})
-// 默认最近一个小时展开, 其他折叠
-const signalHourCollapse = ref<Record<string, boolean>>({})
-const toggleSignalHour = (h: string) => { signalHourCollapse.value[h] = !signalHourCollapse.value[h] }
-// 初始化: 默认最后一个小时展开, 其他折叠
-const signalHourInitialized = ref(false)
-watch(signalsByHour, (groups) => {
-  if (!signalHourInitialized.value && groups.length) {
-    const lastHour = groups[groups.length - 1].hour
-    for (const g of groups) {
-      // signalHourCollapse[hour]=true 表示折叠
-      signalHourCollapse.value[g.hour] = (g.hour !== lastHour)
-    }
-    signalHourInitialized.value = true
-  }
-}, { immediate: true })
-const signalFilterOptions = computed(() => [
-  { k: 'all', l: '全部', title: '显示所有当前活跃信号' },
-  { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号' },
-  { k: 'first_limit_up', l: '首板打板', title: '首板涨停封板强的打板信号' },
-  { k: 'limit_up_open', l: '涨停开板', title: '涨停炸板/开板后的回封观察信号' },
-  { k: 'dragon_head', l: '龙头低吸', title: '连板龙头回调低吸信号' },
-  { k: 'limit_down_qiao', l: '跌停翘板', title: '跌停撬板反弹信号' },
-  { k: 'anomaly', l: '异动', title: '异动聚合：急速拉升、涨停炸板、强势涨停' },
-])
-const signalFilterHelp = computed(() => {
-  const base = '活跃信号：当前仍有效、可关注/可操作的实时信号；历史扫描结果请看「扫描追踪」，这里的数量不等于今日全部扫描通过数。'
-  const anomaly = '异动=急速拉升/涨停炸板/强势涨停。'
-  if (!signals.value.length) return `${base} 当前无活跃信号，可能是信号已过期、已成交、被拦截、被后续扫描覆盖，或已进入历史记录。${anomaly}`
-  return `${base} 顶部按钮按买入策略筛选当前活跃信号。${anomaly}`
-})
-function toggleDateSection() {
-  if (leftRailCollapsed.value) leftRailCollapsed.value = false
-  dateSectionCollapsed.value = !dateSectionCollapsed.value
-}
-function togglePositionCard(code: string) {
-  expandedPositions.value[code] = !expandedPositions.value[code]
-}
-function toggleActiveSignalTrace(sig: any) {
-  const key = `${sig?.ts_code || ''}:${sig?.strategy || ''}`
-  if (activeSignalTraceKey.value === key) {
-    activeSignalTrace.value = null
-    return
-  }
-  activeSignalTrace.value = sig
-}
-function displayStrategyName(raw: any, fallback?: any) {
-  const v = raw || fallback
-  if (!v) return '-'
-  const mapped = strategyCN(v)
-  return mapped === v && fallback && fallback !== v ? strategyCN(fallback) : mapped
-}
-function formatBuyDateDisplay(bd: any) {
-  // 【v2.9.97h-v18】买入日期展开显示 + 持股天数
-  if (!bd) return '--'
-  const s = String(bd).replace(/\D/g, '')
-  if (s.length < 8) return s
-  const ymd = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-  // 计算持股天数
-  try {
-    const buyTime = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
-    const days = Math.floor((Date.now() - buyTime) / (1000 * 60 * 60 * 24))
-    if (days === 0) return `${ymd} 今天`
-    if (days === 1) return `${ymd} 昨天`
-    if (days > 0 && days < 30) return `${ymd} 持${days}天`
-    return ymd
-  } catch {
-    return ymd
-  }
-}
-function positionActionLabel(pos: any) {
-  // 【v2.9.97h-v18】持仓卡片的 action tag 改为显示策略名(更紧凑)或'持仓'
-  // 原来的 '买入/卖出' 标签对持仓无意义——持仓本身就是已买入状态
-  const strategyName = pos?.strategy_name || pos?.strategy || ''
-  if (strategyName) {
-    const cn = strategyCN(strategyName) || strategyName
-    return cn.length > 4 ? cn.slice(0, 4) : cn
-  }
-  return '持仓'
-}
-function formatPositionTime(pos: any) {
-  // 【v2.9.97h-v19】优先显示具体成交时间 (HH:MM:SS), 没有才回退到日期
-  const t = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time
-  if (t) {
-    const s = String(t)
-    const hms = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/)
-    if (hms) return hms[3] ? `${hms[1].padStart(2, '0')}:${hms[2]}:${hms[3]}` : `${hms[1].padStart(2, '0')}:${hms[2]}`
-  }
-  // 没有具体时间: 折合日期, 但只取 MM-DD 避免过长跳股名
-  const bd = pos?.buy_date || pos?.trade_date
-  if (bd) {
-    const s = String(bd).replace(/\D/g, '')
-    if (s.length >= 8) return `${s.slice(4, 6)}-${s.slice(6, 8)}`
-  }
-  return ''
-}
-function toggleStrategySection() {
-  if (leftRailCollapsed.value) leftRailCollapsed.value = false
-  stratSectionCollapsed.value = !stratSectionCollapsed.value
-  if (!stratSectionCollapsed.value) {
-    stratCollapsed.value = Object.fromEntries(strategies.value.map((s: any) => [s.id, true]))
-  }
-}
 
-// 【v2.9.94】交易详情弹窗时间显示：优先后端 time_display，后退到 trade_date + time 拼接
-function formatTradeDateTime(rec: any): string {
-  if (!rec) return '-'
-  if (rec.time_display) return rec.time_display
-  const td = String(rec.trade_date || '').trim()
-  const t = String(rec.time || '').trim()
-  if (td && /^\d{8}$/.test(td)) {
-    const ymd = `${td.slice(0,4)}-${td.slice(4,6)}-${td.slice(6,8)}`
-    return t ? `${ymd} ${t}` : ymd
-  }
-  if (td && /^\d{4}-\d{2}-\d{2}$/.test(td)) {
-    return t ? `${td} ${t}` : td
-  }
-  return t || '-'
-}
+const {
+  closedTradesCollapsed, closedTradesProfitTotal, todayInt, formatBuyDateShort,
+  activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
+  leftPanelExpanded, expandedPositions, anyPositionExpanded,
+  currentDateCompact, enabledStrategyCount, visibleSignals,
+  signalsByHour, signalHourCollapse, toggleSignalHour,
+  signalFilterOptions, signalFilterHelp,
+  toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
+  displayStrategyName, formatBuyDateDisplay, positionActionLabel,
+  formatPositionTime, toggleStrategySection, formatTradeDateTime,
+} = useViewHelpers({
+  todayClosedTrades, stratSectionCollapsed, dateSectionCollapsed, leftRailCollapsed,
+  strategies, filteredSignals, formatLayerTrace, unified, strategyCN, stratCollapsed,
+})
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">

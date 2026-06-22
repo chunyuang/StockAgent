@@ -3,7 +3,7 @@
   "conclusion": "str",
   "conclusion_type": "str",
   "metrics": {
-    "total_pct": "int",
+    "total_pct": "float",
     "win_rate": "float",
     "trades": "int",
     "closed_trades": "int",
