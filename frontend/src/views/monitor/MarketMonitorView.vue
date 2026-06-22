@@ -168,19 +168,49 @@ function displayStrategyName(raw: any, fallback?: any) {
   const mapped = strategyCN(v)
   return mapped === v && fallback && fallback !== v ? strategyCN(fallback) : mapped
 }
+function formatBuyDateDisplay(bd: any) {
+  // 【v2.9.97h-v18】买入日期展开显示 + 持股天数
+  if (!bd) return '--'
+  const s = String(bd).replace(/\D/g, '')
+  if (s.length < 8) return s
+  const ymd = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  // 计算持股天数
+  try {
+    const buyTime = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
+    const days = Math.floor((Date.now() - buyTime) / (1000 * 60 * 60 * 24))
+    if (days === 0) return `${ymd} 今天`
+    if (days === 1) return `${ymd} 昨天`
+    if (days > 0 && days < 30) return `${ymd} 持${days}天`
+    return ymd
+  } catch {
+    return ymd
+  }
+}
 function positionActionLabel(pos: any) {
-  const raw = String(pos?.side || pos?.action || pos?.trade_side || '').toLowerCase()
-  return raw.includes('sell') || raw.includes('卖') ? '卖出' : '买入'
+  // 【v2.9.97h-v18】持仓卡片的 action tag 改为显示策略名(更紧凑)或'持仓'
+  // 原来的 '买入/卖出' 标签对持仓无意义——持仓本身就是已买入状态
+  const strategyName = pos?.strategy_name || pos?.strategy || ''
+  if (strategyName) {
+    const cn = strategyCN(strategyName) || strategyName
+    return cn.length > 4 ? cn.slice(0, 4) : cn
+  }
+  return '持仓'
 }
 function formatPositionTime(pos: any) {
-  const raw = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time || pos?.created_at || pos?.buy_date || pos?.trade_date
-  if (!raw) return '--:--'
-  const s = String(raw)
-  const hhmm = s.match(/(\d{1,2}):(\d{2})/)
-  if (hhmm) return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`
-  const ymd = s.replace(/\D/g, '')
-  if (ymd.length >= 8) return `${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`
-  return s.slice(0, 8)
+  // 【v2.9.97h-v18】格式化持仓买入日期: 优先具体时间, 否则回退到完整日期
+  const raw = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time || pos?.created_at
+  if (raw) {
+    const s = String(raw)
+    const hhmm = s.match(/(\d{1,2}):(\d{2})/)
+    if (hhmm) return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`
+  }
+  // 只取 buy_date: 格式化为 YYYY-MM-DD
+  const bd = pos?.buy_date || pos?.trade_date
+  if (bd) {
+    const s = String(bd).replace(/\D/g, '')
+    if (s.length >= 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  }
+  return ''
 }
 function toggleStrategySection() {
   if (leftRailCollapsed.value) leftRailCollapsed.value = false
@@ -340,7 +370,7 @@ function formatTradeDateTime(rec: any): string {
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card compact-pos" :class="{ 'pos-focused': idx === focusIndex, expanded: expandedPositions[pos.ts_code] }">
             <div class="pos-summary" @click="togglePositionCard(pos.ts_code)">
-              <ElTag size="small" :type="positionActionLabel(pos) === '卖出' ? 'danger' : 'success'" class="action-tag">{{ positionActionLabel(pos) }}</ElTag>
+              <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:44px;text-align:center;font-size:10px">{{ positionActionLabel(pos) }}</ElTag>
               <span class="pos-time">{{ formatPositionTime(pos) }}</span>
               <span class="name pos-name-main">{{ pos.stock_name }}</span>
               <span class="code pos-code-sub">{{ pos.ts_code }}</span>
@@ -349,7 +379,7 @@ function formatTradeDateTime(rec: any): string {
             </div>
             <div v-if="expandedPositions[pos.ts_code]" class="pos-detail-panel">
               <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ displayStrategyName(pos.strategy, pos.strategy_name) }}</ElTag><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct || 0) / 10 * 100, 100) + '%' }" :class="(pos.profit_pct || 0) >= 0 ? 'bar-up' : 'bar-down'"></span></span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-              <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
+              <div class="pos-info"><span class="pos-buy-date" v-if="pos.buy_date">📅 {{ formatBuyDateDisplay(pos.buy_date) }}</span><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
               <div class="pos-prices-row">
                 <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
                 <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
