@@ -6,7 +6,13 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // 【v2.9.97h-v10 修复】全局常量替换：__DEV__ 代码中多处 if (__DEV__) console.log
+  // production 构建时必须定义为 'false'，否则运行时 ReferenceError: __DEV__ is not defined
+  // （导致 fetchAutoTrades/useWebSocket 报错，“自动交易操作流”全天无法加载）
+  define: {
+    __DEV__: JSON.stringify(mode !== 'production'),
+  },
   plugins: [
     vue(),
     // 自动导入 Vue/VueRouter/Pinia API
@@ -90,4 +96,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
