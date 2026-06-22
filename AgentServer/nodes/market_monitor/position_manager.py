@@ -874,6 +874,14 @@ class PositionManager:
                             }
                 except Exception as e:
                     logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
+                    # 失败不丢弃,记录到pending_sells待下次执行
+                    with self.state_lock:
+                        if pos.ts_code not in self.pending_sells:
+                            self.pending_sells[pos.ts_code] = {
+                                "reason": reason, "price": price,
+                                "added_at": time.time(),
+                                "source": "risk_thread_error",
+                            }
 
     # ==================== v2.9.35: 从scanner提取的卖出执行方法 ====================
 
