@@ -22,7 +22,8 @@ function getChinaDate(): string {
 }
 
 export function useSentimentMonitor() {
-  const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
+  // 【v2.9.97h-v13】默认显示日内模式(用户更关心当下情绪而非历史日线)
+  const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('intraday')
   const sentimentDate = ref(getChinaDate())
   const hoveredPoint = ref<any>(null)
   // 每个模式独立缓存, 切换时不会清空
