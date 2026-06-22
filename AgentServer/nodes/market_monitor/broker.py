@@ -328,6 +328,7 @@ class SimulatedBroker:
                 "profit_pct": pos.profit_pct,
                 "today_buy_qty": pos.today_buy_qty,
                 "strategy": pos.strategy,
+                "buy_date": pos.buy_date,  # 【v2.9.99修复】保存buy_date，超时强卖/龙头5天低利润依赖此字段
                 "stop_loss_price": round(pos.avg_cost * (1 - stop_loss_pct), 2),
                 "take_profit_price": round(pos.avg_cost * (1 + take_profit_pct), 2),
             })
@@ -437,6 +438,7 @@ class SimulatedBroker:
                 profit_pct=doc.get("profit_pct", 0),
                 today_buy_qty=doc.get("today_buy_qty", 0),
                 strategy=doc.get("strategy", ""),
+                buy_date=doc.get("buy_date", ""),  # 【v2.9.99修复】恢复buy_date，超时强卖依赖此字段
             )
             loaded += 1
         if loaded:
