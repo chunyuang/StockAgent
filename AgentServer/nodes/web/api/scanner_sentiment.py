@@ -439,10 +439,11 @@ async def get_market_sentiment_detail(date: str = None):
                             sentiment_score = exact.get("score", 50)
                             sentiment_period = exact.get("period", "unknown")
                             position_ratio = _get_position_ratio_sentiment(exact.get("period", ""), exact.get("position_ratio", 0.3))
-                    # 2. 指定日期无数据、或指定日期被标 missing_data, 都走这里 fallback 到最近非 missing
+                    # 2. 指定日期无数据、或指定日期被标 missing_data, 都走这里 fallback
+                    # 【v2.9.99-r7优化】对于展示用途,使用最新记录(含missing_data),is_stale标志已告知用户
+                    # 之前严格跳过missing_data导致显示几天前的旧score,不如显示基于前日数据的估算
                     if sentiment_period is None or sentiment_score is None:
                         latest = await mongo_manager.db["sentiment_scores"].find_one(
-                            {"missing_data": {"$ne": True}},
                             sort=[("trade_date", -1)]
                         )
                         if latest:
