@@ -17,7 +17,18 @@ const {
   strategyCN, timeline,
 } = m
 
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
+
+// 【v2.9.99-r3】进入 Tab 后自动加载今天数据 (historyDate 默认为今天)
+const { activeTab } = m
+onMounted(() => {
+  if (historyDate.value && (activeTab?.value === 'history' || !activeTab?.value)) {
+    loadHistory()
+  }
+})
+watch(() => activeTab?.value, (t) => {
+  if (t === 'history' && historyDate.value) loadHistory()
+})
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 

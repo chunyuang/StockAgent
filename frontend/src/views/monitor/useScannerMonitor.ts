@@ -205,7 +205,14 @@ export function useScannerMonitor() {
   async function fetchAuditLog() { try { const r = await api.get(`${scannerApi}/audit-log?limit=100`); const p = parseResponse(r); if (p.success) auditLog.value = p.data || [] } catch { /* ignore */ } }
 
   // ==================== 📜 历史 ====================
-  const historyDate = ref('')
+  // 【v2.9.99-r3】历史默认今天 (每日交易快照默认看今天)
+  const _getTodayStr = () => {
+    const now = new Date()
+    const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+    const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const historyDate = ref(_getTodayStr())
   const historyData = ref<any[]>([])
   const historyOrders = ref<any[]>([])
   const historyLoading = ref(false)

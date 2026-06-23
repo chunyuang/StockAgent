@@ -23,7 +23,7 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
 
 
-async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, limit: int = 500) -> List[Dict[str, Any]]:
     """从MongoDB读取最近一次扫描信号，供非交易时间/重启后回看。"""
     try:
         from core.managers import mongo_manager
@@ -41,7 +41,7 @@ async def _load_recent_signal_history(scanner, date_int: Optional[int] = None, l
                 return []
             latest_date = latest.get("trade_date")
             query = {"account_id": account_id, "trade_date": {"$in": [latest_date, str(latest_date), int(latest_date)] if str(latest_date).isdigit() else [latest_date]}}
-        docs = await db["scanner_signals"].find(query).sort("created_at", -1).limit(limit).to_list(limit)
+        docs = await db["scanner_signals"].find(query).sort("scan_time", 1).limit(limit).to_list(limit)
         result = []
         for d in docs:
             d.pop("_id", None)
@@ -122,18 +122,31 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                             {"account_id": account_id, "ts_code": tc, "trade_date": {"$lte": today_int_v}, "status": "filled", "side": {"$in": ["buy", "BUY"]}},
                             sort=[("trade_date", -1), ("create_time", -1)]
                         )
+                        # 【v2.9.99-r3】broker 不填 profit_pct/profit_amount → 自己用 buy/sell 算
+                        buy_price = float(buy.get("filled_price") or buy.get("price") or 0) if buy else 0
+                        buy_qty = int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0
+                        sell_price = float(sell.get("filled_price") or sell.get("price") or 0)
+                        sell_qty = int(sell.get("filled_qty") or sell.get("quantity") or 0)
+                        # 优先用 broker 的 profit_*; 没填则自己算
+                        raw_pct = float(sell.get("profit_pct") or 0)
+                        raw_amt = float(sell.get("profit_amount") or 0)
+                        if raw_pct == 0 and buy_price > 0 and sell_price > 0:
+                            raw_pct = (sell_price - buy_price) / buy_price * 100
+                        if raw_amt == 0 and buy_price > 0 and sell_price > 0 and sell_qty > 0:
+                            raw_amt = (sell_price - buy_price) * sell_qty
                         entry = {
                             "ts_code": tc,
                             "stock_name": sell.get("stock_name", ""),
                             "buy_time": (buy.get("create_time") or buy.get("fill_time") or "") if buy else "",
-                            "buy_price": round(float(buy.get("filled_price") or buy.get("price") or 0), 2) if buy else 0,
-                            "buy_qty": int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0,
+                            "buy_price": round(buy_price, 2),
+                            "buy_qty": buy_qty,
                             "buy_date": buy.get("trade_date", "") if buy else "",
                             "sell_time": sell.get("create_time") or sell.get("fill_time") or "",
-                            "sell_price": round(float(sell.get("filled_price") or sell.get("price") or 0), 2),
-                            "sell_qty": int(sell.get("filled_qty") or sell.get("quantity") or 0),
-                            "profit_pct": round(float(sell.get("profit_pct") or 0), 2),
-                            "profit_amount": round(float(sell.get("profit_amount") or 0), 0),
+                            "sell_price": round(sell_price, 2),
+                            "sell_qty": sell_qty,
+                            "profit_pct": round(raw_pct, 2),
+                            "profit_amount": round(raw_amt, 0),
+                            "reason": sell.get("reason", ""),  # 卖出原因 (止损/止盈/手动等)
                         }
                         today_closed.append(entry)
                     today_closed.sort(key=lambda x: x.get("sell_time") or "")
