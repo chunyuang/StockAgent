@@ -8,7 +8,7 @@
  * Props: review composable的展开状态 + 策略映射
  * Emits: fetchReviewData, runBacktest, saveParamSnapshot
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElButton, ElTag } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { formatTradeDate, formatFullDate } from '@/utils/scanner'
