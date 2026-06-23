@@ -414,7 +414,13 @@ async def get_market_sentiment_detail(date: str = None):
     """市场情绪全景"""
     scanner = await _get_scanner()
     try:
-        filter_pipeline = getattr(scanner, '_filter_pipeline', None)
+        # 【v2.9.99-r7修复】scanner未运行时,emotion_cycle内存数据过时,应跳过直接读MongoDB
+        # 之前scanner单例创建后_filter_pipeline有旧值,导致market-sentiment返回过时score
+        scanner_running = (
+            getattr(scanner, '_running', False)
+            or (getattr(scanner, '_broker', None) is not None and len(getattr(scanner._broker, 'get_positions', lambda: [])()) > 0)
+        )
+        filter_pipeline = getattr(scanner, '_filter_pipeline', None) if scanner_running else None
         emotion = getattr(filter_pipeline, '_emotion_cycle', None) if filter_pipeline else None
         sentiment_score = getattr(emotion, 'score', None) if emotion else None
         sentiment_period = getattr(emotion, 'period', None) if emotion else None
