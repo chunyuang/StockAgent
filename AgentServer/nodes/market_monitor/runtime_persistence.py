@@ -1134,17 +1134,31 @@ class RuntimePersistence:
             async for doc in db["stock_daily_ak_full"].aggregate(pipeline):
                 src_pct = doc.get("pct_chg")
                 # 回填条件: daily_basic中pct_chg为null/不存在，或为0但source有非零值
-                fill_ops.append(UpdateOne(
-                    {
+                # 【v2.9.100修复】$expr+普通条件混用导致MongoDB查询不匹配
+                # 改为Python侧判断src_pct是否非零，简化MongoDB查询条件
+                if src_pct and src_pct != 0:
+                    # source非零 → 回填null/不存在/pct_chg=0的记录
+                    filter_q = {
                         "trade_date": td_int,
                         "ts_code": doc["ts_code"],
-                        # 匹配null/不存在 或 pct_chg=0但source非零
                         "$or": [
                             {"pct_chg": None},
                             {"pct_chg": {"$exists": False}},
-                            {"pct_chg": 0, "$and": [{"$expr": {"$ne": [src_pct, 0]}}]},
+                            {"pct_chg": 0},
                         ],
-                    },
+                    }
+                else:
+                    # source也是0 → 只回填null/不存在的记录(不覆盖已有的0)
+                    filter_q = {
+                        "trade_date": td_int,
+                        "ts_code": doc["ts_code"],
+                        "$or": [
+                            {"pct_chg": None},
+                            {"pct_chg": {"$exists": False}},
+                        ],
+                    }
+                fill_ops.append(UpdateOne(
+                    filter_q,
                     {"$set": {"pct_chg": src_pct, "data_source": "stock_daily_ak_full"}}
                 ))
                 filled += 1
