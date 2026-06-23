@@ -8,6 +8,7 @@
  */
 import { provide, defineAsyncComponent, ref, computed } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
+import { useViewHelpers } from './useViewHelpers'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useThemeStore } from '@/stores/theme'
 // 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
@@ -39,7 +40,7 @@ const {
   // 【v2.9.97】统一日期选择器
   unified,
   loading, autoRefresh,
-  status, signals, positions,
+  status, signals, positions, todayClosedTrades,
   signalFilter, filteredSignals,
   isRunning, accountInfo, positionRatio, totalPnl,
   circuitBreakerPaused, focusIndex, emergencyLiquidating,
@@ -87,94 +88,26 @@ const {
   disciplineCheck,
 } = monitorData
 
+
 const dateSectionCollapsed = ref(true)
 const leftRailCollapsed = ref(false)
-const expandedPositions = ref<Record<string, boolean>>({})
-const activeSignalTrace = ref<any>(null)
-const activeSignalTraceKey = computed(() => activeSignalTrace.value ? `${activeSignalTrace.value.ts_code || ''}:${activeSignalTrace.value.strategy || ''}` : '')
-const activeSignalTraceLines = computed(() => formatLayerTrace(activeSignalTrace.value?.layer_trace || {}))
-const leftPanelExpanded = computed(() => !leftRailCollapsed.value && (!dateSectionCollapsed.value || !stratSectionCollapsed.value))
-const anyPositionExpanded = computed(() => Object.values(expandedPositions.value).some(Boolean))
-const fmtCompactDate = (d?: string) => {
-  const s = String(d || '').replace(/-/g, '')
-  return s.length === 8 ? `${s.slice(4, 6)}-${s.slice(6, 8)}` : '今日'
-}
-const currentDateCompact = computed(() => fmtCompactDate(unified.currentDate.value))
-const enabledStrategyCount = computed(() => strategies.value.filter((s: any) => s.enabled).length)
-const visibleSignals = computed(() => filteredSignals.value)
-const signalFilterOptions = computed(() => [
-  { k: 'all', l: '全部', title: '显示所有当前活跃信号' },
-  { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号' },
-  { k: 'first_limit_up', l: '首板打板', title: '首板涨停封板强的打板信号' },
-  { k: 'limit_up_open', l: '涨停开板', title: '涨停炸板/开板后的回封观察信号' },
-  { k: 'dragon_head', l: '龙头低吸', title: '连板龙头回调低吸信号' },
-  { k: 'limit_down_qiao', l: '跌停翘板', title: '跌停撬板反弹信号' },
-  { k: 'anomaly', l: '异动', title: '异动聚合：急速拉升、涨停炸板、强势涨停' },
-])
-const signalFilterHelp = computed(() => {
-  const base = '活跃信号：当前仍有效、可关注/可操作的实时信号；历史扫描结果请看「扫描追踪」，这里的数量不等于今日全部扫描通过数。'
-  const anomaly = '异动=急速拉升/涨停炸板/强势涨停。'
-  if (!signals.value.length) return `${base} 当前无活跃信号，可能是信号已过期、已成交、被拦截、被后续扫描覆盖，或已进入历史记录。${anomaly}`
-  return `${base} 顶部按钮按买入策略筛选当前活跃信号。${anomaly}`
-})
-function toggleDateSection() {
-  if (leftRailCollapsed.value) leftRailCollapsed.value = false
-  dateSectionCollapsed.value = !dateSectionCollapsed.value
-}
-function togglePositionCard(code: string) {
-  expandedPositions.value[code] = !expandedPositions.value[code]
-}
-function toggleActiveSignalTrace(sig: any) {
-  const key = `${sig?.ts_code || ''}:${sig?.strategy || ''}`
-  if (activeSignalTraceKey.value === key) {
-    activeSignalTrace.value = null
-    return
-  }
-  activeSignalTrace.value = sig
-}
-function displayStrategyName(raw: any, fallback?: any) {
-  const v = raw || fallback
-  if (!v) return '-'
-  const mapped = strategyCN(v)
-  return mapped === v && fallback && fallback !== v ? strategyCN(fallback) : mapped
-}
-function positionActionLabel(pos: any) {
-  const raw = String(pos?.side || pos?.action || pos?.trade_side || '').toLowerCase()
-  return raw.includes('sell') || raw.includes('卖') ? '卖出' : '买入'
-}
-function formatPositionTime(pos: any) {
-  const raw = pos?.buy_time || pos?.buy_datetime || pos?.trade_time || pos?.open_time || pos?.created_at || pos?.buy_date || pos?.trade_date
-  if (!raw) return '--:--'
-  const s = String(raw)
-  const hhmm = s.match(/(\d{1,2}):(\d{2})/)
-  if (hhmm) return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`
-  const ymd = s.replace(/\D/g, '')
-  if (ymd.length >= 8) return `${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`
-  return s.slice(0, 8)
-}
-function toggleStrategySection() {
-  if (leftRailCollapsed.value) leftRailCollapsed.value = false
-  stratSectionCollapsed.value = !stratSectionCollapsed.value
-  if (!stratSectionCollapsed.value) {
-    stratCollapsed.value = Object.fromEntries(strategies.value.map((s: any) => [s.id, true]))
-  }
-}
 
-// 【v2.9.94】交易详情弹窗时间显示：优先后端 time_display，后退到 trade_date + time 拼接
-function formatTradeDateTime(rec: any): string {
-  if (!rec) return '-'
-  if (rec.time_display) return rec.time_display
-  const td = String(rec.trade_date || '').trim()
-  const t = String(rec.time || '').trim()
-  if (td && /^\d{8}$/.test(td)) {
-    const ymd = `${td.slice(0,4)}-${td.slice(4,6)}-${td.slice(6,8)}`
-    return t ? `${ymd} ${t}` : ymd
-  }
-  if (td && /^\d{4}-\d{2}-\d{2}$/.test(td)) {
-    return t ? `${td} ${t}` : td
-  }
-  return t || '-'
-}
+// 【v2.9.99-r1 恢复 v17/v18/v19】从 useViewHelpers 取所有视图辅助逻辑
+const {
+  closedTradesCollapsed, closedTradesProfitTotal, todayInt, formatBuyDateShort,
+  activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
+  leftPanelExpanded, expandedPositions, anyPositionExpanded,
+  currentDateCompact, enabledStrategyCount, visibleSignals,
+  signalsByHour, signalHourCollapse, toggleSignalHour,
+  signalFilterOptions, signalFilterHelp,
+  toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
+  displayStrategyName, formatBuyDateDisplay, positionActionLabel,
+  formatPositionTime, toggleStrategySection, formatTradeDateTime,
+} = useViewHelpers({
+  todayClosedTrades, stratSectionCollapsed, dateSectionCollapsed, leftRailCollapsed,
+  strategies, filteredSignals, formatLayerTrace, unified, strategyCN, stratCollapsed,
+})
+
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">
@@ -310,7 +243,7 @@ function formatTradeDateTime(rec: any): string {
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card compact-pos" :class="{ 'pos-focused': idx === focusIndex, expanded: expandedPositions[pos.ts_code] }">
             <div class="pos-summary" @click="togglePositionCard(pos.ts_code)">
-              <ElTag size="small" :type="positionActionLabel(pos) === '卖出' ? 'danger' : 'success'" class="action-tag">{{ positionActionLabel(pos) }}</ElTag>
+              <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid action-tag">{{ positionActionLabel(pos) }}</ElTag>
               <span class="pos-time">{{ formatPositionTime(pos) }}</span>
               <span class="name pos-name-main">{{ pos.stock_name }}</span>
               <span class="code pos-code-sub">{{ pos.ts_code }}</span>
@@ -319,7 +252,7 @@ function formatTradeDateTime(rec: any): string {
             </div>
             <div v-if="expandedPositions[pos.ts_code]" class="pos-detail-panel">
               <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ displayStrategyName(pos.strategy, pos.strategy_name) }}</ElTag><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct || 0) / 10 * 100, 100) + '%' }" :class="(pos.profit_pct || 0) >= 0 ? 'bar-up' : 'bar-down'"></span></span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-              <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
+              <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span><span v-if="pos.buy_date" class="pos-buy-date">📅 {{ formatBuyDateDisplay(pos.buy_date) }}</span></div>
               <div class="pos-prices-row">
                 <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
                 <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
@@ -334,6 +267,44 @@ function formatTradeDateTime(rec: any): string {
           </div>
         </div>
 
+        <!-- 【v2.9.99-r1 恢复 v19】今日已平仓 -->
+        <div v-if="todayClosedTrades && todayClosedTrades.length" class="closed-trades-section">
+          <div class="closed-trades-header cp" @click="closedTradesCollapsed = !closedTradesCollapsed">
+            <span class="ct-arrow">{{ closedTradesCollapsed ? '▶' : '▼' }}</span>
+            <span class="ct-title">💰 今日已平仓</span>
+            <ElTag size="small" type="info" class="ct-count">{{ todayClosedTrades.length }}笔</ElTag>
+            <span class="ct-total" :class="closedTradesProfitTotal >= 0 ? 'up' : 'down'">
+              总盈亏 {{ closedTradesProfitTotal >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal).toFixed(0) }}
+            </span>
+          </div>
+          <div v-show="!closedTradesCollapsed" class="closed-trades-body">
+            <div v-for="t in todayClosedTrades" :key="t.ts_code + t.sell_time" class="closed-trade-row" :class="t.profit_pct >= 0 ? 'row-up' : 'row-down'">
+              <div class="ct-line1">
+                <span class="ct-name">{{ t.stock_name }}</span>
+                <span class="ct-code">{{ t.ts_code }}</span>
+                <span :class="t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
+                  {{ t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
+                </span>
+                <span :class="t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
+                  {{ t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
+                </span>
+              </div>
+              <div class="ct-line2">
+                <span class="ct-tag-buy">买</span>
+                <span class="ct-time">{{ t.buy_time || '--' }}</span>
+                <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
+                <span class="ct-qty">x{{ t.buy_qty }}</span>
+                <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
+                <span class="ct-arrow-trade">→</span>
+                <span class="ct-tag-sell">卖</span>
+                <span class="ct-time">{{ t.sell_time || '--' }}</span>
+                <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
+                <span class="ct-qty">x{{ t.sell_qty }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- 右列: 信号+行情 -->
@@ -342,9 +313,19 @@ function formatTradeDateTime(rec: any): string {
         <div class="signal-help">{{ signalFilterHelp }}</div>
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
-          <div v-for="sig in visibleSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
-          </div>
+          <!-- 【v2.9.99-r1 恢复 v17】信号按小时折叠分组 -->
+          <template v-for="g in signalsByHour" :key="g.hour">
+            <div class="sig-hour-header cp" @click="toggleSignalHour(g.hour)">
+              <span class="sig-hour-arrow">{{ signalHourCollapse[g.hour] ? '▶' : '▼' }}</span>
+              <span class="sig-hour-label">🕒 {{ g.hour === '无时间' ? '无扫描时间' : `${g.hour}:00 扫描` }}</span>
+              <ElTag size="small" type="info" class="sig-hour-count">{{ g.count }}条</ElTag>
+            </div>
+            <div v-show="!signalHourCollapse[g.hour]" class="sig-hour-body">
+              <div v-for="sig in g.signals" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n扫描: ${sig.scan_time || '-'}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
+                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.scan_time" class="scan-time">{{ sig.scan_time }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -915,10 +896,10 @@ mm-tab-content {
 .pos-info .pamt { font-weight: 600; font-size: 12px; }
 .compact-pos { display: block; padding: 0; overflow: hidden; }
 .compact-pos:hover { transform: none; }
-.pos-summary { display: grid; grid-template-columns: auto 44px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
+.pos-summary { display: grid; grid-template-columns: auto 56px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
 .pos-summary:hover { background: var(--bg-hover); }
 .action-tag { min-width: 44px; text-align: center; justify-content: center; }
-.pos-time { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.pos-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-secondary); white-space: nowrap; min-width: 50px; }
 .pos-name-main { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pos-code-sub { color: var(--text-tertiary); font-size: 12px; }
 .pos-toggle { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
@@ -961,6 +942,45 @@ mm-tab-content {
 .expire-tag.urgent { color: var(--stock-up); background: var(--stock-up-bg); animation: blink 1s infinite; }
 .btn-xs { padding: 1px 6px; font-size: 11px; }
 .tag-solid { color: var(--text-inverse); border: none; }
+
+/* 【v2.9.99-r1 恢复 v17】信号小时分组 */
+.sig-hour-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; margin: 6px 0 3px; background: var(--bg-muted); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-secondary); transition: background 0.15s; user-select: none; }
+.sig-hour-header:hover { background: var(--bg-hover); }
+.sig-hour-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
+.sig-hour-label { flex: 1; }
+.sig-hour-count { font-size: 11px; }
+.sig-hour-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px; }
+.sig-row .scan-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+
+/* 【v2.9.99-r1 恢复 v18】持仓买入日期 */
+.pos-buy-date { font-size: 11px; color: var(--el-color-info); background: var(--info-bg, rgba(64,158,255,0.1)); padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+
+/* 【v2.9.99-r1 恢复 v19】今日已平仓 */
+.closed-trades-section { margin-top: 8px; border-top: 1px dashed var(--border-default); padding-top: 6px; }
+.closed-trades-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg-muted); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); user-select: none; transition: background 0.15s; }
+.closed-trades-header:hover { background: var(--bg-hover); }
+.ct-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
+.ct-title { flex: 0 0 auto; }
+.ct-count { font-size: 11px; }
+.ct-total { flex: 1; text-align: right; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.closed-trades-body { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.closed-trade-row { padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.15s; }
+.closed-trade-row.row-up { border-left: 3px solid var(--stock-up); }
+.closed-trade-row.row-down { border-left: 3px solid var(--stock-down); }
+.closed-trade-row:hover { border-color: var(--el-color-primary); }
+.ct-line1 { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 2px; }
+.ct-name { font-weight: 600; color: var(--text-primary); }
+.ct-code { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.ct-pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; min-width: 56px; text-align: right; }
+.ct-amount { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; }
+.ct-line2 { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; }
+.ct-tag-buy { color: var(--text-inverse); background: var(--stock-up); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
+.ct-tag-sell { color: var(--text-inverse); background: var(--stock-down); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
+.ct-time { font-variant-numeric: tabular-nums; min-width: 50px; }
+.ct-price { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.ct-qty { font-size: 10px; color: var(--text-tertiary); }
+.ct-buy-date { font-size: 10px; color: var(--el-color-info); background: var(--info-bg, rgba(64,158,255,0.1)); padding: 0 4px; border-radius: 2px; }
+.ct-arrow-trade { color: var(--text-tertiary); padding: 0 2px; }
 .mini-bar { display: inline-block; width: 40px; height: 4px; background: var(--border-default); border-radius: 2px; vertical-align: middle; margin-left: 4px; }
 .mini-bar-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.3s; }
 .text-stock-up { color: var(--stock-up) !important; }

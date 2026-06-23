@@ -2,7 +2,7 @@
   "generated_at": "str",
   "account": {
     "total_assets": "float",
-    "available_cash": "float",
+    "available_cash": "int",
     "market_value": "float",
     "total_profit": "float",
     "position_ratio": "float",
@@ -16,9 +16,9 @@
       "shares": "int",
       "available_qty": "int",
       "cost_price": "float",
-      "current_price": "float",
-      "profit_pct": "float",
-      "market_value": "float",
+      "current_price": "int",
+      "profit_pct": "int",
+      "market_value": "int",
       "stop_loss_price": "float",
       "take_profit_price": "float",
       "stop_loss_pct": "float",
@@ -34,7 +34,7 @@
     "win_trades": "int",
     "loss_trades": "int",
     "win_rate": "float",
-    "avg_profit_pct": "float",
+    "avg_profit_pct": "int",
     "avg_loss_pct": "int"
   },
   "strategy_performance": {
@@ -61,7 +61,7 @@
     "halfway_chase": {
       "trades": "int",
       "wins": "int",
-      "total_pnl": "float"
+      "total_pnl": "int"
     },
     "急速拉升": {
       "trades": "int",
@@ -103,7 +103,7 @@
     "positions": "int"
   },
   "sentiment": {
-    "score": "float",
+    "score": "int",
     "period": "str"
   },
   "position_ratio": "float"

@@ -6,27 +6,21 @@
       "strategy": "str",
       "strategy_name": "str",
       "industry": "str",
-      "current_price": "float",
+      "current_price": "int",
       "cost_price": "float",
-      "profit_pct": "float",
+      "profit_pct": "int",
       "profit_amount": "float",
-      "market_value": "float",
+      "market_value": "int",
       "position_pct": "float",
       "dist_stop_loss": "float",
       "dist_take_profit": "float",
       "stop_loss_price": "float",
       "take_profit_price": "float",
-      "volatility": "float",
-      "turnover_rate": "float",
+      "volatility": "int",
+      "turnover_rate": "int",
       "risk_score": "float",
       "risk_level": "str",
-      "trailing_stop": {
-        "high_price": "float",
-        "trailing_stop_pct": "float",
-        "activated": "bool",
-        "activated_at": "NoneType",
-        "stop_price": "float"
-      },
+      "trailing_stop": {},
       "total_qty": "int"
     }
   ],
@@ -34,7 +28,7 @@
     "total_assets": "float",
     "cash_ratio": "float",
     "position_ratio": "float",
-    "max_single_pct": "float",
+    "max_single_pct": "int",
     "top_industry_concentration": "float",
     "industry_exposure": {
       "农业综合": "float",
@@ -45,8 +39,8 @@
       "电气设备": "float",
       "铅锌": "float",
       "化工原料": "float",
-      "元器件": "float",
-      "铝": "float"
+      "铝": "float",
+      "元器件": "float"
     },
     "position_count": "int",
     "risk_summary": {

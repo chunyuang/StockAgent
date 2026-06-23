@@ -2,7 +2,7 @@
   "date": "str",
   "account": {
     "total_assets": "float",
-    "available_cash": "float",
+    "available_cash": "int",
     "market_value": "float",
     "today_profit": "int",
     "total_profit": "float",
@@ -13,20 +13,18 @@
     "strategy_summary": {
       "halfway_chase": {
         "count": "int",
-        "market_value": "float",
+        "market_value": "int",
         "total_profit": "float",
         "win_count": "int",
         "loss_count": "int",
-        "closed_count": "int",
-        "closed_profit": "float",
         "win_rate": "float",
-        "closed_win_rate": "float",
+        "closed_win_rate": "int",
         "stop_loss_count": "int",
         "take_profit_count": "int",
-        "avg_win_pct": "float",
+        "avg_win_pct": "int",
         "avg_loss_pct": "int",
         "profit_loss_ratio": "int",
-        "max_win_pct": "float",
+        "max_win_pct": "int",
         "max_loss_pct": "int"
       }
     },
@@ -34,14 +32,14 @@
       {
         "ts_code": "str",
         "name": "str",
-        "pct": "float"
+        "pct": "int"
       }
     ],
     "top_loss": [
       {
         "ts_code": "str",
         "name": "str",
-        "pct": "float"
+        "pct": "int"
       }
     ]
   },
@@ -50,7 +48,7 @@
     "sell": "int",
     "total_amount": "int"
   },
-  "win_rate": "float",
+  "win_rate": "int",
   "stop_loss_count": "int",
   "take_profit_count": "int",
   "risk": {

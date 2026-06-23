@@ -3,7 +3,7 @@
   "account": {
     "total_assets": "float",
     "total_profit": "float",
-    "available_cash": "float"
+    "available_cash": "int"
   },
   "daily_stats": {
     "20260617": {
