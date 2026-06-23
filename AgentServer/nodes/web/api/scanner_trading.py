@@ -358,7 +358,22 @@ async def get_orders(limit: int = 50, date: str = None):
         # 转换ObjectId
         for d in docs:
             d.pop("_id", None)
-        
+
+        # 【v2.9.99-r6】fallback 计算 sell 订单的 profit_pct/amount
+        # broker._sync_save_order_and_position 时序问题导致 broker_orders 经常存 0
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            buy_index = await build_buy_price_index(
+                db, account_id=scanner._broker.account.account_id
+            )
+            for d in docs:
+                if d.get("side") in ("sell", "SELL"):
+                    pct, amt = fallback_pnl(d, buy_index)
+                    d["profit_pct"] = pct
+                    d["profit_amount"] = amt
+        except Exception:
+            pass
+
         return {"success": True, "data": _fill_stock_names(docs, scanner)}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
@@ -456,6 +471,18 @@ async def get_trade_detail(ts_code: str, date: str = None):
                 elif side == "sell" and not detail["sell"]:
                     doc_date = str(doc.get("trade_date", ""))
                     raw_time = doc.get("fill_time", "") or doc.get("create_time", "")
+                    # 【v2.9.99-r6】fallback 算 sell 盈亏
+                    sell_pct = doc.get("profit_pct", 0) or 0
+                    sell_amt = doc.get("profit_amount", 0) or 0
+                    if not sell_pct and not sell_amt:
+                        try:
+                            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+                            buy_index = await build_buy_price_index(
+                                db, account_id=scanner._broker.account.account_id
+                            )
+                            sell_pct, sell_amt = fallback_pnl(doc, buy_index)
+                        except Exception:
+                            pass
                     detail["sell"] = {
                         "time": raw_time,
                         "time_display": _format_trade_time_display(doc_date, raw_time),
@@ -465,8 +492,8 @@ async def get_trade_detail(ts_code: str, date: str = None):
                         "reason": doc.get("reason", ""),
                         "strategy": doc.get("strategy", ""),
                         "stock_name": doc.get("stock_name", ""),
-                        "profit_pct": doc.get("profit_pct", 0),
-                        "profit_amount": doc.get("profit_amount", 0),
+                        "profit_pct": sell_pct,
+                        "profit_amount": sell_amt,
                         "decision_detail": doc.get("decision_detail", {}),
                     }
     except Exception:
@@ -755,6 +782,17 @@ async def export_trade_log():
                 key = (doc.get("ts_code", ""), doc.get("fill_time", "") or doc.get("create_time", ""))
                 if key in existing_keys:
                     continue
+                # 【v2.9.99-r6】fallback 算 sell 盈亏
+                pct_val = doc.get("profit_pct", "")
+                amt_val = doc.get("profit_amount", "")
+                if doc.get("side") in ("sell", "SELL"):
+                    try:
+                        from nodes.web.api.pnl_helper import fallback_pnl
+                        # buy_index 在循环外构建一次
+                        if 'buy_index_export' not in dir():
+                            pass
+                    except Exception:
+                        pass
                 rows.append({
                     "time": doc.get("fill_time", "") or doc.get("create_time", ""),
                     "action": doc.get("side", ""),
@@ -764,9 +802,39 @@ async def export_trade_log():
                     "shares": doc.get("filled_qty", "") or doc.get("quantity", ""),
                     "price": doc.get("filled_price", "") or doc.get("price", ""),
                     "reason": doc.get("reason", ""),
-                    "profit_pct": doc.get("profit_pct", ""),
-                    "profit_amount": doc.get("profit_amount", ""),
+                    "profit_pct": pct_val,
+                    "profit_amount": amt_val,
+                    "_ts_code": doc.get("ts_code", ""),  # 用于后续 fallback
+                    "_filled_price": doc.get("filled_price") or doc.get("price") or 0,
+                    "_filled_qty": doc.get("filled_qty") or doc.get("quantity") or 0,
+                    "_side": doc.get("side", ""),
+                    "_avg_cost": doc.get("avg_cost"),
                 })
+
+        # 【v2.9.99-r6】对所有 sell rows 统一 fallback 算盈亏
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            buy_index = await build_buy_price_index(mongo_manager.db, account_id=account_id)
+            for r in rows:
+                if r.get("_side") in ("sell", "SELL") or r.get("action") in ("sell", "SELL"):
+                    fake_doc = {
+                        "ts_code": r.get("_ts_code") or r.get("ts_code", ""),
+                        "side": r.get("_side") or r.get("action", ""),
+                        "filled_price": r.get("_filled_price") or r.get("price", 0),
+                        "filled_qty": r.get("_filled_qty") or r.get("shares", 0),
+                        "avg_cost": r.get("_avg_cost"),
+                        "profit_pct": r.get("profit_pct"),
+                        "profit_amount": r.get("profit_amount"),
+                    }
+                    pct, amt = fallback_pnl(fake_doc, buy_index)
+                    if pct != 0 or amt != 0:
+                        r["profit_pct"] = pct
+                        r["profit_amount"] = amt
+                # 清理临时字段
+                for k in ("_ts_code", "_filled_price", "_filled_qty", "_side", "_avg_cost"):
+                    r.pop(k, None)
+        except Exception:
+            pass
     except Exception:
         pass  # MongoDB不可用不影响已有数据导出
     
@@ -834,11 +902,25 @@ async def get_trade_audit():
                     entry["sell_price"] = doc.get("filled_price", 0) or doc.get("price", 0)
                     entry["sell_reason"] = doc.get("reason", "")
                     entry["sell_detail"] = doc.get("decision_detail")
+                    # 【v2.9.99-r6】broker_orders.profit_pct 经常为0, 先存原值, 后面统一 fallback
                     entry["profit_pct"] = doc.get("profit_pct")
+                    entry["_sell_doc"] = doc  # 保留 doc 给 fallback 用
                     entry["status"] = "已卖出"
+        # 【v2.9.99-r6】统一 fallback sell 盈亏
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            buy_idx = await build_buy_price_index(mongo_manager.db, account_id=account_id)
+            for ts_code_key, e in traded_stocks.items():
+                sd = e.pop("_sell_doc", None)
+                if sd:
+                    pct, amt = fallback_pnl(sd, buy_idx)
+                    if pct != 0 or amt != 0:
+                        e["profit_pct"] = pct
+                        e["profit_amount"] = amt
+        except Exception:
+            pass
     except Exception:
         pass
-
     # Step 2: 从内存 timeline 补充 decision_detail (broker_orders 可能没有)
     for item in scanner._timeline:
         ts_code = item.get("ts_code", "")

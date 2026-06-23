@@ -55,12 +55,15 @@ async def backtest_compare(date: str = None):
             from collections import defaultdict
             ls = defaultdict(lambda: {"trades":0,"wins":0,"total_pnl":0})
             date_lte = _normalize_date(date) if date else None
+            # 【v2.9.99-r6】预加载 buy_index 用于 sell 订单 profit_pct=0 的 fallback
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            _buy_idx_bc = await build_buy_price_index(mongo_manager.db)
             for doc in await query_trades(
                 mongo_manager.db, side="sell",
                 date_lte=date_lte
             ):
                 strat = _norm_strat(doc.get("strategy","unknown"))
-                pct = doc.get("profit_pct",0) or 0
+                pct, _ = fallback_pnl(doc, _buy_idx_bc)
                 ls[strat]["trades"] += 1
                 if pct >= 0:
                     ls[strat]["wins"] += 1
@@ -249,6 +252,7 @@ async def get_trade_attribution(date: str = None):
             ts_code = doc.get("ts_code", "")
             strategy = doc.get("strategy", "")
             profit_pct = doc.get("profit_pct", 0) or 0
+            profit_amount = doc.get("profit_amount", 0) or 0  # 【v2.9.99-r6】同步 fallback
             sell_reason = doc.get("reason", "")
             filled_price = doc.get("filled_price", 0) or 0
             filled_qty = doc.get("filled_qty", 0) or 0
@@ -269,6 +273,11 @@ async def get_trade_attribution(date: str = None):
                 else:
                     # profit_pct=0: 保本卖出，买入价≈卖出价
                     buy_price = round(filled_price, 2)
+
+            # 【v2.9.99-r6】broker_orders.profit_pct 经常为0 (时序问题) → fallback 自算
+            if (profit_pct == 0 and profit_amount == 0) and buy_price > 0 and filled_price > 0:
+                profit_pct = round((filled_price - buy_price) / buy_price * 100, 2)
+                profit_amount = round((filled_price - buy_price) * filled_qty, 2)
 
             # 查找scan_trace(买入漏斗) — 策略名可能存在别名(anomaly_surge vs halfway_chase)
             scan_info = None
@@ -328,7 +337,7 @@ async def get_trade_attribution(date: str = None):
                 "buy_price": buy_price,
                 "sell_price": filled_price,
                 "profit_pct": profit_pct,
-                "profit_amount": doc.get("profit_amount", 0),
+                "profit_amount": profit_amount,  # 【v2.9.99-r6】使用 fallback 后的 amount
                 "buy_time": buy_time,
                 "sell_time": doc.get("fill_time", ""),
                 "sell_reason": sell_reason,
@@ -643,9 +652,18 @@ async def get_discipline_check(date: str = None):
                 correct_actions += 1
 
         # 检查卖出(止损是否及时)
+        # 【v2.9.99-r6】预加载 buy_index fallback profit_pct=0
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            _buy_idx_dc = await build_buy_price_index(db)
+        except Exception:
+            _buy_idx_dc = {}
         for doc in await query_trades(db, side="sell", date=date_int):
             total_actions += 1
-            pct = doc.get("profit_pct",0) or 0
+            try:
+                pct, _ = fallback_pnl(doc, _buy_idx_dc)
+            except Exception:
+                pct = doc.get("profit_pct", 0) or 0
             reason = doc.get("reason","")
 
             # 亏损超过5%仍未止损(可能是扛单)
@@ -714,9 +732,18 @@ async def get_review_forward(date: str = None):
             db, side="sell",
             sort=[("_id", -1)], limit=60
         )
+        # 【v2.9.99-r6】fallback profit_pct=0
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            _buy_idx_rf = await build_buy_price_index(db)
+        except Exception:
+            _buy_idx_rf = {}
         for doc in recent_sells:
             strat = _norm_strat(doc.get("strategy","unknown"))
-            pct = doc.get("profit_pct",0) or 0
+            try:
+                pct, _ = fallback_pnl(doc, _buy_idx_rf)
+            except Exception:
+                pct = doc.get("profit_pct", 0) or 0
             strat_stats[strat]["count"] += 1
             if pct >= 0:
                 strat_stats[strat]["wins"] += 1

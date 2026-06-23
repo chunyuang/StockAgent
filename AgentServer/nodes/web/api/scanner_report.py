@@ -86,20 +86,55 @@ async def get_daily_report(date: str = None, mode: str = "production", include_d
                 strategy_summary[key]["loss_count"] += 1
         
         # 从时间线统计已平仓策略表现
-        for item in scanner._timeline:
-            if item.get("action") == "sell" and item.get("strategy"):
-                key = item["strategy"]
-                if key not in strategy_summary:
-                    strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_profit": 0, "closed_count": 0}
-                if "closed_count" not in strategy_summary[key]:
-                    strategy_summary[key]["closed_count"] = 0
-                    strategy_summary[key]["closed_profit"] = 0
-                strategy_summary[key]["closed_count"] = strategy_summary[key].get("closed_count", 0) + 1
-                strategy_summary[key]["closed_profit"] = strategy_summary[key].get("closed_profit", 0) + item.get("profit_amount", 0)
-                if item.get("profit_pct", 0) >= 0:
-                    strategy_summary[key]["win_count"] = strategy_summary[key].get("win_count", 0) + 1
-                else:
-                    strategy_summary[key]["loss_count"] = strategy_summary[key].get("loss_count", 0) + 1
+        # 【v2.9.99-r6】scanner._timeline 的 profit_pct/amount 也是空 (broker 时序问题),
+        # 改从 broker_orders 查 + fallback
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            from core.managers import mongo_manager as _mm_gdr
+            if _mm_gdr.is_initialized:
+                _buy_idx_gdr = await build_buy_price_index(_mm_gdr.db)
+                _today_int = int(datetime.now().strftime("%Y%m%d"))
+                _date_q = _normalize_date(date) if date else _today_int
+                _date_filter = {"$in": [_date_q, str(_date_q)]}
+                async for sdoc in _mm_gdr.db["broker_orders"].find({
+                    "account_id": "default",
+                    "trade_date": _date_filter,
+                    "status": "filled",
+                    "side": {"$in": ["sell", "SELL"]},
+                }):
+                    key = _norm_strat(sdoc.get("strategy") or "unknown")
+                    if key not in strategy_summary:
+                        strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_profit": 0, "closed_count": 0}
+                    if "closed_count" not in strategy_summary[key]:
+                        strategy_summary[key]["closed_count"] = 0
+                        strategy_summary[key]["closed_profit"] = 0
+                    pct_fb, amt_fb = fallback_pnl(sdoc, _buy_idx_gdr)
+                    strategy_summary[key]["closed_count"] += 1
+                    strategy_summary[key]["closed_profit"] += amt_fb
+                    if pct_fb >= 0:
+                        strategy_summary[key]["win_count"] = strategy_summary[key].get("win_count", 0) + 1
+                    else:
+                        strategy_summary[key]["loss_count"] = strategy_summary[key].get("loss_count", 0) + 1
+            else:
+                raise RuntimeError("mongo 未初始化")
+        except Exception as _dbg_e:
+            import logging as _lg
+            _lg.getLogger(__name__).warning(f"[v2.9.99-r6 dbg] daily_report broker fallback 降级到 timeline: {type(_dbg_e).__name__}: {_dbg_e}")
+            # 降级: 走 scanner._timeline 路径 (原逻辑)
+            for item in scanner._timeline:
+                if item.get("action") == "sell" and item.get("strategy"):
+                    key = item["strategy"]
+                    if key not in strategy_summary:
+                        strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_profit": 0, "closed_count": 0}
+                    if "closed_count" not in strategy_summary[key]:
+                        strategy_summary[key]["closed_count"] = 0
+                        strategy_summary[key]["closed_profit"] = 0
+                    strategy_summary[key]["closed_count"] = strategy_summary[key].get("closed_count", 0) + 1
+                    strategy_summary[key]["closed_profit"] = strategy_summary[key].get("closed_profit", 0) + item.get("profit_amount", 0)
+                    if item.get("profit_pct", 0) >= 0:
+                        strategy_summary[key]["win_count"] = strategy_summary[key].get("win_count", 0) + 1
+                    else:
+                        strategy_summary[key]["loss_count"] = strategy_summary[key].get("loss_count", 0) + 1
         
         # 计算策略胜率 + 扩展归因指标
         for key in strategy_summary:
@@ -458,7 +493,13 @@ async def get_weekly_report(date: str = None):
             daily_stats[td]["strategies"][strategy]["amount"] += amount
             if side == "sell":
                 daily_stats[td]["strategies"][strategy]["sell_count"] += 1
-                pct = doc.get("profit_pct", 0) or 0
+                # 【v2.9.99-r6】broker_orders.profit_pct 经常为0 → fallback
+                try:
+                    if "_buy_idx_dr" not in dir() or _buy_idx_dr is None:
+                        raise NameError
+                    pct, _ = fallback_pnl(doc, _buy_idx_dr)
+                except (NameError, Exception):
+                    pct = doc.get("profit_pct", 0) or 0
                 if pct >= 0:
                     daily_stats[td]["strategies"][strategy]["wins"] += 1
                 daily_stats[td]["strategies"][strategy]["pnl"] += pct
@@ -501,7 +542,13 @@ async def get_weekly_report(date: str = None):
             strat = _norm_strat(doc.get("strategy", "unknown"))
             if strat not in strategy_summary:
                 strategy_summary[strat] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
-            pct = doc.get("profit_pct", 0) or 0
+            # 【v2.9.99-r6】broker_orders.profit_pct 经常为0 → fallback
+            try:
+                if "_buy_idx_ss" not in dir() or _buy_idx_ss is None:
+                    raise NameError
+                pct, _ = fallback_pnl(doc, _buy_idx_ss)
+            except (NameError, Exception):
+                pct = doc.get("profit_pct", 0) or 0
             if pct >= 0:
                 strategy_summary[strat]["wins"] += 1
             strategy_summary[strat]["pnl"] += pct
@@ -548,6 +595,7 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
     """Scanner未运行时从MongoDB聚合今日复盘数据"""
     from core.managers import mongo_manager
     from collections import defaultdict
+    from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl  # noqa: F401
     
     if not mongo_manager.is_initialized:
         return {"success": True, "data": {}}
@@ -582,12 +630,24 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
         strategy_summary[key]["count"] += 1
         strategy_summary[key]["market_value"] += (b.get("filled_price", 0) or b.get("price", 0) or 0) * (b.get("filled_qty", 0) or b.get("quantity", 0) or 0)
     
+    # 【v2.9.99-r6】预加载 buy_index 给 sell 订单 fallback (broker_orders.profit_pct 经常为0)
+    try:
+        _buy_idx_mongo = await build_buy_price_index(db)
+    except Exception:
+        _buy_idx_mongo = {}
+
     for s in sells:
         key = _norm_strat(s.get("strategy", "") or "unknown")
         strategy_summary[key]["closed_count"] += 1
         strategy_summary[key]["sell_count"] += 1
-        pnl = s.get("profit_pct", 0) or 0
-        strategy_summary[key]["closed_profit"] += s.get("profit_amount", 0) or 0
+        # 【v2.9.99-r6】broker_orders.profit_pct 经常为0 → fallback 自算
+        try:
+            pct_fb, amt_fb = fallback_pnl(s, _buy_idx_mongo)
+        except Exception:
+            pct_fb = s.get("profit_pct", 0) or 0
+            amt_fb = s.get("profit_amount", 0) or 0
+        pnl = pct_fb
+        strategy_summary[key]["closed_profit"] += amt_fb
         reason = s.get("reason", "")
         if pnl >= 0:
             strategy_summary[key]["win_count"] += 1

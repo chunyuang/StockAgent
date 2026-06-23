@@ -175,19 +175,29 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
                 points = agg_points
             
             # trades: 只取时间范围内的sell记录
+            # 【v2.9.99-r6】预加载 buy_index (broker_orders.profit_pct 经常为0)
+            try:
+                from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+                _buy_idx_tl = await build_buy_price_index(db)
+            except Exception:
+                _buy_idx_tl = {}
+                def fallback_pnl(d, idx): return (d.get("profit_pct", 0) or 0, d.get("profit_amount", 0) or 0)
             trade_query = {"status": "filled", "side": "sell"}
             if mode == "daily" and query.get("trade_date"):
                 td_q = query["trade_date"]
                 trade_query["trade_date"] = td_q
             async for doc in db["broker_orders"].find(
                 trade_query,
-                {"trade_date": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1, "profit_pct": 1}
+                {"trade_date": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1, "profit_pct": 1, "profit_amount": 1, "filled_qty": 1, "avg_cost": 1}
             ).sort("trade_date", 1):
+                # fallback 计算 sell profit_pct=0 的情况
+                pct_fb, amt_fb = fallback_pnl(doc, _buy_idx_tl)
                 trades.append({
                     "date": doc.get("trade_date", ""), "side": "sell", 
                     "ts_code": doc.get("ts_code", ""), "strategy": doc.get("strategy", ""), 
                     "price": doc.get("filled_price", 0), "reason": doc.get("reason", ""),
-                    "profit_pct": doc.get("profit_pct", 0),
+                    "profit_pct": pct_fb,
+                    "profit_amount": amt_fb,
                 })
         else:
             # 日内模式 — v2.9.92: 多指标展示(涨跌停柱状图+涨跌比+情绪score)
@@ -263,9 +273,17 @@ async def get_sentiment_strategy_matrix(date: str = None):
             except Exception:
                 pass
         
+        # 【v2.9.99-r6】预加载 buy_index (broker_orders.profit_pct 经常为0)
+        try:
+            from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+            _buy_idx_ssm = await build_buy_price_index(db)
+        except Exception:
+            _buy_idx_ssm = {}
+
         async for doc in db["broker_orders"].find(
             sell_query,
-            {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1}
+            {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1,
+             "ts_code": 1, "side": 1, "profit_pct": 1, "profit_amount": 1, "avg_cost": 1}
         ):
             strategy = _normalize_sid(doc.get("strategy", "unknown") or "unknown")
             # 强制空仓等系统指令归为"system_force"策略
@@ -286,6 +304,15 @@ async def get_sentiment_strategy_matrix(date: str = None):
             # 优先从broker_orders的profit_pct字段读取(真实盈亏)
             profit_pct = doc.get("profit_pct", 0) or 0
             profit_amount = doc.get("profit_amount", 0) or 0
+            # 【v2.9.99-r6】broker_orders.profit_pct 经常为0 (broker 时序问题) → fallback 自算
+            if not profit_pct and not profit_amount:
+                try:
+                    _pct_fb, _amt_fb = fallback_pnl(doc, _buy_idx_ssm)
+                    if _pct_fb != 0 or _amt_fb != 0:
+                        profit_pct = _pct_fb
+                        profit_amount = _amt_fb
+                except Exception:
+                    pass
             if not profit_pct and not profit_amount:
                 # 无盈亏数据,从reason推断
                 pct_match = re.search(r'曾盈([\\d.]+)%', reason)
