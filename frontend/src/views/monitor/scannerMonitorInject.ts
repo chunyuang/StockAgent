@@ -104,6 +104,7 @@ export interface ScannerMonitorData {
   positions: Ref<PositionInfo[]>
   timeline: Ref<TimelineItem[]>
   orders: Ref<any[]>
+  todayClosedTrades: Ref<any[]>
   signalFilter: Ref<string>
   filteredSignals: ComputedRef<ScanSignal[]>
   closedPositions: ComputedRef<PositionInfo[]>
