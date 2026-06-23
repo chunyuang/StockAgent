@@ -177,6 +177,31 @@ async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
 
     # 持久化到MongoDB
     await _persist_overrides()
+    
+    # 【V76-审计修复】同步覆盖到strategy_params集合(param_center/compare页面的数据源)
+    # 之前只写scanner_config.strategy_config_overrides,不写strategy_params,
+    # 导致param_center.get_strategy_params()和strategy-params-compare API读不到最新覆盖
+    try:
+        from core.managers import mongo_manager as _mm
+        if _mm.is_initialized:
+            effective_cfg = await _get_effective_config(strategy_id)
+            update_fields = {}
+            if req.params is not None:
+                update_fields["params"] = effective_cfg.get("params", {})
+            if req.riskParams is not None:
+                update_fields["riskParams"] = effective_cfg.get("riskParams", {})
+            if req.enabled is not None:
+                update_fields["enabled"] = effective_cfg.get("enabled", True)
+            if update_fields:
+                from datetime import datetime as _dt
+                update_fields["updated_at"] = _dt.now().isoformat()
+                update_fields["updated_by"] = "strategy_config_api"
+                await _mm.db["strategy_params"].update_one(
+                    {"strategy_id": strategy_id},
+                    {"$set": update_fields},
+                )
+    except Exception as _e:
+        logger.debug(f"[CONFIG] 同步strategy_params失败(非关键): {_e}")
 
     # 同步到MarketScanner(如果运行中)
     try:
@@ -281,6 +306,26 @@ async def reset_strategy(strategy_id: str):
     _override_enabled.pop(strategy_id, None)
     # 持久化清除到MongoDB
     await _persist_overrides()
+    # 【V76-审计修复】同步重置strategy_params集合中的覆盖字段
+    try:
+        from core.managers import mongo_manager as _mm
+        if _mm.is_initialized:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS as _SC
+            defaults = _SC.get(strategy_id, {})
+            from datetime import datetime as _dt
+            reset_fields = {
+                "params": dict(defaults.get("params", {})),
+                "riskParams": dict(defaults.get("riskParams", {})),
+                "enabled": defaults.get("enabled", True),
+                "updated_at": _dt.now().isoformat(),
+                "updated_by": "strategy_config_reset",
+            }
+            await _mm.db["strategy_params"].update_one(
+                {"strategy_id": strategy_id},
+                {"$set": reset_fields},
+            )
+    except Exception as _e:
+        logger.debug(f"[CONFIG] 重置同步strategy_params失败(非关键): {_e}")
     cfg = await _get_effective_config(strategy_id)
     logger.info(f"[CONFIG] 重置策略 {strategy_id} (已持久化)")
     return {"success": True, "data": cfg}

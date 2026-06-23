@@ -416,11 +416,39 @@ async def get_strategy_params_compare():
         # 检测漂移
         drifts = await param_center.detect_drift()
         
+        # 【V76-审计修复】读取strategy-config API的运行时覆盖(scanner_config.strategy_config_overrides)
+        # 之前只读strategy_params集合,漏了前端API修改的覆盖,导致compare页面不准
+        api_param_overrides = {}
+        api_risk_overrides = {}
+        api_enabled_overrides = {}
+        api_global_risk_override = {}
+        try:
+            from core.managers import mongo_manager as _mm
+            if _mm.is_initialized:
+                override_doc = await _mm.db["scanner_config"].find_one(
+                    {"_id": "strategy_config_overrides"}
+                )
+                if override_doc and "data" in override_doc:
+                    api_param_overrides = override_doc["data"].get("params", {})
+                    api_risk_overrides = override_doc["data"].get("risk", {})
+                    api_enabled_overrides = override_doc["data"].get("enabled", {})
+                    api_global_risk_override = override_doc["data"].get("global_risk", {})
+        except Exception:
+            pass
+        
         # 获取所有策略参数(实盘)
         live_params = {}
         for strategy_id in ['halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao']:
             params = await param_center.get_strategy_params(strategy_id)
             if params:
+                # 【V76-审计修复】合并strategy-config API的覆盖到live_params
+                # strategy_params集合可能未包含前端API修改的参数,需合并
+                if strategy_id in api_param_overrides:
+                    params.setdefault("params", {}).update(api_param_overrides[strategy_id])
+                if strategy_id in api_risk_overrides:
+                    params.setdefault("riskParams", {}).update(api_risk_overrides[strategy_id])
+                if strategy_id in api_enabled_overrides:
+                    params["enabled"] = api_enabled_overrides[strategy_id]
                 live_params[strategy_id] = params
         
         # 获取回测基线
@@ -477,6 +505,17 @@ async def get_strategy_params_compare():
             if isinstance(strategy_doc, dict) and strategy_doc.get('globalRisk'):
                 live_gr = strategy_doc['globalRisk']
                 break
+        
+        # 【V76-审计修复】合并strategy-config API的全局风控覆盖
+        # 之前只读strategy_params中的globalRisk,漏了前端API修改的覆盖
+        if api_global_risk_override:
+            for k, v in api_global_risk_override.items():
+                if k in live_gr and isinstance(live_gr[k], dict) and isinstance(v, dict):
+                    merged = dict(live_gr[k])
+                    merged.update(v)
+                    live_gr[k] = merged
+                else:
+                    live_gr[k] = v
         
         global_diffs = []
         global_sames = []
