@@ -24,7 +24,8 @@
       "strategy": "str",
       "price": "float",
       "reason": "str",
-      "profit_pct": "float"
+      "profit_pct": "float",
+      "profit_amount": "float"
     }
   ]
 }

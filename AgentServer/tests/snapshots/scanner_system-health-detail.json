@@ -1,7 +1,7 @@
 {
   "scanner": {
     "is_running": "bool",
-    "uptime_seconds": "float"
+    "uptime_seconds": "int"
   },
   "data_sources": [
     {

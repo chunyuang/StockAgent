@@ -31,16 +31,13 @@
     "max_single_pct": "int",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "农业综合": "float",
-      "通信设备": "float",
-      "专用机械": "float",
-      "航空": "float",
-      "机械基件": "float",
+      "煤炭开采": "float",
+      "化学制药": "float",
+      "证券": "float",
       "电气设备": "float",
-      "铅锌": "float",
-      "化工原料": "float",
-      "铝": "float",
-      "元器件": "float"
+      "机械基件": "float",
+      "专用机械": "float",
+      "化纤": "float"
     },
     "position_count": "int",
     "risk_summary": {

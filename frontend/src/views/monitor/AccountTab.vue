@@ -267,7 +267,7 @@ const posPie = computed(() => {
           <div class="at-risk-row"><span>⚠️ 接近止损</span><span class="warn">{{ nearSL.length }}只</span></div>
           <div class="at-risk-row"><span>✅ 安全</span><span class="ok">{{ positions.length - brokenSL.length - nearSL.length }}只</span></div>
           <div v-if="brokenSL.length" class="at-broken-list">
-            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ p.profit_pct?.toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
+            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ (p.profit_pct ?? 0).toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
           </div>
         </div>
       </div>

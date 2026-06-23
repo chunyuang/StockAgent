@@ -1,6 +1,154 @@
 {
   "success": "bool",
   "data": [
-    "<empty_list>"
+    {
+      "time": "str",
+      "ts_code": "str",
+      "stock_name": "str",
+      "side": "str",
+      "quantity": "int",
+      "price": "float",
+      "amount": "float",
+      "strategy": "str",
+      "reason": "str",
+      "source": "str",
+      "trade_date": "str",
+      "order_id": "str",
+      "order_type": "str",
+      "status": "str",
+      "create_time": "str",
+      "fill_time": "str",
+      "decision_trace": {
+        "version": "str",
+        "stock": {
+          "ts_code": "str",
+          "stock_name": "str",
+          "strategy": "str",
+          "strategy_name": "str",
+          "scan_time": "str"
+        },
+        "market_data": {
+          "price": "float",
+          "filled_price": "float",
+          "pct_chg": "float",
+          "volume_ratio": "float",
+          "turnover_rate": "float",
+          "is_limit_up": "bool",
+          "limit_up_count": "int",
+          "open": "float",
+          "high": "float",
+          "low": "float",
+          "pre_close": "float",
+          "circ_mv": "int",
+          "ma5": "float",
+          "rsi_6": "NoneType"
+        },
+        "selection_params": {
+          "strategy": "str",
+          "min_rise_pct": "float",
+          "max_rise_pct": "float",
+          "min_volume_ratio": "float",
+          "max_volume_ratio": "float",
+          "min_turnover_rate": "NoneType",
+          "max_turnover_rate": "NoneType",
+          "min_circulation_market_cap": "NoneType",
+          "max_circulation_market_cap": "NoneType",
+          "max_open_rise_pct": "float",
+          "min_close_rise_pct": "float",
+          "allow_after_10am": "bool",
+          "opening_pct_min": "NoneType",
+          "opening_pct_max": "NoneType",
+          "min_consecutive_limit": "NoneType",
+          "min_correction_pct": "NoneType",
+          "max_correction_pct": "NoneType",
+          "next_day_open_sell_pct": "float"
+        },
+        "risk_params": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "trailing_stop_pct": "float",
+          "max_hold_days": "int",
+          "slippage_pct": "float",
+          "hold_protection_threshold": "float"
+        },
+        "layers": {
+          "L1_force_empty": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L2_special_period": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L3_sentiment": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L4_premarket": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L5_auction": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L6_strategy": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L7_ranking": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L8_ma60": {
+            "detail": "str",
+            "applied": "bool"
+          },
+          "L8_position": {
+            "position_ratio": "float",
+            "action": "str"
+          },
+          "L9_sector": {}
+        },
+        "sentiment": {
+          "score": "float",
+          "period": "str",
+          "phase_name": "str",
+          "position_ratio_factor": "float"
+        },
+        "account_context": {
+          "available_cash_before": "float",
+          "total_assets_before": "float",
+          "position_count_before": "int",
+          "max_positions": "int",
+          "max_position_ratio": "float",
+          "single_position_cap": "float",
+          "calculated_position_ratio": "float",
+          "max_amount": "float",
+          "buy_amount": "float",
+          "buy_shares": "int",
+          "circuit_breaker": {
+            "paused": "bool",
+            "consecutive_losses": "int",
+            "today_trades": "int",
+            "today_losses": "int"
+          }
+        },
+        "decision_steps": [
+          {
+            "step": "str",
+            "logic": "str",
+            "params": {
+              "strategy": "str"
+            },
+            "observed": {
+              "reason": "str",
+              "scan_time": "str"
+            },
+            "result": "str"
+          }
+        ]
+      }
+    }
   ]
 }

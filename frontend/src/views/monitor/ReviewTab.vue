@@ -278,7 +278,7 @@ const monthlyClosedLoopExpanded = ref(false)
 
           <div v-if="monthlyStrategyCount" class="review-section" style="margin-top:4px">
             <span class="section-title title-red" style="cursor:pointer" @click="monthlyStrategyExpanded = !monthlyStrategyExpanded">🎯 策略贡献 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ monthlyStrategyExpanded ? '▼' : '▶' }}</span></span>
-            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ monthlyStrategyCount }}</b>个策略 | 总盈亏<b :class="(monthlyStrategyPnl ?? 0) >= 0 ? 'up' : 'down'">{{ (monthlyStrategyPnl ?? 0).toFixed(1) }}%</b></span>
+            <span class="section-detail" v-if="!monthlyStrategyExpanded"><b>{{ monthlyStrategyCount }}</b>个策略 | 总盈亏<b :class="(monthlyStrategyPnl ?? 0) >= 0 ? 'up' : 'down'">{{ (monthlyStrategyPnl || 0).toFixed(1) }}%</b></span>
           </div>
           <div v-if="monthlyStrategyExpanded && monthlyStrategyCount" class="strategy-stacked">
             <div v-for="(data, key) in (monthlyReviewData?.strategy_stats as any) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl || 0), 5) + '%', background: (data.pnl || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">

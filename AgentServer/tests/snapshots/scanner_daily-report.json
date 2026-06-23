@@ -17,6 +17,24 @@
         "total_profit": "float",
         "win_count": "int",
         "loss_count": "int",
+        "closed_count": "int",
+        "closed_profit": "float",
+        "win_rate": "float",
+        "closed_win_rate": "float",
+        "stop_loss_count": "int",
+        "take_profit_count": "int",
+        "avg_win_pct": "float",
+        "avg_loss_pct": "int",
+        "profit_loss_ratio": "int",
+        "max_win_pct": "int",
+        "max_loss_pct": "int"
+      },
+      "limit_up_open": {
+        "count": "int",
+        "market_value": "int",
+        "total_profit": "float",
+        "win_count": "int",
+        "loss_count": "int",
         "win_rate": "float",
         "closed_win_rate": "int",
         "stop_loss_count": "int",
@@ -46,7 +64,7 @@
   "trades": {
     "buy": "int",
     "sell": "int",
-    "total_amount": "int"
+    "total_amount": "float"
   },
   "win_rate": "int",
   "stop_loss_count": "int",
@@ -68,6 +86,23 @@
     "buy_count": "int",
     "sell_count": "int"
   },
-  "funnel_summary": "NoneType",
-  "sentiment_snapshot": "NoneType"
+  "funnel_summary": {
+    "L1_force_empty": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L4_premarket": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L7_ranking": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L5_auction": {
+      "total_input": "int",
+      "total_rejected": "int"
+    }
+  },
+  "sentiment_snapshot": "str"
 }

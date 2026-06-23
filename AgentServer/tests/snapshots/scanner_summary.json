@@ -43,12 +43,12 @@
       "wins": "int",
       "total_pnl": "int"
     },
-    "涨停开板": {
+    "半路追涨": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "int"
     },
-    "半路追涨": {
+    "涨停开板": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "int"
@@ -61,7 +61,7 @@
     "halfway_chase": {
       "trades": "int",
       "wins": "int",
-      "total_pnl": "int"
+      "total_pnl": "float"
     },
     "急速拉升": {
       "trades": "int",
@@ -69,6 +69,11 @@
       "total_pnl": "int"
     },
     "强势涨停": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "limit_up_open": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "int"
