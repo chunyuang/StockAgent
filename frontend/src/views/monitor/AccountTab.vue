@@ -108,8 +108,8 @@ const realizedPnl = computed(() => {
 const posPie = computed(() => {
   const pos = positions.value
   if (!pos.length) return null
-  const up = pos.filter((p: any) => p.profit_pct >= 0)
-  const down = pos.filter((p: any) => p.profit_pct < 0)
+  const up = pos.filter((p: any) => (p.profit_pct ?? 0) >= 0)
+  const down = pos.filter((p: any) => (p.profit_pct ?? 0) < 0)
   return {
     tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
     legend: { bottom: 0, textStyle: { fontSize: 11, color: '#999' } },
@@ -203,8 +203,8 @@ const posPie = computed(() => {
                 <span v-if="p.stop_loss_status === 'broken'" class="sl-broken">🔴破止损</span>
                 <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
               </div>
-              <div :class="['pos-pnl', cls(p.profit_pct)]">
-                <span class="pos-pnl-pct">{{ p.profit_pct >= 0 ? '+' : '' }}{{ p.profit_pct?.toFixed(1) }}%</span>
+              <div :class="['pos-pnl', cls(p.profit_pct || 0)]">
+                <span class="pos-pnl-pct">{{ (p.profit_pct ?? 0) >= 0 ? '+' : '' }}{{ (p.profit_pct ?? 0).toFixed(1) }}%</span>
                 <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (p.profit_amount || 0).toLocaleString() }}</span>
               </div>
             </div>
