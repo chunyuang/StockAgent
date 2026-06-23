@@ -159,12 +159,14 @@ export function useReviewMonitor() {
   }
 
   async function runBacktest() {
+    backtestRunning.value = true
     try {
       const r = await api.post(`${scannerApi}/run-backtest`, {})
       const p = parseResponse(r)
       if (p.success) ElMessage.success('回测已启动')
       else ElMessage.error(String(p.data?.message || '启动失败'))
     } catch (e: any) { ElMessage.error('回测启动失败') }
+    finally { backtestRunning.value = false }
   }
 
   async function runSamePeriodBacktest() {

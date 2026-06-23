@@ -362,7 +362,7 @@ export function useScannerMonitor() {
   // layerDesc comes from ...scanTrace spread — do NOT override with a stub
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
-  const backtestRunning = ref(false)
+  // backtestRunning 来自 ...review spread, 不再本地覆盖(避免 spread 陷阱)
   const exportTradeLog = async () => {
     try {
       const r = await api.get(`${scannerApi}/export-trade-log`)
@@ -485,7 +485,7 @@ export function useScannerMonitor() {
     openScanTrace, signalStatusTag,
     // 复盘(来自...review)
     openWeeklyReport, weeklyReportData, saveSnapshot,
-    backtestRunning,
+    // backtestRunning 来自 ...review spread
     exportTradeLog,
     exportJSON,
     // 工具

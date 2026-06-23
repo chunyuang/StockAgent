@@ -654,7 +654,7 @@ const sweepChartOption = computed(() => {
   const r = sweepResult.value
   const values = r.results.map((item: any) => {
     const param = SWEEP_PARAMS.find((p: any) => p.value === r.sweep_param)
-    return param ? +(item.value * param.factor).toFixed(2) : item.value
+    return param ? +((Number(item.value) || 0) * param.factor).toFixed(2) : item.value
   })
   return {
     tooltip: { trigger: 'axis' },
@@ -672,19 +672,19 @@ const sweepChartOption = computed(() => {
     series: [
       {
         name: '收益率(%)', type: 'line',
-        data: r.results.map((item: any) => +(item.total_return).toFixed(2)),
+        data: r.results.map((item: any) => +(Number(item.total_return) || 0).toFixed(2)),
         lineStyle: { color: 'var(--stock-down)', width: 2 },
         itemStyle: { color: 'var(--stock-down)' },
       },
       {
         name: '胜率(%)', type: 'line',
-        data: r.results.map((item: any) => +(item.win_rate).toFixed(1)),
+        data: r.results.map((item: any) => +(Number(item.win_rate) || 0).toFixed(1)),
         lineStyle: { color: 'var(--el-color-primary)', width: 2 },
         itemStyle: { color: 'var(--el-color-primary)' },
       },
       {
         name: '最大回撤(%)', type: 'line', yAxisIndex: 1,
-        data: r.results.map((item: any) => +(item.max_drawdown).toFixed(2)),
+        data: r.results.map((item: any) => +(Number(item.max_drawdown) || 0).toFixed(2)),
         lineStyle: { color: 'var(--stock-up)', width: 2, type: 'dashed' },
         itemStyle: { color: 'var(--stock-up)' },
       },
@@ -744,15 +744,15 @@ const reviewReport = computed(() => {
   if (!r) return null
 
   const days = r.net_value_series?.length || 0
-  const totalReturn = r.total_return ?? 0
-  const annualReturn = r.annualized_return ?? 0
-  const maxDD = r.max_drawdown ?? 0
-  const winRate = r.win_rate ?? 0
-  const sharpe = r.sharpe_ratio ?? 0
-  const calmar = r.calmar_ratio ?? 0
-  const profitLossRatio = r.profit_loss_ratio ?? 0
-  const totalTrades = r.total_trades ?? 0
-  const totalSignals = r.total_signals ?? 0
+  const totalReturn = Number(r.total_return) || 0
+  const annualReturn = Number(r.annualized_return) || 0
+  const maxDD = Number(r.max_drawdown) || 0
+  const winRate = Number(r.win_rate) || 0
+  const sharpe = Number(r.sharpe_ratio) || 0
+  const calmar = Number(r.calmar_ratio) || 0
+  const profitLossRatio = Number(r.profit_loss_ratio) || 0
+  const totalTrades = Number(r.total_trades) || 0
+  const totalSignals = Number(r.total_signals) || 0
 
   // 策略表现
   const strategyResults = r.strategy_results || {}

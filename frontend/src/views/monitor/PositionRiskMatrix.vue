@@ -38,6 +38,11 @@ async function fetchData() {
   } catch (e) { console.error('[PositionRiskMatrix] fetch error:', e) } finally { loading.value = false }
 }
 
+function safeNum(v: any, fallback = 0): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
 function riskColor(score: number): string {
   if (score < 30) return '#67c23a'
   if (score < 50) return '#e6a23c'
@@ -62,7 +67,8 @@ const riskScore = computed(() => {
   const c = globalRisk.value?.risk_summary?.critical ?? 0
   const w = globalRisk.value?.risk_summary?.warning ?? 0
   const t = globalRisk.value?.position_count ?? 1
-  return Math.round((c * 100 + w * 50) / t)
+  if (t === 0) return 0
+  return safeNum(Math.round((c * 100 + w * 50) / t))
 })
 
 let timer: number
@@ -91,19 +97,19 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-stats">
         <div class="rm-stat">
           <span class="rm-label">仓位</span>
-          <span class="rm-val">{{ globalRisk?.position_ratio ?? 0 }}%</span>
+          <span class="rm-val">{{ safeNum(globalRisk?.position_ratio) }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">现金</span>
-          <span class="rm-val">{{ globalRisk?.cash_ratio ?? 0 }}%</span>
+          <span class="rm-val">{{ safeNum(globalRisk?.cash_ratio) }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">集中度</span>
-          <span class="rm-val" :class="(globalRisk?.max_single_pct ?? 0) > 30 ? 'warn' : ''">{{ globalRisk?.max_single_pct ?? '-' }}%</span>
+          <span class="rm-val" :class="(globalRisk?.max_single_pct || 0) > 30 ? 'warn' : ''">{{ globalRisk?.max_single_pct != null && Number.isFinite(Number(globalRisk?.max_single_pct)) ? (globalRisk?.max_single_pct || 0) + '%' : '-' }}</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">行业集中</span>
-          <span class="rm-val">{{ globalRisk?.top_industry_concentration ?? 0 }}%</span>
+          <span class="rm-val">{{ safeNum(globalRisk?.top_industry_concentration) }}%</span>
         </div>
         <div class="rm-risk-counts">
           <span class="rm-rc ok">🟢 {{ globalRisk?.risk_summary?.normal ?? 0 }}</span>
