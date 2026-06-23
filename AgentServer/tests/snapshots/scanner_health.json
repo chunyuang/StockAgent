@@ -66,13 +66,7 @@
       "warnings": [
         "str"
       ],
-      "event_bus_stats": {
-        "daily_settled": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        }
-      }
+      "event_bus_stats": {}
     },
     "pending_sells_detail": [
       "<empty_list>"

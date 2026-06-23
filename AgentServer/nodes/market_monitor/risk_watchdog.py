@@ -391,14 +391,32 @@ class RiskWatchdog:
             if breached:
                 msg = f"🔴 {len(breached)}只持仓跌破止损价未被止损: {', '.join(breached[:3])}"
                 logger.warning(f"[WATCHDOG] {msg}")
-                # 发送CRITICAL告警
-                if self._alert_callback:
-                    await self._alert_callback({
-                        "level": "CRITICAL",
-                        "type": "stop_loss_breach",
-                        "message": msg,
-                        "breached": breached,
-                    })
+                # 发送CRITICAL告警(通过alert_channels)
+                for handler in self._alert_channels:
+                    try:
+                        from nodes.market_monitor.signal_dispatcher import (
+                            SignalDispatcher, DispatchSignal, SignalPriority
+                        )
+                        alert_signal = DispatchSignal(
+                            signal_id=f"watchdog|stop_loss_breach|{int(now)}",
+                            ts_code="SYSTEM",
+                            stock_name="风控看门狗",
+                            strategy="risk_watchdog",
+                            strategy_name="风控看门狗",
+                            signal_type="risk",
+                            priority=SignalPriority.CRITICAL,
+                            reason=msg,
+                            extra={
+                                "check_name": "stop_loss_breach",
+                                "status": "critical",
+                                "breached": breached[:5],
+                            },
+                            created_at=now,
+                            source="risk_watchdog",
+                        )
+                        await handler(alert_signal)
+                    except Exception as e:
+                        logger.warning(f"[WATCHDOG] 止损告警通道异常: {e}")
                 return HealthCheck(
                     name="stop_loss_breach", status=HealthStatus.CRITICAL,
                     value=f"{len(breached)}只破止损", threshold="0只",

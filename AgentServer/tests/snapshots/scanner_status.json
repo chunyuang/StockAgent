@@ -4,37 +4,13 @@
   "last_scan_time": "str",
   "active_signals": "int",
   "positions": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "strategy_name": "str",
-      "shares": "int",
-      "available_qty": "int",
-      "cost_price": "float",
-      "current_price": "int",
-      "profit_pct": "int",
-      "profit_amount": "float",
-      "market_value": "int",
-      "today_buy": "int",
-      "stop_loss_pct": "float",
-      "take_profit_pct": "float",
-      "stop_loss_price": "float",
-      "take_profit_price": "float",
-      "stop_loss_status": "str",
-      "stop_loss_desc": "str",
-      "distance_to_stop": "float",
-      "buy_date": "str",
-      "trailing_stop": "NoneType",
-      "risk_level": "str",
-      "effective_stop_price": "float"
-    }
+    "<empty_list>"
   ],
   "stocks_scanned": "int",
   "account": {
-    "total_assets": "float",
+    "total_assets": "int",
     "available_cash": "int",
-    "market_value": "float",
+    "market_value": "int",
     "total_profit": "float"
   },
   "stats": {
@@ -102,7 +78,7 @@
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
   "realtime_cache_age_sec": "NoneType",
-  "smart_check_interval": "NoneType",
+  "smart_check_interval": "float",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",
@@ -115,13 +91,7 @@
     "warnings": [
       "str"
     ],
-    "event_bus_stats": {
-      "daily_settled": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      }
-    }
+    "event_bus_stats": {}
   },
   "market_status": "str",
   "current_time": "str",

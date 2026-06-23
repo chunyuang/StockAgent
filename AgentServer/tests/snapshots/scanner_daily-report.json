@@ -1,62 +1,21 @@
 {
   "date": "str",
   "account": {
-    "total_assets": "float",
+    "total_assets": "int",
     "available_cash": "int",
-    "market_value": "float",
+    "market_value": "int",
     "today_profit": "int",
-    "total_profit": "float",
-    "position_ratio": "float"
+    "total_profit": "int",
+    "position_ratio": "int"
   },
   "positions": {
     "count": "int",
-    "strategy_summary": {
-      "halfway_chase": {
-        "count": "int",
-        "market_value": "int",
-        "total_profit": "float",
-        "win_count": "int",
-        "loss_count": "int",
-        "win_rate": "float",
-        "closed_win_rate": "int",
-        "stop_loss_count": "int",
-        "take_profit_count": "int",
-        "avg_win_pct": "float",
-        "avg_loss_pct": "int",
-        "profit_loss_ratio": "int",
-        "max_win_pct": "int",
-        "max_loss_pct": "int"
-      },
-      "limit_up_open": {
-        "count": "int",
-        "market_value": "int",
-        "total_profit": "float",
-        "win_count": "int",
-        "loss_count": "int",
-        "win_rate": "float",
-        "closed_win_rate": "int",
-        "stop_loss_count": "int",
-        "take_profit_count": "int",
-        "avg_win_pct": "int",
-        "avg_loss_pct": "int",
-        "profit_loss_ratio": "int",
-        "max_win_pct": "int",
-        "max_loss_pct": "int"
-      }
-    },
+    "strategy_summary": {},
     "top_profit": [
-      {
-        "ts_code": "str",
-        "name": "str",
-        "pct": "int"
-      }
+      "<empty_list>"
     ],
     "top_loss": [
-      {
-        "ts_code": "str",
-        "name": "str",
-        "pct": "int"
-      }
+      "<empty_list>"
     ]
   },
   "trades": {
@@ -64,26 +23,7 @@
     "sell": "int",
     "total_amount": "int"
   },
-  "win_rate": "int",
-  "stop_loss_count": "int",
-  "take_profit_count": "int",
-  "risk": {
-    "circuit_breaker": "bool",
-    "consecutive_losses": "int",
-    "today_losses": "int"
-  },
-  "scanner_stats": {
-    "scans": "int",
-    "signals_found": "int",
-    "trades_executed": "int",
-    "stop_losses": "int",
-    "take_profits": "int",
-    "stocks_scanned": "int",
-    "scan_count": "int",
-    "total_signals": "int",
-    "buy_count": "int",
-    "sell_count": "int"
-  },
+  "scanner_stats": {},
   "funnel_summary": "NoneType",
   "sentiment_snapshot": "NoneType"
 }

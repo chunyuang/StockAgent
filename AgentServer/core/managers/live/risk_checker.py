@@ -352,9 +352,31 @@ class PreBuyRiskChecker:
         Returns:
             Tuple[bool, str, Dict]: (是否通过, 原因说明, 详细数据)
         """
-        # 检查ST股票
+        # 检查ST股票(从stock_name或MongoDB查询, ts_code不含ST信息)
         if self.config["exclude_st_stocks"]:
-            is_st = "ST" in ts_code or "*ST" in ts_code
+            is_st = False
+            # 1. 从缓存中查找stock_name
+            stock_info = self.stock_risk_cache.get(ts_code, {})
+            stock_name = stock_info.get('stock_name', '')
+            if 'ST' in stock_name or '*ST' in stock_name:
+                is_st = True
+            # 2. 缓存无数据时从MongoDB查询
+            if not is_st and not stock_name:
+                try:
+                    from core.managers.mongo_manager import mongo_manager
+                    if not mongo_manager.client:
+                        import asyncio; asyncio.get_event_loop().run_until_complete(mongo_manager.initialize())
+                    name_doc = mongo_manager.db.stock_daily_ak_full.find_one(
+                        {'ts_code': ts_code},
+                        sort=[('trade_date', -1)],
+                        projection={'stock_name': 1}
+                    )
+                    if name_doc and name_doc.get('stock_name'):
+                        stock_name = name_doc['stock_name']
+                        if 'ST' in stock_name or '*ST' in stock_name:
+                            is_st = True
+                except Exception:
+                    pass
             if is_st:
                 return False, f"个股风险过高，{ts_code}为ST股票，已被排除", {"is_st": True}
         
