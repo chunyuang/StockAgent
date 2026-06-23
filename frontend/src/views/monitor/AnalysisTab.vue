@@ -24,7 +24,9 @@ const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard
 const m = useScannerMonitorInject()
 const { activeTab } = m
 const loading = ref(false)
-const selectedDate = ref(getChinaDate())
+// 【v2.9.97h-v11 恢复】默认不限日期，看全部历史数据 (06-23 03:51 cron auto-merge 此行被覆盖, 2026-06-23 手动恢复)
+const selectedDate = ref('')  // 空字符串 = 全部历史
+const rangeMode = ref<'all' | 'date'>('all')  // 'all'=全部 / 'date'=单日
 const analysisData = ref<any>(null)
 const activeSection = ref('overview')
 const expandedCharts = ref<Record<string, boolean>>({})  // 每个图表独立折叠, 默认收起
@@ -45,14 +47,35 @@ function getChinaDate(): string {
 async function fetchAnalysis() {
   loading.value = true
   try {
-    const d = selectedDate.value.replace(/-/g, '')
-    const r = await api.get(`/scanner/analysis?date=${d}`)
+    // 【v2.9.97h-v11】全部模式不传 date，后端返回全部历史多日明细
+    const url = rangeMode.value === 'date' && selectedDate.value
+      ? `/scanner/analysis?date=${selectedDate.value.replace(/-/g, '')}`
+      : `/scanner/analysis`
+    const r = await api.get(url)
     const p = parseResponse(r)
     if (p.success) analysisData.value = p.data
-    // 同步获取当日交易
-    try { const r2 = await api.get(`/unified/trades?date=${d}`); const p2 = parseResponse(r2); if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {}
+    // 同步获取当日交易（用今天作默认，主表格不依赖这个）
+    try {
+      const today = getChinaDate().replace(/-/g, '')
+      const d = rangeMode.value === 'date' && selectedDate.value ? selectedDate.value.replace(/-/g, '') : today
+      const r2 = await api.get(`/unified/trades?date=${d}`)
+      const p2 = parseResponse(r2)
+      if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side }))
+    } catch {}
   } catch (e) { console.error('[Analysis]', e) }
   finally { loading.value = false }
+}
+
+function onSwitchToAll() {
+  rangeMode.value = 'all'
+  selectedDate.value = ''
+  fetchAnalysis()
+}
+
+function onDateChange(d: string) {
+  rangeMode.value = 'date'
+  selectedDate.value = d
+  fetchAnalysis()
 }
 
 // 仅在Tab激活时自动刷新(不与UnifiedDateBar的change事件重复)
@@ -150,7 +173,10 @@ async function showDayDetail(date: string) {
     <div class="mm-tab-scroll ana-wrap">
       <div class="ana-toolbar">
         <span class="ana-title">📊 结果分析</span>
-        <UnifiedDateBar @change="(_d: string) => { selectedDate = _d; fetchAnalysis() }" />
+        <span class="ana-range-hint" v-if="rangeMode === 'all'">全部历史</span>
+        <span class="ana-range-hint" v-else-if="selectedDate">{{ selectedDate }} 单日</span>
+        <ElButton size="small" :type="rangeMode === 'all' ? 'primary' : 'default'" @click="onSwitchToAll">📅 全部</ElButton>
+        <UnifiedDateBar @change="onDateChange" />
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 
@@ -313,6 +339,7 @@ async function showDayDetail(date: string) {
 .ana-wrap { display: flex; flex-direction: column; gap: 8px; }
 .ana-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-default); flex-wrap: nowrap; }
 .ana-title { font-size: 14px; font-weight: 700; }
+.ana-range-hint { font-size: 12px; color: var(--text-secondary); padding: 2px 8px; background: var(--bg-secondary); border-radius: 10px; border: 1px solid var(--border-default); }
 .ana-empty { padding: 60px 0; text-align: center; }
 .ana-empty-sm { padding: 16px 0; text-align: center; color: var(--text-tertiary); font-size: 11px; }
 .ana-loading { padding: 40px 0; text-align: center; color: var(--text-tertiary); }

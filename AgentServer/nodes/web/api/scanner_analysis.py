@@ -2,7 +2,7 @@
 从MongoDB聚合多日交易数据，计算KPI、策略贡献、卖出原因、月度收益等
 """
 from fastapi import APIRouter
-from typing import Optional
+from typing import Optional, Dict, Any
 
 router = APIRouter(prefix="/scanner", tags=["analysis"])
 
@@ -35,6 +35,31 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
 
     try:
         pos_cursor = db["broker_positions"].find({"account_id": account_id})
+        # 【v2.9.97h-v19 恢复】批量查询今日 broker_orders, 为每个 ts_code 填充 buy_time 和今日卖出记录
+        import datetime as _dt
+        today_int = int(_dt.datetime.now().strftime("%Y%m%d"))
+        order_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            async for o in db["broker_orders"].find(
+                {"account_id": account_id, "trade_date": {"$in": [today_int, str(today_int)]}, "status": "filled"}
+            ).sort("create_time", 1):
+                tc_ = o.get("ts_code", "")
+                if not tc_:
+                    continue
+                side_ = str(o.get("side", "")).lower()
+                entry = order_map.setdefault(tc_, {"buy_time": "", "sells": []})
+                if side_ == "buy" and not entry["buy_time"]:
+                    entry["buy_time"] = o.get("create_time") or o.get("fill_time") or ""
+                elif side_ == "sell":
+                    entry["sells"].append({
+                        "time": o.get("create_time") or o.get("fill_time") or "",
+                        "qty": int(o.get("filled_qty") or o.get("quantity") or 0),
+                        "price": round(float(o.get("filled_price") or o.get("price") or 0), 2),
+                        "profit_pct": round(float(o.get("profit_pct") or 0), 2),
+                        "profit_amount": round(float(o.get("profit_amount") or 0), 0),
+                    })
+        except Exception:
+            pass
         async for p in pos_cursor:
             qty = p.get("total_qty") or p.get("quantity") or 0
             if qty <= 0:
@@ -129,6 +154,9 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
                 "risk_monitor_active": risk_monitor_active,
                 "risk_monitor_desc": risk_monitor_desc,
                 "buy_date": p.get("buy_date", ""),
+                # 【v2.9.97h-v19 恢复】注入今日买入时间 + 今日卖出记录 (06-23 03:51 cron auto-merge 覆盖, 手动恢复)
+                "buy_time": order_map.get(tc, {}).get("buy_time", ""),
+                "recent_sells": order_map.get(tc, {}).get("sells", []),
             })
     except Exception as e:
         import traceback

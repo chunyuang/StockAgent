@@ -89,6 +89,7 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
     
     # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []
+    today_closed = []  # 【v2.9.97h-v19 恢复】今日已平仓, 默认空避免历史路径 NameError
     try:
         from core.managers import mongo_manager
         if mongo_manager.db is not None:
@@ -105,6 +106,39 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                 # 当日: 从broker_positions读(唯一真相源)
                 from nodes.web.api.scanner_analysis import _compute_positions_from_broker
                 positions_data = await _compute_positions_from_broker(mongo_manager.db, account_id)
+                # 【v2.9.97h-v19 恢复】补充今日已平仓记录 (涵盖是否当日买入均可)
+                try:
+                    today_int_v = int(datetime.now().strftime('%Y%m%d'))
+                    # 1. 找今天所有 filled 卖出
+                    today_sells = await mongo_manager.db["broker_orders"].find(
+                        {"account_id": account_id, "trade_date": {"$in": [today_int_v, str(today_int_v)]}, "status": "filled", "side": {"$in": ["sell", "SELL"]}}
+                    ).sort("create_time", 1).to_list(500)
+                    for sell in today_sells:
+                        tc = sell.get("ts_code", "")
+                        if not tc:
+                            continue
+                        # 2. 找对应的买入记录 (按 ts_code, trade_date <= today, side=buy, 最近一次)
+                        buy = await mongo_manager.db["broker_orders"].find_one(
+                            {"account_id": account_id, "ts_code": tc, "trade_date": {"$lte": today_int_v}, "status": "filled", "side": {"$in": ["buy", "BUY"]}},
+                            sort=[("trade_date", -1), ("create_time", -1)]
+                        )
+                        entry = {
+                            "ts_code": tc,
+                            "stock_name": sell.get("stock_name", ""),
+                            "buy_time": (buy.get("create_time") or buy.get("fill_time") or "") if buy else "",
+                            "buy_price": round(float(buy.get("filled_price") or buy.get("price") or 0), 2) if buy else 0,
+                            "buy_qty": int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0,
+                            "buy_date": buy.get("trade_date", "") if buy else "",
+                            "sell_time": sell.get("create_time") or sell.get("fill_time") or "",
+                            "sell_price": round(float(sell.get("filled_price") or sell.get("price") or 0), 2),
+                            "sell_qty": int(sell.get("filled_qty") or sell.get("quantity") or 0),
+                            "profit_pct": round(float(sell.get("profit_pct") or 0), 2),
+                            "profit_amount": round(float(sell.get("profit_amount") or 0), 0),
+                        }
+                        today_closed.append(entry)
+                    today_closed.sort(key=lambda x: x.get("sell_time") or "")
+                except Exception as _e:
+                    today_closed = []
                 # 用scanner内存补充实时字段
                 if scanner._broker:
                     scanner_positions = {p.get("ts_code"): p for p in scanner.get_positions()}
@@ -225,6 +259,7 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
             "status": status_data,
             "signals": signals_data,
             "positions": positions_data,
+            "today_closed_trades": today_closed,  # 【v2.9.97h-v19 恢复】今日已平仓记录
             "timeline": timeline_data,
             "orders": orders_data,
             "_historical": is_historical,
