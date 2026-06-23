@@ -204,7 +204,7 @@ const posPie = computed(() => {
                 <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
               </div>
               <div :class="['pos-pnl', cls(p.profit_pct || 0)]">
-                <span class="pos-pnl-pct">{{ (p.profit_pct ?? 0) >= 0 ? '+' : '' }}{{ (p.profit_pct ?? 0).toFixed(1) }}%</span>
+                <span class="pos-pnl-pct">{{ (Number(p.profit_pct) || 0) >= 0 ? '+' : '' }}{{ (Number(p.profit_pct) || 0).toFixed(1) }}%</span>
                 <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (p.profit_amount || 0).toLocaleString() }}</span>
               </div>
             </div>
@@ -267,7 +267,7 @@ const posPie = computed(() => {
           <div class="at-risk-row"><span>⚠️ 接近止损</span><span class="warn">{{ nearSL.length }}只</span></div>
           <div class="at-risk-row"><span>✅ 安全</span><span class="ok">{{ positions.length - brokenSL.length - nearSL.length }}只</span></div>
           <div v-if="brokenSL.length" class="at-broken-list">
-            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ (p.profit_pct ?? 0).toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
+            <div v-for="p in brokenSL" :key="p.ts_code" class="at-broken-item">{{ p.ts_code?.slice(0,6) }} {{ p.stock_name }} {{ (Number(p.profit_pct) || 0).toFixed(1) }}% (止损¥{{ p.stop_loss_price }})</div>
           </div>
         </div>
       </div>
