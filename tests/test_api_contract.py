@@ -226,6 +226,83 @@ class TestAPIContract:
         else:
             assert elapsed < 16, f"data-status响应时间过长: {elapsed:.1f}s"
 
+    # ==================== PnL 数值正确性测试 (v2.9.99-r6) ====================
+    # 背景: broker._sync_save_order_and_position 时序问题导致 broker_orders.profit_pct 经常=0
+    # 这些测试确保 sell 订单的 profit_pct 不是全零
+
+    def _count_sell_pnl_zeros(self, data: list, pct_key: str = "profit_pct") -> tuple:
+        """辅助: 统计 sell 订单中 profit_pct=0 的个数"""
+        total = 0
+        zeros = 0
+        for item in data:
+            side = str(item.get("side", "")).lower()
+            if side == "sell" or (not side and pct_key in item):
+                total += 1
+                pct = item.get(pct_key)
+                if not pct or str(pct).strip() in ("0", "0.0", ""):
+                    zeros += 1
+        return total, zeros
+
+    def test_sell_pnl_orders_nonzero(self):
+        """订单列表: sell 订单 profit_pct 不能全 0"""
+        r = api_get("/scanner/orders")
+        assert r.get("success") is True
+        data = r.get("data", [])
+        total, zeros = self._count_sell_pnl_zeros(data)
+        if total > 0:
+            assert zeros < total, f"所有 sell 订单 profit_pct 全为 0 ({zeros}/{total})"
+            print(f"  ✅ 订单列表 sell {total} 笔, profit_pct=0: {zeros}")
+
+    def test_sell_pnl_trade_attribution_nonzero(self):
+        """复盘归因: sell 订单 profit_pct 不能全 0"""
+        r = api_get("/scanner/trade-attribution", "date=20260622")
+        assert r.get("success") is True
+        data = r.get("data", [])
+        total, zeros = self._count_sell_pnl_zeros(data)
+        if total > 0:
+            assert zeros < total, f"trade-attribution sell profit_pct 全为 0 ({zeros}/{total})"
+            print(f"  ✅ 复盘归因 sell {total} 笔, profit_pct=0: {zeros}")
+
+    def test_sell_pnl_sentiment_timeline_nonzero(self):
+        """情绪时间线: trades 中 profit_pct 不能全 0"""
+        r = api_get("/scanner/sentiment-timeline")
+        assert r.get("success") is True
+        trades = r.get("data", {}).get("trades", [])
+        total, zeros = self._count_sell_pnl_zeros(trades)
+        if total > 0:
+            assert zeros < total, f"sentiment-timeline sell profit_pct 全为 0 ({zeros}/{total})"
+            print(f"  ✅ 情绪时间线 sell {total} 笔, profit_pct=0: {zeros}")
+
+    def test_sell_pnl_daily_report_nonzero(self):
+        """日报: strategy_summary closed_profit 不能全 0"""
+        r = api_get("/scanner/daily-report")
+        assert r.get("success") is True
+        ss = r.get("data", {}).get("positions", {}).get("strategy_summary", {})
+        nonzero_count = 0
+        zero_count = 0
+        for k, v in ss.items():
+            cp = v.get("closed_profit", 0)
+            if cp:
+                nonzero_count += 1
+            else:
+                zero_count += 1
+        if nonzero_count + zero_count > 0:
+            assert nonzero_count > 0, f"日报 strategy_summary closed_profit 全为 0 (包含 {zero_count} 个策略)"
+            print(f"  ✅ 日报 closed_profit 非零策略数: {nonzero_count}, 零: {zero_count}")
+
+    def test_sell_pnl_unified_trades_nonzero(self):
+        """统一交易: sell 订单 profit_pct 不能全 0"""
+        for date_param in ["", "?date=20260623"]:
+            r = api_get("/unified/trades", date_param.lstrip("?"))
+            assert r.get("success") is True
+            data = r.get("data", {})
+            # unified/trades 返回 {date, trades, summary} 结构
+            trades = data.get("trades", []) if isinstance(data, dict) else data
+            total, zeros = self._count_sell_pnl_zeros(trades)
+            if total > 0:
+                assert zeros < total, f"unified/trades sell profit_pct 全为 0 ({zeros}/{total})"
+                print(f"  ✅ 统一交易(date={date_param or 'today'}) sell {total} 笔, profit_pct=0: {zeros}")
+
 
 if __name__ == "__main__":
     import traceback
