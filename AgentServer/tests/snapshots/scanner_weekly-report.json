@@ -5,107 +5,15 @@
     "total_profit": "float",
     "available_cash": "int"
   },
-  "daily_stats": {
-    "20260617": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "int",
-      "strategies": {
-        "limit_up_open": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        }
-      }
-    },
-    "20260618": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "float",
-      "strategies": {
-        "halfway_chase": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        },
-        "limit_up_open": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        }
-      }
-    },
-    "20260622": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "float",
-      "strategies": {
-        "halfway_chase": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        }
-      }
-    },
-    "20260623": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "float",
-      "strategies": {
-        "halfway_chase": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        },
-        "limit_up_open": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        }
-      }
-    }
-  },
-  "strategy_summary": {
-    "limit_up_open": {
-      "trades": "int",
-      "sell_count": "int",
-      "amount": "float",
-      "wins": "int",
-      "pnl": "int",
-      "win_rate": "float"
-    },
-    "halfway_chase": {
-      "trades": "int",
-      "sell_count": "int",
-      "amount": "float",
-      "wins": "int",
-      "pnl": "int",
-      "win_rate": "float"
-    }
-  },
+  "daily_stats": {},
+  "strategy_summary": {},
   "totals": {
     "trading_days": "int",
     "total_buys": "int",
     "total_sells": "int",
-    "total_buy_amount": "float",
-    "total_sell_amount": "float",
-    "net_flow": "float"
+    "total_buy_amount": "int",
+    "total_sell_amount": "int",
+    "net_flow": "int"
   },
   "scanner_stats": {
     "scans": "int",

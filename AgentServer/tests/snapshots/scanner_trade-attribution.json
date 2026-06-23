@@ -1,24 +1,6 @@
 {
   "success": "bool",
   "data": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "buy_price": "float",
-      "sell_price": "float",
-      "profit_pct": "float",
-      "profit_amount": "float",
-      "buy_time": "str",
-      "sell_time": "str",
-      "sell_reason": "str",
-      "why_profit": "NoneType",
-      "why_loss": "str",
-      "scan_info": {
-        "scan_time": "str",
-        "sentiment": "str",
-        "ranking": "str"
-      }
-    }
+    "<empty_list>"
   ]
 }

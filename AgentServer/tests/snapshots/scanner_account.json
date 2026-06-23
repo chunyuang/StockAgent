@@ -1,10 +1,10 @@
 {
   "account_id": "str",
-  "total_assets": "float",
-  "available_cash": "float",
-  "market_value": "float",
-  "today_profit": "float",
-  "total_profit": "float",
+  "total_assets": "int",
+  "available_cash": "int",
+  "market_value": "int",
+  "today_profit": "int",
+  "total_profit": "int",
   "position_count": "int",
   "position_ratio": "float"
 }

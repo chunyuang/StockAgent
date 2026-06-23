@@ -80,7 +80,7 @@ async function handleQuery() {
   
   if (isCode) {
     // 跳转到股票页
-    const code = keyword.value.includes('.') ? keyword.value : `${keyword.value}.SZ`
+    const code = keyword.value.includes('.') ? keyword.value : (keyword.value.startsWith('6') || keyword.value.startsWith('9') ? `${keyword.value}.SH` : `${keyword.value}.SZ`)
     router.push(`/stock/${code}`)
   } else {
     // 自然语言查询

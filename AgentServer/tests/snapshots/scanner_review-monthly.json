@@ -6,18 +6,7 @@
     "win_rate": "float",
     "pnl": "int"
   },
-  "strategy_stats": {
-    "halfway_chase": {
-      "trades": "int",
-      "win_rate": "float",
-      "pnl": "int"
-    },
-    "limit_up_open": {
-      "trades": "int",
-      "win_rate": "float",
-      "pnl": "int"
-    }
-  },
+  "strategy_stats": {},
   "behavior_drift": {
     "stop_loss_execution_rate": "float",
     "stop_loss_at_loss": "int",
@@ -30,29 +19,10 @@
     "total_buys": "int"
   },
   "daily_breakdown": [
-    {
-      "date": "str",
-      "trades": "int",
-      "buys": "int",
-      "sells": "int",
-      "wins": "int",
-      "win_rate": "float",
-      "pnl": "int",
-      "strategy_stats": {},
-      "sentiment": "str",
-      "sentiment_score": "int"
-    }
+    "<empty_list>"
   ],
   "weekly_trend": [
-    {
-      "week": "str",
-      "start": "str",
-      "end": "str",
-      "trades": "int",
-      "win_rate": "float",
-      "pnl": "int",
-      "days": "int"
-    }
+    "<empty_list>"
   ],
   "param_drift": {
     "start_date": "str",

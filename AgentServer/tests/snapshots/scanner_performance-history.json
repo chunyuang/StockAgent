@@ -1,53 +1,7 @@
 {
   "success": "bool",
   "data": [
-    {
-      "account_id": "str",
-      "timestamp": "str",
-      "trade_date": "str",
-      "account": {
-        "total_assets": "float",
-        "available_cash": "float",
-        "market_value": "float",
-        "total_profit": "float"
-      },
-      "positions": [
-        {
-          "ts_code": "str",
-          "stock_name": "str",
-          "shares": "int",
-          "cost_price": "float",
-          "current_price": "float",
-          "profit_pct": "float",
-          "strategy": "str"
-        }
-      ],
-      "active_signals": "int",
-      "timeline_count": "int",
-      "stats": {
-        "scans": "int",
-        "signals_found": "int",
-        "trades_executed": "int",
-        "stop_losses": "int",
-        "take_profits": "int",
-        "stocks_scanned": "int"
-      },
-      "circuit_breaker": {
-        "daily_start_assets": "int",
-        "daily_max_drawdown": "float",
-        "consecutive_losses": "int",
-        "consecutive_loss_limit": "int",
-        "trading_paused": "bool",
-        "pause_reason": "str",
-        "today_trades": "int",
-        "today_losses": "int"
-      },
-      "sentiment": {
-        "score": "int",
-        "period": "str"
-      },
-      "position_ratio": "float"
-    }
+    "<empty_list>"
   ],
   "count": "int"
 }
