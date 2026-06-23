@@ -84,6 +84,21 @@ async def fetch_unified_trades(date: Optional[str] = None, account_id: str = "de
         "status": "filled",
     }).sort([("create_time", 1), ("fill_time", 1)])
 
+    # 【v2.9.99-r5】预加载历史 buy 订单索引: ts_code -> 最近一笔 buy (为 sell 算盈亏)
+    # broker_orders 中 profit_pct/profit_amount 为 0, broker.execute_sell 未填充
+    # 这里自己 fallback 计算
+    buy_index: dict[str, dict] = {}
+    buy_cursor = db["broker_orders"].find({
+        "account_id": account_id,
+        "trade_date": {"$lte": date_int},
+        "status": "filled",
+        "side": {"$in": ["buy", "BUY"]},
+    }).sort([("trade_date", -1), ("create_time", -1)])
+    async for bd in buy_cursor:
+        tc = bd.get("ts_code", "")
+        if tc and tc not in buy_index:
+            buy_index[tc] = bd  # 只留最近一笔 buy
+
     async for doc in cursor:
         side = doc.get("side", "")
         qty = doc.get("filled_qty") or doc.get("quantity") or 0
@@ -96,6 +111,14 @@ async def fetch_unified_trades(date: Optional[str] = None, account_id: str = "de
         # 归因（仅 sell 有意义）
         profit_pct = doc.get("profit_pct")
         profit_amount = doc.get("profit_amount")
+        # 【v2.9.99-r5】broker 未填充盈亏 → 自己用 buy/sell 计算
+        if side in ("sell", "SELL") and (not profit_pct or profit_pct == 0):
+            buy_doc = buy_index.get(ts_code)
+            if buy_doc and price > 0:
+                buy_price = float(buy_doc.get("filled_price") or buy_doc.get("price") or 0)
+                if buy_price > 0:
+                    profit_pct = round((price - buy_price) / buy_price * 100, 2)
+                    profit_amount = round((price - buy_price) * qty, 0)
         why = None
         if side == "sell" and profit_pct is not None:
             reason = doc.get("reason", "")

@@ -86,6 +86,21 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
     if not signals_data:
         signals_data = await _load_recent_signal_history(scanner, date_int=date_int)
         signals_is_history = bool(signals_data)
+    else:
+        # 【v2.9.99-r5】scanner 内存只保留最近信号, 合并 DB 全天历史信号供前端按小时分组
+        # 去重键: ts_code + strategy + scan_time, 内存优先 (拿最新状态 new/executed/skipped)
+        try:
+            history_signals = await _load_recent_signal_history(scanner, date_int=date_int)
+            if history_signals:
+                seen = {(s.get("ts_code"), s.get("strategy"), s.get("scan_time")) for s in signals_data}
+                for hs in history_signals:
+                    k = (hs.get("ts_code"), hs.get("strategy"), hs.get("scan_time"))
+                    if k not in seen:
+                        hs["_historical_signal"] = True
+                        signals_data.append(hs)
+                        seen.add(k)
+        except Exception as _e:
+            logger.debug(f"合并历史信号失败: {_e}")
     
     # 【v2.9.97h】持仓: 历史日期从broker_orders重建, 当日从broker_positions读
     positions_data = []
