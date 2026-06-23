@@ -461,6 +461,17 @@ class TieredScanner:
                     if name and ("ST" in name.upper() or "*ST" in name):
                         continue
 
+                # 排除次新股(上市<L1_EXCLUDE_NEW_STOCK_DAYS天)
+                list_date = item.get("list_date", "")
+                if list_date and isinstance(list_date, str) and len(list_date) == 8:
+                    try:
+                        from datetime import datetime as _dt
+                        days_since = (_dt.now() - _dt.strptime(list_date, "%Y%m%d")).days
+                        if days_since < self.L1_EXCLUDE_NEW_STOCK_DAYS:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
                 # 流通市值
                 float_mv = item.get("float_mv", 0.0)
                 if float_mv is not None and float(float_mv) < self.L1_MIN_FLOAT_MV:

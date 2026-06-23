@@ -960,8 +960,10 @@ class LiveFilterPipeline:
 
     @staticmethod
     def merge_filter_result(signals, result) -> list:
-        """将filter_pipeline结果合并回ScanSignal【v2.9.28:从scanner提取】"""
+        """将filter_pipeline结果合并回ScanSignal【v2.9.28:从scanner提取, v2.9.99:注入逐候选trace+修复L8重复】"""
         candidate_map = {c["ts_code"]: c for c in result.candidates}
+        # 构建逐候选trace映射: ts_code -> CandidateTrace
+        trace_map = {t.ts_code: t for t in result.trace_candidates} if result.trace_candidates else {}
         filtered_signals = []
         for s in signals:
             if s.ts_code in candidate_map:
@@ -983,23 +985,39 @@ class LiveFilterPipeline:
                     "factors": s.factors,
                     "scan_time": s.scan_time,
                 }
-                # 逐层trace
+                # 逐层trace(从layer_details构建, L8已包含在内)
                 for layer_name, detail in result.layer_details.items():
                     s.layer_trace[layer_name] = {
                         "detail": detail,
                         "applied": result.layers_applied.get(layer_name, False),
                     }
-                s.layer_trace["L8_position"] = {
-                    "position_ratio": result.position_ratio,
-                    "action": result.action,
-                }
+                # 仓位信息补充到L8(仅当L8未被layer_details覆盖时)
+                if "L8_position" not in result.layer_details:
+                    s.layer_trace["L8_position"] = {
+                        "position_ratio": result.position_ratio,
+                        "action": result.action,
+                    }
+                # 注入逐候选trace: 每层通过/拒绝状态
+                ct = trace_map.get(s.ts_code)
+                if ct and ct.layer_results:
+                    s.layer_trace["candidate_trace"] = {
+                        layer: lr for layer, lr in ct.layer_results.items()
+                    }
                 filtered_signals.append(s)
             else:
                 # 被过滤掉的信号
                 s.signal_status = "filtered"
+                # 注入被拒候选的trace信息(含具体拒绝层和原因)
+                ct = trace_map.get(s.ts_code)
                 s.layer_trace["filter_result"] = {
                     "filtered_out": True,
                     "reason": "9层筛选管道过滤",
                     "layer_details": result.layer_details,
+                    "rejection_layer": ct.final_rejection_layer if ct else "",
+                    "rejection_reason": ct.final_rejection_reason if ct else "",
                 }
+                if ct and ct.layer_results:
+                    s.layer_trace["candidate_trace"] = {
+                        layer: lr for layer, lr in ct.layer_results.items()
+                    }
         return filtered_signals

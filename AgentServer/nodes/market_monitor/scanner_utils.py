@@ -279,14 +279,16 @@ class ScannerUtils:
 
     @staticmethod
     def _build_signal_stats(active_signals: list) -> Dict[str, Any]:
-        """构建信号统计【v2.9.56从generate_summary_report提取】"""
+        """构建信号统计【v2.9.56从generate_summary_report提取, v2.9.99:补充blocked/active状态】"""
         return {
             "total": len(active_signals),
-            "new": len([s for s in active_signals if s.signal_status == "new"]),
-            "executed": len([s for s in active_signals if s.signal_status == "executed"]),
-            "skipped": len([s for s in active_signals if s.signal_status == "skipped"]),
-            "expired": len([s for s in active_signals if s.signal_status == "expired"]),
-            "filtered": len([s for s in active_signals if s.signal_status == "filtered"]),
+            "new": len([s for s in active_signals if getattr(s, 'signal_status', '') == "new"]),
+            "executed": len([s for s in active_signals if getattr(s, 'signal_status', '') == "executed"]),
+            "skipped": len([s for s in active_signals if getattr(s, 'signal_status', '') == "skipped"]),
+            "expired": len([s for s in active_signals if getattr(s, 'signal_status', '') == "expired"]),
+            "filtered": len([s for s in active_signals if getattr(s, 'signal_status', '') == "filtered"]),
+            "blocked": len([s for s in active_signals if getattr(s, 'signal_status', '') == "blocked"]),
+            "active": len([s for s in active_signals if getattr(s, 'signal_status', '') in ("new", "executed")]),
         }
 
     # ==================== Phase4.3: 健康度评分 ====================
