@@ -358,10 +358,12 @@ async def debug_premarket_sim(date: str = None):
                     ll_doc = await mongo_manager.db["limit_list"].find_one({"limit": "U"}, sort=[("trade_date", -1)])
                 if ll_doc:
                     ll_td = ll_doc["trade_date"]
+                    from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
                     ll_name_map, ll_industry_map = await _build_name_industry_maps()
-                    ll_docs = [doc async for doc in mongo_manager.db["limit_list"].find({"trade_date": ll_td, "limit": "U"}, {"_id": 0})]
+                    ll_docs = [doc async for doc in mongo_manager.db["limit_list"].find({"trade_date": _trade_date_match(ll_td), "limit": "U"}, {"_id": 0})]
+                    ll_docs = await _enrich_limit_times_from_history(mongo_manager.db, ll_td, ll_docs)
                     ll_ups, ll_continue, ll_sectors = _aggregate_limit_stats(ll_docs, ll_name_map, ll_industry_map)
-                    ll_down = await mongo_manager.db["limit_list"].count_documents({"trade_date": ll_td, "limit": "D"})
+                    ll_down = await mongo_manager.db["limit_list"].count_documents({"trade_date": _trade_date_match(ll_td), "limit": "D"})
                     limit_up_list = ll_ups[:20]
                     limit_down_count = ll_down
                     continue_stats = dict(sorted(ll_continue.items()))

@@ -1461,14 +1461,15 @@ async def get_premarket_status(date: str = None):
                     # 4. 涨停池(从limit_list集合)
                     limit_pools = {"up_count": 0, "down_count": 0, "limit_up_list": [], "continue_stats": {}, "sector_heat": []}
                     try:
-                        from nodes.web.api.scanner_system import _build_name_industry_maps, _aggregate_limit_stats
+                        from nodes.web.api.scanner_system import _build_name_industry_maps, _aggregate_limit_stats, _enrich_limit_times_from_history, _trade_date_match
                         ll_doc = await db["limit_list"].find_one({"limit": "U"}, sort=[("trade_date", -1)])
                         if ll_doc:
                             ll_td = ll_doc["trade_date"]
                             ll_name_map, ll_industry_map = await _build_name_industry_maps()
-                            ll_docs = [d async for d in db["limit_list"].find({"trade_date": ll_td, "limit": "U"}, {"_id": 0})]
+                            ll_docs = [d async for d in db["limit_list"].find({"trade_date": _trade_date_match(ll_td), "limit": "U"}, {"_id": 0})]
+                            ll_docs = await _enrich_limit_times_from_history(db, ll_td, ll_docs)
                             ll_ups, ll_continue, ll_sectors = _aggregate_limit_stats(ll_docs, ll_name_map, ll_industry_map)
-                            ll_down = await db["limit_list"].count_documents({"trade_date": ll_td, "limit": "D"})
+                            ll_down = await db["limit_list"].count_documents({"trade_date": _trade_date_match(ll_td), "limit": "D"})
                             limit_pools = {"up_count": len(ll_ups), "down_count": ll_down,
                                            "limit_up_list": ll_ups[:20], "continue_stats": dict(sorted(ll_continue.items())),
                                            "sector_heat": sorted([{"name": k, "count": v} for k, v in ll_sectors.items()], key=lambda x: x["count"], reverse=True)[:8]}

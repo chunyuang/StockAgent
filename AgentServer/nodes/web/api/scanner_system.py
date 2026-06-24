@@ -386,6 +386,47 @@ async def _build_name_industry_maps() -> Tuple[dict, dict]:
     return name_map, industry_map
 
 
+def _trade_date_match(value):
+    """兼容 trade_date 在历史数据中 int/string 混存的查询。"""
+    try:
+        return {"$in": [int(value), str(value)]}
+    except Exception:
+        return value
+
+
+async def _enrich_limit_times_from_history(db, trade_date, limit_ups: list) -> list:
+    """当 limit_list 缺少 limit_times 时, 用连续交易日涨停记录反推连板高度。"""
+    if not limit_ups:
+        return limit_ups
+    if any(doc.get("limit_times") or doc.get("limit_up_times") or doc.get("continue_days") for doc in limit_ups):
+        return limit_ups
+    try:
+        td_int = int(trade_date)
+        raw_dates = await db["limit_list"].distinct("trade_date", {"limit": "U"})
+        dates = sorted({int(d) for d in raw_dates if str(d).isdigit() and int(d) <= td_int})[-20:]
+        if not dates:
+            return limit_ups
+        up_by_date = {}
+        for d in dates:
+            docs = await db["limit_list"].find(
+                {"trade_date": _trade_date_match(d), "limit": "U"},
+                {"ts_code": 1, "_id": 0},
+            ).to_list(length=None)
+            up_by_date[d] = {x.get("ts_code") for x in docs if x.get("ts_code")}
+        for doc in limit_ups:
+            code = doc.get("ts_code")
+            height = 0
+            for d in reversed(dates):
+                if code in up_by_date.get(d, set()):
+                    height += 1
+                elif d < td_int:
+                    break
+            doc["limit_times"] = max(height, 1)
+    except Exception:
+        pass
+    return limit_ups
+
+
 def _aggregate_limit_stats(limit_ups: list, name_map: dict, industry_map: dict) -> Tuple[list, dict, dict]:
     """聚合涨停列表: 连板+板块统计【v2.9.72从_build_limit_pools提取】"""
     sector_count, continue_count = {}, {}
@@ -431,9 +472,10 @@ async def _build_limit_pools(scanner) -> dict:
                 if v and not name_map.get(k):
                     name_map[k] = v
 
-        limit_docs = [doc async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0})]
+        limit_docs = [doc async for doc in db["limit_list"].find({"trade_date": _trade_date_match(td), "limit": "U"}, {"_id": 0})]
+        limit_docs = await _enrich_limit_times_from_history(db, td, limit_docs)
         limit_ups, continue_count, sector_count = _aggregate_limit_stats(limit_docs, name_map, industry_map)
-        down_count = await db["limit_list"].count_documents({"trade_date": td, "limit": "D"})
+        down_count = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td), "limit": "D"})
 
         result["up_count"] = len(limit_ups)
         result["down_count"] = down_count
