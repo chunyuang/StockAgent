@@ -912,12 +912,93 @@ async def _limit_pools_from_mongo():
 
 
 @router.post("/reset")
-async def reset_account():
-    """清仓重置(清空所有持仓/订单, 恢复初始资金)"""
+async def reset_account(request: Request):
+    """清仓重置(清空所有持仓/订单, 恢复初始资金)
+    
+    【v2.9.99-r7 数据保护】
+    1. 必须传 confirm=I-UNDERSTAND-DATA-WILL-BE-LOST (二次确认)
+    2. 记录完整审计日志 (调用时间/IP/被删数量/UA)
+    3. 删除前自动备份 broker_orders / broker_positions / broker_accounts 到备份集合
+    """
+    from fastapi import Request as _Req  # noqa: F401
+    import json as _json
+    from datetime import datetime as _dt
+    
+    # 【防护1】二次确认
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    confirm = body.get("confirm") or request.query_params.get("confirm", "")
+    if confirm != "I-UNDERSTAND-DATA-WILL-BE-LOST":
+        raise HTTPException(
+            400,
+            "拒绝重置: 必须传递 confirm='I-UNDERSTAND-DATA-WILL-BE-LOST' 以确认清空所有交易数据. "
+            "请调用者注意: 此操作不可逆! "
+        )
+    
     scanner = await _get_scanner()
     if not scanner._broker:
         raise HTTPException(400, "Broker未初始化")
     
+    # 【防护2】重置前先记录当前状态 + 备份到备份集合
+    audit_log = {
+        "event": "scanner_reset",
+        "timestamp": _dt.now().isoformat(),
+        "caller_ip": request.client.host if request.client else "unknown",
+        "user_agent": request.headers.get("user-agent", "unknown"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for", ""),
+        "x_real_ip": request.headers.get("x-real-ip", ""),
+        "account_id": scanner._broker.account.account_id,
+        "before_state": {},
+        "backup_count": {},
+    }
+    
+    try:
+        if await scanner._broker._ensure_mongo():
+            db = scanner._broker._mongo_db
+            account_id = scanner._broker.account.account_id
+            backup_suffix = _dt.now().strftime("%Y%m%d_%H%M%S")
+            
+            # 记录被删数量
+            audit_log["before_state"] = {
+                "broker_orders": await db["broker_orders"].count_documents({"account_id": account_id}),
+                "broker_positions": await db["broker_positions"].count_documents({"account_id": account_id}),
+                "broker_accounts": await db["broker_accounts"].count_documents({"account_id": account_id}),
+                "scanner_timeline": await db["scanner_timeline"].count_documents({"account_id": account_id}),
+                "performance_snapshots": await db["performance_snapshots"].count_documents({"account_id": account_id}),
+            }
+            audit_log["total_account"] = await db["broker_accounts"].find_one({"account_id": account_id})
+            
+            # 备份到【备份集合】 broker_orders_reset_backup_<时间戳>
+            for src_coll in ["broker_orders", "broker_positions", "broker_accounts", "scanner_timeline", "performance_snapshots"]:
+                backup_coll = f"{src_coll}_reset_backup_{backup_suffix}"
+                src_count = audit_log["before_state"].get(src_coll, 0)
+                if src_count > 0:
+                    # aggregate $out 复制到备份集合
+                    try:
+                        await db[src_coll].aggregate([
+                            {"$match": {"account_id": account_id}},
+                            {"$out": backup_coll}
+                        ]).to_list(None)
+                        audit_log["backup_count"][src_coll] = src_count
+                        logger.info(f"[RESET-BACKUP] {src_coll}({src_count}条) -> {backup_coll}")
+                    except Exception as _be:
+                        logger.error(f"[RESET-BACKUP] {src_coll} 备份失败: {_be}")
+                        # 备份失败不能重置!
+                        raise HTTPException(500, f"备份 {src_coll} 失败: {_be}, 重置已取消")
+            
+            # 写入审计日志表 (独立于被删表外)
+            await db["scanner_reset_audit_log"].insert_one(audit_log)
+            logger.warning(f"[RESET-AUDIT] /scanner/reset 调用: "
+                          f"IP={audit_log['caller_ip']}, 将清空 {sum(audit_log['before_state'].values())} 条记录")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[RESET-AUDIT] 审计+备份阶段失败: {e}")
+        raise HTTPException(500, f"审计备份失败, 重置取消: {e}")
+    
+    # 以下才是原实际重置逻辑
     # 清空持仓
     scanner._broker.positions.clear()
     scanner._broker.orders.clear()
@@ -971,11 +1052,13 @@ async def reset_account():
 
 
 @router.post("/rollback-today-orders")
-async def rollback_today_orders(reason: str = "手动回滚今日订单"):
+async def rollback_today_orders(request: Request, reason: str = "手动回滚今日订单"):
     """【v2.9.96i】回滚今日所有 filled 订单
     
     与 /reset 区别: /reset 是全量重置(删除所有历史订单).
     本接口只回滚今日, 保留历史订单.
+    
+    【v2.9.99-r7 数据保护】必须传 confirm=I-UNDERSTAND-DATA-WILL-BE-LOST 以二次确认
     
     同步处理:
     1. broker_orders 今日 status=filled → rolled_back
@@ -986,6 +1069,20 @@ async def rollback_today_orders(reason: str = "手动回滚今日订单"):
     使用场景: 非交易时段误下单 / scanner bug 产生错误订单 / 手动测试后清理
     """
     from datetime import datetime
+    
+    # 【v2.9.99-r7 防护】2次确认
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    confirm = body.get("confirm") or request.query_params.get("confirm", "")
+    if confirm != "I-UNDERSTAND-DATA-WILL-BE-LOST":
+        raise HTTPException(
+            400,
+            "拒绝回滚: 必须传递 confirm='I-UNDERSTAND-DATA-WILL-BE-LOST' 以确认回滚今日订单. "
+            "请调用者注意: 今日所有 filled 订单会被标为 rolled_back, 不可逆! "
+        )
+    
     scanner = await _get_scanner()
     if not scanner._broker:
         raise HTTPException(400, "Broker未初始化")
