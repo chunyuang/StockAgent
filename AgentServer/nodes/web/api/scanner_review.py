@@ -1645,7 +1645,13 @@ async def factor_effectiveness(date: str = None):
 
         # 最近30天
         end_date = _normalize_date(date) or 0
-        start_date = end_date - 30
+        # 用datetime做日期运算，避免int减法产生无效日期(如20260625-30=20260595)
+        try:
+            end_dt = datetime.strptime(str(end_date), "%Y%m%d")
+            start_dt = end_dt - timedelta(days=30)
+            start_date = int(start_dt.strftime("%Y%m%d"))
+        except (ValueError, TypeError):
+            start_date = end_date - 30  # fallback(旧逻辑)
 
         # 1. 加载情绪数据
         sentiment_map = {}  # date -> {score, period}

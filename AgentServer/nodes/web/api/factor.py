@@ -104,7 +104,7 @@ def _get_factor_collection(factor_def: FactorDefinition) -> str:
 
 # ==================== 核心查询逻辑 ====================
 
-async def _get_merged_stock_data(ts_code: str, trade_date: str) -> dict:
+async def _get_merged_stock_data(ts_code: str, trade_date) -> dict:
     """
     合并 stock_daily_ak_full + daily_basic 数据
 
@@ -118,8 +118,15 @@ async def _get_merged_stock_data(ts_code: str, trade_date: str) -> dict:
     result = {"daily": None, "daily_basic": None, "stock_name": ""}
     
     # trade_date兼容int/string( MongoDB存的是int)
-    td_int = int(trade_date.replace("-", "").replace("/", "")) if trade_date else None
-    td_query = {"$in": [td_int, trade_date]} if td_int else trade_date
+    if trade_date is None:
+        td_int = None
+        td_query = None
+    elif isinstance(trade_date, int):
+        td_int = trade_date
+        td_query = {"$in": [td_int, str(td_int)]}
+    else:
+        td_int = int(str(trade_date).replace("-", "").replace("/", ""))
+        td_query = {"$in": [td_int, trade_date]}
 
     # 1. 查 stock_daily_ak_full
     daily = await mongo_manager.find_one(
