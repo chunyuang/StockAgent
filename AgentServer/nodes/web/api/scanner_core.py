@@ -666,30 +666,47 @@ async def get_account():
             # 从 broker_positions 实时计算市值和持仓数
             market_value = 0
             pos_count = 0
+            unrealized_pnl = 0  # 【v2.9.99-r9 fix】持仓浮盈浮亏
             async for p in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}):
                 qty = p.get("total_qty", 0)
                 price = float(p.get("current_price") or p.get("avg_cost") or 0)
+                avg_cost = float(p.get("avg_cost") or 0)
                 if qty > 0 and price > 0:
                     market_value += qty * price
                     pos_count += 1
+                    if avg_cost > 0:
+                        unrealized_pnl += (price - avg_cost) * qty
             
             # 从 broker_orders 实时计算已实现盈亏
-            total_profit = 0
+            realized_pnl = 0
             async for o in db["broker_orders"].find({"account_id": "default", "side": "sell", "status": "filled"}, {"profit_amount": 1}):
-                total_profit += float(o.get("profit_amount") or 0)
+                realized_pnl += float(o.get("profit_amount") or 0)
+            
+            # 【v2.9.99-r9 fix】总盈亏 = 已实现 + 浮盈浮亏
+            total_profit = realized_pnl + unrealized_pnl
             
             # available_cash 从 broker_accounts 读(这是唯一准确的来源)
             available_cash = float(acct_doc.get("available_cash", 0)) if acct_doc else 0
             total_assets = available_cash + market_value
             
-            # today_profit: 当日已实现盈亏
+            # today_profit: 当日已实现盈亏 + 今日买入持仓的浮盈浮亏
+            # 【v2.9.99-r9 fix】A股T+1, 今日买入不能当日卖, 但价格变动也应该体现今日盈亏
             today_str = datetime.now().strftime("%Y%m%d")
-            today_profit = 0
+            today_realized = 0
             async for o in db["broker_orders"].find({
                 "account_id": "default", "side": "sell", "status": "filled",
                 "trade_date": {"$in": [int(today_str), today_str]}
             }, {"profit_amount": 1}):
-                today_profit += float(o.get("profit_amount") or 0)
+                today_realized += float(o.get("profit_amount") or 0)
+            # 今日买入的持仓浮盈浮亏(today_buy_qty>0的部分)
+            today_unrealized = 0
+            async for p in db["broker_positions"].find({"account_id": "default", "today_buy_qty": {"$gt": 0}}):
+                today_qty = p.get("today_buy_qty", 0)
+                price = float(p.get("current_price") or 0)
+                avg_cost = float(p.get("avg_cost") or 0)
+                if today_qty > 0 and price > 0 and avg_cost > 0:
+                    today_unrealized += (price - avg_cost) * today_qty
+            today_profit = today_realized + today_unrealized
             
             return {
                 "success": True,
@@ -704,8 +721,10 @@ async def get_account():
                     "position_ratio": round(market_value / max(total_assets, 1) * 100, 1),
                 },
             }
-    except Exception:
-        pass
+    except Exception as e:
+        from loguru import logger
+        import traceback
+        logger.error(f"[ACCOUNT] MongoDB 计算帐户失败, 回退到内存: {e}\n{traceback.format_exc()}")
     
     # Fallback: scanner运行中时从内存读
     if scanner._broker:
