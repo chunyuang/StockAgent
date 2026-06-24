@@ -59,7 +59,7 @@ else
   echo "cron jobs.json not found" > "$ANCHOR/cron/CRON_NOT_FOUND.txt"
 fi
 
-# 3) Mongo read-only snapshot and selected critical dumps
+# 3) Mongo read-only snapshot, large-table incremental anchors, and selected critical dumps
 python3 - <<'PY' > "$ANCHOR/mongo/mongo-snapshot.txt" || true
 from pymongo import MongoClient
 c=MongoClient('localhost',27017,serverSelectionTimeoutMS=3000)
@@ -77,6 +77,45 @@ for name in cols:
         print(f'{name}: total={total}, latest_trade_date={latest}, latest_count={latest_count}')
     except Exception as e:
         print(f'{name}: ERROR {e}')
+PY
+
+# 3b) Incremental anchors for large market/factor tables.
+# Export only recent trade_date slices so a bad nightly data/factor write can be rolled back without full DB restore.
+mkdir -p "$ANCHOR/mongo/incremental"
+python3 - <<'PY' "$ANCHOR/mongo/incremental" || true
+import gzip, json, os, sys
+from bson import json_util
+from pymongo import MongoClient
+
+out_dir=sys.argv[1]
+client=MongoClient('localhost',27017,serverSelectionTimeoutMS=3000)
+db=client.stock_agent
+plans={
+    'stock_daily_ak_full': 3,
+    'daily_basic': 3,
+    'limit_list': 10,
+    'sentiment_scores': 30,
+    'scan_traces': 3,
+}
+summary=[]
+for coll_name, n_dates in plans.items():
+    coll=db[coll_name]
+    dates=coll.distinct('trade_date')
+    def date_sort_key(x):
+        s=str(x).replace('-', '')
+        return int(s) if s.isdigit() else 0
+    dates=sorted([d for d in dates if d is not None], key=date_sort_key, reverse=True)[:n_dates]
+    for td in dates:
+        safe_td=str(td).replace('/','_')
+        path=os.path.join(out_dir, f'{coll_name}_{safe_td}.jsonl.gz')
+        count=0
+        with gzip.open(path, 'wt', encoding='utf-8') as f:
+            for doc in coll.find({'trade_date': td}):
+                f.write(json_util.dumps(doc, ensure_ascii=False) + '\n')
+                count += 1
+        summary.append({'collection': coll_name, 'trade_date': td, 'count': count, 'file': os.path.basename(path)})
+with open(os.path.join(out_dir, 'incremental-summary.json'), 'w', encoding='utf-8') as f:
+    json.dump(summary, f, ensure_ascii=False, indent=2)
 PY
 
 if command -v mongodump >/dev/null 2>&1; then

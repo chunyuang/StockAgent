@@ -39,6 +39,7 @@ D. 内存 vs MongoDB drift: scanner._timeline 长度 vs MongoDB scanner_timeline
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from typing import Any
@@ -249,6 +250,10 @@ def main() -> int:
     parser.add_argument("--auto-clean-ghost", action="store_true", help="【v2.9.96f】自动清理幽灵 timeline 交易")
     parser.add_argument("--check-date", default=None, help="【v2.9.96f】检查指定日期(YYYYMMDD), 默认今天")
     args = parser.parse_args()
+
+    if args.auto_clean_ghost:
+        guard = "/root/.openclaw/workspace/StockAgent/scripts/require_recent_anchor.sh"
+        subprocess.run([guard, "trading"], check=True)
 
     client = MongoClient(args.mongo_uri)
     db = client[args.db]

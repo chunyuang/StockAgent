@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 import argparse
+import subprocess
 
 # A股2026年交易日(简化: 排除周末，不含节假日)
 def is_weekend(date_str: str) -> bool:
@@ -49,6 +50,10 @@ def main():
     parser.add_argument('--fix', action='store_true', help='自动清理假数据')
     parser.add_argument('--verbose', action='store_true', help='详细输出')
     args = parser.parse_args()
+    
+    if args.fix:
+        guard = "/root/.openclaw/workspace/StockAgent/scripts/require_recent_anchor.sh"
+        subprocess.run([guard, "trading"], check=True)
     
     db = MongoClient('mongodb://localhost:27017', serverSelectionTimeoutMS=5000)['stock_agent']
     
