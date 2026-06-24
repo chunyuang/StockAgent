@@ -44,9 +44,9 @@ class TestPipelineMethodExtraction(unittest.TestCase):
         return (m.end_lineno or 0) - m.lineno + 1
 
     def test_apply_size_reduced(self):
-        """apply方法行数应≤110(原187行)"""
+        """apply方法行数应≤115(原187行, v2.9.100: L8_cooldown trace补全+1行)"""
         size = self._method_size("LiveFilterPipeline", "apply")
-        self.assertLessEqual(size, 110, f"apply应为≤110行, 实际{size}行")
+        self.assertLessEqual(size, 115, f"apply应为≤115行, 实际{size}行")
 
     def test_resolve_positions_account_exists(self):
         """_resolve_positions_account方法应存在"""

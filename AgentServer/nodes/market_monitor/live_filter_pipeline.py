@@ -336,8 +336,15 @@ class LiveFilterPipeline:
                 days_since = (now - trigger).days
                 if days_since <= cooldown_days * 2:  # 粗略：日历天≤2×交易日
                     if cooldown_info.get('block_new_buys') or cooldown_cap <= 0:
-                        result.filtered_candidates = []
+                        result.candidates = []
                         result.position_ratio = 0
+                        # 【v2.9.100修复】标记所有trace_candidates为rejected
+                        for t in result.trace_candidates:
+                            t.final_status = "rejected"
+                            t.final_rejection_layer = "L8_cooldown"
+                            t.final_rejection_reason = f"竞价风险防守期禁止新开仓: {cooldown_info.get('reason', '')}"
+                            t.layer_results["L8_cooldown"] = {"passed": False, "reason": t.final_rejection_reason}
+                        self._build_trace_summary(result)
                         result.layer_details["L8_cooldown"] = f"🧊 {cooldown_info.get('risk_level','风险')}防守期: 禁止新开仓({cooldown_info.get('reason','')})"
                         logger.warning(f"[FILTER] 🧊 竞价风险防守期: 禁止新开仓 reason={cooldown_info.get('reason','')}")
                         return result

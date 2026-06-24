@@ -761,9 +761,11 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         
         v2.9.98: 增加交易时间检查(risk_loop在AFTER_CLOSE仍可能被API触发的scan_once唤醒)
         """
-        # 【v2.9.98】非连续竞价时段不执行止损卖出
+        # 【v2.9.98→v2.9.100】非连续竞价时段不执行止损卖出
+        # 旧: is_in_trading() 含午休(11:30-13:00), broker.place_order会因非连续竞价拒单
+        # 新: is_continuous_auction() 仅早盘/午盘/尾盘, 与broker门控对齐
         from nodes.market_monitor.market_phase import MarketPhase
-        if not MarketPhase.is_in_trading():
+        if not MarketPhase.is_continuous_auction():
             return
 
         # 【v2.9.22:跌停恢复重试pending_sells】

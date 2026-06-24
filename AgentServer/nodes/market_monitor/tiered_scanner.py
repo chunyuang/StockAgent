@@ -306,9 +306,11 @@ class TieredScanner:
     # ──────────────────────────── 辅助方法 ────────────────────────
 
     def _is_trading_time(self) -> bool:
-        """是否在交易时间"""
-        ct = datetime.now().strftime("%H:%M")
-        return "09:15" <= ct <= "15:05"
+        """是否在交易时间(含竞价)"""
+        from nodes.market_monitor.market_phase import MarketPhase
+        phase = MarketPhase.classify()
+        # L1/L2/L3需要在竞价+交易时段都运行(09:25-15:00)
+        return phase in MarketPhase.ACTIVE_PHASES or phase in MarketPhase.TRADING_PHASES
 
     def _record_latency(self, level: int, latency_ms: float) -> None:
         """记录延迟"""
