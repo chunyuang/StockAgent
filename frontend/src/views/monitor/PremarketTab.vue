@@ -11,6 +11,33 @@ import { ElButton, ElTag, ElMessage } from 'element-plus'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { api } from '@/api'
 
+// 【v2.9.99-r14】竞价阶段划分 + 默认折叠状态
+const expandedSnaps = ref<Record<string, boolean>>({})
+function toggleSnap(id: string) { expandedSnaps.value[id] = !expandedSnaps.value[id] }
+
+/** 根据时间判断竞价阶段 */
+function getAuctionPhase(time: string): { key: string; label: string; color: string } {
+  // time 格式 09:16:13
+  if (!time) return { key: 'unknown', label: '未知', color: '#909399' }
+  const [hStr, mStr] = time.split(':')
+  const h = Number(hStr), m = Number(mStr)
+  const t = h * 60 + m
+  if (t < 9 * 60 + 15) return { key: 'pre', label: '开始前', color: '#909399' }
+  if (t < 9 * 60 + 20) return { key: 'free', label: '自由竞价', color: '#67c23a' }
+  if (t < 9 * 60 + 25) return { key: 'collect', label: '集合竞价', color: '#e6a23c' }
+  if (t < 9 * 60 + 30) return { key: 'final', label: '准备开盘', color: '#f56c6c' }
+  return { key: 'open', label: '盘中', color: '#409eff' }
+}
+
+/** 快速判断 snap 数据是否就绪 */
+function isSnapValid(snap: any): boolean {
+  const total = snap?.market_snapshot?.total_stocks || 0
+  // valid 字段有则以他为准, 没有则看样本量
+  const v = snap?.force_empty_confirm?.valid
+  if (v != null) return Boolean(v)
+  return total >= 3000
+}
+
 const m = useScannerMonitorInject()
 
 // 解构需要的变量
@@ -175,28 +202,58 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 竞价变化时间线 -->
+      <!-- 竞价变化时间线 v2.9.99-r14: 阶段着色 + 默认折叠 + 数据未就绪降级 -->
       <div class="pm-auction-timeline">
         <div class="pm-tl-head">
           <div class="st">🕘 竞价变化时间线 <span class="text-tertiary" style="font-size:10px">{{ premarketTimelineLoading ? '加载中' : (premarketTimeline?.length || 0) + '次扫描' }}</span></div>
-          <span class="pm-tl-hint">每次竞价扫描的情绪/过滤/候选变化</span>
+          <span class="pm-tl-hint">
+            <span class="pm-phase-dot" style="background:#67c23a"></span>自由 9:15-20
+            <span class="pm-phase-dot" style="background:#e6a23c"></span>集合 20-25
+            <span class="pm-phase-dot" style="background:#f56c6c"></span>准开盘 25-30
+            <span class="pm-phase-dot" style="background:#409eff"></span>盘中
+            <span class="pm-phase-dot" style="background:#909399"></span>未就绪
+          </span>
         </div>
         <div v-if="!premarketTimeline?.length" class="pm-tl-empty">暂无竞价期间扫描快照；9:15-9:25运行后会按时间列出。</div>
         <div v-else class="pm-tl-list">
-          <div v-for="snap in premarketTimeline" :key="snap.scan_id" class="pm-tl-row">
-            <div class="pm-tl-time">
-              <b>{{ snap.time }}</b>
-              <span>{{ snap.source_label || '竞价扫描' }}</span>
+          <div v-for="snap in premarketTimeline" :key="snap.scan_id"
+               class="pm-tl-row"
+               :class="[
+                 'pm-phase-' + (isSnapValid(snap) ? getAuctionPhase(snap.time).key : 'invalid'),
+                 { 'pm-row-collapsed': !expandedSnaps[snap.scan_id], 'pm-row-invalid': !isSnapValid(snap) }
+               ]">
+            <!-- 标题摘要行 (默认显示) -->
+            <div class="pm-tl-summary" @click="toggleSnap(snap.scan_id)">
+              <span class="pm-phase-tag" :style="{ background: isSnapValid(snap) ? getAuctionPhase(snap.time).color : '#909399' }">{{ getAuctionPhase(snap.time).label }}</span>
+              <b class="pm-sum-time">{{ snap.time }}</b>
+              <span v-if="!isSnapValid(snap)" class="pm-invalid-tag">⚠️ 数据未就绪</span>
+              <template v-else>
+                <span class="pm-sum-item">样本 <b>{{ snap.market_snapshot?.total_stocks || 0 }}</b></span>
+                <span class="pm-sum-item">涨跌 <em class="up">{{ snap.market_snapshot?.up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.down_count || 0 }}</em></span>
+                <span class="pm-sum-item">涨停 <em class="up">{{ snap.market_snapshot?.limit_up_count || 0 }}</em>·跌停 <em class="down">{{ snap.market_snapshot?.limit_down_count || 0 }}</em></span>
+                <span class="pm-sum-item">均幅 <b :class="Number(snap.market_snapshot?.avg_pct_chg || 0) >= 0 ? 'up' : 'down'">{{ Number(snap.market_snapshot?.avg_pct_chg || 0).toFixed(2) }}%</b></span>
+                <span class="pm-sum-item">风险 <b :class="(snap.force_empty_confirm?.risk_level || 'L0') !== 'L0' ? 'down' : 'up'">{{ snap.force_empty_confirm?.risk_level || 'L0' }}·{{ snap.force_empty_confirm?.risk_score ?? '-' }}分</b></span>
+                <span class="pm-sum-item">通过 <b class="up">{{ snap.display_funnel?.final_passed || snap.passed || 0 }}</b></span>
+              </template>
               <span v-if="snap.is_debug" class="pm-debug-badge">DEBUG</span>
+              <span class="pm-tl-toggle">{{ expandedSnaps[snap.scan_id] ? '▲' : '▼' }}</span>
+            </div>
+            <!-- 展开后的详情区 -->
+            <div v-show="expandedSnaps[snap.scan_id]" class="pm-tl-detail">
+            <div class="pm-tl-time">
+              <span>{{ snap.source_label || '竞价扫描' }}</span>
             </div>
             <div class="pm-tl-main">
-              <div class="pm-tl-section" :class="{ 'pm-section-invalid': !snap.force_empty_confirm?.valid && (snap.market_snapshot?.total_stocks || 0) < 3000 }">
+              <div v-if="isSnapValid(snap)" class="pm-tl-section">
                 <b>市场宽度</b>
-                <span v-if="!snap.force_empty_confirm?.valid && (snap.market_snapshot?.total_stocks || 0) < 3000" class="pm-invalid-tag">⚠️ 数据未就绪</span>
                 <span>样本 {{ snap.market_snapshot?.total_stocks || snap.display_funnel?.market_samples || 0 }}</span>
                 <span>上涨/下跌 <em class="up">{{ snap.market_snapshot?.up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.down_count || 0 }}</em></span>
                 <span>均幅 {{ Number(snap.market_snapshot?.avg_pct_chg || 0).toFixed(2) }}%</span>
                 <span>涨停/跌停 <em class="up">{{ snap.market_snapshot?.limit_up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.limit_down_count || 0 }}</em></span>
+              </div>
+              <div v-else class="pm-tl-section pm-section-invalid">
+                <b>市场宽度</b>
+                <span class="pm-invalid-tag">⚠️ 竞价数据未就绪, 已跳过情绪/风险评分(不计入决策)</span>
               </div>
               <div class="pm-tl-section">
                 <b>风险判断</b>
@@ -226,6 +283,7 @@ onMounted(() => {
                 </span>
               </div>
             </div>
+            </div><!-- /pm-tl-detail -->
           </div>
         </div>
       </div>
@@ -640,8 +698,24 @@ onMounted(() => {
 .pm-tl-hint { font-size: 11px; color: var(--text-tertiary); }
 .pm-tl-empty { padding: 10px; color: var(--text-tertiary); font-size: 12px; background: var(--bg-muted); border-radius: 8px; }
 .pm-tl-list { display: flex; flex-direction: column; gap: 7px; max-height: 360px; overflow: auto; }
-.pm-tl-row { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 8px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-primary); }
-.pm-tl-time { display: flex; flex-direction: column; gap: 4px; color: var(--text-primary); font-size: 12px; }
+.pm-tl-row { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 8px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-primary); border-left-width: 4px; transition: all 0.2s; }
+.pm-tl-row.pm-phase-free { border-left-color: #67c23a; }
+.pm-tl-row.pm-phase-collect { border-left-color: #e6a23c; }
+.pm-tl-row.pm-phase-final { border-left-color: #f56c6c; }
+.pm-tl-row.pm-phase-open { border-left-color: #409eff; }
+.pm-tl-row.pm-phase-pre { border-left-color: #909399; }
+.pm-tl-row.pm-phase-invalid { border-left-color: #909399; opacity: 0.65; background: var(--bg-muted); }
+.pm-tl-row.pm-row-invalid .pm-tl-summary b, .pm-tl-row.pm-row-invalid .pm-sum-item { opacity: 0.6; }
+.pm-tl-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; cursor: pointer; user-select: none; padding: 2px 0; }
+.pm-tl-summary:hover { background: var(--bg-hover, rgba(64,158,255,0.04)); }
+.pm-tl-summary .pm-sum-time { color: var(--text-primary); font-size: 13px; min-width: 64px; }
+.pm-tl-summary .pm-sum-item { font-size: 11px; color: var(--text-secondary); }
+.pm-tl-summary .pm-sum-item b, .pm-tl-summary .pm-sum-item em { font-size: 11px; }
+.pm-phase-tag { font-size: 10px; color: white !important; padding: 2px 6px; border-radius: 4px; font-weight: 600; line-height: 1.4; }
+.pm-phase-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: middle; }
+.pm-tl-toggle { margin-left: auto; color: var(--text-tertiary); font-size: 10px; }
+.pm-tl-detail { padding: 8px 0 0 4px; border-top: 1px dashed var(--border-default); margin-top: 4px; }
+.pm-tl-time { display: flex; flex-direction: column; gap: 4px; color: var(--text-primary); font-size: 12px; margin-bottom: 4px; }
 .pm-tl-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .pm-tl-section, .pm-tl-funnel, .pm-tl-cands, .pm-tl-debug { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pm-tl-section b, .pm-tl-funnel b { min-width: 58px; color: var(--text-primary); font-size: 12px; }
