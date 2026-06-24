@@ -23,7 +23,7 @@ async function fetchData() {
   try {
     const r: any = await api.get('/scanner/system-health-detail')
     if (r?.success) data.value = r.data
-  } catch { }
+  } catch (e) { console.error('[SystemHealth]', e) }
 }
 
 function uptimeFmt(s: number): string {

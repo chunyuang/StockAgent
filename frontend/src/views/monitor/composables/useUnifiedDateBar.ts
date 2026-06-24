@@ -43,7 +43,7 @@ export function useUnifiedDateBar() {
     // T00:00:00在UTC+8下解析为UTC-8h, toISOString()取UTC日期会少一天
     const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() - 1)
-    selectedDate.value = d.toISOString().slice(0, 10)
+    selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
   
   // 后一天
@@ -51,8 +51,9 @@ export function useUnifiedDateBar() {
     const d = new Date(selectedDate.value + 'T12:00:00')
     d.setDate(d.getDate() + 1)
     const chinaToday = getChinaDate()
-    if (d.toISOString().slice(0, 10) <= chinaToday) {
-      selectedDate.value = d.toISOString().slice(0, 10)
+    const nextDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    if (nextDate <= chinaToday) {
+      selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     }
   }
   

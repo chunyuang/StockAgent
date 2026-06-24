@@ -71,7 +71,7 @@ export function useAutoTradeMonitor(core: CoreState) {
           return { time: (item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
         })
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useAutoTradeMonitor]', e) }
   }
 
   // 【v2.9.97】切换到统一数据源 — broker_orders 为唯一真相
@@ -112,7 +112,7 @@ export function useAutoTradeMonitor(core: CoreState) {
       const r = await api.get(`${scannerApi}/strategy-params-compare`)
       const p = parseResponse(r)
       if (p.success) paramCompare.value = p.data
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useAutoTradeMonitor]', e) }
     finally { paramCompareLoading.value = false }
   }
 

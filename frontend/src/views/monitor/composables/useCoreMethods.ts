@@ -107,7 +107,7 @@ export function useCoreMethods(refs: CoreRefs) {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
       osc.start(ctx.currentTime)
       osc.stop(ctx.currentTime + 0.3)
-    } catch {}
+    } catch (e) { console.error('[useCoreMethods]', e) }
   }
 
   function showConfirm(title: string, message: string, onConfirm: () => void) {
@@ -234,14 +234,14 @@ export function useCoreMethods(refs: CoreRefs) {
       await ElMessageBox.confirm('确认暂停交易?\n暂停后不会自动买入新信号,但持仓止损止盈仍正常执行。', '暂停交易', { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
       const r = await api.post(`${scannerApi}/circuit-breaker/pause`)
       const p = parseResponse(r); if (p.success) { ElMessage.success('已暂停'); fetchAll(true) } else ElMessage.error('操作失败')
-    } catch { /* cancelled */ }
+    } catch (e) { console.error('[useCoreMethods]', e) }
   }
 
   async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓!\n此操作不可撤销!\n\n确认紧急平仓?', async () => { refs.emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { refs.emergencyLiquidating.value = false } }) }
 
-  async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) refs.limitPools.value = p.data } catch { } }
-  async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) refs.dataSources.value = sP.data || []; if (bP.success) refs.brokers.value = bP.data || [] } catch { } }
-  async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) { refs.healthData.value = p.data; scannerStore.health = p.data; } } catch { } }
+  async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) refs.limitPools.value = p.data } catch (e) { console.error('[useCoreMethods]', e) } }
+  async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) refs.dataSources.value = sP.data || []; if (bP.success) refs.brokers.value = bP.data || [] } catch (e) { console.error('[useCoreMethods]', e) } }
+  async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) { refs.healthData.value = p.data; scannerStore.health = p.data; } } catch (e) { console.error('[useCoreMethods]', e) } }
   async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); const sP = parseResponse(sR), rP = parseResponse(rR); if (sP.success) refs.strategies.value = sP.data; if (rP.success) refs.globalRisk.value = rP.data } catch (e) { console.error(e) } }
 
   async function fetchAll(_force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources() }

@@ -132,7 +132,7 @@ export function useSentimentMonitor() {
       }
       if (matRes.status === 'fulfilled') { const p = parseResponse(matRes.value); if (p.success) { sentimentMatrix.value = p.data?.matrix || {}; sentimentRecommendations.value = p.data?.recommendations || [] } }
       if (liveRes.status === 'fulfilled') { const p = parseResponse(liveRes.value); if (p.success) sentimentLive.value = p.data }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useSentimentMonitor]', e) }
     finally { sentimentLoading.value = false }
   }
 

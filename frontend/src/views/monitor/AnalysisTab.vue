@@ -61,7 +61,7 @@ async function fetchAnalysis() {
       const r2 = await api.get(`/unified/trades?date=${d}`)
       const p2 = parseResponse(r2)
       if (p2.success) dailyTrades.value = (p2.data?.trades || []).map((t: any) => ({ ...t, action: t.side }))
-    } catch {}
+    } catch (e) { console.error('[AnalysisTab]', e) }
   } catch (e) { console.error('[Analysis]', e) }
   finally { loading.value = false }
 }
@@ -162,14 +162,14 @@ const stockDetail = ref<any>(null)
 const stockDetailLoading = ref(false)
 async function showStockDetail(tsCode: string) {
   stockDetailVisible.value = true; stockDetailLoading.value = true; stockDetail.value = null
-  try { const r = await api.get(`/scanner/analysis/stock/${tsCode}`); const p = parseResponse(r); if (p.success) stockDetail.value = p.data } catch {} finally { stockDetailLoading.value = false }
+  try { const r = await api.get(`/scanner/analysis/stock/${tsCode}`); const p = parseResponse(r); if (p.success) stockDetail.value = p.data } catch (e) { console.error('[AnalysisTab]', e) } finally { stockDetailLoading.value = false }
 }
 
 async function showDayDetail(date: string) {
   if (selectedDay.value === date) { selectedDay.value = ''; dailyTrades.value = []; return }
   selectedDay.value = date; dailyTradesLoading.value = true
   // 【v2.9.97】切换到统一数据源
-  try { const d = date.replace(/-/g, ''); const r = await api.get(`/unified/trades?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch {} finally { dailyTradesLoading.value = false }
+  try { const d = date.replace(/-/g, ''); const r = await api.get(`/unified/trades?date=${d}`); const p = parseResponse(r); if (p.success) dailyTrades.value = (p.data?.trades || []).map((t: any) => ({ ...t, action: t.side })) } catch (e) { console.error('[AnalysisTab]', e) } finally { dailyTradesLoading.value = false }
 }
 </script>
 

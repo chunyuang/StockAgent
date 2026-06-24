@@ -289,7 +289,7 @@ onMounted(async () => {
         }
       }
     }
-  } catch {}
+  } catch (e) { console.error('[UltraShortBacktestViewV2]', e) }
 })
 
 // ==================== 任务5: 运行状态/耗时 ====================
@@ -990,16 +990,16 @@ function onViewLogs(_taskId: string) {
             <template #default="{ row }">{{ currentSweepParam ? (Number(row.value) * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
           </ElTableColumn>
           <ElTableColumn label="收益率" width="100">
-            <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.total_return?.toFixed(2) }}%</span></template>
+            <template #default="{ row }"><span :style="{ color: (Number(row.total_return) || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ (Number(row.total_return) || 0).toFixed(2) }}%</span></template>
           </ElTableColumn>
           <ElTableColumn label="胜率" width="80">
-            <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}%</template>
+            <template #default="{ row }">{{ (Number(row.win_rate) || 0).toFixed(1) }}%</template>
           </ElTableColumn>
           <ElTableColumn label="最大回撤" width="100">
-            <template #default="{ row }"><span style="color: var(--stock-up)">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
+            <template #default="{ row }"><span style="color: var(--stock-up)">{{ (Number(row.max_drawdown) || 0).toFixed(2) }}%</span></template>
           </ElTableColumn>
           <ElTableColumn label="夏普" width="80">
-            <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(2) }}</template>
+            <template #default="{ row }">{{ (Number(row.sharpe_ratio) || 0).toFixed(2) }}</template>
           </ElTableColumn>
           <ElTableColumn prop="total_trades" label="交易数" width="80" />
         </ElTable>

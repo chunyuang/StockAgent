@@ -178,7 +178,7 @@ export function usePremarketMonitor() {
         premarketMarketSnapshot.value = { data_date: premarketDate.value?.replace(/-/g, ''), error: errorMsg || '无数据' }
         premarketStrategyGroups.value = []
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[usePremarketMonitor]', e) }
   }
 
   async function fetchPremarketTimeline() {

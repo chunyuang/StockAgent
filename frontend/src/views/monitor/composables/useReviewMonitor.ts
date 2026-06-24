@@ -154,7 +154,7 @@ export function useReviewMonitor() {
           }
         }
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useReviewMonitor]', e) }
     finally { reviewLoading.value = false }
   }
 
@@ -189,7 +189,7 @@ export function useReviewMonitor() {
     try {
       await api.post(`${scannerApi}/snapshot`)
       ElMessage.success('快照已保存')
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useReviewMonitor]', e) }
   }
 
   // openWeeklyReport 和 exportTradeLog 由 useScannerMonitor 统一实现

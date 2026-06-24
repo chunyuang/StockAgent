@@ -26,7 +26,7 @@ async function fetchData() {
   try {
     const r: any = await api.get('/scanner/market-sentiment')
     if (r?.success) data.value = r.data
-  } catch { }
+  } catch (e) { console.error('[MarketSentiment]', e) }
 }
 
 // 连板分布柱状图

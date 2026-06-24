@@ -77,7 +77,7 @@ async function fetchLiveLogs() {
     const r = await api.get('/scanner/sentiment-live-log?limit=50', { timeout: 5000 })
     const p = parseResponse(r)
     if (p.success) liveLogs.value = (p.data?.logs || []) as Array<Record<string, any>>
-  } catch { /* ignore */ }
+  } catch (e) { console.error('[SentimentTab]', e) }
   finally { liveLogsLoading.value = false }
 }
 function scoreColor(s: number): string {

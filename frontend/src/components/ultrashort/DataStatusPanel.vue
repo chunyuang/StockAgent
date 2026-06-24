@@ -92,7 +92,7 @@ function startPolling() {
           await fetchData()
         }
       }
-    } catch { /* ignore poll errors */ }
+    } catch (e) { console.error('[DataStatusPanel]', e) }
   }, 2000)
 }
 
@@ -309,7 +309,7 @@ function startAutoFillPolling() {
           }
         }
       }
-    } catch { /* ignore poll errors */ }
+    } catch (e) { console.error('[DataStatusPanel]', e) }
   }, 3000)
 }
 

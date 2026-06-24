@@ -65,14 +65,14 @@ async function loadConfig() {
       Object.assign(form, res.data)
       return
     }
-  } catch { /* fallback */ }
+  } catch (e) { console.error('[LogLevelPanel]', e) }
   try {
     const saved = localStorage.getItem('log_config')
     if (saved) {
       const data = JSON.parse(saved)
       Object.assign(form, data)
     }
-  } catch { /* ignore */ }
+  } catch (e) { console.error('[LogLevelPanel]', e) }
 }
 
 async function saveConfig() {

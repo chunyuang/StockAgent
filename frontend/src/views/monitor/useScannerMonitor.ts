@@ -178,7 +178,7 @@ export function useScannerMonitor() {
   })()
   const activeTab = ref<MonitorTab>(savedTab)
   watch(activeTab, (tab) => {
-    try { localStorage.setItem('market-monitor-active-tab', tab) } catch {}
+    try { localStorage.setItem('market-monitor-active-tab', tab) } catch (e) { console.error('[useScannerMonitor]', e) }
     try {
       if (tab === 'premarket') premarket.fetchPremarketData()
       if (tab === 'scan-trace') { scanTrace.fetchScanTraceDates(); scanTrace.fetchScanHistory() }
@@ -204,7 +204,7 @@ export function useScannerMonitor() {
   // ==================== 📊 运维+审计 ====================
   const auditLog = ref<any[]>([])
   const auditLogLoading = ref(false)
-  async function fetchAuditLog() { try { const r = await api.get(`${scannerApi}/audit-log?limit=100`); const p = parseResponse(r); if (p.success) auditLog.value = p.data || [] } catch { /* ignore */ } }
+  async function fetchAuditLog() { try { const r = await api.get(`${scannerApi}/audit-log?limit=100`); const p = parseResponse(r); if (p.success) auditLog.value = p.data || [] } catch (e) { console.error('[useScannerMonitor]', e) } }
 
   // ==================== 📜 历史 ====================
   // 【v2.9.99-r3】历史默认今天 (每日交易快照默认看今天)
@@ -237,7 +237,7 @@ export function useScannerMonitor() {
         profit_pct: t.profit_pct, profit_amount: t.profit_amount,
       }))
       if (ordP.success) historyOrders.value = ordP.data || []
-    } catch {}
+    } catch (e) { console.error('[useScannerMonitor]', e) }
     finally { historyLoading.value = false }
   }
 
@@ -284,7 +284,7 @@ export function useScannerMonitor() {
       const r = await api.get(`${scannerApi}/quote/${tsCode}`)
       const p = parseResponse(r)
       if (p.success && p.data) { manualQuote.value = p.data; manualTrade.ts_code = tsCode; manualTrade.stock_name = p.data.name || ''; manualTrade.price = p.data.price || 0 }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScannerMonitor]', e) }
   }
 
   const executeManualTrade = async () => {
@@ -322,13 +322,13 @@ export function useScannerMonitor() {
   function cancelReplay() { replayDate.value = ''; replayDateInput.value = ''; tradeMode.value = 'simulated' }
 
   // ==================== 📌 日报 ====================
-  async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); const p = parseResponse(r); if (p.success) dailyReport.value = p.data } catch { /* ignore */ } }
+  async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); const p = parseResponse(r); if (p.success) dailyReport.value = p.data } catch (e) { console.error('[useScannerMonitor]', e) } }
 
   // ==================== 📌 对比模式 ====================
   const compareVisible = ref(false)
   const compareData = ref<any[]>([])
   const compareLoading = ref(false)
-  async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/strategy-params-compare`); const p = parseResponse(r); if (p.success) { compareData.value = p.data; compareVisible.value = true } } catch { /* ignore */ } finally { compareLoading.value = false } }
+  async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/strategy-params-compare`); const p = parseResponse(r); if (p.success) { compareData.value = p.data; compareVisible.value = true } } catch (e) { console.error('[useScannerMonitor]', e) } finally { compareLoading.value = false } }
 
   const toggleDryRun = () => { tradeMode.value = tradeMode.value === 'dry_run' ? 'simulated' : 'dry_run' }
   // 【v2.9.87修复】cumulativePnl: 优先从timeline sell事件累加profit_amount(更准确),
@@ -361,7 +361,7 @@ export function useScannerMonitor() {
   const layerLabel = (k: string | number) => { const key = String(k); const label = pipelineLabels[key]; if (!label) return key; const prefix = key.split('_')[0]; return prefix + ' ' + label }
   // layerDesc comes from ...scanTrace spread — do NOT override with a stub
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
-  const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
+  const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch (e) { console.error('[useScannerMonitor]', e) } }
   // backtestRunning 来自 ...review spread, 不再本地覆盖(避免 spread 陷阱)
   const exportTradeLog = async () => {
     try {
@@ -379,7 +379,7 @@ export function useScannerMonitor() {
       } else if (p.success) {
         // 无数据
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScannerMonitor]', e) }
   }
   const exportJSON = async () => {
     try {
@@ -399,7 +399,7 @@ export function useScannerMonitor() {
       a.download = `trade_data_${new Date().toISOString().slice(0,10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScannerMonitor]', e) }
   }
   const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReportData?.value as Record<string, any> || {})
 

@@ -46,14 +46,14 @@ async function loadConfig() {
       Object.assign(form, res.config)
       return
     }
-  } catch { /* fallback */ }
+  } catch (e) { console.error('[PushConfigPanel]', e) }
   try {
     const saved = localStorage.getItem('push_config')
     if (saved) {
       const data = JSON.parse(saved)
       Object.assign(form, data)
     }
-  } catch { /* ignore */ }
+  } catch (e) { console.error('[PushConfigPanel]', e) }
 }
 
 /** 保存配置 */

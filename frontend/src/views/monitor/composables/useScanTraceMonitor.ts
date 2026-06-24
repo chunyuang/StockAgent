@@ -88,7 +88,7 @@ export function useScanTraceMonitor() {
         scanTraceHasData.value = p.data  // [{date, count, is_debug}]
       }
       return scanTraceDates.value  // 返回日期列表供onMounted使用
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScanTraceMonitor]', e) }
     return []
   }
 
@@ -123,7 +123,7 @@ export function useScanTraceMonitor() {
       const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success) scanTraceDetail.value = p.data
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScanTraceMonitor]', e) }
   }
 
   // 切换候选过滤模式
@@ -144,7 +144,7 @@ export function useScanTraceMonitor() {
       } else {
         scanTraceDetail.value = { ...scanTraceDetail.value, candidates: [], _pagination: { ...(scanTraceDetail.value?._pagination || {}), filter, returned_count: 0 }, rejected_layer_stats: undefined }
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error('[useScanTraceMonitor]', e) }
     finally { scanTraceLoadingMore.value = false }
   }
 
@@ -218,7 +218,7 @@ export function useScanTraceMonitor() {
       },
     }
     const fn = descs[layer]
-    if (fn) try { return fn(data) } catch { /* fallback */ }
+    if (fn) try { return fn(data) } catch (e) { console.error('[useScanTraceMonitor]', e) }
     if (typeof data === 'string') return data
     if (data?.detail) return data.detail
     if (data?.reason) return data.reason
