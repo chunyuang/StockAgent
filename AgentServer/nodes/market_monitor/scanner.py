@@ -1108,12 +1108,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 red_count += 1
             if pct <= -8.5:
                 near_limit_down += 1
-            if pct <= -3 or p.profit_pct <= -5:
+            if pct <= -3 or (p.profit_pct or 0) <= -5:
                 weak_codes.append(p.ts_code)
             items.append({
                 "ts_code": p.ts_code, "stock_name": p.stock_name, "strategy": p.strategy,
                 "available_qty": p.available_qty, "profit_pct": round(float(p.profit_pct or 0), 2),
-                "auction_pct_chg": round(pct, 2), "weak": pct <= -3 or p.profit_pct <= -5,
+                "auction_pct_chg": round(pct, 2), "weak": pct <= -3 or (p.profit_pct or 0) <= -5,
                 "near_limit_down": pct <= -8.5,
             })
         avg_pct = round(sum(pcts) / len(pcts), 2) if pcts else 0

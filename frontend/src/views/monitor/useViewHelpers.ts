@@ -105,7 +105,7 @@ export function useViewHelpers(deps: {
       const days = Math.floor((Date.now() - buyTime) / (1000 * 60 * 60 * 24))
       if (days === 0) return `${ymd} 今天`; if (days === 1) return `${ymd} 昨天`
       if (days > 0 && days < 30) return `${ymd} 持${days}天`; return ymd
-    } catch { return ymd }
+    } catch (e) { console.error('[viewHelpers] 日期解析失败:', e); return ymd }
   }
   function positionActionLabel(pos: any) {
     const sn = pos?.strategy_name || pos?.strategy || ''

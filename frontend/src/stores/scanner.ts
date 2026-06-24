@@ -309,7 +309,7 @@ export const useScannerStore = defineStore('scanner', () => {
     try {
       const res = await api.get<Record<string, any>>(`/scanner/stream/signals?count=${count}`)
       return res?.data || []
-    } catch { return [] }
+    } catch (e) { console.error('[scanner] fetchStreamSignals failed:', e); return [] }
   }
 
   /** 【v2.9.14】从Redis Stream读取最近持仓变更 */
@@ -317,7 +317,7 @@ export const useScannerStore = defineStore('scanner', () => {
     try {
       const res = await api.get<Record<string, any>>(`/scanner/stream/positions?count=${count}`)
       return res?.data || []
-    } catch { return [] }
+    } catch (e) { console.error('[scanner] fetchStreamPositions failed:', e); return [] }
   }
 
   /** 【v2.9.15】参数预检验证(不实际更新) */
@@ -325,7 +325,7 @@ export const useScannerStore = defineStore('scanner', () => {
     try {
       const res = await api.post<Record<string, any>>('/scanner/params/validate', { strategy_id: strategyId, params })
       return { warnings: res?.warnings || [], isSafe: res?.is_safe ?? true }
-    } catch { return { warnings: [], isSafe: true } }
+    } catch (e) { console.error('[scanner] validateParams failed:', e); return { warnings: [], isSafe: true } }
   }
 
   return {

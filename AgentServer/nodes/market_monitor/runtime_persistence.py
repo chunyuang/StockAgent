@@ -634,7 +634,7 @@ class RuntimePersistence:
             "net_value": net_value,
             "drawdown_pct": drawdown_pct,
             "position_count": len(positions),
-            "position_ratio": sum(p.current_price * p.total_qty for p in positions) / acct.total_assets * 100 if acct.total_assets > 0 else 0,
+            "position_ratio": sum((p.current_price or 0) * p.total_qty for p in positions) / acct.total_assets * 100 if acct.total_assets > 0 else 0,
         }
         await mongo_manager.db["performance_snapshots"].insert_one(doc)
         logger.info(f"[SNAPSHOT] 绩效快照已保存: 净值={net_value:.4f} 回撤={drawdown_pct:.1f}%")
@@ -654,7 +654,7 @@ class RuntimePersistence:
         losses = [t for t in sells if t.get("profit_pct", 0) <= 0]
         profit_sign = '+' if acct.total_profit >= 0 else ''
         win_rate = f"{len(wins)/len(sells)*100:.0f}%" if sells else "-"
-        pos_value = sum(p.current_price * p.total_qty for p in positions)
+        pos_value = sum((p.current_price or 0) * p.total_qty for p in positions)
         pos_ratio = pos_value / acct.total_assets * 100 if acct.total_assets > 0 else 0
 
         summary = (

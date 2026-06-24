@@ -90,8 +90,8 @@ class ScannerUtils:
         # 止损止盈价
         sl_price = round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2) if risk else None
         tp_price = round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2) if risk else None
-        mv = round(p.current_price * p.total_qty, 2)
-        profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
+        mv = round((p.current_price or 0) * p.total_qty, 2)
+        profit_amt = round(((p.current_price or 0) - (p.avg_cost or 0)) * p.total_qty, 2)
         
         # 【v2.9.98g】统一使用_get_strategy_display_name获取策略中文名
         strategy_cn = ScannerUtils._get_strategy_display_name(p.strategy)
@@ -216,7 +216,7 @@ class ScannerUtils:
                 "cost_price": round(p.avg_cost, 2),
                 "current_price": round(p.current_price, 2),
                 "profit_pct": round(p.profit_pct, 2),
-                "market_value": round(p.current_price * p.total_qty, 2),
+                "market_value": round((p.current_price or 0) * p.total_qty, 2),
                 "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
                 "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
                 "stop_loss_pct": round(sl_pct, 1),

@@ -174,7 +174,7 @@ export function useScannerMonitor() {
     try {
       const v = localStorage.getItem('market-monitor-active-tab') as MonitorTab | null
       return v && monitorTabs.includes(v) ? v : 'guide'
-    } catch { return 'guide' }
+    } catch (e) { console.error('[monitor] localStorage读取失败:', e); return 'guide' }
   })()
   const activeTab = ref<MonitorTab>(savedTab)
   watch(activeTab, (tab) => {
@@ -308,7 +308,7 @@ export function useScannerMonitor() {
       const p = parseResponse(r)
       if (p.success) { ElMessage.success('策略已保存'); editDialogVisible.value = false; core.fetchStrategies() }
       else ElMessage.error('保存失败')
-    } catch { ElMessage.error('保存失败') }
+    } catch (e) { console.error('[monitor] saveStrategy failed:', e); ElMessage.error('保存失败') }
     finally { saving.value = false }
   }
 

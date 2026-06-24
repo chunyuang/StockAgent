@@ -532,7 +532,7 @@ const submitBacktest = async () => {
             newWs.onmessage = ws.onmessage
             newWs.onerror = () => { tryReconnect() }
             newWs.onclose = () => { if (backtestState.running) tryReconnect() }
-          } catch { tryReconnect() }
+          } catch (e) { console.error('[backtest] WS重连失败:', e); tryReconnect() }
         }, delay)
       }
       tryReconnect()

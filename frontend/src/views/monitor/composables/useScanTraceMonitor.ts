@@ -111,7 +111,7 @@ export function useScanTraceMonitor() {
         scanHistory.value = []
         executionSummary.value = null
       }
-    } catch { scanHistory.value = [] }
+    } catch (e) { console.error('[scanTrace] fetchScanHistory failed:', e); scanHistory.value = [] }
     finally { scanHistoryLoading.value = false }
   }
 

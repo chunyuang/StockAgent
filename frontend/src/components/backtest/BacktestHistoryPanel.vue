@@ -70,12 +70,12 @@ async function batchDelete() {
   if (count === 0) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${count} 条回测记录？此操作不可恢复。`, '批量删除确认', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
-  } catch { return }
+  } catch { return }  // user cancelled confirm
   loading.value = true
   let success = 0, fail = 0
   for (const taskId of selectedForDelete.value) {
     try { await deleteBacktestHistory(taskId); success++ }
-    catch { fail++ }
+    catch (e) { console.error('[backtestHistory] delete failed:', e); fail++ }
   }
   selectedForDelete.value.clear()
   deleteMode.value = false

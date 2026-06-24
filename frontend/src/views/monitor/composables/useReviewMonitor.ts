@@ -182,7 +182,7 @@ export function useReviewMonitor() {
       const r = await api.get(`${scannerApi}/param-snapshot`)
       const p = parseResponse(r)
       if (p.success) ElMessage.success('参数快照已保存')
-    } catch { ElMessage.error('保存失败') }
+    } catch (e) { console.error('[review] saveParamsSnapshot failed:', e); ElMessage.error('保存失败') }
   }
 
   async function saveSnapshot() {

@@ -227,7 +227,7 @@ export function useCoreMethods(refs: CoreRefs) {
 
   async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓?\n当前持仓 ${refs.positions.value.length} 只,总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (Number(p.market_value) || (Number(p.current_price) || 0) * (Number(p.shares) || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
 
-  async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
+  async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch (e) { console.error('[core] resetCircuitBreaker failed:', e); ElMessage.error('重置失败') } }
 
   async function pauseCircuitBreaker() {
     try {

@@ -109,7 +109,7 @@ class PreTradeChecker:
         stock_mv = sum(
             p.current_price * p.total_qty
             for p in self._broker.get_positions()
-            if p.ts_code == ts_code
+            if p.ts_code == ts_code and p.current_price is not None
         )
         stock_mv += order_amount
         total_asset = acct.total_assets
