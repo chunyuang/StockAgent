@@ -861,11 +861,13 @@ class PositionManager:
         import asyncio
         from nodes.market_monitor.market_phase import MarketPhase
         
-        # 【v2.9.98】非交易时间不执行
-        if not MarketPhase.is_in_trading():
+        # 【v2.9.98→v2.9.101】非连续竞价时段不执行卖出(与broker.place_order门控对齐)
+        # 旧: is_in_trading() 含午休(11:30-13:00), broker会因非连续竞价拒单→产生无意义rejected
+        # 新: is_continuous_auction() 仅早盘/午盘/尾盘, 与broker门控一致
+        if not MarketPhase.is_continuous_auction():
             if to_sell:
                 logger.warning(
-                    f"[RISK_THREAD] 非交易时间跳过{len(to_sell)}笔卖出: "
+                    f"[RISK_THREAD] 非连续竞价时段跳过{len(to_sell)}笔卖出: "
                     f"{', '.join(p.ts_code for p, _, _, _ in to_sell[:5])}"
                 )
             return
@@ -907,10 +909,10 @@ class PositionManager:
         v2.9.71: trace_id贯穿
         v2.9.98: 增加交易时间检查
         """
-        # 【v2.9.98】非交易时间禁止卖出
+        # 【v2.9.98→v2.9.101】非连续竞价时段禁止卖出(与broker门控对齐)
         from nodes.market_monitor.market_phase import MarketPhase
-        if not MarketPhase.is_in_trading():
-            logger.warning(f"[RISK_SELL] 非交易时间跳过卖出: {pos.ts_code} {reason}")
+        if not MarketPhase.is_continuous_auction():
+            logger.warning(f"[RISK_SELL] 非连续竞价时段跳过卖出: {pos.ts_code} {reason}")
             return
         
         import uuid
@@ -960,10 +962,10 @@ class PositionManager:
         Returns:
             (sold, failed) 成功/失败数
         """
-        # 【v2.9.98】非交易时间禁止清仓
+        # 【v2.9.98→v2.9.101】非连续竞价时段禁止清仓(与broker门控对齐)
         from nodes.market_monitor.market_phase import MarketPhase
-        if not MarketPhase.is_in_trading():
-            logger.warning(f"[LIQUIDATE] 非交易时间跳过清仓: {reason}")
+        if not MarketPhase.is_continuous_auction():
+            logger.warning(f"[LIQUIDATE] 非连续竞价时段跳过清仓: {reason}")
             return 0, 0
         
         import uuid

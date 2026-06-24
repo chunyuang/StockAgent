@@ -188,8 +188,8 @@ class TestLiquidatePositionsBehavior:
         """验证liquidate_positions使用available_qty下单"""
         scanner, pos = mock_scanner
 
-        # Mock MarketPhase.is_in_trading为True(v2.9.98增加了交易时间检查)
-        with patch('nodes.market_monitor.market_phase.MarketPhase.is_in_trading', return_value=True):
+        # Mock MarketPhase.is_continuous_auction为True(v2.9.101:与broker门控对齐,不再用is_in_trading)
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
             # Mock _post_sell_cleanup to avoid complex async mock chain
             scanner._post_sell_cleanup = AsyncMock()
             # Mock _position_manager for scanner delegate
@@ -202,7 +202,7 @@ class TestLiquidatePositionsBehavior:
 
             # 验证place_order用的是available_qty(100), 不是total_qty(200)
             call_args = scanner._broker.place_order.call_args
-            assert call_args is not None, "place_order未被调用, 可能is_in_trading()检查阻止了"
+            assert call_args is not None, "place_order未被调用, 可能is_continuous_auction()检查阻止了"
             assert call_args.kwargs.get("quantity") == 100, \
                 f"应使用available_qty=100, 实际quantity={call_args.kwargs.get('quantity')}"
 
@@ -213,7 +213,7 @@ class TestLiquidatePositionsBehavior:
         pos.available_qty = 0  # T+1: 当日买入不可卖
         pos.total_qty = 100
 
-        with patch('nodes.market_monitor.market_phase.MarketPhase.is_in_trading', return_value=True):
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
             from nodes.market_monitor.position_manager import PositionManager
             pm = PositionManager(scanner)
             result = await pm.liquidate_positions("测试", "test")
@@ -249,7 +249,7 @@ class TestLiquidatePositionsBehavior:
             (False, "跌停无法卖出", None),
         ]
 
-        with patch('nodes.market_monitor.market_phase.MarketPhase.is_in_trading', return_value=True):
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
             from nodes.market_monitor.position_manager import PositionManager
             pm = PositionManager(scanner)
             result = await pm.liquidate_positions("测试", "test")
@@ -263,7 +263,7 @@ class TestLiquidatePositionsBehavior:
         # Mock _post_sell_cleanup to avoid complex async mock chain
         scanner._post_sell_cleanup = AsyncMock()
 
-        with patch('nodes.market_monitor.market_phase.MarketPhase.is_in_trading', return_value=True):
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
             from nodes.market_monitor.position_manager import PositionManager
             pm = PositionManager(scanner)
             result = await pm.liquidate_positions("测试", "test")
