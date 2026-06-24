@@ -34,8 +34,21 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
-      "risk_free_rate": "float"
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
     },
     "source": "str",
     "imported_at": "str"
@@ -74,8 +87,21 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
-      "risk_free_rate": "float"
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
     },
     "source": "str",
     "imported_at": "str"
@@ -113,8 +139,21 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
-      "risk_free_rate": "float"
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
     },
     "source": "str",
     "imported_at": "str"
@@ -154,8 +193,21 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
-      "risk_free_rate": "float"
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
     },
     "source": "str",
     "imported_at": "str"
@@ -194,8 +246,21 @@
       "intraday_lock_pullback_pct": "float",
       "intraday_lock_min_profit": "float",
       "hold_protection_threshold": "float",
+      "enable_ma60_filter": "bool",
+      "sector_concentration_top_n": "int",
       "live_trading_mode": "bool",
-      "risk_free_rate": "float"
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
     },
     "source": "str",
     "imported_at": "str"
