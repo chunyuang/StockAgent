@@ -1120,29 +1120,36 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             "weak_codes": weak_codes, "items": items[:20],
         }
 
-    def _score_premarket_risk(self, metrics: Dict[str, Any], result, position_risk: Dict[str, Any]) -> Tuple[int, str, List[str], str]:
-        """竞价风险评分: 市场宽度+短线情绪+持仓风险+原L1强制空仓信号。"""
+    def _score_premarket_risk(self, metrics: Dict[str, Any], result, position_risk: Dict[str, Any], valid: bool = True) -> Tuple[int, str, List[str], str]:
+        """竞价风险评分: 市场宽度+短线情绪+持仓风险+原L1强制空仓信号。
+        
+        【v2.9.99-r13】valid=False (竞价数据未到, total<3000) 时跳过市场宽度/涨跌停评分,
+        避免 "limit_up仅 0 只" 这种数据缺失被误读成情绪冷。仅保留持仓风险+L1强制空仓评分。
+        """
         score = 0
         reasons = []
-        total = max(int(metrics.get("total_stocks") or 0), 1)
-        down_ratio = metrics.get("down_count", 0) / total
-        avg_pct = float(metrics.get("avg_pct_chg") or 0)
-        limit_up = int(metrics.get("limit_up_count") or 0)
-        limit_down = int(metrics.get("limit_down_count") or 0)
-        if down_ratio >= 0.70:
-            score += 20; reasons.append(f"下跌占比{down_ratio:.0%}")
-        if avg_pct <= -1.0:
-            score += 15; reasons.append(f"竞价均幅{avg_pct:.2f}%")
-        if limit_up <= 10:
-            score += 10; reasons.append(f"涨停仅{limit_up}只")
-        if limit_down >= 10:
-            score += 20; reasons.append(f"跌停{limit_down}只")
-        if limit_down >= 30:
-            score += 20; reasons.append("跌停扩散")
-        sentiment = self._filter_pipeline.get_sentiment_info() if self._filter_pipeline else {}
-        sentiment_score = float(sentiment.get("score", sentiment.get("emotion_score", 50)) or 50)
-        if sentiment_score < 35:
-            score += 20; reasons.append(f"情绪{sentiment_score:.0f}分")
+        if valid:
+            total = max(int(metrics.get("total_stocks") or 0), 1)
+            down_ratio = metrics.get("down_count", 0) / total
+            avg_pct = float(metrics.get("avg_pct_chg") or 0)
+            limit_up = int(metrics.get("limit_up_count") or 0)
+            limit_down = int(metrics.get("limit_down_count") or 0)
+            if down_ratio >= 0.70:
+                score += 20; reasons.append(f"下跌占比{down_ratio:.0%}")
+            if avg_pct <= -1.0:
+                score += 15; reasons.append(f"竞价均幅{avg_pct:.2f}%")
+            if limit_up <= 10:
+                score += 10; reasons.append(f"涨停仅{limit_up}只")
+            if limit_down >= 10:
+                score += 20; reasons.append(f"跌停{limit_down}只")
+            if limit_down >= 30:
+                score += 20; reasons.append("跌停扩散")
+            sentiment = self._filter_pipeline.get_sentiment_info() if self._filter_pipeline else {}
+            sentiment_score = float(sentiment.get("score", sentiment.get("emotion_score", 50)) or 50)
+            if sentiment_score < 35:
+                score += 20; reasons.append(f"情绪{sentiment_score:.0f}分")
+        else:
+            reasons.append("竞价数据未就绪(跳过市场宽度评分)")
         if getattr(result, "action", "") == "empty":
             score += 25; reasons.append(getattr(result, "force_empty_reason", "L1强制空仓信号") or "L1强制空仓信号")
         if position_risk.get("avg_pct_chg", 0) <= -4:
@@ -1212,7 +1219,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                 state["anomalies"] = state.get("anomalies", [])[-20:]
 
             position_risk = self._build_premarket_position_risk(realtime_data)
-            score, level, reasons, action = self._score_premarket_risk(metrics, result, position_risk)
+            score, level, reasons, action = self._score_premarket_risk(metrics, result, position_risk, valid=valid)
             item = {
                 "time": ct, **metrics, "valid": valid, "anomalies": anomalies,
                 "risk_score": score, "risk_level": level, "action": action,

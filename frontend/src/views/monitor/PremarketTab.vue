@@ -190,8 +190,9 @@ onMounted(() => {
               <span v-if="snap.is_debug" class="pm-debug-badge">DEBUG</span>
             </div>
             <div class="pm-tl-main">
-              <div class="pm-tl-section">
+              <div class="pm-tl-section" :class="{ 'pm-section-invalid': !snap.force_empty_confirm?.valid && (snap.market_snapshot?.total_stocks || 0) < 3000 }">
                 <b>市场宽度</b>
+                <span v-if="!snap.force_empty_confirm?.valid && (snap.market_snapshot?.total_stocks || 0) < 3000" class="pm-invalid-tag">⚠️ 数据未就绪</span>
                 <span>样本 {{ snap.market_snapshot?.total_stocks || snap.display_funnel?.market_samples || 0 }}</span>
                 <span>上涨/下跌 <em class="up">{{ snap.market_snapshot?.up_count || 0 }}</em>/<em class="down">{{ snap.market_snapshot?.down_count || 0 }}</em></span>
                 <span>均幅 {{ Number(snap.market_snapshot?.avg_pct_chg || 0).toFixed(2) }}%</span>
@@ -646,6 +647,9 @@ onMounted(() => {
 .pm-tl-section b, .pm-tl-funnel b { min-width: 58px; color: var(--text-primary); font-size: 12px; }
 .pm-tl-section span, .pm-tl-funnel span, .pm-tl-debug span { font-size: 11px; color: var(--text-secondary); background: var(--bg-muted); padding: 2px 6px; border-radius: 999px; }
 .pm-tl-alert { font-size: 12px; color: var(--el-color-warning); background: var(--warning-bg, rgba(230,162,60,.12)); padding: 5px 8px; border-radius: 6px; }
+.pm-section-invalid { opacity: 0.55; }
+.pm-section-invalid em, .pm-section-invalid span:not(.pm-invalid-tag) { color: var(--text-tertiary) !important; }
+.pm-invalid-tag { color: var(--el-color-warning) !important; background: var(--warning-bg, rgba(230,162,60,.18)) !important; font-weight: 600; }
 .pm-tl-debug { color: var(--text-tertiary); font-size: 11px; }
 .pm-tl-debug summary { cursor: pointer; color: var(--text-tertiary); margin-right: 4px; }
 .pm-tl-cands { margin-top: 2px; }
