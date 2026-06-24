@@ -308,16 +308,18 @@ class EmotionCycleManager:
         【V50:从MongoDB limit_list读取真实连板数据,不再用估算】
         """
         try:
-            # 尝试从limit_list集合读取(有limit_times字段)
-            pipeline = [
-                {"$match": {"trade_date": int(trade_date), "is_limit_up": True}},
-                {"$group": {"_id": None, "max_limit": {"$max": "$limit_times"}}}
-            ]
-            result = await mongo_manager.aggregate(C.LIMIT_LIST, pipeline)
-            if result and result[0].get("max_limit"):
-                return result[0]["max_limit"]
+            # 尝试从limit_list集合读取；若缺少limit_times, 用连续交易日涨停记录反推。
+            from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
+            docs = await mongo_manager.db[C.LIMIT_LIST].find(
+                {"trade_date": _trade_date_match(trade_date), "$or": [{"is_limit_up": True}, {"limit": "U"}]},
+                {"_id": 0, "ts_code": 1, "limit_times": 1, "limit": 1, "is_limit_up": 1},
+            ).to_list(length=None)
+            docs = await _enrich_limit_times_from_history(mongo_manager.db, trade_date, docs)
+            max_limit = max((int(d.get("limit_times") or 0) for d in docs), default=0)
+            if max_limit:
+                return max_limit
         except Exception as e:
-            logger.debug(f"[EMOTION] limit_list聚合失败, fallback估算: {e}")
+            logger.debug(f"[EMOTION] limit_list聚合/反推失败, fallback估算: {e}")
         
         # Fallback: 根据涨停数量估算(简化版)
         return max(1, min(10, limit_up_count // 5 + 1))

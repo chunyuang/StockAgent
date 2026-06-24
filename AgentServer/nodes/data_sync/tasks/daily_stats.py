@@ -365,14 +365,20 @@ class DailyStatsTask(BaseTask):
         }
         
         # 1. 从 limit_list 获取涨跌停数据
+        from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
         limit_data = await mongo_manager.find_many(
             C.LIMIT_LIST,
-            {"trade_date": trade_date},
+            {"trade_date": _trade_date_match(trade_date)},
             projection={"ts_code": 1, "limit": 1, "limit_times": 1, "open_times": 1, "_id": 0},
         )
         
         if limit_data:
+            limit_ups = [item for item in limit_data if item.get("limit") == "U"]
+            await _enrich_limit_times_from_history(mongo_manager.db, trade_date, limit_ups)
+            enriched_times = {item.get("ts_code"): item.get("limit_times") for item in limit_ups if item.get("ts_code")}
             for item in limit_data:
+                if item.get("limit") == "U" and item.get("ts_code") in enriched_times:
+                    item["limit_times"] = enriched_times[item.get("ts_code")]
                 limit_type = item.get("limit")
                 limit_times = item.get("limit_times", 1) or 1
                 open_times = item.get("open_times", 0) or 0

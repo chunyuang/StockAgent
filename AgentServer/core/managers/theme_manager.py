@@ -144,15 +144,19 @@ class ThemeManager(BaseManager):
         trade_date: str,
     ) -> Dict[str, int]:
         """获取涨停板数据，按板块统计3板以上个数"""
-        # 从 limit_list 获取当日涨停数据
+        # 从 limit_list 获取当日涨停数据；若缺少limit_times, 先按连续交易日反推。
+        from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
         limit_data = await mongo_manager.find_many(
             C.LIMIT_LIST,
-            {"trade_date": trade_date, "limit_times": {"$gte": 3}},
+            {"trade_date": _trade_date_match(trade_date), "limit": "U"},
         )
+        limit_data = await _enrich_limit_times_from_history(mongo_manager.db, trade_date, limit_data)
         
         # 统计每个行业的高板个数
         industry_high_boards = {}
         for item in limit_data:
+            if (item.get("limit_times") or 1) < 3:
+                continue
             industry = item.get("industry", "未知")
             if industry not in industry_high_boards:
                 industry_high_boards[industry] = 0
@@ -414,11 +418,13 @@ class ThemeManager(BaseManager):
             },
         )
         
-        # 2. 获取涨停板数据（用于连板系数）
+        # 2. 获取涨停板数据（用于连板系数）；若缺少limit_times, 先按连续交易日反推。
+        from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
         limit_data = await mongo_manager.find_many(
             C.LIMIT_LIST,
-            {"trade_date": trade_date},
+            {"trade_date": _trade_date_match(trade_date), "limit": "U"},
         )
+        limit_data = await _enrich_limit_times_from_history(mongo_manager.db, trade_date, limit_data)
         
         # 统计每个行业的连板数
         industry_limit_stats = {}
