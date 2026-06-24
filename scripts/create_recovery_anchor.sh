@@ -64,7 +64,7 @@ python3 - <<'PY' > "$ANCHOR/mongo/mongo-snapshot.txt" || true
 from pymongo import MongoClient
 c=MongoClient('localhost',27017,serverSelectionTimeoutMS=3000)
 db=c['stock_agent']
-cols=['broker_orders','broker_positions','scanner_timeline','audit_log','strategy_config','stock_daily_ak_full','daily_basic','limit_list','sentiment_scores','scan_traces']
+cols=['broker_orders','broker_positions','broker_accounts','broker_account','scanner_timeline','audit_log','strategy_config','performance_snapshots','sim_accounts','stock_daily_ak_full','daily_basic','limit_list','sentiment_scores','scan_traces']
 for name in cols:
     coll=db[name]
     try:
@@ -80,7 +80,7 @@ for name in cols:
 PY
 
 if command -v mongodump >/dev/null 2>&1; then
-  for coll in broker_orders broker_positions scanner_timeline audit_log strategy_config; do
+  for coll in broker_orders broker_positions broker_accounts broker_account scanner_timeline audit_log strategy_config performance_snapshots sim_accounts; do
     mongodump --db "$DB_NAME" --collection "$coll" --out "$ANCHOR/mongo/dump" >/dev/null 2>&1 || true
   done
 else
@@ -117,7 +117,7 @@ Repo: $REPO
 ## Captured
 - Code: branch/head/status/diff + full git bundle
 - Cron: exact jobs.json + enabled job list
-- Mongo: key collection counts/latest dates + selected critical mongodump when available
+- Mongo: key collection counts/latest dates + selected trading-critical mongodump when available
 - Service: process/port/API snapshots
 
 ## Fast recovery order
