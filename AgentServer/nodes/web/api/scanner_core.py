@@ -539,9 +539,25 @@ async def get_signals(date: str = None):
 
 @router.get("/positions")
 async def get_positions():
-    """获取实时持仓"""
+    """获取实时持仓
+
+    【v2.9.99-r8 fix P1 #5】统一使用 _compute_positions_from_broker, 与 /scanner/analysis 合并数据源
+    以前用 scanner.get_positions() 返回的 不包含 risk_monitor_active 等风控字段, 导致前端误报“风控❌”
+    """
     scanner = await _get_scanner()
-    return _sanitize({"success": True, "data": scanner.get_positions()})
+    try:
+        from core.managers import mongo_manager
+        from nodes.web.api.scanner_analysis import _compute_positions_from_broker
+        account_id = "default"
+        if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+            account_id = scanner._broker.account.account_id
+        positions = await _compute_positions_from_broker(mongo_manager.db, account_id)
+        return _sanitize({"success": True, "data": positions})
+    except Exception as e:
+        from loguru import logger
+        logger.warning(f"[POSITIONS] _compute_positions_from_broker 失败, 回退到 scanner.get_positions(): {e}")
+        # 回退方案: 避免完全丢数据
+        return _sanitize({"success": True, "data": scanner.get_positions()})
 
 
 

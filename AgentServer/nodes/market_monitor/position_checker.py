@@ -301,6 +301,12 @@ class PositionChecker:
                 for ts_code, price in prices.items():
                     if price and price > 0:
                         self.broker.update_realtime(ts_code=ts_code, price=price)
+                # 【v2.9.99-r8 fix】更新行情时间戳, 避免误报"行情陈旧"
+                # 主循环每5min才更新一次_last_realtime_update_ts, 但quick check每30s刷新价格
+                # 不更新时间戳会导致 quote_staleness_seconds 假性升高, health 误报 red
+                if prices:
+                    import time as _time
+                    scanner._last_realtime_update_ts = _time.time()
                 logger.debug(f"[QUICK] 东方财富更新: {len(prices)}/{len(pos_codes)}只持仓价")
         
         # 回退: 用全量扫描缓存
