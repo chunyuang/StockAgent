@@ -700,12 +700,15 @@ class EmotionCycleManager:
 
         data_source = "scanner_realtime"
         if lu == 0 and ld == 0:
-            lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
-            ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
-            max_lb_doc = await db["limit_list"].find_one(
-                {"trade_date": td_int, "limit": "U"},
-                sort=[("limit_times", -1)], projection={"limit_times": 1})
-            max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
+            from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
+            limit_ups = await db["limit_list"].find(
+                {"trade_date": _trade_date_match(td_int), "limit": "U"},
+                {"_id": 0, "ts_code": 1, "limit_times": 1, "limit": 1},
+            ).to_list(length=None)
+            limit_ups = await _enrich_limit_times_from_history(db, td_int, limit_ups)
+            lu = len(limit_ups)
+            ld = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td_int), "limit": "D"})
+            max_lb = max((int(item.get("limit_times") or 0) for item in limit_ups), default=1) if lu > 0 else 1
             data_source = "limit_list"
         if lu == 0 and ld == 0:
             # 【v2.9.76修复】daily_basic没有pct_chg，改用stock_daily_ak_full

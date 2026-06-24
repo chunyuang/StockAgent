@@ -931,6 +931,9 @@ async def _limit_pools_from_mongo():
                 elif close_price > 0 and down_limit > 0 and close_price <= down_limit * 1.002:
                     limit_downs.append(item)
         
+        from nodes.web.api.scanner_system import _enrich_limit_times_from_history
+        limit_ups = await _enrich_limit_times_from_history(db, td, limit_ups)
+
         return {
             "success": True,
             "data": {
