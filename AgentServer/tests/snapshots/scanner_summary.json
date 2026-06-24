@@ -1,15 +1,31 @@
 {
   "generated_at": "str",
   "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
+    "total_assets": "float",
+    "available_cash": "float",
+    "market_value": "float",
     "total_profit": "float",
     "position_ratio": "float",
     "position_count": "int"
   },
   "positions": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "shares": "int",
+      "available_qty": "int",
+      "cost_price": "float",
+      "current_price": "float",
+      "profit_pct": "float",
+      "market_value": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "distance_to_stop": "float",
+      "is_t1_locked": "bool"
+    }
   ],
   "trade_stats": {
     "total_trades": "int",
@@ -36,7 +52,9 @@
     "executed": "int",
     "skipped": "int",
     "expired": "int",
-    "filtered": "int"
+    "filtered": "int",
+    "blocked": "int",
+    "active": "int"
   },
   "scanner_stats": {
     "scans": "int",

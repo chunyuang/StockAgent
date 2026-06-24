@@ -19,10 +19,29 @@
     "total_buys": "int"
   },
   "daily_breakdown": [
-    "<empty_list>"
+    {
+      "date": "str",
+      "trades": "int",
+      "buys": "int",
+      "sells": "int",
+      "wins": "int",
+      "win_rate": "float",
+      "pnl": "int",
+      "strategy_stats": {},
+      "sentiment": "str",
+      "sentiment_score": "int"
+    }
   ],
   "weekly_trend": [
-    "<empty_list>"
+    {
+      "week": "str",
+      "start": "str",
+      "end": "str",
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "int",
+      "days": "int"
+    }
   ],
   "param_drift": {
     "start_date": "str",
@@ -32,7 +51,7 @@
         "level": "str",
         "key": "str",
         "old": "NoneType",
-        "new": "float",
+        "new": "int",
         "severity": "str"
       }
     ],

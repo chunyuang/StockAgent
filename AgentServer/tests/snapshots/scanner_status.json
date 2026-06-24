@@ -4,13 +4,37 @@
   "last_scan_time": "str",
   "active_signals": "int",
   "positions": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "shares": "int",
+      "available_qty": "int",
+      "cost_price": "float",
+      "current_price": "float",
+      "profit_pct": "float",
+      "profit_amount": "float",
+      "market_value": "float",
+      "today_buy": "int",
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "stop_loss_status": "str",
+      "stop_loss_desc": "str",
+      "distance_to_stop": "float",
+      "buy_date": "str",
+      "trailing_stop": "NoneType",
+      "risk_level": "str",
+      "effective_stop_price": "float"
+    }
   ],
   "stocks_scanned": "int",
   "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
+    "total_assets": "float",
+    "available_cash": "float",
+    "market_value": "float",
     "total_profit": "float"
   },
   "stats": {

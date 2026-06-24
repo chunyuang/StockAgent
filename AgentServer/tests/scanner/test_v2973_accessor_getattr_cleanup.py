@@ -19,18 +19,22 @@ class TestScannerAccessorMethods(unittest.TestCase):
     """Scanner 9个访问器方法存在性+签名+返回类型"""
 
     def _get_scanner_methods(self) -> dict:
-        """解析scanner.py获取所有方法定义"""
-        src_path = os.path.join(PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
-        with open(src_path) as f:
-            tree = ast.parse(f.read())
+        """解析scanner.py + scanner_accessors_mixin.py获取所有方法定义"""
         methods = {}
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                methods[node.name] = {
-                    "node": node,
-                    "lineno": node.lineno,
-                    "returns": ast.unparse(node.returns) if node.returns else None,
-                }
+        for src_name in ["scanner.py", "scanner_accessors_mixin.py"]:
+            src_path = os.path.join(PROJECT_ROOT, "nodes", "market_monitor", src_name)
+            if not os.path.exists(src_path):
+                continue
+            with open(src_path) as f:
+                tree = ast.parse(f.read())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    methods[node.name] = {
+                        "node": node,
+                        "lineno": node.lineno,
+                        "returns": ast.unparse(node.returns) if node.returns else None,
+                        "source": src_name,
+                    }
         return methods
 
     def test_get_current_sentiment(self):

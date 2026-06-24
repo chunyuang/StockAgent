@@ -1,31 +1,9 @@
 {
   "limit_up": [
-    {
-      "ts_code": "str",
-      "name": "str",
-      "close": "float",
-      "pct_chg": "float",
-      "limit_times": "int",
-      "open_times": "int",
-      "fd_amount": "int",
-      "turnover": "int",
-      "first_time": "str",
-      "industry": "str"
-    }
+    "<empty_list>"
   ],
   "limit_down": [
-    {
-      "ts_code": "str",
-      "name": "str",
-      "close": "float",
-      "pct_chg": "float",
-      "limit_times": "int",
-      "open_times": "int",
-      "fd_amount": "int",
-      "turnover": "int",
-      "first_time": "str",
-      "industry": "str"
-    }
+    "<empty_list>"
   ],
   "broken": [
     "<empty_list>"
