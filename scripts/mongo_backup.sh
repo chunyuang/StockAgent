@@ -1,72 +1,99 @@
 #!/bin/bash
-# MongoDB 每日自动备份脚本
-# 备份 stock_agent 数据库的 broker_* 和 scanner_* 关键集合
-# 保留最近 14 天
+# MongoDB 每日自动备份（轻量版）
+# 关键集合: broker_orders / broker_positions / broker_accounts /
+#           scanner_timeline / performance_snapshots / scanner_reset_audit_log
+# 保留 7 天，自动清理；磁盘紧张时跳过
 
 set -e
 
 BACKUP_DIR="/root/.openclaw/backups/mongodb"
-DATE=$(date +%Y%m%d_%H%M%S)
-KEEP_DAYS=14
+KEEP_DAYS=7
+MIN_FREE_GB=3   # 剩余<3GB跳过备份
+MAX_TOTAL_MB=200  # mongodb 备份目录最大 200MB（防止占满）
 
+DATE=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$BACKUP_DIR"
 
-DUMP_DIR="${BACKUP_DIR}/dump_${DATE}"
-ARCHIVE_FILE="${BACKUP_DIR}/mongo_stock_agent_${DATE}.tar.gz"
+# ===== 磁盘保护 =====
+FREE_KB=$(df / --output=avail | tail -1)
+FREE_GB=$((FREE_KB / 1024 / 1024))
+if [ "$FREE_GB" -lt "$MIN_FREE_GB" ]; then
+  echo "[$(date '+%F %T')] ⚠️ 磁盘剩余 ${FREE_GB}GB < ${MIN_FREE_GB}GB, 跳过备份"
+  exit 0
+fi
 
-echo "[$(date '+%F %T')] 开始 MongoDB 备份: $DUMP_DIR"
+CURRENT_MB=$(du -sm "$BACKUP_DIR" 2>/dev/null | cut -f1)
+if [ "${CURRENT_MB:-0}" -gt "$MAX_TOTAL_MB" ]; then
+  echo "[$(date '+%F %T')] ⚠️ 备份目录已 ${CURRENT_MB}MB > ${MAX_TOTAL_MB}MB, 强制清理"
+  find "$BACKUP_DIR" -name "mongo_*.gz" -mtime +3 -delete
+fi
 
-# 备份关键集合
+ARCHIVE_FILE="${BACKUP_DIR}/mongo_${DATE}.gz"
+
+# ===== mongodump 直接输出到压缩归档 (--archive --gzip 比 tar.gz 小 30%) =====
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection broker_orders \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_orders_${DATE}" \
+  --gzip --quiet
 
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection broker_positions \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_positions_${DATE}" \
+  --gzip --quiet
 
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection broker_accounts \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_accounts_${DATE}" \
+  --gzip --quiet
 
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection scanner_timeline \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_timeline_${DATE}" \
+  --gzip --quiet
 
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection performance_snapshots \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_perf_${DATE}" \
+  --gzip --quiet 2>/dev/null || true
 
 mongodump \
   --uri "mongodb://localhost:27017" \
   --db stock_agent \
   --collection scanner_reset_audit_log \
-  --out "$DUMP_DIR" 2>&1 | tail -3
+  --archive="${BACKUP_DIR}/.tmp_audit_${DATE}" \
+  --gzip --quiet 2>/dev/null || true
 
-# 打包压缩
-cd "$BACKUP_DIR"
-tar -czf "$ARCHIVE_FILE" "dump_${DATE}"
-rm -rf "$DUMP_DIR"
+# 合并所有归档到一个 tar
+tar -cf "$ARCHIVE_FILE" -C "$BACKUP_DIR" \
+  ".tmp_orders_${DATE}" \
+  ".tmp_positions_${DATE}" \
+  ".tmp_accounts_${DATE}" \
+  ".tmp_timeline_${DATE}" \
+  $([ -f "${BACKUP_DIR}/.tmp_perf_${DATE}" ] && echo ".tmp_perf_${DATE}") \
+  $([ -f "${BACKUP_DIR}/.tmp_audit_${DATE}" ] && echo ".tmp_audit_${DATE}") \
+  2>/dev/null
 
-ARCHIVE_SIZE=$(du -h "$ARCHIVE_FILE" | cut -f1)
-echo "[$(date '+%F %T')] ✅ 备份完成: $ARCHIVE_FILE ($ARCHIVE_SIZE)"
+# 清理临时归档
+rm -f "${BACKUP_DIR}/.tmp_"*"_${DATE}"
 
-# 清理 14 天前的旧备份
-DELETED=$(find "$BACKUP_DIR" -name "mongo_stock_agent_*.tar.gz" -mtime +${KEEP_DAYS} -print -delete | wc -l)
-if [ "$DELETED" -gt 0 ]; then
-  echo "[$(date '+%F %T')] 清理 $DELETED 个过期备份 (> ${KEEP_DAYS} 天)"
-fi
+SIZE=$(du -h "$ARCHIVE_FILE" | cut -f1)
+echo "[$(date '+%F %T')] ✅ 备份完成: $(basename $ARCHIVE_FILE) ($SIZE)"
 
-# 列出当前所有备份
-echo "[$(date '+%F %T')] 当前备份列表:"
-ls -lah "$BACKUP_DIR"/mongo_stock_agent_*.tar.gz 2>/dev/null | awk '{print "  ", $9, "(" $5 ")"}'
+# ===== 清理过期备份 =====
+DELETED=$(find "$BACKUP_DIR" -name "mongo_*.gz" -mtime +${KEEP_DAYS} -print -delete | wc -l)
+[ "$DELETED" -gt 0 ] && echo "[$(date '+%F %T')] 清理 $DELETED 个过期备份 (>${KEEP_DAYS}天)"
+
+# ===== 当前状态 =====
+TOTAL_SIZE=$(du -sh "$BACKUP_DIR" | cut -f1)
+COUNT=$(ls "$BACKUP_DIR"/mongo_*.gz 2>/dev/null | wc -l)
+echo "[$(date '+%F %T')] 备份目录: ${COUNT} 个文件, 共 ${TOTAL_SIZE}, 磁盘剩余 ${FREE_GB}GB"
