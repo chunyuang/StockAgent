@@ -632,7 +632,8 @@ class PositionChecker:
         from nodes.market_monitor.market_phase import MarketPhase
 
         # 【v2.9.98修复】非交易时间禁止卖出(盘后止损卖出是BUG)
-        # 允许的时段: 交易时间(09:30-15:00) + 盘后5分钟结算(15:00-15:05)
+        # 允许的时段: 仅连续竞价时间(09:30-11:30, 13:00-15:00)
+        # 注: 15:00-15:05 属 OFF_HOURS, 也被阻止(收盘后不应有新卖出触发)
         phase = MarketPhase.classify()
         if phase in (MarketPhase.AFTER_CLOSE, MarketPhase.OFF_HOURS, MarketPhase.DEEP_NIGHT, MarketPhase.WEEKEND, MarketPhase.PREMARKET):
             blocked = len(to_sell)
