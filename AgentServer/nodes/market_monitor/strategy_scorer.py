@@ -37,6 +37,7 @@ class StrategyScorer:
         """
         self._scanner = scanner
         self._name_map: Dict[str, str] = {}  # ts_code→stock_name
+        self._last_missing_condition_fields: Dict[str, List[str]] = {}  # strategy→缺失条件字段
     
     # ==================== 属性代理 ====================
     
@@ -91,37 +92,66 @@ class StrategyScorer:
             row["stock_name"] = rt.get("name", "") or self._name_map.get(ts_code, "")
 
             pct = rt.get("pct_chg") or 0
-            row["is_limit_up"], row["is_limit_down"] = self._classify_limit(ts_code, pct)
+            row["is_limit_up"], row["is_limit_down"] = self._classify_limit(ts_code, pct, row["stock_name"])
             row["limit_up_count"] = row["is_limit_up"]
             rt_rows.append(row)
         return pd.DataFrame(rt_rows)
 
     @staticmethod
-    def _classify_limit(ts_code: str, pct: float) -> tuple:
-        """根据涨跌幅和板块判断涨停/跌停"""
-        if ts_code.startswith('688'):
-            return (1 if pct >= 19.5 else 0, 1 if pct <= -19.5 else 0)
-        elif ts_code.startswith(('4', '8')):
-            return (1 if pct >= 29.5 else 0, 1 if pct <= -29.5 else 0)
-        return (1 if pct >= 9.5 else 0, 1 if pct <= -9.5 else 0)
+    def _limit_threshold(ts_code: str, stock_name: str = "") -> float:
+        """统一涨跌停阈值(百分比): ST=5%, 主板=10%, 创业/科创=20%, 北交=30%。"""
+        code = (ts_code or "").split(".")[0]
+        name = stock_name or ""
+        if "ST" in name.upper() or name.startswith(("*ST", "ST")):
+            return 4.8
+        if code.startswith(("300", "301", "688")):
+            return 19.5
+        if code.startswith(("4", "8", "920")):
+            return 29.5
+        return 9.5
+
+    @classmethod
+    def _classify_limit(cls, ts_code: str, pct: float, stock_name: str = "") -> tuple:
+        """根据涨跌幅和板块判断涨停/跌停。"""
+        threshold = cls._limit_threshold(ts_code, stock_name)
+        return (1 if pct >= threshold else 0, 1 if pct <= -threshold else 0)
 
     def _merge_with_daily_factors(self, rt_df: pd.DataFrame) -> pd.DataFrame:
-        """合并日级因子"""
+        """合并日级因子。
+
+        约定: scanner._daily_factors_df 是盘中可用的最新日线快照(通常为T-1)。
+        因此从该表合入的 volume_ratio/turnover_rate/circ_mv/pct_chg 等必须显式命名为 *_prev，
+        避免实盘复用回测条件时因字段缺失而静默跳过。
+        """
         daily_df = self.daily_factors_df
+        merged = rt_df.copy()
         if daily_df is not None and not daily_df.empty:
-            daily_cols = ["ts_code", "ma5", "macd", "rsi_6", "boll_upper", "atr",
-                          "limit_up_count", "limit_up_yesterday", "limit_down_yesterday",
-                          "first_limit_up", "fear_greed_index"]
-            available_cols = [c for c in daily_cols if c in daily_df.columns]
+            direct_cols = ["ts_code", "ma5", "macd", "rsi_6", "boll_upper", "atr",
+                           "limit_up_count", "limit_up_yesterday", "limit_down_yesterday",
+                           "fear_greed_index"]
+            prev_source_cols = ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
+                                "first_limit_up", "is_limit_up"]
+            available_cols = [c for c in direct_cols + prev_source_cols if c in daily_df.columns]
             if available_cols:
                 daily_sub = daily_df[available_cols].copy()
-                merged = rt_df.merge(daily_sub, on="ts_code", how="left", suffixes=("", "_daily"))
+                rename_prev = {c: f"{c}_prev" for c in prev_source_cols if c in daily_sub.columns}
+                daily_sub = daily_sub.rename(columns=rename_prev)
+                merged = merged.merge(daily_sub, on="ts_code", how="left", suffixes=("", "_daily"))
                 for col in ["ma5", "macd", "rsi_6", "boll_upper", "atr", "limit_up_count",
-                            "limit_up_yesterday", "limit_down_yesterday", "first_limit_up"]:
+                            "limit_up_yesterday", "limit_down_yesterday", "fear_greed_index",
+                            "pct_chg_prev", "volume_ratio_prev", "turnover_rate_prev", "circ_mv_prev",
+                            "first_limit_up_prev", "is_limit_up_prev"]:
                     if col in merged.columns:
                         merged[col] = merged[col].fillna(0)
-                return merged
-        return rt_df
+
+        # 当前首板: 当前涨停 且 昨日未涨停。若上游first_limit_up缺失/全0，实盘在这里动态补齐。
+        if "first_limit_up" not in merged.columns or (
+            "is_limit_up" in merged.columns and merged["is_limit_up"].sum() > 0 and merged.get("first_limit_up", pd.Series(0, index=merged.index)).sum() == 0
+        ):
+            prev_lu = merged.get("is_limit_up_prev", merged.get("limit_up_yesterday", pd.Series(0, index=merged.index))).fillna(0)
+            merged["first_limit_up"] = ((merged.get("is_limit_up", 0).astype(int) == 1) & (prev_lu.astype(int) == 0)).astype(int)
+
+        return merged
     
     # ==================== 策略配置 ====================
     
@@ -193,6 +223,7 @@ class StrategyScorer:
 
         bt = PortfolioBacktester()
         signals = []
+        self._last_missing_condition_fields = {}
         existing_positions = (
             {p.ts_code for p in self.broker.get_positions()} if self.broker else set()
         )
@@ -205,7 +236,7 @@ class StrategyScorer:
             strategy_name = cfg.get("name", strategy_key)
             params = cfg.get("params", {})
             conditions = bt._build_strategy_filter_conditions(strategy_name, params)
-            mask = self._apply_filter_conditions(merged_df, conditions)
+            mask = self._apply_filter_conditions(merged_df, conditions, strategy_key)
             selected = merged_df[mask]
 
             for _, row in selected.iterrows():
@@ -219,24 +250,39 @@ class StrategyScorer:
         return signals
 
     def _apply_filter_conditions(
-        self, merged_df: pd.DataFrame, conditions: list,
+        self, merged_df: pd.DataFrame, conditions: list, strategy_key: str = "",
     ) -> pd.Series:
-        """将回测筛选条件应用到merged_df, 返回bool mask"""
+        """将回测筛选条件应用到merged_df, 返回bool mask。
+
+        安全规则: 策略条件字段缺失必须 fail-closed，不能静默跳过；
+        target=0 是有效条件，不能用 `or` 误判为空。
+        """
         mask = pd.Series(True, index=merged_df.index)
+        missing_cols: List[str] = []
         for cond in conditions:
             col = cond.get("name") or cond.get("column")
             op = cond.get("operator", ">=")
-            val = cond.get("target") or cond.get("value")
-            if col and val is not None and col in merged_df.columns:
-                try:
-                    col_data = merged_df[col].fillna(0)
-                    if op == ">=":   mask &= (col_data >= val)
-                    elif op == "<=": mask &= (col_data <= val)
-                    elif op == ">":  mask &= (col_data > val)
-                    elif op == "<":  mask &= (col_data < val)
-                    elif op == "==": mask &= (col_data == val)
-                except TypeError:
-                    pass
+            val = cond["target"] if "target" in cond else cond.get("value")
+            if not col or val is None:
+                continue
+            if col not in merged_df.columns:
+                missing_cols.append(col)
+                mask &= False
+                continue
+            try:
+                col_data = merged_df[col].fillna(0)
+                if op == ">=":   mask &= (col_data >= val)
+                elif op == "<=": mask &= (col_data <= val)
+                elif op == ">":  mask &= (col_data > val)
+                elif op == "<":  mask &= (col_data < val)
+                elif op == "==": mask &= (col_data == val)
+                elif op == "in": mask &= col_data.isin(val if isinstance(val, (list, tuple, set)) else [val])
+            except TypeError as e:
+                logger.warning("策略%s条件%s执行失败: %s", strategy_key, col, e)
+                mask &= False
+        if missing_cols:
+            self._last_missing_condition_fields[strategy_key or "unknown"] = sorted(set(missing_cols))
+            logger.warning("策略%s缺失条件字段，已fail-closed: %s", strategy_key, sorted(set(missing_cols)))
         return mask
 
     def _build_signal_from_row(
