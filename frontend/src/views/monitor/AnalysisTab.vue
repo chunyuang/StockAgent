@@ -185,7 +185,7 @@ async function showDayDetail(date: string) {
         <ElButton size="small" @click="fetchAnalysis" :loading="loading">🔄</ElButton>
       </div>
 
-      <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="点击刷新加载数据" /></div>
+      <div v-if="!analysisData && !loading" class="ana-empty"><ElEmpty description="暂无分析数据" /></div>
       <div v-if="loading" class="ana-loading">加载中...</div>
 
       <template v-if="analysisData && !loading">
