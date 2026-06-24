@@ -8,7 +8,7 @@ import { useChartColors } from './useChartColors'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
-import { ref, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 import VChart from 'vue-echarts'
@@ -80,6 +80,11 @@ function onDateChange(d: string) {
 
 // 仅在Tab激活时自动刷新(不与UnifiedDateBar的change事件重复)
 watch(activeTab, (t) => { if (t === 'analysis') fetchAnalysis() })
+
+// 【v2.9.99-r11 fix】首次挂载时自动加载 (MarketMonitorView 用 v-if 渲染, 每次切Tab都重新挂载)
+onMounted(() => {
+  fetchAnalysis()
+})
 
 const kpi = computed(() => analysisData.value?.kpi || {})
 const strategies = computed(() => analysisData.value?.strategy_contrib || [])
