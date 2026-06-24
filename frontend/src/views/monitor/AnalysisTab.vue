@@ -277,7 +277,7 @@ async function showDayDetail(date: string) {
                   <div v-if="dailyTradesLoading" style="font-size:11px;color:var(--text-tertiary)">加载中...</div>
                   <div v-else-if="!dailyTrades.length" style="font-size:11px;color:var(--text-tertiary)">无交易记录</div>
                   <table v-else class="sub-tbl"><thead><tr><th>时间</th><th>方向</th><th>代码</th><th>名称</th><th>价格</th><th>数量</th><th>盈亏%</th><th>盈亏额</th><th>原因</th></tr></thead><tbody>
-                    <tr v-for="(t, i) in dailyTrades" :key="i"><td>{{ t.time }}</td><td :class="t.action === 'buy' ? 'up' : t.action === 'sell' ? 'down' : ''">{{ t.action === 'buy' ? '买' : t.action === 'sell' ? '卖' : '⛔' }}</td><td>{{ t.ts_code?.slice(0,6) }}</td><td>{{ t.stock_name }}</td><td>{{ t.price }}</td><td>{{ t.shares }}</td><td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (Number(t.profit_pct) >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td><td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td><td style="font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td></tr>
+                    <tr v-for="(t, i) in dailyTrades" :key="i"><td>{{ t.time }}</td><td :class="t.action === 'buy' ? 'up' : t.action === 'sell' ? 'down' : ''">{{ t.action === 'buy' ? '买' : t.action === 'sell' ? '卖' : '⛔' }}</td><td>{{ t.ts_code?.slice(0,6) }}</td><td>{{ t.stock_name }}</td><td>{{ t.price }}</td><td>{{ t.shares }}</td><td :class="(t.profit_pct ?? 0) >= 0 ? 'up' : 'down'">{{ t.action === 'sell' && t.profit_pct != null && t.profit_pct !== 0 ? (Number(t.profit_pct) >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td><td :class="(t.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ t.action === 'sell' && t.profit_amount != null && t.profit_amount !== 0 ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td><td style="font-size:10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td></tr>
                   </tbody></table>
                 </td></tr>
               </template>
@@ -327,8 +327,8 @@ async function showDayDetail(date: string) {
                   <td>{{ t.date }}</td><td>{{ t.time }}</td>
                   <td :class="t.action === 'buy' ? 'up' : 'down'">{{ t.action === 'buy' ? '买入' : '卖出' }}</td>
                   <td>{{ t.shares }}</td><td>¥{{ t.price }}</td>
-                  <td :class="(Number(t.profit_pct) || 0) >= 0 ? 'up' : 'down'">{{ t.profit_pct != null ? (Number(t.profit_pct) >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td>
-                  <td :class="(Number(t.profit_amount) || 0) >= 0 ? 'up' : 'down'">{{ t.profit_amount != null ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td>
+                  <td :class="(Number(t.profit_pct) || 0) >= 0 ? 'up' : 'down'">{{ t.action === 'sell' && t.profit_pct != null && t.profit_pct !== 0 ? (Number(t.profit_pct) >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(1) + '%' : '-' }}</td>
+                  <td :class="(Number(t.profit_amount) || 0) >= 0 ? 'up' : 'down'">{{ t.action === 'sell' && t.profit_amount != null && t.profit_amount !== 0 ? '¥' + Number(t.profit_amount).toFixed(0) : '-' }}</td>
                   <td style="font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.reason || '-' }}</td>
                 </tr>
               </tbody>
