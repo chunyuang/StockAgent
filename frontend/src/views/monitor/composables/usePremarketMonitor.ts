@@ -40,6 +40,46 @@ export function usePremarketMonitor() {
   const premarketTimelineLoading = ref(false)
   const premarketForceEmptyConfirm = ref<any>({})
 
+  function isEmptyForceEmptyConfirm(state: any): boolean {
+    if (!state || !Object.keys(state).length) return true
+    const marketSnapshot = state.market_snapshot || {}
+    return (Number(state.scan_count) || 0) === 0
+      && (Number(state.valid_scan_count) || 0) === 0
+      && (!state.data_quality || state.data_quality === 'unknown')
+      && !(Number(marketSnapshot.total_stocks) || 0)
+  }
+
+  function latestForceEmptyConfirmFromTimeline(): any | null {
+    const items = [...(premarketTimeline.value || [])].reverse()
+    for (const item of items) {
+      const state = item?.force_empty_confirm
+      if (!isEmptyForceEmptyConfirm(state)) return state
+    }
+    return null
+  }
+
+  function buildDisplayForceEmptyConfirmFromSnapshot(): any | null {
+    const snapshot = premarketMarketSnapshot.value || {}
+    if (!(Number(snapshot.total_stocks) || 0)) return null
+    return {
+      pending: false,
+      pending_action: 'none',
+      executed: false,
+      risk_level: 'L0',
+      risk_score: 0,
+      action: 'none',
+      confirm_count: 0,
+      final_confirm_count: 0,
+      scan_count: 0,
+      valid_scan_count: 0,
+      data_quality: 'snapshot',
+      market_snapshot: snapshot,
+      position_risk: { count: 0, red_count: 0, weak_count: 0, near_limit_down_count: 0, avg_pct_chg: 0, weak_codes: [], items: [] },
+      anomalies: [],
+      reasons: [],
+    }
+  }
+
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
@@ -92,6 +132,14 @@ export function usePremarketMonitor() {
         premarketAnalysis.value = p.data.analysis || null
         premarketForceEmptyConfirm.value = p.data.force_empty_confirm || {}
         await fetchPremarketTimeline()
+
+        // 非竞价时段会走 debug/premarket-sim，该接口没有 force_empty_confirm。
+        // 但生产竞价快照已写入 premarket-timeline；这里回填最新有效状态，避免顶部面板显示全 0/unknown。
+        if (isEmptyForceEmptyConfirm(premarketForceEmptyConfirm.value)) {
+          premarketForceEmptyConfirm.value = latestForceEmptyConfirmFromTimeline()
+            || buildDisplayForceEmptyConfirmFromSnapshot()
+            || premarketForceEmptyConfirm.value
+        }
 
         // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
         const dataDate = p.data.market_snapshot?.data_date
