@@ -1,0 +1,28 @@
+[Unit]
+Description=StockAgent Web Service
+After=network.target mongod.service redis.service
+Wants=mongod.service redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/.openclaw/workspace/StockAgent/AgentServer
+Environment=NODE_TYPE=web
+# 启动前: 确保 8000 和 50051 端口干净 (清理孤儿/僵尸进程)
+# 退出码 0=空闲或孤儿已清理, 2=合法服务占用(冲突), 3=僵死无法 kill
+# v2.9.99-r10: 防止孤儿进程占端口导致 systemd 死循环重启
+ExecStartPre=/root/.openclaw/workspace/StockAgent/scripts/ensure_port_free.sh 8000 50051
+ExecStart=/usr/bin/python main.py --node-type web
+Restart=always
+RestartSec=2
+KillMode=process
+StandardOutput=journal+console
+StandardError=journal+console
+SyslogIdentifier=stockagent-web
+
+# 资源限制
+LimitNOFILE=65535
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
