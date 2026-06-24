@@ -230,3 +230,11 @@ async def _fetch_result(task_id=None):
 
 def pytest_addoption(parser):
     parser.addoption("--update-snapshot", action="store_true", default=False, help="Update API snapshots")
+
+
+@pytest.fixture(scope="function")
+def event_loop():
+    """为每个 async 测试函数创建独立 event loop，避免 motor 连接池残留"""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()

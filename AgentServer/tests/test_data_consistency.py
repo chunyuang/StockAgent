@@ -7,17 +7,43 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 
-# Lazy app ref
-_app = None
+
+@pytest.fixture(autouse=True)
+def _reset_mongo():
+    """每个测试前重置 mongo_manager, 避免 motor 客户端绑定已关闭的 event loop"""
+    try:
+        from core.managers.mongo_manager import mongo_manager
+        if mongo_manager._initialized:
+            try:
+                mongo_manager._client.close()
+            except Exception:
+                pass
+            mongo_manager._client = None
+            mongo_manager._db = None
+            mongo_manager._initialized = False
+    except ImportError:
+        pass
+    yield
+    try:
+        from core.managers.mongo_manager import mongo_manager
+        if mongo_manager._initialized:
+            try:
+                mongo_manager._client.close()
+            except Exception:
+                pass
+            mongo_manager._client = None
+            mongo_manager._db = None
+            mongo_manager._initialized = False
+    except ImportError:
+        pass
+
 
 async def _get_app():
-    global _app
-    if _app is None:
-        import sys, os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-        from nodes.web.app import create_app
-        _app = create_app()
-    return _app
+    """每次创建新的 FastAPI app 实例，避免 motor 客户端绑定已关闭的 event loop"""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from nodes.web.app import create_app
+    return create_app()
 
 
 @pytest.mark.anyio

@@ -17,13 +17,47 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 
+import pytest
+from httpx import AsyncClient, ASGITransport
+
+
+@pytest.fixture(autouse=True)
+def _reset_mongo():
+    """每个测试前重置 mongo_manager, 避免 motor 客户端绑定已关闭的 event loop"""
+    try:
+        from core.managers.mongo_manager import mongo_manager
+        if mongo_manager._initialized:
+            try:
+                mongo_manager._client.close()
+            except Exception:
+                pass
+            mongo_manager._client = None
+            mongo_manager._db = None
+            mongo_manager._initialized = False
+    except ImportError:
+        pass
+    yield
+    try:
+        from core.managers.mongo_manager import mongo_manager
+        if mongo_manager._initialized:
+            try:
+                mongo_manager._client.close()
+            except Exception:
+                pass
+            mongo_manager._client = None
+            mongo_manager._db = None
+            mongo_manager._initialized = False
+    except ImportError:
+        pass
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
 
 
 async def _get_app():
-    """获取 FastAPI app 实例（不启动服务器）"""
+    """每次创建新的 FastAPI app 实例，避免 motor 客户端绑定已关闭的 event loop"""
     from nodes.web.app import create_app
     return create_app()
 
