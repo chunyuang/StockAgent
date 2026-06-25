@@ -58,7 +58,7 @@ async def get_daily_report(date: str = None, mode: str = "production", include_d
     
     if not has_live:
         # Scanner未运行: 从MongoDB聚合今日数据
-        return await _daily_report_from_mongo(mode, include_debug)
+        return await _daily_report_from_mongo(mode, include_debug, date)
     
     try:
         acct = scanner._broker.get_account()
@@ -591,7 +591,7 @@ async def get_weekly_report(date: str = None):
 
 
 
-async def _daily_report_from_mongo(mode: str = "production", include_debug: bool = False):
+async def _daily_report_from_mongo(mode: str = "production", include_debug: bool = False, date: str = None):
     """Scanner未运行时从MongoDB聚合今日复盘数据"""
     from core.managers import mongo_manager
     from collections import defaultdict
@@ -601,10 +601,12 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
         return {"success": True, "data": {}}
     
     db = mongo_manager.db
-    today = datetime.now().strftime("%Y%m%d")
-    
-    # 【v2.9.88修复】scan_traces.trade_date已迁移为int，统一用today_int
-    today_int = int(today)
+    # 【v2.9.105修复】支持date参数, 不传=今天
+    if date:
+        today_int = _normalize_date(date) or int(datetime.now().strftime("%Y%m%d"))
+    else:
+        today = datetime.now().strftime("%Y%m%d")
+        today_int = int(today)
 
     # 1. 今日订单 【v2.9.97h】使用 query_trades
     buys, sells = [], []
@@ -613,8 +615,10 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
         (buys if doc.get("side") == "buy" else sells).append(doc)
     
     if not buys and not sells:
+        # Format date from today_int
+        _date_fmt = f"{today_int//10000}-{today_int%10000//100:02d}-{today_int%100:02d}"
         return {"success": True, "data": {
-            "date": datetime.now().strftime("%Y-%m-%d"),
+            "date": _date_fmt,
             "account": {"total_assets": 0, "available_cash": 0, "market_value": 0, "today_profit": 0, "total_profit": 0, "position_ratio": 0},
             "positions": {"count": 0, "strategy_summary": {}, "top_profit": [], "top_loss": []},
             "trades": {"buy": 0, "sell": 0, "total_amount": 0},
@@ -740,8 +744,9 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
     total_sell_amount = sum((s.get("filled_price", 0) or 0) * (s.get("filled_qty", 0) or 0) for s in sells)
     total_buy_amount = sum((b.get("filled_price", 0) or 0) * (b.get("filled_qty", 0) or 0) for b in buys)
     
+    _date_fmt2 = f"{today_int//10000}-{today_int%10000//100:02d}-{today_int%100:02d}"
     report = {
-        "date": datetime.now().strftime("%Y-%m-%d"),
+        "date": _date_fmt2,
         "account": account_info,
         "positions": {
             "count": 0,  # 需要scanner运行时才精确
