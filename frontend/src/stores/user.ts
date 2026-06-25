@@ -4,6 +4,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getChinaDate } from '@/utils/chinaDate'
 import { userApi } from '@/api'
 import type { UserInfo, UserPreferences } from '@/api/types'
 
@@ -22,8 +23,8 @@ export const useUserStore = defineStore('user', () => {
     preferences: {
       theme: 'light'
     },
-    created_at: new Date().toISOString(),
-    last_login: new Date().toISOString()
+    created_at: getChinaDate(),
+    last_login: getChinaDate()
   })
   
   /** 是否已登录 */
@@ -97,8 +98,8 @@ export const useUserStore = defineStore('user', () => {
       preferences: {
         theme: 'light'
       },
-      created_at: new Date().toISOString(),
-      last_login: new Date().toISOString()
+      created_at: getChinaDate(),
+      last_login: getChinaDate()
     }
     isLoggedIn.value = false
   }
@@ -111,7 +112,8 @@ export const useUserStore = defineStore('user', () => {
         userInfo.value.watchlist.push(tsCode)
       }
       return true
-    } catch {
+    } catch (e) {
+      console.error('[userStore] addToWatchlist failed:', e)
       return false
     }
   }
@@ -124,7 +126,8 @@ export const useUserStore = defineStore('user', () => {
         userInfo.value.watchlist = userInfo.value.watchlist.filter(c => c !== tsCode)
       }
       return true
-    } catch {
+    } catch (e) {
+      console.error('[userStore] removeFromWatchlist failed:', e)
       return false
     }
   }
@@ -137,14 +140,13 @@ export const useUserStore = defineStore('user', () => {
         userInfo.value.preferences = { ...userInfo.value.preferences, ...prefs }
       }
       return true
-    } catch {
+    } catch (e) {
+      console.error('[userStore] updatePreferences failed:', e)
       return false
     }
   }
   
   return {
-    // 状态
-    userInfo,
     isLoggedIn,
     loading,
     

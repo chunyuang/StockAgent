@@ -62,8 +62,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   let scannerStore: ReturnType<typeof useScannerStore> | null = null
   try {
     scannerStore = useScannerStore()
-  } catch {
+  } catch (e) {
     // ScannerStore可能未在当前上下文中初始化
+    console.warn('[useWebSocket] ScannerStore not available:', e)
   }
   
   // ==================== 核心方法 ====================

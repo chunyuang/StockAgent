@@ -192,8 +192,9 @@ export function usePremarketMonitor() {
       if (p.success) {
         premarketTimeline.value = p.data?.items || []
       }
-    } catch {
+    } catch (e) {
       premarketTimeline.value = []
+      console.error('[usePremarketMonitor] fetchPremarketTimeline failed:', e)
     } finally {
       premarketTimelineLoading.value = false
     }

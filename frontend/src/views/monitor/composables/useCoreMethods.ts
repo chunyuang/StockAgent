@@ -237,7 +237,7 @@ export function useCoreMethods(refs: CoreRefs) {
     } catch (e) { console.error('[useCoreMethods]', e) }
   }
 
-  async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓!\n此操作不可撤销!\n\n确认紧急平仓?', async () => { refs.emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { refs.emergencyLiquidating.value = false } }) }
+  async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓!\n此操作不可撤销!\n\n确认紧急平仓?', async () => { refs.emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch (e) { console.error('[emergencyLiquidate] failed:', e); ElMessage.error('紧急平仓失败') } finally { refs.emergencyLiquidating.value = false } }) }
 
   async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) refs.limitPools.value = p.data } catch (e) { console.error('[useCoreMethods]', e) } }
   async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) refs.dataSources.value = sP.data || []; if (bP.success) refs.brokers.value = bP.data || [] } catch (e) { console.error('[useCoreMethods]', e) } }

@@ -81,8 +81,9 @@ async function saveConfig() {
     try {
       await systemApi.saveLogLevelConfig(form as any)
       ElMessage.success('日志配置已保存到服务器')
-    } catch {
+    } catch (e) {
       localStorage.setItem('log_config', JSON.stringify(form))
+      console.warn('[LogLevelPanel] Server save failed, saved locally:', e)
       ElMessage.success('日志配置已保存到本地（服务器暂不可用）')
     }
   } catch (e: any) {

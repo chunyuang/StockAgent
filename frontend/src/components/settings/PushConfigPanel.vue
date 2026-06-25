@@ -63,8 +63,9 @@ async function saveConfig() {
     try {
       await systemApi.savePushConfig(form as any)
       ElMessage.success('推送配置已保存到服务器')
-    } catch {
+    } catch (e) {
       localStorage.setItem('push_config', JSON.stringify(form))
+      console.warn('[PushConfigPanel] Server save failed, saved locally:', e)
       ElMessage.success('推送配置已保存到本地（服务器暂不可用）')
     }
   } catch (e: any) {
@@ -86,7 +87,8 @@ async function testPush() {
     try {
       await systemApi.sendTestPush(type)
       ElMessage.success('测试消息已发送，请检查接收端')
-    } catch {
+    } catch (e) {
+      console.warn('[PushConfigPanel] Test push server unavailable:', e)
       ElMessage.warning('测试推送接口暂不可用，请手动验证配置')
     }
   } catch (e: any) {

@@ -89,8 +89,9 @@ client.interceptors.request.use(
     let traceId: string
     try {
       traceId = crypto.randomUUID()
-    } catch {
+    } catch (e) {
       // 兼容低版本浏览器/非HTTPS环境，生成简单UUID
+      console.warn('[apiClient] crypto.randomUUID unavailable:', e)
       traceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0
         const v = c == 'x' ? r : (r & 0x3 | 0x8)
@@ -158,8 +159,9 @@ client.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${access_token}`
         return client(originalRequest)
         
-      } catch {
+      } catch (e) {
         // 刷新失败，跳转登录
+        console.error('[apiClient] Token refresh failed:', e)
         handleAuthError()
         return Promise.reject(error)
       } finally {

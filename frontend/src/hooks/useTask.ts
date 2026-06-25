@@ -4,6 +4,7 @@
 
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { getChinaDate } from '@/utils/chinaDate'
 import { useTaskStore } from '@/stores/task'
 import { taskApi } from '@/api'
 import { useWebSocket } from './useWebSocket'
@@ -45,7 +46,7 @@ export function useTask() {
         stock_names: [],
         query: request.query,
         params: request.params,
-        created_at: new Date().toISOString(),
+        created_at: getChinaDate(),
         execution_time_ms: 0,
         llm_tokens_used: 0,
       })
@@ -96,7 +97,8 @@ export function useTask() {
       taskStore.updateTaskStatus(taskId, TaskStatus.CANCELLED)
       ElMessage.success('任务已取消')
       return true
-    } catch {
+    } catch (e) {
+      console.error('[useTask] Cancel task failed:', e)
       return false
     }
   }

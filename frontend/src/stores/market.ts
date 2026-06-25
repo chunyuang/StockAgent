@@ -89,7 +89,8 @@ export const useMarketStore = defineStore('market', () => {
       }
       
       return quotes
-    } catch {
+    } catch (e) {
+      console.error('[marketStore] fetchQuotes failed:', e)
       return []
     }
   }
@@ -114,7 +115,8 @@ export const useMarketStore = defineStore('market', () => {
       const data = await stockApi.getStockBasic(tsCode)
       stockBasicMap.value.set(tsCode, data)
       return data
-    } catch {
+    } catch (e) {
+      console.error('[marketStore] fetchStockBasic failed:', e)
       return null
     }
   }
@@ -128,7 +130,8 @@ export const useMarketStore = defineStore('market', () => {
   async function fetchIndustries(): Promise<void> {
     try {
       industries.value = await stockApi.getIndustries()
-    } catch {
+    } catch (e) {
+      console.error('[marketStore] fetchIndustries failed:', e)
       // ignore
     }
   }
@@ -144,7 +147,8 @@ export const useMarketStore = defineStore('market', () => {
       }
       
       return results
-    } catch {
+    } catch (e) {
+      console.error('[marketStore] searchStocks failed:', e)
       return []
     }
   }

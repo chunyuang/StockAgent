@@ -81,8 +81,9 @@ export function useAuth() {
   async function logout(): Promise<void> {
     try {
       await authApi.logout()
-    } catch {
+    } catch (e) {
       // 忽略登出失败
+      console.warn('[useAuth] Logout request failed:', e)
     }
     
     // 清理本地状态
@@ -112,7 +113,8 @@ export function useAuth() {
       await authApi.changePassword(oldPassword, newPassword)
       ElMessage.success('密码修改成功')
       return true
-    } catch {
+    } catch (e) {
+      console.error('[useAuth] Change password failed:', e)
       return false
     }
   }

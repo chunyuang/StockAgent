@@ -154,8 +154,9 @@ async function loadChartData() {
   try {
     const dailyData = await stockApi.getStockDaily(tsCode.value, { limit: 120 }) as any
     klineData.value = dailyData
-  } catch {
+  } catch (e) {
     klineData.value = []
+    console.error('[StockDetail] loadChartData failed:', e)
   } finally {
     chartLoading.value = false
   }

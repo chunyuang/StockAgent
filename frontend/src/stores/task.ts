@@ -8,6 +8,7 @@
  * - Agent 思考流
  */
 
+import { getChinaDate } from '@/utils/chinaDate'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { TaskStatus } from '@/api/types'
@@ -175,7 +176,7 @@ export const useTaskStore = defineStore('task', () => {
       if (result.executionTimeMs) {
         task.execution_time_ms = result.executionTimeMs
       }
-      task.completed_at = new Date().toISOString()
+      task.completed_at = getChinaDate()
     }
     
     // 更新当前任务

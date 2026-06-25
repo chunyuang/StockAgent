@@ -70,7 +70,7 @@ async function batchDelete() {
   if (count === 0) return
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${count} 条回测记录？此操作不可恢复。`, '批量删除确认', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
-  } catch { return }  // user cancelled confirm
+  } catch (e) { /* user cancelled confirm */ console.debug('[BacktestHistory] batchDelete confirm cancelled'); return }
   loading.value = true
   let success = 0, fail = 0
   for (const taskId of selectedForDelete.value) {
@@ -172,7 +172,7 @@ async function loadHistory() {
 
 async function handleDelete(item: BacktestHistoryItem) {
   try { await ElMessageBox.confirm(`确定删除 ${item.start_date||'?'}~${item.end_date||'?'} 的回测记录？`, '删除确认', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }) }
-  catch { return }
+  catch (e) { console.debug('[BacktestHistory] delete confirm cancelled'); return }
   try { await deleteBacktestHistory(item.task_id); ElMessage.success('已删除'); await loadHistory() }
   catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
 }
