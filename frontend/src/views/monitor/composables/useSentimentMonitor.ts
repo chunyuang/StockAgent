@@ -100,7 +100,13 @@ export function useSentimentMonitor() {
     { from: '高潮', to: '震荡', action: '减仓50%', desc: '市场转弱，保留核心' },
   ]
 
-  const phaseColors: Record<string, string> = { '高潮': '#f56c6c', '分化': '#409eff', '震荡': '#e6a23c', '冰点': '#67c23a' }
+  const phaseColors: Record<string, string> = { '高潮': '#f56c6c', '分化': '#409eff', '震荡': '#e6a23c', '冰点': '#67c23a', 'RISING': '#f56c6c', 'DIFFERENTIATION': '#409eff', 'CHAOS': '#e6a23c', 'BEARISH': '#67c23a' }
+
+  // 【v2.9.100】情绪周期英文→中文映射(后端已统一,前端兜底)
+  function phaseCN(label: string): string {
+    const map: Record<string, string> = { 'RISING': '高潮', 'DIFFERENTIATION': '分化', 'CHAOS': '震荡', 'BEARISH': '冰点' }
+    return map[label] || label
+  }
 
   // 基于当前情绪的智能建议
   const sentimentAdvice = computed(() => {
@@ -143,7 +149,7 @@ export function useSentimentMonitor() {
     displayTimeline, isIntradayFallback, intradayMaxCand,
     xAxisLabels, sentimentMatrix, sentimentRecommendations,
     sentimentLoading, sentimentLive,
-    phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
+    phaseGuide, downgradeRules, phaseColors, phaseCN, sentimentAdvice,
     fetchSentimentData,
   }
 }

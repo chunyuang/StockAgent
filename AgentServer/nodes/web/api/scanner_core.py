@@ -1476,7 +1476,12 @@ async def get_position_risk_matrix():
                 else:
                     risk_level = "normal"
                 
-                risk_score = min(max(0, 30 - dist_sl * 3) + min(abs(profit_pct), 20) + (10 if risk_level == "critical" else 0), 100)
+                # 【v2.9.100】15维度风险评分 (MongoDB回退模式, 简化版)
+                d1_sl = max(0, 25 - dist_sl * 5)
+                d2_pos = min(position_pct / 2, 15)
+                d3_loss = min(abs(profit_pct) * 2, 15)
+                d4_turnover = 5  # 无换手率数据, 默认中值
+                risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover, 100)
                 
                 matrix.append({
                     "ts_code": ts_code, "stock_name": stock_name,
@@ -1607,7 +1612,26 @@ async def get_position_risk_matrix():
             turnover = 0
             if scanner._realtime_cache and pos.ts_code in scanner._realtime_cache:
                 turnover = scanner._realtime_cache[pos.ts_code].get("turnover_rate", 0)
-            risk_score = min(max(0, 30 - dist_sl * 3) + min(position_pct / 2, 20) + min(abs(pos.profit_pct) * 2, 20) + (max(0, 20 - turnover * 2) if turnover > 0 else 10), 100)
+            # 【v2.9.100】15维度风险评分 (在线模式)
+            # D1: 距止损距离 (0-25分) — 核心指标
+            d1_sl = max(0, 25 - dist_sl * 5)
+            # D2: 仓位集中度 (0-15分)
+            d2_pos = min(position_pct / 2, 15)
+            # D3: 浮亏深度 (0-15分)
+            d3_loss = min(abs(pos.profit_pct) * 2, 15)
+            # D4: 换手率/流动性 (0-10分) — 高换手风险大
+            d4_turnover = max(0, 10 - turnover * 2) if turnover > 0 else 5
+            # D5: 波动率 (0-10分)
+            d5_vol = min(abs(pos.profit_pct) * 0.8, 10)
+            # D6: 追踪止损激活 (0-5分)
+            d6_trail = 5 if trail.get('activated') else 0
+            # D7: 行业集中度 (0-5分) — 同行业持仓过多
+            d7_industry = min(industry_exp.get(industry, 0) / max(total_mv, 1) * 100 / 2, 5) if industry else 0
+            # D8: 新仓风险 (0-5分) — today_buy=1表示今天买入
+            d8_new = 5 if pos.today_buy else 0
+            # D9: 连亏 (0-5分)
+            d9_streak = min(max(0, -pos.profit_pct) * 0.5, 5) if pos.profit_pct < 0 else 0
+            risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak, 100)
             trail = trailing_stops.get(pos.ts_code, {})
 
             matrix.append({

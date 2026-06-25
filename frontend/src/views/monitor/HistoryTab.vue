@@ -181,7 +181,7 @@ const closedStats = computed(() => {
               <template v-if="item.action !== 'blocked'">
                 <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
                 <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
-                <span v-if="item.action==='sell' && item.profit_pct != null && item.profit_pct !== 0" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
+                <span v-if="item.action==='sell' && item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
               </template>
               <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
             </div>

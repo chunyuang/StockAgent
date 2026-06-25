@@ -292,7 +292,7 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
 .sc-dot:hover { transform: translate(-50%, 50%) scale(2); }
 .sc-dot.hot { background: #f56c6c; }
 .sc-dot.cold { background: #67c23a; }
-.sc-dot.missing { background: var(--el-color-warning); opacity: 0.6; }
+.sc-dot.missing { background: var(--el-color-warning); opacity: 0.6; border: 1px dashed var(--el-color-warning); }
 .sc-hover-card { position: absolute; z-index: 10; background: var(--el-bg-color-overlay); border: 1px solid var(--el-border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap; }
 .sc-hover-date { color: var(--text-secondary); margin-bottom: 2px; }
 .sc-hover-score { font-weight: 600; font-size: 14px; }

@@ -59,11 +59,13 @@ function formatLayerDetail(_key: string, layer: any): string {
 }
 function fmtPct(v: any, digits = 1): string {
   if (v === undefined || v === null || v === '') return '-'
-  return (Number(v) * 100).toFixed(digits) + '%'
+  const n = Number(v)
+  return Number.isFinite(n) ? (n * 100).toFixed(digits) + '%' : '-'
 }
 function fmt(v: any, digits = 2): string {
   if (v === undefined || v === null || v === '') return '-'
-  return Number(v).toFixed(digits)
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(digits) : '-'
 }
 function hasDecisionTrace(t: any): boolean {
   return !!(t?.decision_trace && Object.keys(t.decision_trace).length)
@@ -298,7 +300,7 @@ const {
       <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
       <div v-else class="ops-timeline">
         <div v-if="historyData.length" class="history-tag">📜 {{ formatFullDate(opsDate) }} 历史回放 ({{ historyData.length }}条)</div>
-        <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span><span v-if="item.action==='sell' && item.profit_pct !== undefined && item.profit_pct !== 0" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span><span v-if="item.action==='sell' && item.profit_amount != null && item.profit_amount !== 0" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount).toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
+        <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span><span v-if="item.action==='sell' && item.profit_pct != null" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span><span v-if="item.action==='sell' && item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ Number(item.profit_amount).toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
       </div>
 
       <!-- 历史订单 -->
