@@ -267,6 +267,56 @@ class TestDetectAnomalies:
         # scanner有_detect_anomalies方法
         assert hasattr(scanner, '_detect_anomalies')
 
+    def test_detect_anomalies_ignores_none_prices(self):
+        """None/NaN价格不应拖垮整轮异动检测"""
+        scanner = _make_mock_scanner()
+        scorer = StrategyScorer(scanner)
+        realtime_data = {
+            "600000.SH": {
+                "name": "异常价",
+                "price": None,
+                "pct_chg": 2.0,
+                "turnover_rate": 3.0,
+                "is_limit_up": False,
+            },
+            "600001.SH": {
+                "name": "正常急拉",
+                "price": 10.6,
+                "pct_chg": 4.0,
+                "turnover_rate": 5.0,
+                "is_limit_up": False,
+            },
+        }
+        prev_cache = {
+            "600000.SH": {"price": None},
+            "600001.SH": {"price": 10.0},
+        }
+
+        signals = scorer.detect_anomalies(realtime_data, [], prev_cache)
+
+        assert len(signals) == 1
+        assert signals[0].ts_code == "600001.SH"
+        assert signals[0].strategy == "anomaly_surge"
+
+    def test_check_single_anomaly_handles_bad_numeric_fields(self):
+        """非法数值字段按0处理，不抛TypeError/ValueError"""
+        scanner = _make_mock_scanner()
+        scorer = StrategyScorer(scanner)
+        signal = scorer._check_single_anomaly(
+            "600002.SH",
+            {
+                "name": "坏数据",
+                "price": "--",
+                "pct_chg": None,
+                "turnover_rate": float("nan"),
+                "open_times": None,
+                "limit_times": None,
+                "fd_amount": None,
+            },
+            {"600002.SH": {"price": None}},
+        )
+        assert signal is None
+
 
 # ==================== 边界条件测试 ====================
 

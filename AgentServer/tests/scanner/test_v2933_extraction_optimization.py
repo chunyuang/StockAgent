@@ -10,6 +10,7 @@ v2.9.35 — scan_once策略筛选提取 + _emit_risk_thread_error提取 + get_st
 import os
 import pytest
 import ast
+from unittest.mock import AsyncMock
 from scanner_test_helpers import read_all_scanner_sources
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -68,6 +69,29 @@ class TestApplyStrategiesAndFilters:
         assert idx > 0
         method_code = source[idx:idx+800]
         assert "List[ScanSignal]" in method_code
+
+    @pytest.mark.asyncio
+    async def test_bad_anomaly_quote_does_not_drop_main_strategy_signal(self):
+        """主策略通过后，异动检测坏行情不能中断并吞掉主策略信号。"""
+        from nodes.market_monitor.scanner import MarketScanner, ScanSignal
+        scanner = MarketScanner(account_id="test_bad_anomaly_quote")
+        main_signal = ScanSignal(
+            ts_code="600001.SH",
+            stock_name="主策略票",
+            strategy="halfway_chase",
+            strategy_name="半路追涨",
+            price=10.0,
+            pct_chg=4.0,
+        )
+        scanner._apply_strategies = AsyncMock(return_value=[main_signal])
+        scanner._apply_filter_pipeline = AsyncMock(side_effect=lambda signals, *_: signals)
+        scanner._prev_realtime_cache = {"600002.SH": {"price": None}}
+
+        result = await scanner._apply_strategies_and_filters(
+            None, "20260625", {"600002.SH": {"price": None, "pct_chg": 3.0, "name": "坏行情"}}
+        )
+
+        assert result == [main_signal]
 
 
 class TestEmitRiskThreadError:

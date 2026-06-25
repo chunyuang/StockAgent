@@ -10,6 +10,7 @@ StrategyScorer — 策略筛选引擎
 """
 
 import logging
+import math
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
@@ -465,16 +466,25 @@ class StrategyScorer:
         active_keys = {s.ts_code + "|" + s.strategy for s in active_signals}
 
         for ts_code, rt in realtime_data.items():
-            key = ts_code + "|anomaly"
-            if key in active_keys:
+            if ts_code + "|anomaly" in active_keys:
                 continue
-            signal = self._check_single_anomaly(ts_code, rt, prev_cache)
+            signal = self._safe_check_single_anomaly(ts_code, rt, prev_cache)
             if signal:
                 signals.append(signal)
 
         if signals:
             logger.info(f"[ANOMALY] 异动检测: {len(signals)}只")
         return signals
+
+    def _safe_check_single_anomaly(
+        self, ts_code: str, rt: Dict, prev_cache: Dict[str, Dict]
+    ) -> Optional[ScanSignal]:
+        """单票异动安全包装: 坏行情只跳过，不中断整轮扫描。"""
+        try:
+            return self._check_single_anomaly(ts_code, rt, prev_cache)
+        except (TypeError, ValueError, KeyError) as e:
+            logger.warning(f"[ANOMALY] 跳过异常行情 {ts_code}: {e}")
+            return None
 
     def _check_broken_board(
         self, ts_code: str, name: str, price: float,
@@ -510,6 +520,19 @@ class StrategyScorer:
             )
         return None
 
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        """安全转换行情数值: None/NaN/非法字符串统一按default处理。"""
+        if value is None:
+            return default
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(result):
+            return default
+        return result
+
     def _check_surge(
         self, ts_code: str, name: str, price: float,
         pct_chg: float, turnover: float, is_limit_up: bool,
@@ -533,16 +556,16 @@ class StrategyScorer:
         self, ts_code: str, rt: Dict, prev_cache: Dict[str, Dict],
     ) -> Optional[ScanSignal]:
         """单只股票异动检测, 返回信号或None【v2.9.62重构: 3种异动提取子方法】"""
-        pct_chg = rt.get("pct_chg", 0)
-        is_limit_up = rt.get("is_limit_up", False)
-        is_limit_down = rt.get("is_limit_down", False)
-        is_broken = rt.get("is_broken_board", False)
-        open_times = rt.get("open_times", 0)
-        limit_times = rt.get("limit_times", 0)
+        pct_chg = self._safe_float(rt.get("pct_chg"))
+        is_limit_up = bool(rt.get("is_limit_up", False))
+        is_limit_down = bool(rt.get("is_limit_down", False))
+        is_broken = bool(rt.get("is_broken_board", False))
+        open_times = int(self._safe_float(rt.get("open_times")))
+        limit_times = int(self._safe_float(rt.get("limit_times")))
         name = rt.get("name", "") or self._name_map.get(ts_code, "")
-        price = rt.get("price", 0)
-        turnover = rt.get("turnover_rate", 0)
-        fd_amount = rt.get("fd_amount", 0)
+        price = self._safe_float(rt.get("price"))
+        turnover = self._safe_float(rt.get("turnover_rate"))
+        fd_amount = self._safe_float(rt.get("fd_amount"))
 
         # 1. 跌停撬板(炸板股)
         sig = self._check_broken_board(
@@ -561,7 +584,7 @@ class StrategyScorer:
             return sig
 
         # 3. 急速拉升(5分钟内涨幅>3%)
-        prev_price = prev_cache.get(ts_code, {}).get("price", 0)
+        prev_price = self._safe_float(prev_cache.get(ts_code, {}).get("price"))
         return self._check_surge(
             ts_code, name, price, pct_chg, turnover,
             is_limit_up, prev_price,
