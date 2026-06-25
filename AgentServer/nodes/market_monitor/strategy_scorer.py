@@ -305,7 +305,13 @@ class StrategyScorer:
 
         安全规则: 策略条件字段缺失必须 fail-closed，不能静默跳过；
         target=0 是有效条件，不能用 `or` 误判为空。
+
+        【v2.9.103】加入灰度开关 STRATEGY_FAIL_CLOSED_MODE:
+          - 'strict' (默认): 字段缺失→ mask&=False (原 fail-closed)
+          - 'warn':  字段缺失→ 仅 warning, 不 kill mask (仅可控过渡期)
         """
+        import os
+        fc_mode = os.environ.get("STRATEGY_FAIL_CLOSED_MODE", "strict").lower()
         mask = pd.Series(True, index=merged_df.index)
         missing_cols: List[str] = []
         for cond in conditions:
@@ -316,7 +322,9 @@ class StrategyScorer:
                 continue
             if col not in merged_df.columns:
                 missing_cols.append(col)
-                mask &= False
+                if fc_mode == "strict":
+                    mask &= False
+                # 'warn' 模式只记录不 kill mask
                 continue
             try:
                 col_data = merged_df[col].fillna(0)
