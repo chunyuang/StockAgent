@@ -57,7 +57,7 @@
         "level": "str",
         "key": "str",
         "old": "NoneType",
-        "new": "int",
+        "new": "float",
         "severity": "str"
       }
     ],
