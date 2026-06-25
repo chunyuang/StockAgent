@@ -748,13 +748,13 @@ async def get_account():
         "success": True,
         "data": {
             "account_id": "default",
-            "total_assets": 0,
-            "available_cash": 0,
-            "market_value": 0,
-            "today_profit": 0,
-            "total_profit": 0,
+            "total_assets": 0.0,
+            "available_cash": 0.0,
+            "market_value": 0.0,
+            "today_profit": 0.0,
+            "total_profit": 0.0,
             "position_count": 0,
-            "position_ratio": 0,
+            "position_ratio": 0.0,
         },
     }
 
@@ -1367,9 +1367,9 @@ async def get_kline_data(ts_code: str, days: int = 30):
         async for doc in cursor:
             kline.append({
                 "date": doc.get("trade_date", ""),
-                "open": doc.get("open", 0), "high": doc.get("high", 0),
-                "low": doc.get("low", 0), "close": doc.get("close", 0),
-                "volume": doc.get("vol", 0), "pct_chg": doc.get("pct_chg", 0),
+                "open": round(doc.get("open", 0), 2), "high": round(doc.get("high", 0), 2),
+                "low": round(doc.get("low", 0), 2), "close": round(doc.get("close", 0), 2),
+                "volume": doc.get("vol", 0), "pct_chg": round(doc.get("pct_chg", 0), 2),
             })
         kline = kline[-days:] if len(kline) > days else kline
 
