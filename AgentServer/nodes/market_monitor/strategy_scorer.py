@@ -151,6 +151,55 @@ class StrategyScorer:
             prev_lu = merged.get("is_limit_up_prev", merged.get("limit_up_yesterday", pd.Series(0, index=merged.index))).fillna(0)
             merged["first_limit_up"] = ((merged.get("is_limit_up", 0).astype(int) == 1) & (prev_lu.astype(int) == 0)).astype(int)
 
+        # 【v2.9.102 fix】实盘补算盘中派生字段(与回测 factor_auto_compute.py 一致)。
+        # 否则 014efbd8 引入的 fail-closed 会把 halfway_chase/first_limit_up/dragon_head/limit_down_qiao 全部打回 0。
+        if "open" in merged.columns and "pre_close" in merged.columns:
+            import numpy as np
+            pre_close = merged["pre_close"].fillna(0)
+            valid_pre = pre_close > 0
+            if "opening_pct_chg" not in merged.columns:
+                merged["opening_pct_chg"] = np.where(
+                    valid_pre, (merged["open"].fillna(0) - pre_close) / pre_close * 100, 0.0
+                )
+            if "intraday_open_rise_pct" not in merged.columns:
+                merged["intraday_open_rise_pct"] = merged["opening_pct_chg"]
+            if "intraday_max_rise_pct" not in merged.columns and "high" in merged.columns:
+                merged["intraday_max_rise_pct"] = np.where(
+                    valid_pre, (merged["high"].fillna(0) - pre_close) / pre_close * 100, 0.0
+                )
+            # open_above_limit_down: 开盘贴近跌停价 (limit_down_qiao需要)
+            if "open_above_limit_down" not in merged.columns:
+                merged["open_above_limit_down"] = (merged["opening_pct_chg"] <= -8.5).astype(int)
+            # pullback_days/pullback_pct: 需多日历史, 实盘无法实时计算 → 补 0(同于原逻辑)
+            for col in ("pullback_days", "pullback_pct"):
+                if col not in merged.columns:
+                    merged[col] = 0
+            # limit_down_open_amount: 跌停开板成交额 → 补 0
+            if "limit_down_open_amount" not in merged.columns:
+                merged["limit_down_open_amount"] = 0
+            # sentiment_period_in: 从 scanner 取全局情绪阶段
+            if "sentiment_period_in" not in merged.columns:
+                try:
+                    si = self._scanner._filter_pipeline.get_sentiment_info() if getattr(self._scanner, "_filter_pipeline", None) else {}
+                    merged["sentiment_period_in"] = (si or {}).get("period", "")
+                except Exception:
+                    merged["sentiment_period_in"] = ""
+
+        # 【v2.9.102 fix-2】volume_ratio_prev/circ_mv_prev 从 daily_basic+ak_full 读不到(2026-01-05后未写入),
+        # 使用当日实盘值近似(circ_mv 日间变化微小, volume_ratio 盘中逐渐接近T-1值)。
+        for prev_col, fallback_col in [("circ_mv_prev", "circ_mv"), ("volume_ratio_prev", "volume_ratio"), ("turnover_rate_prev", "turnover_rate")]:
+            if prev_col not in merged.columns or merged[prev_col].fillna(0).sum() == 0:
+                if fallback_col in merged.columns:
+                    merged[prev_col] = merged[fallback_col].fillna(0)
+
+        # limit_up_yesterday / limit_down_yesterday: 从 is_limit_up_prev 推导; 若仍缺失补 0
+        for col, src in [("limit_up_yesterday", "is_limit_up_prev"), ("limit_down_yesterday", "is_limit_down_prev")]:
+            if col not in merged.columns or merged[col].fillna(0).sum() == 0:
+                if src in merged.columns:
+                    merged[col] = merged[src].fillna(0).astype(int)
+                else:
+                    merged[col] = 0
+
         return merged
     
     # ==================== 策略配置 ====================
