@@ -1203,7 +1203,8 @@ class RuntimePersistence:
         # 1. Broker日终结算+状态持久化
         if self.broker:
             self.broker.daily_settlement(trade_date)
-        is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run')
+        _tm = self._scanner._trade_mode if hasattr(self._scanner, '_trade_mode') else ''
+        is_virtual = _tm in ('replay', 'dry_run')
         try:
             await self.broker.save_state(skip_if_virtual=is_virtual)
         except Exception as _e:
@@ -1242,7 +1243,8 @@ class RuntimePersistence:
 
     async def persist_scan_result(self) -> None:
         """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""
-        is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run')
+        _tm = self._scanner._trade_mode if hasattr(self._scanner, '_trade_mode') else ''
+        is_virtual = _tm in ('replay', 'dry_run')
         try:
             if self.broker:
                 saved = await self.broker.save_state(skip_if_virtual=is_virtual)
@@ -1360,8 +1362,8 @@ class RuntimePersistence:
                         api_risk_overrides = override_doc["data"].get("risk", {})
                         api_enabled_overrides = override_doc["data"].get("enabled", {})
                         api_global_risk = override_doc["data"].get("global_risk", {})
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.debug(f"[GUARD] runtime_persistence: {_e}")
                 
                 # 构建快照: 合并strategies + strategy_overrides + api_overrides
                 merged_strategies = {}

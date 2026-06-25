@@ -247,8 +247,8 @@ class IntradaySentimentCalculator:
                     'zt_premium_score': round(d7, 1),
                 },
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         
         return IntradayEmotionScore(
             score=score,
@@ -330,8 +330,8 @@ class IntradaySentimentCalculator:
                     override_th = _override_global_risk.get("sentiment_thresholds", {})
                     if override_th:
                         th = {**th, **override_th}
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         except Exception:
             th = {"rising": 70, "differentiation": 55, "chaos": 40}
         
@@ -347,8 +347,8 @@ class IntradaySentimentCalculator:
                     override_spm = _override_global_risk.get("sentiment_position_map", {})
                     if override_spm:
                         spm = {**spm, **override_spm}
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         except Exception:
             spm = {"rising": 1.0, "differentiation": 0.7, "chaos": 0.5, "bearish": 0.3}
         
@@ -392,8 +392,8 @@ class IntradaySentimentCalculator:
                 mongo_manager.db if mongo_manager.is_initialized else None,
                 int(trade_date)
             ) if mongo_manager.is_initialized else 0.0
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         
         # Fallback: 直接读sentiment_scores的zt_premium
         try:
@@ -405,8 +405,8 @@ class IntradaySentimentCalculator:
                 )
                 if doc and doc.get("zt_premium"):
                     return doc["zt_premium"]
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         
         return 0.0
 

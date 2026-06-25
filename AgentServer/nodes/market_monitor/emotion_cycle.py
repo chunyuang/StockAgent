@@ -26,8 +26,8 @@ def _get_position_ratio(period_cn: str) -> float:
             override_spm = _override_global_risk.get("sentiment_position_map", {})
             if en_key in override_spm:
                 return float(override_spm[en_key])
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.debug(f"[GUARD] emotion_cycle: {_e}")
     
     return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, 0.3)
 
@@ -104,8 +104,8 @@ class EmotionCycleManager:
                 override_st = _override_global_risk.get("sentiment_thresholds", {})
                 if override_st:
                     t = {**t, **override_st}  # 覆盖值优先
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[GUARD] emotion_cycle: {_e}")
         return t
     
     # 仓位乘数 — 从strategy_defaults读取(单一来源)
@@ -123,8 +123,8 @@ class EmotionCycleManager:
                 override_spm = _override_global_risk.get("sentiment_position_map", {})
                 if override_spm:
                     m = {**m, **override_spm}  # 覆盖值优先
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[GUARD] emotion_cycle: {_e}")
         return {
             EmotionPhase.RISING: m.get("rising", 1.0),
             EmotionPhase.DIFFERENTIATION: m.get("differentiation", 0.7),

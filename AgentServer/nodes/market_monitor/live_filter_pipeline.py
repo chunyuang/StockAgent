@@ -776,7 +776,7 @@ class LiveFilterPipeline:
                 if override_spm:
                     spm = {**spm, **override_spm}
         except Exception as _e:
-            pass
+            logger.debug(f"[GUARD] live_filter_pipeline: {_e}")
         if score >= 70:
             phase, ratio = "rising", spm.get("rising", 1.0)
         elif score >= 55:

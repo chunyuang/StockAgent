@@ -314,8 +314,8 @@ class SimulatedBroker:
                 strat_cfg = STRATEGY_CONFIGS.get(pos.strategy, {})
                 stop_loss_pct = strat_cfg.get("stop_loss_pct", stop_loss_pct)
                 take_profit_pct = strat_cfg.get("take_profit_pct", take_profit_pct)
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.debug(f"[GUARD] broker: {_e}")
 
             positions_docs.append({
                 "account_id": self.account.account_id,
@@ -577,8 +577,8 @@ class SimulatedBroker:
                     pos.current_price = close_price
                     pos.profit_pct = (close_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
                     updated += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.debug(f"[GUARD] broker: {_e}")
         
         if updated > 0:
             self._recalc_account()

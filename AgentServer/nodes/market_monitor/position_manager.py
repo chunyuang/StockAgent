@@ -52,8 +52,8 @@ def _get_global_risk():
                     result[k] = merged
                 else:
                     result[k] = v
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.debug(f"[GUARD] position_manager: {_e}")
     return result
 
 logger = logging.getLogger("position_manager")

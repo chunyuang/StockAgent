@@ -315,7 +315,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                         self._stock_name_map[doc["ts_code"]] = doc["name"]
                 pass
             except Exception as _e:
-                pass
+                logger.debug(f"[GUARD] scanner: {_e}")
         # 补全空stock_name
         for t in result:
             if not t.get("stock_name"):
@@ -677,7 +677,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             try:
                 await self._save_premarket_snapshot(trade_date, datetime.now().isoformat(), note=f"扫描异常: {e}")
             except Exception as _e:
-                pass
+                logger.debug(f"[GUARD] scanner: {_e}")
             return 0
 
     async def _save_premarket_snapshot(self, trade_date: str, scan_time_iso: str, realtime_data: Dict = None,
@@ -1082,7 +1082,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                                 f"同行业「{ind}」已选{remaining_slots}只信号,本只被集中度过滤剔除",
                                 dropped_sig)
                         except Exception as _e:
-                            pass
+                            logger.debug(f"[GUARD] scanner: {_e}")
             
             if removed > 0:
                 logger.info(f"[FILTER] 板块集中度: 移除{removed}只同行业过多信号(每行业≤{sector_top_n}只)")
@@ -1205,7 +1205,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                     try:
                         pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
                     except Exception as _e:
-                        pass
+                        logger.debug(f"[GUARD] scanner: {_e}")
             total = len(pcts)
             up_count = sum(1 for p in pcts if p > 0)
             down_count = sum(1 for p in pcts if p < 0)

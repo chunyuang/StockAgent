@@ -151,7 +151,7 @@ class SignalManager:
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                         sig.strategy_name, "信号已在进行中, 本轮不重复下单", sig)
                 except Exception as _e:
-                    pass
+                    logger.debug(f"[GUARD] signal_manager: {_e}")
                 for s in self.active_signals:
                     if s.ts_code + "|" + s.strategy == key:
                         s.price = sig.price
@@ -339,7 +339,7 @@ class SignalManager:
                         self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                             sig.strategy_name, f"非交易时间({phase}), 不下单", sig)
                     except Exception as _e:
-                        pass
+                        logger.debug(f"[GUARD] signal_manager: {_e}")
                 logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
                 return
         except Exception as _e:
