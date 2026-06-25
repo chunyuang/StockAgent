@@ -266,6 +266,7 @@ class StrategyScorer:
     async def apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
         """策略筛选(编排方法: 复用回测逻辑, 读取前端覆盖参数)"""
         if merged_df is None or len(merged_df) == 0:
+            self._last_strategy_funnel = []
             return []
 
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
@@ -277,27 +278,48 @@ class StrategyScorer:
         existing_positions = (
             {p.ts_code for p in self.broker.get_positions()} if self.broker else set()
         )
-
+        funnel = []
         for strategy_key in STRATEGY_CONFIGS:
             cfg = self.get_effective_strategy_config(strategy_key)
             if not cfg.get("enabled", True):
+                funnel.append({"strategy": strategy_key, "name": cfg.get("name", strategy_key),
+                               "enabled": False, "candidates": 0, "after_existing": 0})
                 continue
+            selected_signals, info = self._run_one_strategy(
+                bt, merged_df, strategy_key, cfg, existing_positions)
+            signals.extend(selected_signals)
+            funnel.append(info)
 
-            strategy_name = cfg.get("name", strategy_key)
-            params = cfg.get("params", {})
-            conditions = bt._build_strategy_filter_conditions(strategy_name, params)
-            mask = self._apply_filter_conditions(merged_df, conditions, strategy_key)
-            selected = merged_df[mask]
-
-            for _, row in selected.iterrows():
-                ts_code = row.get("ts_code", "")
-                if ts_code in existing_positions:
-                    continue
-                signals.append(self._build_signal_from_row(
-                    row, strategy_key, strategy_name, len(conditions), len(merged_df), len(selected),
-                ))
-
+        self._last_strategy_funnel = funnel
+        self._log_strategy_funnel(merged_df, funnel, signals)
         return signals
+
+    def _run_one_strategy(self, bt, merged_df, strategy_key, cfg, existing_positions):
+        """执行单个策略筛选, 返回(signals, funnel_info)【v2.9.105提取】"""
+        strategy_name = cfg.get("name", strategy_key)
+        params = cfg.get("params", {})
+        conditions = bt._build_strategy_filter_conditions(strategy_name, params)
+        mask = self._apply_filter_conditions(merged_df, conditions, strategy_key)
+        selected = merged_df[mask]
+        signals = []
+        for _, row in selected.iterrows():
+            ts_code = row.get("ts_code", "")
+            if ts_code in existing_positions:
+                continue
+            signals.append(self._build_signal_from_row(
+                row, strategy_key, strategy_name, len(conditions), len(merged_df), len(selected),
+            ))
+        return signals, {"strategy": strategy_key, "name": strategy_name,
+                          "enabled": True, "conditions": len(conditions),
+                          "candidates": len(selected), "after_existing": len(signals),
+                          "missing_fields": list(self._last_missing_condition_fields.keys())[:5]}
+
+    def _log_strategy_funnel(self, merged_df, funnel, signals):
+        """输出策略漏斗日志【v2.9.105提取】"""
+        enabled = [f for f in funnel if f.get('enabled')]
+        logger.info(f"[STRATEGY] 漏斗: {len(merged_df)}只 → "
+                     + " ".join(f"{f['name']}={f['candidates']}" for f in enabled)
+                     + f" → {len(signals)}个信号")
 
     def _apply_filter_conditions(
         self, merged_df: pd.DataFrame, conditions: list, strategy_key: str = "",

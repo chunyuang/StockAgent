@@ -430,6 +430,10 @@ class RuntimePersistence:
         trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates or [])
         trace_doc["summary"]["passed"] = len(passed_candidates)
         trace_doc["summary"]["rejected"] = len(rejected_summary)
+        # 【v2.9.105】策略漏斗: 每个策略的候选数/通过数/缺失字段
+        scorer = getattr(self._scanner, "_strategy_scorer", None)
+        if scorer and hasattr(scorer, "_last_strategy_funnel"):
+            trace_doc["summary"]["strategy_funnel"] = scorer._last_strategy_funnel
         trace_doc["layer_details"] = dict(filter_result.layer_details)
         return trace_doc
     
