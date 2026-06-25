@@ -742,41 +742,16 @@ class EmotionCycleManager:
         # 【v2.9.85】补充zt_premium(旧bug:缺此维度导致MongoDB情绪分偏低)
         missing = (lu == 0 and ld == 0 and up == 0 and down == 0)
 
-        # 【v2.9.104】收盘/数据缺失时优先使用scanner盘中实时快照，避免用数日前旧情绪覆盖当日记录
+        # 【v2.9.104】收盘/数据缺失时优先使用scanner盘中实时快照
+        if missing and await EmotionCycleManager._persist_close_fallback_if_available(scanner, db, td_int, trade_date):
+            return
+        # 【v2.9.90】全数据源缺失时，用最近有效交易日作fallback参考
         if missing:
-            realtime_doc = EmotionCycleManager._normalize_realtime_sentiment(scanner, trade_date)
-            if realtime_doc:
-                await db["sentiment_scores"].update_one(
-                    {"trade_date": realtime_doc["trade_date"]},
-                    {"$set": {**realtime_doc, "data_source": "scanner_intraday_close_fallback"}},
-                    upsert=True,
-                )
-                logger.warning(
-                    f"[EMOTION] 当日{td_int}盘后数据缺失，保留scanner实时情绪: "
-                    f"score={realtime_doc.get('score')} period={realtime_doc.get('period')}"
-                )
-                return
-
-        # 【v2.9.90】当所有数据源都没有当日数据时，用最近交易日的sentiment_scores
-        # 作为fallback参考，而不是返回limit_up=0/score=22的虚假冰点
-        if missing:
-            prev_doc = await db["sentiment_scores"].find_one(
-                {"trade_date": {"$lt": td_int}, "missing_data": {"$ne": True}},
-                sort=[("trade_date", -1)]
-            )
-            if prev_doc:
-                lu = prev_doc.get("limit_up", 0)
-                ld = prev_doc.get("limit_down", 0)
-                max_lb = prev_doc.get("max_continue", 1)
-                up = prev_doc.get("up_count", 0)
-                down = prev_doc.get("down_count", 0)
-                ud_ratio = prev_doc.get("up_down_ratio", 0.0)
-                zt_premium = prev_doc.get("zt_premium", 0.0)
-                src = f"prev_day_fallback({prev_doc.get('trade_date', '?')})"
-                logger.info(
-                    f"[EMOTION] 当日{td_int}数据缺失，用{prev_doc.get('trade_date')}作为fallback: "
-                    f"limit_up={lu}, score={prev_doc.get('score')}"
-                )
+            fb = await EmotionCycleManager._apply_prev_sentiment_fallback(db, td_int, {})
+            lu, ld, max_lb = fb.get("lu", lu), fb.get("ld", ld), fb.get("max_lb", max_lb)
+            up, down, ud_ratio = fb.get("up", up), fb.get("down", down), fb.get("ud_ratio", ud_ratio)
+            zt_premium = fb.get("zt_premium", zt_premium)
+            src = fb.get("src", src)
 
         score, period = EmotionCycleManager._calc_sentiment_score(lu, ld, max_lb, ud_ratio, zt_premium)
         await EmotionCycleManager._persist_sentiment_score(
