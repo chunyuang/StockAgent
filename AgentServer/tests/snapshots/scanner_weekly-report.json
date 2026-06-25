@@ -1,9 +1,9 @@
 {
   "period": "str",
   "account": {
-    "total_assets": "float",
+    "total_assets": "int",
     "total_profit": "float",
-    "available_cash": "float"
+    "available_cash": "int"
   },
   "daily_stats": {
     "20260624": {
@@ -11,6 +11,21 @@
       "sells": "int",
       "buy_amount": "float",
       "sell_amount": "int",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "int"
+        }
+      }
+    },
+    "20260625": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "int",
+      "sell_amount": "float",
       "strategies": {
         "halfway_chase": {
           "trades": "int",
@@ -37,7 +52,7 @@
     "total_buys": "int",
     "total_sells": "int",
     "total_buy_amount": "float",
-    "total_sell_amount": "int",
+    "total_sell_amount": "float",
     "net_flow": "float"
   },
   "scanner_stats": {

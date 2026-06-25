@@ -17,6 +17,15 @@
     }
   ],
   "trades": [
-    "<empty_list>"
+    {
+      "date": "int",
+      "side": "str",
+      "ts_code": "str",
+      "strategy": "str",
+      "price": "float",
+      "reason": "str",
+      "profit_pct": "float",
+      "profit_amount": "float"
+    }
   ]
 }

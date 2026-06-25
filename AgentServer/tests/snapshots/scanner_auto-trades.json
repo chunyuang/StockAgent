@@ -1,6 +1,96 @@
 {
   "success": "bool",
   "data": [
-    "<empty_list>"
+    {
+      "time": "str",
+      "ts_code": "str",
+      "stock_name": "str",
+      "side": "str",
+      "quantity": "int",
+      "price": "float",
+      "amount": "float",
+      "strategy": "str",
+      "reason": "str",
+      "source": "str",
+      "trade_date": "str",
+      "order_id": "str",
+      "order_type": "str",
+      "status": "str",
+      "create_time": "str",
+      "fill_time": "str",
+      "profit_pct": "float",
+      "profit_amount": "float",
+      "decision_trace": {
+        "version": "str",
+        "trace_quality": "str",
+        "stock": {
+          "ts_code": "str",
+          "stock_name": "str",
+          "strategy": "str",
+          "strategy_name": "str",
+          "scan_time": "str"
+        },
+        "market_data": {
+          "price": "float",
+          "filled_price": "float",
+          "pct_chg": "NoneType",
+          "volume_ratio": "NoneType",
+          "turnover_rate": "NoneType",
+          "is_limit_up": "bool",
+          "limit_up_count": "NoneType"
+        },
+        "selection_params": {
+          "min_rise_pct": "float",
+          "max_rise_pct": "float",
+          "min_volume_ratio": "float",
+          "max_volume_ratio": "float",
+          "min_close_rise_pct": "float",
+          "max_open_rise_pct": "float",
+          "allow_after_10am": "bool",
+          "next_day_open_sell_pct": "float",
+          "pullback_mid_fallback_pct": "float",
+          "pullback_high_threshold": "float",
+          "pullback_profit_lock_threshold": "float"
+        },
+        "risk_params": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "max_hold_days": "int",
+          "hold_protection_threshold": "float",
+          "slippage_pct": "float",
+          "trailing_stop_pct": "float"
+        },
+        "account_context": {
+          "buy_amount": "float",
+          "buy_shares": "int",
+          "max_position_ratio": "float",
+          "single_position_cap": "float"
+        },
+        "execution": {
+          "side": "str",
+          "order_type": "str",
+          "status": "str",
+          "create_time": "str",
+          "fill_time": "str",
+          "quantity": "int",
+          "price": "float",
+          "filled_price": "float",
+          "amount": "float"
+        },
+        "decision_steps": [
+          {
+            "step": "str",
+            "logic": "str",
+            "params": {
+              "strategy": "str"
+            },
+            "observed": {
+              "reason": "str"
+            },
+            "result": "str"
+          }
+        ]
+      }
+    }
   ]
 }

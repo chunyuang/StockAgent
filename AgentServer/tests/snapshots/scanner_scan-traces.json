@@ -5,6 +5,7 @@
       "trade_date": "int",
       "scan_time": "str",
       "session": "str",
+      "scan_type": "str",
       "account_id": "str",
       "is_debug": "bool",
       "summary": {
@@ -71,6 +72,7 @@
           "input": "int",
           "output": "int"
         },
+        "total_stocks": "int",
         "total_candidates": "int",
         "passed": "int",
         "rejected": "int"

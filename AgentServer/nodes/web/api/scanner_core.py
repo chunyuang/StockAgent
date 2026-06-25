@@ -664,9 +664,9 @@ async def get_account():
             acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
             
             # 从 broker_positions 实时计算市值和持仓数
-            market_value = 0
+            market_value = 0.0
             pos_count = 0
-            unrealized_pnl = 0  # 【v2.9.99-r9 fix】持仓浮盈浮亏
+            unrealized_pnl = 0.0  # 【v2.9.99-r9 fix】持仓浮盈浮亏
             async for p in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}):
                 qty = p.get("total_qty", 0)
                 price = float(p.get("current_price") or p.get("avg_cost") or 0)
@@ -678,7 +678,7 @@ async def get_account():
                         unrealized_pnl += (price - avg_cost) * qty
             
             # 从 broker_orders 实时计算已实现盈亏
-            realized_pnl = 0
+            realized_pnl = 0.0
             async for o in db["broker_orders"].find({"account_id": "default", "side": "sell", "status": "filled"}, {"profit_amount": 1}):
                 realized_pnl += float(o.get("profit_amount") or 0)
             
@@ -692,14 +692,14 @@ async def get_account():
             # today_profit: 当日已实现盈亏 + 今日买入持仓的浮盈浮亏
             # 【v2.9.99-r9 fix】A股T+1, 今日买入不能当日卖, 但价格变动也应该体现今日盈亏
             today_str = datetime.now().strftime("%Y%m%d")
-            today_realized = 0
+            today_realized = 0.0
             async for o in db["broker_orders"].find({
                 "account_id": "default", "side": "sell", "status": "filled",
                 "trade_date": {"$in": [int(today_str), today_str]}
             }, {"profit_amount": 1}):
                 today_realized += float(o.get("profit_amount") or 0)
             # 今日买入的持仓浮盈浮亏(today_buy_qty>0的部分)
-            today_unrealized = 0
+            today_unrealized = 0.0
             async for p in db["broker_positions"].find({"account_id": "default", "today_buy_qty": {"$gt": 0}}):
                 today_qty = p.get("today_buy_qty", 0)
                 price = float(p.get("current_price") or 0)

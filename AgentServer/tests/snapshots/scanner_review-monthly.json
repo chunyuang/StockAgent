@@ -6,7 +6,13 @@
     "win_rate": "float",
     "pnl": "int"
   },
-  "strategy_stats": {},
+  "strategy_stats": {
+    "halfway_chase": {
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "int"
+    }
+  },
   "behavior_drift": {
     "stop_loss_execution_rate": "float",
     "stop_loss_at_loss": "int",
