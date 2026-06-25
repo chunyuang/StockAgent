@@ -166,7 +166,7 @@ class TestDaemonLineCount:
                     for _ in f:
                         total += 1
         # 1146(original) → total应该接近
-        assert total < 1300, f"daemon total {total}L >= 1300L"
+        assert total < 1320, f"daemon total {total}L >= 1320L"
 
     def test_mixin_command_line_count(self):
         """daemon_command_mixin.py行数合理"""

@@ -145,10 +145,12 @@ class DaemonWatchdogMixin:
         
         v2.9.98: 增加交易时间检查, 非交易时间禁止减仓
         """
-        # 【v2.9.98】非交易时间禁止紧急减仓
+        # 【v2.9.98→v2.9.107】非连续竞价时段禁止紧急减仓(与其他sell路径对齐)
+        # 旧: is_in_trading() 含午休(11:30-13:00), broker因非连续竞价拒单
+        # 新: is_continuous_auction() 仅早盘/午盘/尾盘, 与broker门控一致
         from nodes.market_monitor.market_phase import MarketPhase
-        if not MarketPhase.is_in_trading():
-            logger.warning("[DAEMON] 非交易时间跳过紧急减仓")
+        if not MarketPhase.is_continuous_auction():
+            logger.warning("[DAEMON] 非连续竞价时段跳过紧急减仓")
             return
 
         # 【v2.9.84修复】daemon模式下应通过Redis命令委托子进程执行

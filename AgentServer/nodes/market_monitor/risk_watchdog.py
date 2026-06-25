@@ -673,10 +673,12 @@ class RiskWatchdog:
         
         Returns: 成功清仓数
         """
-        # 【v2.9.98】非交易时间禁止清仓
+        # 【v2.9.98→v2.9.107】非连续竞价时段禁止清仓(与其他sell路径对齐)
+        # 旧: is_in_trading() 含午休(11:30-13:00), broker.place_order因非连续竞价拒单→产生无意义rejected
+        # 新: is_continuous_auction() 仅早盘/午盘/尾盘, 与broker门控一致
         from nodes.market_monitor.market_phase import MarketPhase
-        if not MarketPhase.is_in_trading():
-            logger.warning(f"[WATCHDOG] 非交易时间跳过紧急平仓: {reason}")
+        if not MarketPhase.is_continuous_auction():
+            logger.warning(f"[WATCHDOG] 非连续竞价时段跳过紧急平仓: {reason}")
             return 0
         
         import uuid
