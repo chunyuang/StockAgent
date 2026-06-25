@@ -631,15 +631,14 @@ class PositionChecker:
         import uuid
         from nodes.market_monitor.market_phase import MarketPhase
 
-        # 【v2.9.98修复】非交易时间禁止卖出(盘后止损卖出是BUG)
-        # 允许的时段: 仅连续竞价时间(09:30-11:30, 13:00-15:00)
-        # 注: 15:00-15:05 属 OFF_HOURS, 也被阻止(收盘后不应有新卖出触发)
-        phase = MarketPhase.classify()
-        if phase in (MarketPhase.AFTER_CLOSE, MarketPhase.OFF_HOURS, MarketPhase.DEEP_NIGHT, MarketPhase.WEEKEND, MarketPhase.PREMARKET):
+        # 【v2.9.98修复→v2.9.106统一】非连续竞价时段禁止卖出
+        # 旧: 黑名单模式(排除AFTER_CLOSE等), AUCTION/LUNCH仍可执行→broker拒单产生无意义rejected
+        # 新: 白名单模式(is_continuous_auction), 与execute_sell_list_from_risk/execute_risk_sell/liquidate_positions对齐
+        if not MarketPhase.is_continuous_auction():
             blocked = len(to_sell)
             if blocked > 0:
                 logger.warning(
-                    f"[{source.upper()}] 非交易时间({phase})跳过{blocked}笔卖出: "
+                    f"[{source.upper()}] 非连续竞价时段({MarketPhase.classify()})跳过{blocked}笔卖出: "
                     f"{', '.join(p.ts_code for p, _, _, _ in to_sell[:5])}{'...' if blocked > 5 else ''}"
                 )
             return to_sell  # 返回未执行的列表

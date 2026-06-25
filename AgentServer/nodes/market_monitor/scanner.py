@@ -1314,7 +1314,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         state["pending"] = False
 
     async def _liquidate_positions_by_codes(self, codes, reason: str, source: str) -> Tuple[int, int]:
-        """按代码卖出弱势持仓, 用于竞价Level2降仓。"""
+        """按代码卖出弱势持仓, 用于竞价Level2降仓。
+        
+        v2.9.106: 增加is_continuous_auction()检查, 与其他卖出路径对齐
+        """
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_continuous_auction():
+            logger.warning(f"[{source.upper()}] 非连续竞价时段跳过按代码卖出: {reason}")
+            return 0, 0
         if not self._broker:
             return 0, 0
         sold = failed = 0
