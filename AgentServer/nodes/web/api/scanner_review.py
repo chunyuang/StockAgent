@@ -42,6 +42,14 @@ def _scanner_realtime_sentiment_for_date(date_int: int) -> Optional[Dict[str, An
     scanner = _get_scanner_instance()
     if not scanner:
         return None
+    # 【v2.9.104-hotfix】服务重启后会创建未扫描的新scanner实例，默认50分不能覆盖DB真实情绪
+    is_running = False
+    try:
+        is_running = bool(scanner.is_running()) if hasattr(scanner, "is_running") else bool(getattr(scanner, "_is_running", False))
+    except Exception:
+        is_running = bool(getattr(scanner, "_is_running", False))
+    if not is_running or not getattr(scanner, "_last_scan_time", ""):
+        return None
     try:
         sentiment = scanner.get_current_sentiment() if hasattr(scanner, "get_current_sentiment") else getattr(scanner, "_current_sentiment", {})
     except Exception:

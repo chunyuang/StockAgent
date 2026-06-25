@@ -25,8 +25,10 @@ class DummyDB(dict):
 
 
 class DummyScanner:
-    def __init__(self):
+    def __init__(self, running=True, last_scan_time="13:30:00"):
         self._trade_date = "20260625"
+        self._is_running = running
+        self._last_scan_time = last_scan_time
         self._current_sentiment = {
             "score": 47.73,
             "period": "chaos",
@@ -49,6 +51,9 @@ class DummyScanner:
 
     def get_current_sentiment(self):
         return self._current_sentiment
+
+    def is_running(self):
+        return self._is_running
 
 
 @pytest.mark.asyncio
@@ -90,6 +95,15 @@ def test_review_forward_prefers_scanner_realtime_over_old_db(monkeypatch):
     assert doc["score"] == 47.73
     assert doc["period"] == "震荡"
     assert doc["data_source"] == "scanner_intraday_memory"
+
+
+def test_review_forward_ignores_unstarted_scanner_default_sentiment(monkeypatch):
+    from nodes.web.api import scanner_review
+
+    monkeypatch.setattr(scanner_review, "_get_scanner_instance", lambda: DummyScanner(running=False, last_scan_time=""))
+    doc = scanner_review._scanner_realtime_sentiment_for_date(20260625)
+
+    assert doc is None
 
 
 def test_live_filter_pipeline_exposes_dimensions():
