@@ -704,20 +704,36 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                         c["execution_desc"] = reason
                         c["execution_detail"] = block_info
                     else:
-                        c["execution_status"] = "pending"
-                        strategy = c.get("strategy", "") or ""
-                        strategy_name = c.get("strategy_name", strategy)
-                        pct = c.get("pct_chg", 0) or 0
-                        # 【v2.9.95d】推定未触发买入的具体原因
-                        if "anomaly" in strategy.lower():
-                            c["execution_desc"] = f"异动信号仅观察（按系统设置 {strategy_name} 不自动交易）"
+                        # 【v2.9.105】优先从l9_results读取真实执行结果
+                        l9 = doc.get("l9_results", {}).get(tc, {})
+                        if l9:
+                            l9_status = l9.get("status", "")
+                            l9_reason = l9.get("reason", "")
+                            if l9_status in ("blocked", "skipped", "filtered"):
+                                c["execution_status"] = "blocked"
+                                c["execution_desc"] = l9_reason or f"被拦截({l9_status})"
+                                c["execution_detail"] = {"source": "l9_results", **l9}
+                            elif l9_status in ("filled", "new"):
+                                c["execution_status"] = "bought" if l9_status == "filled" else "pending"
+                                c["execution_desc"] = l9_reason
+                            else:
+                                c["execution_status"] = "pending"
+                                c["execution_desc"] = l9_reason or f"状态={l9_status}"
                         else:
-                            c["execution_desc"] = (
-                                f"未下单：候选通过筛选但未进入买入队列（可能原因："
-                                f"同行业集中度超限被跳过 / "
-                                f"该信号在进行中本轮不重复下单 / "
-                                f"同股多策略只保留高优先级）· {strategy_name}, {'涨' if pct >= 0 else '跌'}{abs(pct):.1f}%"
-                            )
+                            c["execution_status"] = "pending"
+                            strategy = c.get("strategy", "") or ""
+                            strategy_name = c.get("strategy_name", strategy)
+                            pct = c.get("pct_chg", 0) or 0
+                            # 【v2.9.95d】推定未触发买入的具体原因
+                            if "anomaly" in strategy.lower():
+                                c["execution_desc"] = f"异动信号仅观察（按系统设置 {strategy_name} 不自动交易）"
+                            else:
+                                c["execution_desc"] = (
+                                    f"未下单：候选通过筛选但未进入买入队列（可能原因："
+                                    f"同行业集中度超限被跳过 / "
+                                    f"该信号在进行中本轮不重复下单 / "
+                                    f"同股多策略只保留高优先级）· {strategy_name}, {'涨' if pct >= 0 else '跌'}{abs(pct):.1f}%"
+                                )
             
             bought_candidates = [c for c in candidates if c.get("execution_status") == "bought"]
             blocked_candidates = [c for c in candidates if c.get("execution_status") == "blocked"]
