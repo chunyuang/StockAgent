@@ -960,10 +960,15 @@ class LiveFilterPipeline:
 
     def get_sentiment_info(self) -> Dict:
         """获取当前情绪状态（供外部查询）"""
-        return {
+        info = {
             "score": self._sentiment_score,
             "period": self._sentiment_period,
         }
+        # 【v2.9.104】盘中7维明细同时暴露给scanner持久化，避免只写score/period导致复盘维度缺失
+        if self._last_intraday_dimensions:
+            info["dimensions"] = dict(self._last_intraday_dimensions)
+            info["formula"] = "7dim"
+        return info
 
     @staticmethod
     def merge_filter_result(signals, result) -> list:

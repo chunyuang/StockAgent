@@ -86,6 +86,7 @@ DELEGATE_MAP = {
     # _persist_stop_state/_restore_start_state/_load_positions 是纯存根但保留显式定义
     # _reset_daily_risk_state 有import,保留显式定义
     # 情绪得分+收盘同步
+    "_persist_realtime_sentiment": ("_emotion_cycle_class", "persist_realtime_sentiment"),
     "_update_sentiment_score": ("_emotion_cycle_class", "update_sentiment_score"),
     "_sync_close_data_to_mongo": ("_runtime_persistence", "sync_close_data_to_mongo"),
     # 卖出执行(显式定义存根,不通过DELEGATE_MAP路由)
@@ -117,6 +118,7 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     "_check_circuit_breaker",
     # EmotionCycleManager
     "_handle_emotion_phase_change",
+    "_persist_realtime_sentiment",  # v2.9.104
     "_update_sentiment_score",  # v2.9.34
     # PositionManager (async sell execution)
     "_execute_risk_sell",  # v2.9.35
@@ -158,6 +160,7 @@ _WATCHDOG_BINDINGS = {
 # EmotionCycleManager静态方法绑定(第一个参数为scanner实例)
 _EMOTION_BINDINGS = {
     "handle_emotion_phase_change": lambda method, scanner: lambda old_phase, new_phase: method(scanner, old_phase, new_phase),
+    "persist_realtime_sentiment": lambda method, scanner: lambda trade_date: method(scanner, trade_date),
     "update_sentiment_score": lambda method, scanner: lambda trade_date: method(scanner, trade_date),
 }
 

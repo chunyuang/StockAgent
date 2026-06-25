@@ -37,6 +37,104 @@ except ImportError:
     def _norm_strat(s): return s
 
 
+def _scanner_realtime_sentiment_for_date(date_int: int) -> Optional[Dict[str, Any]]:
+    """读取scanner内存中的当日实时情绪，供复盘API避免fallback到旧日DB记录。"""
+    scanner = _get_scanner_instance()
+    if not scanner:
+        return None
+    try:
+        sentiment = scanner.get_current_sentiment() if hasattr(scanner, "get_current_sentiment") else getattr(scanner, "_current_sentiment", {})
+    except Exception:
+        sentiment = getattr(scanner, "_current_sentiment", {}) or {}
+    if not sentiment or sentiment.get("score") is None or not sentiment.get("period"):
+        return None
+
+    # 只在请求日期等于scanner交易日/今天时使用实时内存，避免历史复盘被当前盘中情绪污染
+    scanner_td = str(getattr(scanner, "_trade_date", "") or "").replace("-", "")
+    today = datetime.now().strftime("%Y%m%d")
+    if str(date_int) not in {scanner_td, today}:
+        return None
+
+    period_map = {
+        "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点",
+        "RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+        "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点",
+    }
+    raw_period = sentiment.get("period", "")
+    cn_period = period_map.get(raw_period, raw_period)
+    doc = {
+        "trade_date": date_int,
+        "score": sentiment.get("score", 50),
+        "period": cn_period,
+        "period_raw": raw_period,
+        "missing_data": False,
+        "data_source": "scanner_intraday_memory",
+    }
+    dims = sentiment.get("dimensions") or {}
+    if dims:
+        doc.update({
+            "limit_up": dims.get("limit_up", 0),
+            "limit_down": dims.get("limit_down", 0),
+            "max_continue": dims.get("max_continue", 1),
+            "up_count": dims.get("up_count", 0),
+            "down_count": dims.get("down_count", 0),
+            "up_down_ratio": dims.get("up_down_ratio", 0),
+            "zt_premium": dims.get("today_premium", dims.get("zt_premium", 0)),
+            "formula": dims.get("formula", "7dim"),
+        })
+    return doc
+
+
+async def _get_effective_sentiment_doc(db, date_int: int) -> Optional[Dict[str, Any]]:
+    """情绪读取统一入口：当日实时内存 > 当日DB有效/实时写入 > 当日missing提示 > 最近有效历史。"""
+    realtime = _scanner_realtime_sentiment_for_date(date_int)
+    if realtime:
+        return realtime
+
+    exact = await db["sentiment_scores"].find_one({"trade_date": date_int})
+    if exact and not exact.get("missing_data"):
+        return exact
+    if exact and exact.get("data_source") in {"scanner_intraday", "scanner_intraday_close_fallback"}:
+        return exact
+    # 当日有missing记录时，不再无条件跳到几天前；先尝试scan_traces中的L3实时结果
+    l3_doc = await db["scan_traces"].find_one(
+        {"trade_date": date_int, "layer_details.L3_sentiment_data": {"$exists": True}},
+        sort=[("_id", -1)], projection={"layer_details.L3_sentiment_data": 1, "layer_details.L3_sentiment": 1}
+    )
+    if l3_doc:
+        details = l3_doc.get("layer_details") or {}
+        l3_data = details.get("L3_sentiment_data") or {}
+        if isinstance(l3_data, dict) and l3_data.get("score") is not None:
+            return {
+                "trade_date": date_int,
+                "score": l3_data.get("score", 50),
+                "period": l3_data.get("period", "震荡"),
+                "position_ratio": l3_data.get("position_ratio"),
+                "limit_up": l3_data.get("limit_up", 0),
+                "limit_down": l3_data.get("limit_down", 0),
+                "up_down_ratio": l3_data.get("up_down_ratio", 0),
+                "zt_premium": l3_data.get("today_premium", 0),
+                "formula": l3_data.get("formula", "7dim"),
+                "missing_data": False,
+                "data_source": "scan_traces_l3",
+            }
+
+    if exact and exact.get("missing_data"):
+        # 不把旧日fallback值当作真实情绪；复盘建议层用中性缺失态，避免误判“冰点禁止开仓”
+        neutral = dict(exact)
+        neutral.update({
+            "score": 50,
+            "period": "数据缺失",
+            "period_raw": exact.get("period", ""),
+            "data_source": "missing_data_neutralized",
+            "missing_data": True,
+        })
+        return neutral
+    if exact:
+        return exact
+    return await db["sentiment_scores"].find_one({"missing_data": {"$ne": True}}, sort=[("trade_date", -1)])
+
+
 @router.get("/backtest-compare")
 async def backtest_compare(date: str = None):
     """实盘vs回测对比
@@ -428,7 +526,7 @@ async def get_review_hero(date: str = None):
                 benchmark_pct = idx_doc.get("pct_chg", 0) or 0
 
         # 4. 情绪环境
-        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": _normalize_date(date)})
+        sentiment_doc = await _get_effective_sentiment_doc(db, _normalize_date(date))
         sentiment_period = sentiment_doc.get("period", "") if sentiment_doc else ""
         sentiment_score = sentiment_doc.get("score", 0) if sentiment_doc else 50
         # 【v2.9.97i】sentiment_scores数据缺失时fallback到scan_traces L3
@@ -710,10 +808,7 @@ async def get_review_forward(date: str = None):
 
         # 1. 当前情绪
         date_int = _normalize_date(date)
-        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": date_int})
-        if not sentiment_doc:
-            # fallback到最近
-            sentiment_doc = await db["sentiment_scores"].find_one({"missing_data": {"$ne": True}}, sort=[("trade_date",-1)])
+        sentiment_doc = await _get_effective_sentiment_doc(db, date_int)
 
         raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
         score = sentiment_doc.get("score",50) if sentiment_doc else 50
@@ -724,6 +819,8 @@ async def get_review_forward(date: str = None):
         _cn_periods = {"高潮", "分化", "震荡", "冰点"}
         if raw_period in _cn_periods:
             cn_period = raw_period
+        if sentiment_doc and sentiment_doc.get("missing_data"):
+            cn_period = "数据缺失"
 
         # 2. 策略历史表现(近30天)
         from collections import defaultdict
@@ -788,7 +885,9 @@ async def get_review_forward(date: str = None):
             pass
 
         # 5. 综合建议
-        if raw_period in ["RISING", "高潮"]:
+        if raw_period == "数据缺失" or (sentiment_doc and sentiment_doc.get("missing_data")):
+            advice = f"当前情绪数据缺失({score:.0f}分为中性占位), 暂不根据历史旧值给出开/关仓建议。请以实时扫描器L3情绪和盘中风控为准。"
+        elif raw_period in ["RISING", "高潮"]:
             advice = f"当前高潮({score:.0f}分),所有策略开放。建议满仓操作,注意高潮末端可能突然分化,设好止盈。"
         elif raw_period in ["DIFFERENTIATION", "分化"]:
             advice = f"当前分化({score:.0f}分),建议降仓位至50-70%。只做半路追涨和龙头低吸,关闭首板打板。"

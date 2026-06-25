@@ -639,6 +639,93 @@ class EmotionCycleManager:
             }
         })
 
+
+    @staticmethod
+    def _normalize_realtime_sentiment(scanner, trade_date: str) -> Optional[Dict[str, Any]]:
+        """从scanner内存整理盘中实时情绪快照，供盘中/收盘/复盘统一使用。
+
+        返回None表示scanner尚无有效实时情绪。
+        【v2.9.104】解决sentiment_scores盘中缺失导致review-forward回退到旧日冰点的问题。
+        """
+        sentiment = {}
+        try:
+            if hasattr(scanner, "get_current_sentiment"):
+                sentiment = scanner.get_current_sentiment() or {}
+            else:
+                sentiment = getattr(scanner, "_current_sentiment", None) or {}
+        except Exception:
+            sentiment = getattr(scanner, "_current_sentiment", None) or {}
+        if not sentiment:
+            return None
+
+        score = sentiment.get("score")
+        period = sentiment.get("period")
+        if score is None or not period:
+            return None
+
+        dims = sentiment.get("dimensions") or {}
+        if not dims:
+            fp = getattr(scanner, "_filter_pipeline", None)
+            dims = getattr(fp, "_last_intraday_dimensions", None) or {}
+
+        period_cn_map = {
+            "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点",
+            "RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+            "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点",
+        }
+        period_cn = period_cn_map.get(str(period), str(period))
+
+        def _num(key: str, default=0):
+            val = dims.get(key, default)
+            return val if isinstance(val, (int, float)) else default
+
+        from datetime import datetime as _dt
+        return {
+            "trade_date": int(str(trade_date).replace("-", "")),
+            "score": round(float(score), 2),
+            "period": period_cn,
+            "period_raw": period,
+            "position_ratio": _get_position_ratio(period_cn),
+            "limit_up": int(_num("limit_up", 0)),
+            "limit_down": int(_num("limit_down", 0)),
+            "max_continue": int(_num("max_continue", 1) or 1),
+            "up_count": int(_num("up_count", 0)),
+            "down_count": int(_num("down_count", 0)),
+            "up_down_ratio": round(float(_num("up_down_ratio", 0.0)), 3),
+            "zt_premium": round(float(_num("today_premium", _num("zt_premium", 0.0))), 2),
+            "momentum": round(float(_num("momentum", 0.0)), 4),
+            "broken": int(_num("broken", 0)),
+            "broken_rate": round(float(_num("broken_rate", 0.0)), 3),
+            "sample_count": int(_num("sample_count", 0)),
+            "formula": dims.get("formula") or sentiment.get("formula") or "7dim",
+            "data_source": "scanner_intraday",
+            "missing_data": False,
+            "updated_at": _dt.now().isoformat(),
+        }
+
+    @staticmethod
+    async def persist_realtime_sentiment(scanner, trade_date: str) -> bool:
+        """把scanner盘中实时情绪upsert到sentiment_scores。
+
+        必须可被0信号扫描调用；失败只记录日志，不影响交易主流程。
+        """
+        if not mongo_manager.is_initialized:
+            return False
+        doc = EmotionCycleManager._normalize_realtime_sentiment(scanner, trade_date)
+        if not doc:
+            return False
+        await mongo_manager.db["sentiment_scores"].update_one(
+            {"trade_date": doc["trade_date"]},
+            {"$set": doc},
+            upsert=True,
+        )
+        logger.info(
+            f"[EMOTION] 盘中实时情绪已写入sentiment_scores: "
+            f"{doc['trade_date']} score={doc['score']:.1f} period={doc['period']} "
+            f"source={doc['data_source']}"
+        )
+        return True
+
     @staticmethod
     async def update_sentiment_score(scanner, trade_date: str) -> None:
         """收盘后更新当日情绪预计算(编排方法)
@@ -654,6 +741,21 @@ class EmotionCycleManager:
         zt_premium = await EmotionCycleManager._fetch_zt_premium_for_update(db, td_int)
         # 【v2.9.85】补充zt_premium(旧bug:缺此维度导致MongoDB情绪分偏低)
         missing = (lu == 0 and ld == 0 and up == 0 and down == 0)
+
+        # 【v2.9.104】收盘/数据缺失时优先使用scanner盘中实时快照，避免用数日前旧情绪覆盖当日记录
+        if missing:
+            realtime_doc = EmotionCycleManager._normalize_realtime_sentiment(scanner, trade_date)
+            if realtime_doc:
+                await db["sentiment_scores"].update_one(
+                    {"trade_date": realtime_doc["trade_date"]},
+                    {"$set": {**realtime_doc, "data_source": "scanner_intraday_close_fallback"}},
+                    upsert=True,
+                )
+                logger.warning(
+                    f"[EMOTION] 当日{td_int}盘后数据缺失，保留scanner实时情绪: "
+                    f"score={realtime_doc.get('score')} period={realtime_doc.get('period')}"
+                )
+                return
 
         # 【v2.9.90】当所有数据源都没有当日数据时，用最近交易日的sentiment_scores
         # 作为fallback参考，而不是返回limit_up=0/score=22的虚假冰点

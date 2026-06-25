@@ -941,8 +941,20 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             logger.info(f"[FILTER] {layer}: {detail}")
         await self._save_scan_traces(result)
 
-        # 空信号时策略上下文走不下去, 结束返回
+        # 【v2.9.104】即使0信号也要同步情绪和仓位，否则复盘会读旧sentiment_scores
+        old_phase = (self._current_sentiment or {}).get("period", "")
+        self._current_position_ratio = result.position_ratio
+        self._current_sentiment = self._filter_pipeline.get_sentiment_info()
+        new_phase = (self._current_sentiment or {}).get("period", "")
+        await self._persist_realtime_sentiment(trade_date)
+
+        # 空信号时策略上下文走不下去, 结束返回；但情绪更新/落库已经完成
         if not signals:
+            if old_phase and old_phase != new_phase:
+                await self._event_bus.emit(ScannerEvents.EMOTION_CHANGED, {
+                    "old_phase": old_phase, "new_phase": new_phase,
+                })
+                await self._handle_emotion_phase_change(old_phase, new_phase)
             return signals
 
         # 竞价风险状态机: 数据质量+多轮确认+风险分级+开盘执行+新开仓联动
