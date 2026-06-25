@@ -342,11 +342,13 @@ class RuntimePersistence:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
-            if not filter_result or not filter_result.trace_candidates:
+            if not filter_result:
                 return
+            # 【v2.9.104】即使 trace_candidates 为空 (0 信号) 也要写入, 用于历史可追性
+            # 之前 'not filter_result.trace_candidates' 直接 return 导致前端看不到无信号的扫描
             
             # 分离passed和rejected候选
-            passed_candidates, rejected_summary = self._split_trace_candidates(filter_result.trace_candidates)
+            passed_candidates, rejected_summary = self._split_trace_candidates(filter_result.trace_candidates or [])
             
             # 构建追踪文档
             trace_doc = self._build_trace_doc(filter_result, passed_candidates, rejected_summary)
@@ -406,10 +408,16 @@ class RuntimePersistence:
         ct = now.strftime("%H:%M:%S")
         is_trading_day = now.weekday() < 5
         is_trading_session = is_trading_day and (("09:15:00" <= ct <= "11:30:00") or ("13:00:00" <= ct <= "15:00:00"))
+        # 【v2.9.104】记录全量扫描股票数 (5529 只)
+        try:
+            total_stocks = len(getattr(self._scanner, "_realtime_cache", {}) or {})
+        except Exception:
+            total_stocks = 0
         trace_doc = {
             "trade_date": today_int,
             "scan_time": now.isoformat(),
             "session": "trading" if is_trading_session else "off_session",
+            "scan_type": "full",  # 【v2.9.104】每轮都是全市场扫描
             "account_id": self.broker.account.account_id if self.broker else "default",
             "is_debug": not is_trading_session,
             "summary": {},
@@ -418,7 +426,8 @@ class RuntimePersistence:
         }
         for layer, stats in filter_result.trace_summary.items():
             trace_doc["summary"][layer] = dict(stats)
-        trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
+        trace_doc["summary"]["total_stocks"] = total_stocks  # 【v2.9.104】全量股票数
+        trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates or [])
         trace_doc["summary"]["passed"] = len(passed_candidates)
         trace_doc["summary"]["rejected"] = len(rejected_summary)
         trace_doc["layer_details"] = dict(filter_result.layer_details)

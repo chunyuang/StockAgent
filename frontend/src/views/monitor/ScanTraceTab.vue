@@ -109,11 +109,17 @@ const execSummaryDisplay = computed(() => {
   }
 })
 
-function scanKind(s: any): 'full' | 'quick' | 'blocked' | 'other' {
+function scanKind(s: any): 'full' | 'quick' | 'idle' | 'blocked' | 'other' {
+  const totalStocks = Number(s?.summary?.total_stocks || 0)
   const total = Number(s?.summary?.total_candidates || 0)
   const passed = Number(s?.summary?.passed || 0)
+  // 【v2.9.104】优先用 total_stocks(真正的全市场股票数) 判断
+  // 后退兼容: 老文档没有 total_stocks 时用 total_candidates 量级猜测
+  if (totalStocks >= 3000) return 'full'
+  if (totalStocks > 0 && totalStocks < 3000) return 'quick'
   if (total >= 1000) return 'full'
   if (total > 0 && total <= 300) return 'quick'
+  if (total === 0 && totalStocks === 0) return 'idle'
   if (total > 0 && passed === 0) return 'blocked'
   return 'other'
 }
@@ -123,17 +129,23 @@ function scanKindLabel(s: any): string {
   if (k === 'full') return '全市场主扫'
   if (k === 'quick') return '异动快扫'
   if (k === 'blocked') return '风控拦截'
+  if (k === 'idle') return '扫描空轮'
   return '扫描'
 }
 
 function scanKindTitle(s: any): string {
+  const totalStocks = Number(s?.summary?.total_stocks || 0)
   const total = Number(s?.summary?.total_candidates || 0)
   const passed = Number(s?.summary?.passed || 0)
   const bought = Number(s?.exec?.bought || 0)
   const blocked = Number(s?.exec?.blocked || 0)
   const label = scanKindLabel(s)
   if (scanKind(s) === 'full') {
-    return `${label}: 策略展开记录${total}条，不等于股票数；通过排序/仓位后${passed}条，成交${bought}条，执行拦截${blocked}次`
+    const stockInfo = totalStocks > 0 ? `拉取行情${totalStocks}只股票，` : ''
+    return `${label}: ${stockInfo}策略命中${total}个候选，通过筛选${passed}条，成交${bought}条，拦截${blocked}次`
+  }
+  if (scanKind(s) === 'idle') {
+    return `${label}: 本轮扫描未产生策略信号（全市场已扫）`
   }
   if (scanKind(s) === 'quick') {
     return `${label}: 只扫描盘中异动/候选池${total}条；通过${passed}条，成交${bought}条，执行拦截${blocked}次`
@@ -326,7 +338,7 @@ onMounted(async () => {
                 <span class="sc-kind" :class="scanKind(s)">{{ scanKindLabel(s) }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
                 <span class="sc-stats" :title="scanKindTitle(s)">
-                  <span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
+                  <span v-if="s.summary?.total_stocks > 0" class="ss-stocks" :title="`本轮拉取行情股票数`">{{ s.summary.total_stocks }}只</span><span v-if="s.summary?.total_stocks > 0" class="ss-arr">▶</span><span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
                 </span>
               </div>
             </div>
@@ -339,7 +351,7 @@ onMounted(async () => {
           <span>每一行代表一层规则：左侧是层名，中间是“进入该层 → 通过该层”，右侧“淘汰N”表示这一层挡掉的候选。最后的“成交/执行拦截”是通过筛选后是否真正买入。</span>
         </div>
         <template v-for="(layerData, layerName) in scanTraceDetail.summary" :key="layerName">
-          <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && layerData && typeof layerData === 'object'" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
+          <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && String(layerName) !== 'total_stocks' && String(layerName) !== 'scan_type' && layerData && typeof layerData === 'object'" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
             <span class="fn-tag">{{ layerLabel(layerName) }}</span>
             <span class="fn-flow">{{ (layerData.input || 0) === 0 && (layerData.output || 0) === 0 && !layerData.rejected ? '—' : (layerData.input || 0) + '→' + (layerData.output || 0) }}</span>
             <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
@@ -536,6 +548,7 @@ onMounted(async () => {
 .sc-stats { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
 
 .ss-all { color: var(--text-tertiary); font-size: 10px; }
+.ss-stocks { color: #1e88e5; font-size: 10px; font-weight: 600; }
 
 .ss-arr { color: var(--text-tertiary); font-size: 9px; margin: 0 1px; }
 

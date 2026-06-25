@@ -921,8 +921,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
     ) -> List[ScanSignal]:
         """9层筛选管道: 强制空仓/情绪/竞价/排序/仓位"""
-        if not signals:
-            return signals
+        # 【v2.9.104】即使 signals 为空也走一遍，以便写入含 total_stocks 的空 trace
+        # 注意: 这不会增加策略计算量，只是使 L1-L9 层调用 + 记录 trace
+        if signals is None:
+            signals = []
 
         # 转换为管道输入格式
         candidates = self._signals_to_candidates(signals)
@@ -934,10 +936,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             realtime_data=realtime_data,
         )
 
-        # 日志+链路追踪
+        # 日志+链路追踪 (无论是否有信号都记录, 到一下一轮可见)
         for layer, detail in result.layer_details.items():
             logger.info(f"[FILTER] {layer}: {detail}")
         await self._save_scan_traces(result)
+
+        # 空信号时策略上下文走不下去, 结束返回
+        if not signals:
+            return signals
 
         # 竞价风险状态机: 数据质量+多轮确认+风险分级+开盘执行+新开仓联动
         self._update_premarket_force_empty_state(result, realtime_data)
