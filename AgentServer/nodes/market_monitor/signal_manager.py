@@ -162,6 +162,47 @@ class SignalManager:
                         break
         return added
 
+    @staticmethod
+    def _build_l9_result(sig) -> Dict[str, Any]:
+        """构建单个信号的L9最终状态。"""
+        status = sig.signal_status or "new"
+        if status in ("new", "filled"):
+            return {"passed": True, "status": status,
+                    "reason": "已执行买入" if status == "filled" else "待执行"}
+        trace = sig.layer_trace or {}
+        exec_info = trace.get("execution", {})
+        reason = exec_info.get("reason", "") if exec_info else ""
+        return {"passed": False, "status": status,
+                "reason": reason or f"信号状态={status}"}
+
+    async def _update_scan_trace_l9(self, signals: List[ScanSignal]) -> None:
+        """回写L9执行结果到当轮scan_trace【v2.9.105】。
+
+        之前L9固定写"管道筛选通过, 待执行",
+        但 execute_signals 里的拦截(异动/持仓/熔断/10点后禁买等)没有回写。
+        """
+        if not signals:
+            return
+        try:
+            from core.managers import mongo_manager
+            if not getattr(mongo_manager, "is_initialized", False):
+                return
+            scanner = self._scanner
+            trade_date = getattr(scanner, "_trade_date", "")
+            if not trade_date:
+                return
+            td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
+            latest_trace = await mongo_manager.db["scan_traces"].find_one(
+                {"trade_date": td_int}, sort=[("scan_time", -1)])
+            if not latest_trace:
+                return
+            updates = {f"l9_results.{s.ts_code}": self._build_l9_result(s) for s in signals}
+            if updates:
+                await mongo_manager.db["scan_traces"].update_one(
+                    {"_id": latest_trace["_id"]}, {"$set": updates})
+        except Exception as e:
+            logger.debug(f"[SIGNAL] L9回写scan_trace失败: {e}")
+
     async def _persist_signal_history(self, signals: List[ScanSignal], scan_time: str) -> None:
         """将扫描信号写入MongoDB，供非交易时间/重启后回看。"""
         if not signals:
@@ -233,6 +274,8 @@ class SignalManager:
         except Exception as _e:
             logger.debug(f"event publish failed: {_e}")
         await self.execute_signals(added)
+        # 【v2.9.105】回写L9执行结果到当轮scan_trace，让前端能看到"通过→被拦截"的完整链路
+        await self._update_scan_trace_l9(added)
         await self._persist_signal_history(added, scan_time)
         if self.broker:
             try:
