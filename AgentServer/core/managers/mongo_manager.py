@@ -273,9 +273,8 @@ class MongoManager(BaseManager):
             IndexModel([("decision_type", ASCENDING)]),
         ])
         
-        # 盘中情绪时序: 按日期查询, 30天自动过期
+        # 盘中情绪时序: TTL 30天自动过期 (trade_date+ts 复合索引已由其他代码创建)
         await self._db.sentiment_live_log.create_indexes([
-            IndexModel([("trade_date", DESCENDING), ("_id", ASCENDING)]),
             IndexModel([("ts", ASCENDING)], expireAfterSeconds=30*24*3600),
         ])
         
