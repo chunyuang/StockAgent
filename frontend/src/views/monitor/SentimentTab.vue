@@ -28,6 +28,7 @@ const {
 // 折叠状态
 const chartExpanded = ref(true)
 const statusExpanded = ref(true)
+const dimExpanded = ref(true)
 const logExpanded = ref(false)
 const guideExpanded = ref(false)
 const downgradeExpanded = ref(false)
@@ -142,12 +143,11 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
           <VChart :option="intradayChartOption" autoresize style="height:240px;width:100%" />
         </div>
         <div class="review-section">
-          <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 + 🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
-          <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b></span>
+          <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
+          <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b></span>
         </div>
-        <div v-if="statusExpanded&&sentimentLive" class="review-2col">
-          <div class="dev-card">
-            <div class="dev-title">🌡 当前状态</div>
+        <div v-if="statusExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
+          <div class="dev-title">🌡 当前状态</div>
             <div class="dev-row"><span>情绪分</span><span :style="{color:scoreColor(sentimentLive.score||0),fontWeight:700}">{{ (sentimentLive.score||0).toFixed(0) }}</span></div>
             <div class="dev-row"><span>周期</span><span>{{ sentimentLive.period_label||sentimentLive.period }}</span></div>
             <div class="dev-row"><span>仓位系数</span><span>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</span></div>
@@ -155,9 +155,13 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
             <div class="dev-row"><span>涨停</span><span class="up">{{ sentimentLive.limit_up_count||0 }}</span></div>
             <div class="dev-row"><span>跌停</span><span class="down">{{ sentimentLive.limit_down_count||0 }}</span></div>
             <div class="dev-row"><span>炸板</span><span>{{ sentimentLive.broken_count||0 }}(<b>{{ (sentimentLive.broken_rate||0).toFixed(1) }}%</b>)</span></div>
-          </div>
-          <div class="dev-card">
-            <div class="dev-title">🧮 8维拆解</div>
+        </div>
+        <div class="review-section">
+          <span class="section-title title-purple" style="cursor:pointer" @click="dimExpanded=!dimExpanded">🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dimExpanded?'▼':'▶' }}</span></span>
+          <span v-if="!dimExpanded&&sentimentLive&&sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null" class="section-detail">D1<b>{{ sentimentLive.dimensions.d1_limit_up }}</b> D2<b>{{ sentimentLive.dimensions.d2_limit_down }}</b> D4<b>{{ sentimentLive.dimensions.d4_momentum }}</b></span>
+        </div>
+        <div v-if="dimExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
+          <div class="dev-title">🧮 8维拆解</div>
             <template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">
               <div class="dev-row"><span>D1 涨停</span><span>{{ sentimentLive.dimensions.d1_limit_up }}/20</span></div>
               <div class="dev-row"><span>D2 跌停</span><span>{{ sentimentLive.dimensions.d2_limit_down }}/15</span></div>
@@ -176,7 +180,6 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
               <div class="dev-row"><span>涨停溢价</span><span>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</span></div>
               <div style="font-size:10px;color:var(--text-quaternary);margin-top:4px">5维盘后(无8维实时)</div>
             </template>
-          </div>
         </div>
         <div class="review-section">
           <span class="section-title title-purple" style="cursor:pointer" @click="logExpanded=!logExpanded">📜 计算日志 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ logExpanded?'▼':'▶' }} {{ liveLogs.length }}条</span></span>
@@ -260,15 +263,13 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="algoExpanded=!algoExpanded">🔬 算法 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoExpanded?'▼':'▶' }}</span></span>
       </div>
-      <div v-if="algoExpanded" class="review-2col">
-        <div class="dev-card">
-          <div class="dev-title">📐 日内8维</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>D1涨停</b>(0-20) <b>D2跌停</b>(0-15) <b>D3涨跌比</b>(0-15) <b>D4动量</b>(-5~10)<br><b>D5炸板率</b>(0-10) <b>D6连板</b>(0-10) <b>D7昨溢价</b>(0-5) <b>D8今溢价</b>(0-5)<br>≥70🔥 | ≥55⚡ | ≥40🌀 | &lt;40🥶</div>
-        </div>
-        <div class="dev-card">
-          <div class="dev-title">📊 数据源</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>盘中</b> Scanner 8维公式 5min采样 | <b>炸板</b> limit_list.open_times<br><b>历史</b> sentiment_scores(5维) + sentiment_live_log(8维)</div>
-        </div>
+      <div v-if="algoExpanded" class="dev-card" style="margin-top:2px">
+        <div class="dev-title">📐 日内8维</div>
+        <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>D1涨停</b>(0-20) <b>D2跌停</b>(0-15) <b>D3涨跌比</b>(0-15) <b>D4动量</b>(-5~10) <b>D5炸板率</b>(0-10) <b>D6连板</b>(0-10) <b>D7昨溢价</b>(0-5) <b>D8今溢价</b>(0-5)<br>≥70🔥 | ≥55⚡ | ≥40🌀 | &lt;40🥶</div>
+      </div>
+      <div v-if="algoExpanded" class="dev-card" style="margin-top:2px">
+        <div class="dev-title">📊 数据源</div>
+        <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>盘中</b> Scanner 8维公式 5min采样 | <b>炸板</b> limit_list.open_times<br><b>历史</b> sentiment_scores(5维) + sentiment_live_log(8维)</div>
       </div>
     </div>
   </div>
