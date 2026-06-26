@@ -285,14 +285,14 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 .review-tab:hover { background: var(--bg-hover); }
 .review-tab.active { background: var(--el-color-primary); color: var(--text-inverse); border-color: var(--el-color-primary); }
 
-.review-section { padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
-.section-title { font-size: 13px; font-weight: 800; line-height: 1.4; padding: 1px 6px; border-left: 3px solid var(--el-color-primary); white-space: nowrap; flex-shrink: 0; min-width: 96px; }
+.review-section { padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; overflow: visible; }
+.section-title { font-size: 13px; font-weight: 800; line-height: 1.4; padding: 1px 6px; border-left: 3px solid var(--el-color-primary); white-space: nowrap; flex-shrink: 0; }
 .title-red { border-left-color: #e6363a; color: #e6363a; }
 .title-orange { border-left-color: #e6a23c; color: #e6a23c; }
 .title-blue { border-left-color: #409eff; color: #409eff; }
 .title-purple { border-left-color: #9b59b6; color: #9b59b6; }
 .title-cyan { border-left-color: #36cfc9; color: #36cfc9; }
-.section-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+.section-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.6; flex-basis: calc(100% - 110px); flex-shrink: 1; overflow: visible; }
 .section-detail b { font-weight: 600; color: var(--text-primary); font-size: 12px; margin: 0 1px; }
 
 .hero-banner { padding: 4px 8px; border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
