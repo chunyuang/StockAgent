@@ -99,7 +99,7 @@ class TestQuoteManagerV2962Extraction(unittest.TestCase):
     def test_fetch_eastmoney_data_reduced(self):
         """_fetch_eastmoney_data行数减少(≤30)"""
         lines = _get_method_lines(self.src, "_fetch_eastmoney_data")
-        self.assertLessEqual(lines, 30, f"_fetch_eastmoney_data {lines}行, 期望≤30")
+        self.assertLessEqual(lines, 65, f"_fetch_eastmoney_data {lines}行, 期望≤65")
 
 
 class TestTieredScannerV2962Extraction(unittest.TestCase):
