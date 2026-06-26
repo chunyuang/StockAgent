@@ -640,7 +640,7 @@ class RuntimePersistence:
 
         doc = {
             "timestamp": datetime.now().isoformat(),
-            "date": trade_date,
+            "trade_date": int(trade_date) if str(trade_date).isdigit() else trade_date,
             "total_assets": acct.total_assets,
             "available_cash": acct.available_cash,
             "market_value": acct.market_value,
@@ -850,6 +850,13 @@ class RuntimePersistence:
             await self.save_timeline()
         except Exception as _e:
             logger.warning(f"[SCANNER] 停止时Timeline保存失败: {_e}")
+
+        # 【v2.9.106】保存绩效快照(兜底，防止收盘事件未触发)
+        try:
+            trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
+            await self.save_performance_snapshot(trade_date)
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 停止时绩效快照保存失败: {_e}")
 
         # 保存pending_sells状态到MongoDB(防止重启丢失)
         try:
@@ -1243,7 +1250,7 @@ class RuntimePersistence:
             logger.warning(f"[SCANNER] 盘后数据同步失败: {_e}")
 
     async def persist_scan_result(self) -> None:
-        """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""
+        """扫描结果持久化: broker状态+时间线+运行时快照+定期绩效快照【v2.9.41:从scanner._persist_scan_result提取】"""
         _tm = self._scanner._trade_mode if hasattr(self._scanner, '_trade_mode') else ''
         is_virtual = _tm in ('replay', 'dry_run')
         try:
@@ -1252,6 +1259,14 @@ class RuntimePersistence:
                 logger.info(f"[SCAN] save_state={saved} positions={len(self.broker.positions)} orders={len(self.broker.orders)}")
             await self._scanner._save_timeline()
             await self._scanner._save_runtime_snapshot(force=False)
+            # 【v2.9.106】每10轮保存绩效快照
+            scan_count = getattr(self._scanner, '_scan_count', 0)
+            if scan_count > 0 and scan_count % 10 == 0:
+                try:
+                    trade_date = self._scanner._trade_date or datetime.now().strftime("%Y%m%d")
+                    await self.save_performance_snapshot(trade_date)
+                except Exception as _e:
+                    logger.debug(f"[SCAN] 绩效快照保存失败: {_e}")
         except Exception as _e:
             logger.warning(f"[SCAN] save_state失败: {_e}")
 
