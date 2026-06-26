@@ -146,5 +146,6 @@ if scanner._scan_count % 10 == 0:  # 每10轮保存一次绩效快照
 | ✅ 已完成 | P0: performance_snapshots 兜底调用 | v2.9.106 | ✅ |
 | ✅ 已完成 | P1: risk_decisions 审计 trail + API端点 | v2.9.106 | ✅ |
 | ✅ 已完成 | runtime_snapshot trade_date 统一 int | v2.9.106 | ✅ |
-| 🔲 P2 | quote_snapshots + funnel 聚合 | 后续迭代 | 待定 |
-| 🔲 补充 | 所有集合 trade_date 类型迁移脚本(cron化) | 后续 | 待定 |
+| ✅ 已完成 | P2: funnel-timeseries API + quote-snapshots API | v2.9.106 | ✅ |
+| ✅ 已完成 | trade_date 类型守卫脚本 | v2.9.106 | ✅ |
+| 🔲 补充 | trade_date 类型守卫脚本 cron化 (每日07:00) | 后续 | 待定 |
