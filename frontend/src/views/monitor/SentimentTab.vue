@@ -27,8 +27,10 @@ const {
 
 // 折叠状态
 const chartExpanded = ref(true)
+const statusExpanded = ref(true)
 const logExpanded = ref(false)
 const guideExpanded = ref(false)
+const downgradeExpanded = ref(false)
 const matrixExpanded = ref(false)
 const algoExpanded = ref(false)
 
@@ -88,7 +90,7 @@ function periodColor(p: string): string { return { rising:'#f56c6c', differentia
 function heroClass(s: number): string { return s >= 70 ? 'hot' : s >= 55 ? 'warm' : s >= 40 ? 'neutral' : 'cold' }
 
 let liveLogTimer: number | undefined
-onMounted(() => { fetchLiveLogs(); liveLogTimer = window.setInterval(fetchLiveLogs, 15000) })
+onMounted(() => { fetchSentimentData(); fetchLiveLogs(); liveLogTimer = window.setInterval(fetchLiveLogs, 15000) })
 onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 </script>
 
@@ -139,7 +141,11 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         <div v-if="chartExpanded&&!isIntradayFallback&&displayTimeline.length" class="chart-wrap">
           <VChart :option="intradayChartOption" autoresize style="height:240px;width:100%" />
         </div>
-        <div v-if="sentimentLive" class="review-2col">
+        <div class="review-section">
+          <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 + 🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
+          <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b></span>
+        </div>
+        <div v-if="statusExpanded&&sentimentLive" class="review-2col">
           <div class="dev-card">
             <div class="dev-title">🌡 当前状态</div>
             <div class="dev-row"><span>情绪分</span><span :style="{color:scoreColor(sentimentLive.score||0),fontWeight:700}">{{ (sentimentLive.score||0).toFixed(0) }}</span></div>
@@ -205,8 +211,10 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
           </div>
         </div>
         <div v-if="downgradeRules?.length" class="review-section">
-          <span class="section-title title-orange">⚠️ 降级规则</span>
-          <span class="section-detail"><template v-for="r in downgradeRules" :key="r.from+r.to"><span :style="{color:phaseColors[r.from]}">{{ r.from }}</span>→<span :style="{color:phaseColors[r.to]}">{{ r.to }}</span> {{ r.action }} <span style="color:var(--text-tertiary);margin-right:8px">{{ r.desc }}</span></template></span>
+          <span class="section-title title-orange" style="cursor:pointer" @click="downgradeExpanded=!downgradeExpanded">⚠️ 降级规则 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ downgradeExpanded?'▼':'▶' }} {{ downgradeRules.length }}条</span></span>
+        </div>
+        <div v-if="downgradeExpanded&&downgradeRules?.length" class="dg-list">
+          <div v-for="r in downgradeRules" :key="r.from+r.to" class="dg-row"><span class="dg-from" :style="{color:phaseColors[r.from]}">{{ r.from }}</span><span class="dg-arrow">→</span><span class="dg-to" :style="{color:phaseColors[r.to]}">{{ r.to }}</span><span class="dg-action">{{ r.action }}</span><span class="dg-desc">{{ r.desc }}</span></div>
         </div>
         <div v-if="sentimentMatrix&&Object.keys(sentimentMatrix).length" class="review-section">
           <span class="section-title title-red" style="cursor:pointer" @click="matrixExpanded=!matrixExpanded">📋 策略×情绪 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ matrixExpanded?'▼':'▶' }} {{ Object.keys(sentimentMatrix).length }}策略</span></span>
@@ -361,5 +369,12 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
+
+.dg-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 2px; }
+.dg-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; }
+.dg-from, .dg-to { font-weight: 700; min-width: 28px; }
+.dg-arrow { color: var(--text-quaternary); }
+.dg-action { color: var(--el-color-warning); font-weight: 600; min-width: 60px; }
+.dg-desc { color: var(--text-tertiary); }
 
 </style>
