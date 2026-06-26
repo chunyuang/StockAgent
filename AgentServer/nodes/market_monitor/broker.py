@@ -543,12 +543,12 @@ class SimulatedBroker:
             self._suspended.discard(ts_code)
         
         # 自动检测停牌: pre_close>0但price=0 → 停牌
-        if pre_close and pre_close > 0 and price <= 0:
+        if pre_close and pre_close > 0 and price is not None and price <= 0:
             self._suspended.add(ts_code)
             logger.debug(f"[BROKER] {ts_code} 疑似停牌(price=0, pre_close={pre_close})")
 
         # 更新持仓价格
-        if ts_code in self.positions:
+        if ts_code in self.positions and price is not None and price > 0:
             pos = self.positions[ts_code]
             pos.current_price = price
             if pos.avg_cost > 0:

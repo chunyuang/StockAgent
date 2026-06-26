@@ -40,6 +40,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
     """东方财富实时行情适配器 — 全市场快照, 无限流"""
 
     BASE_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+    DELAY_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"  # v2.9.105: push2不可用时的延迟接口(15s延迟, 有量比)
 
     # 全市场字段: 价格+涨跌+换手+量比+PE+PB+市值
     FIELDS = "f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23"
@@ -80,7 +81,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
         """初始化: 创建HTTP session"""
         if self._session is None:
             self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=5, connect=3),
                 headers={
                     "Accept": "application/json",
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -138,7 +139,31 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
         return {}
 
     async def _fetch_eastmoney_push2(self) -> Dict[str, Dict]:
-        """东方财富push2: 全市场5400只, 约3秒"""
+        """东方财富push2: 全市场5400只, 约3秒
+        
+        v2.9.105: push2不可用时回退到push2delay(延迟15s, 但含量比)
+        """
+        # 先试 push2 实时接口
+        try:
+            data = await self._fetch_from_url(self.BASE_URL)
+            if data:
+                return data
+        except Exception as e:
+            logger.debug(f"[EASTMONEY] push2失败({e}), 尝试push2delay...")
+        
+        # push2 失败 → 试 push2delay (延迟接口, 有量比)
+        try:
+            data = await self._fetch_from_url(self.DELAY_URL)
+            if data:
+                logger.info(f"[EASTMONEY] push2delay回退: {len(data)}只(延迟15s, 含量比)")
+                return data
+        except Exception as e:
+            logger.debug(f"[EASTMONEY] push2delay也失败({e})")
+        
+        raise ConnectionError("push2和push2delay均不可用")
+
+    async def _fetch_from_url(self, url: str) -> Dict[str, Dict]:
+        """从指定URL拉取全市场行情"""
         all_data = {}
         for pn in range(1, 60):
             params = {
@@ -147,7 +172,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
                 "fs": self.FS,
                 "fields": self.FIELDS,
             }
-            async with self._session.get(self.BASE_URL, params=params) as resp:
+            async with self._session.get(url, params=params) as resp:
                 if resp.status != 200:
                     raise ConnectionError(f"HTTP {resp.status}")
                 d = await resp.json()
@@ -158,7 +183,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
                     ts_code = self._code_to_tscode(item.get("f12", ""))
                     if ts_code:
                         all_data[ts_code] = self._parse_em_item(item)
-            await asyncio.sleep(0.05)  # 礼貌性延迟
+            await asyncio.sleep(0.05)
 
         if all_data:
             self._total_stocks = len(all_data)
@@ -167,7 +192,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
             self._last_fetch_time = time.time()
             self._fetch_count += 1
             return all_data
-        raise ConnectionError("push2返回空数据")
+        raise ConnectionError(f"{url}返回空数据")
 
     async def _fetch_tencent_batch(self) -> Dict[str, Dict]:
         """腾讯行情: 分批拉取(每批最多800只), 回退方案

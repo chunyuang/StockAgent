@@ -2,18 +2,20 @@
 QuoteManager — 行情数据管理器
 
 从MarketScanner拆分出来, 职责:
-1. 双数据源初始化(东方财富+必盈)
+1. 三数据源初始化(东方财富+新浪+必盈)
 2. 全市场实时行情获取
-3. 降级+自动恢复(3次失败→降级,成功→恢复)
+3. 降级+自动恢复(东财失败→新浪→MongoDB日线)
 4. 缓存管理(_realtime_cache/_prev_realtime_cache)
+5. 行情告警通知(降级/陈旧时通知用户)
 
 数据源分工:
 - 东方财富(免费无限): 全市场5400只的price/pct_chg/volume_ratio/turnover_rate/PE/PB
   → 半路追涨选股 + 持仓止损价格
+- 新浪财经(免费无限): 全市场快照(无量比, 从MongoDB补) — 东财不可用时回退
 - 必盈(200次/天): 涨停池/跌停池/炸板池(封板资金/连板/炸板次数)
   → 首板打板 + 跌停翘板 + 龙头低吸
 
-单次消耗: 东方财富0次(全市场缓存) + 必盈3次(3个池)
+单次消耗: 东方财富0次(全市场缓存) + 新浪0次 + 必盈3次(3个池)
 """
 
 import asyncio
@@ -135,11 +137,17 @@ class QuoteManager:
             from src.data_sources.biying_adapter import BiyingAdapter
             from src.data_sources.eastmoney_adapter import EastmoneyAdapter
 
+            from src.data_sources.sina_adapter import SinaAdapter
+
             router = DataSourceRouter()
 
-            # 东方财富: 免费, 无限流, 全市场快照
+            # 东方财富: 免费, 无限流, 全市场快照(主力)
             eastmoney = EastmoneyAdapter()
             router.register("eastmoney", eastmoney, priority=5)
+
+            # 新浪财经: 免费, 无限流, 全市场快照(备选实时源)
+            sina = SinaAdapter()
+            router.register("sina", sina, priority=8)
 
             # 必盈: 涨停池/五档
             biying = BiyingAdapter(licence="E53CA0F0-3E85-4736-B22D-8FA41A5DB050")
@@ -153,7 +161,8 @@ class QuoteManager:
 
             self._data_router = router
             em_status = eastmoney.get_status()
-            logger.info(f"[QUOTE] 数据源初始化: 东方财富{em_status['cached_stocks']}只 + 必盈")
+            sina_status = sina.get_status()
+            logger.info(f"[QUOTE] 数据源初始化: 东方财富{em_status['cached_stocks']}只 + 新浪{sina_status['cached_stocks']}只 + 必盈")
             return True
         except Exception as e:
             logger.error(f"[QUOTE] 数据源初始化失败: {e}")
@@ -162,7 +171,8 @@ class QuoteManager:
     async def fetch_realtime_batch(self, force: bool = False) -> Dict[str, Dict]:
         """批量获取实时行情 — 双数据源架构 + 降级链路
 
-        降级链: L0正常(东财实时) → L1东财降级(用缓存) → L2日线缓存(MongoDB)
+        降级链: L0正常(东财实时) → L1东财降级+新浪回退(用缓存) → L2日线缓存(MongoDB)
+        行情降级时通过事件发射器通知前端/飞书
 
         Returns:
             Dict[ts_code, {price, pct_chg, turnover_rate, ...}]
@@ -308,20 +318,64 @@ class QuoteManager:
     async def _fetch_eastmoney_data(
         self, eastmoney: Any, realtime: Dict[str, Dict]
     ) -> None:
-        """【v2.9.57提取, v2.9.62重构】东方财富全市场数据获取 + 降级处理"""
-        if not eastmoney:
-            return
-        try:
-            em_data = await eastmoney.get_all_realtime(force_refresh=True)
-            for ts_code, item in em_data.items():
-                realtime[ts_code] = self._map_em_item_to_realtime(item)
-            logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
-            # 成功 → 重置失败计数, 尝试恢复降级
-            self._quote_fail_count = 0
-            self._last_fetch_time = time.monotonic()
-            self._handle_em_degrade_recovery()
-        except Exception as e:
-            self._handle_em_fetch_failure(e)
+        """【v2.9.57提取, v2.9.62重构, v2.9.105:三源降级】全市场数据获取 + 降级处理
+
+        降级链: 东方财富push2 → 新浪财经 → MongoDB日线
+        """
+        # === 1. 尝试东方财富 ===
+        if eastmoney:
+            try:
+                em_data = await eastmoney.get_all_realtime(force_refresh=True)
+                if em_data:
+                    for ts_code, item in em_data.items():
+                        realtime[ts_code] = self._map_em_item_to_realtime(item)
+                    logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
+                    self._quote_fail_count = 0
+                    self._last_fetch_time = time.monotonic()
+                    self._handle_em_degrade_recovery()
+                    return
+            except Exception as e:
+                self._handle_em_fetch_failure(e)
+
+        # 东方财富失败 → 尝试新浪
+        logger.warning("[QUOTE] 东方财富不可用, 尝试新浪财经...")
+        sina = self._data_router._sources.get("sina") if self._data_router else None
+        if sina:
+            try:
+                sina_data = await sina.get_all_realtime(force_refresh=True)
+                if sina_data:
+                    for ts_code, item in sina_data.items():
+                        realtime[ts_code] = self._map_em_item_to_realtime(item)
+                    logger.info(f"[QUOTE] 新浪财经回退: {len(sina_data)}只")
+                    self._quote_fail_count = 0
+                    self._last_fetch_time = time.monotonic()
+                    # 不恢复降级(东财仍不可用), 但新浪数据可用
+                    self._emit_quote_warning(
+                        "东方财富push2不可用, 已切换到新浪财经",
+                        {"source": "sina_fallback", "stocks": len(sina_data)}
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"[QUOTE] 新浪也失败: {e}")
+
+        # 东财+新浪都失败 → 用缓存或MongoDB
+        if not realtime and self._quote_degrade_level >= 1:
+            logger.warning("[QUOTE] 东财+新浪均不可用, 尝试MongoDB日线")
+            mongo_data = await self._fallback_to_mongo_daily()
+            if mongo_data:
+                realtime.update(mongo_data)
+                self._emit_quote_warning(
+                    "东财+新浪均不可用, 已降级到MongoDB日线数据(策略筛选可能受影响)",
+                    {"source": "mongo_fallback", "stocks": len(mongo_data)}
+                )
+                return
+
+        # 所有源都失败
+        if not realtime:
+            self._emit_quote_warning(
+                "⚠️ 所有行情源不可用! 东方财富+新浪+MongoDB均失败, 策略筛选将产出0候选",
+                {"source": "all_failed"}
+            )
 
     @staticmethod
     def _merge_limit_up_items(items: list, realtime: Dict[str, Dict]) -> int:
@@ -465,6 +519,23 @@ class QuoteManager:
             return f"{short_code}.BJ"
         return f"{short_code}.SZ"
 
+    def _emit_quote_warning(self, message: str, extra: dict = None) -> None:
+        """【v2.9.105】行情告警通知 — 发送事件 + 飞书通知
+
+        行情降级/陈旧时通知用户, 让用户知道策略筛选可能受影响。
+        """
+        import asyncio as _asyncio
+        logger.warning(f"[QUOTE] {message}")
+        if self._event_emitter:
+            try:
+                loop = _asyncio.get_running_loop()
+                payload = {"message": message, "level": "warning"}
+                if extra:
+                    payload.update(extra)
+                loop.create_task(self._event_emitter("quote_warning", payload))
+            except RuntimeError:
+                logger.debug("[QUOTE] 无运行中事件循环, 跳过quote_warning事件")
+
     def get_staleness(self) -> float:
         """行情陈旧度(秒) — 上次成功获取到现在的秒数，超过30秒标记为stale"""
         if self._last_fetch_time == 0:
@@ -472,6 +543,15 @@ class QuoteManager:
         elapsed = time.monotonic() - self._last_fetch_time
         if elapsed > 30 and self._quote_degrade_level == 0:
             logger.warning(f"[QUOTE] 行情数据陈旧: {elapsed:.0f}秒(>30s阈值)")
+            # v2.9.105: 陈旧度>60秒时通知用户
+            if elapsed > 60 and not getattr(self, '_stale_warned', False):
+                self._stale_warned = True
+                self._emit_quote_warning(
+                    f"行情数据陈旧 {elapsed:.0f}秒, 策略筛选可能产出0候选",
+                    {"staleness_s": round(elapsed, 0)}
+                )
+        elif elapsed <= 10:
+            self._stale_warned = False
         return elapsed
     
     def should_try_recover(self) -> bool:
@@ -493,10 +573,9 @@ class QuoteManager:
         return False
     
     async def try_recover(self) -> bool:
-        """【Phase2.2】尝试恢复到更高级别数据源
+        """【Phase2.2, v2.9.105】尝试恢复到更高级别数据源
         
-        降级链: 量脉实时 → 东财实时 → 东财日线缓存
-        恢复链: 日线缓存 → 东财实时 → 量脉实时
+        恢复链: MongoDB日线 → 新浪 → 东财
         
         Returns:
             True=恢复成功, False=恢复失败
@@ -512,19 +591,40 @@ class QuoteManager:
             eastmoney = self._data_router._sources.get("eastmoney")
             if eastmoney:
                 try:
-                    # 尝试获取行情来验证东财是否可用
                     test_data = await eastmoney.get_all_realtime(force_refresh=True)
-                    if test_data and len(test_data) > 100:  # 至少100只=正常
+                    if test_data and len(test_data) > 100:
                         self._quote_degrade_level = 0
                         self._quote_fail_count = 0
                         degrade_duration = time.monotonic() - self._degrade_since
                         logger.info(
-                            f"[QUOTE] 🔄 行情自动恢复成功! "
+                            f"[QUOTE] 🔄 行情自动恢复成功(东方财富)! "
                             f"level {old_level}→0, 降级持续{degrade_duration:.0f}秒"
+                        )
+                        self._emit_quote_warning(
+                            "行情已恢复正常(东方财富)",
+                            {"recovered": True, "source": "eastmoney"}
                         )
                         return True
                 except Exception as e:
-                    logger.debug(f"[QUOTE] 恢复尝试失败(将在5分钟后重试): {e}")
+                    logger.debug(f"[QUOTE] 东财恢复尝试失败(5分钟后重试): {e}")
+            
+            # 东财不行, 试新浪
+            sina = self._data_router._sources.get("sina")
+            if sina:
+                try:
+                    test_data = await sina.get_all_realtime(force_refresh=True)
+                    if test_data and len(test_data) > 100:
+                        # 新浪可用, 降级到 level 1(新浪回退模式)
+                        if self._quote_degrade_level > 1:
+                            self._quote_degrade_level = 1
+                            degrade_duration = time.monotonic() - self._degrade_since
+                            logger.info(
+                                f"[QUOTE] 🔄 行情部分恢复(新浪)! "
+                                f"level {old_level}→1, 降级持续{degrade_duration:.0f}秒"
+                            )
+                        return True
+                except Exception as e:
+                    logger.debug(f"[QUOTE] 新浪恢复尝试失败(5分钟后重试): {e}")
         
         logger.info(f"[QUOTE] 行情恢复失败, 当前level={self._quote_degrade_level}, 5分钟后重试")
         return False
@@ -532,13 +632,20 @@ class QuoteManager:
     def get_status(self) -> Dict[str, Any]:
         """状态(供Scanner.get_status使用)"""
         staleness = self.get_staleness()
+        # v2.9.105: 获取各数据源状态
+        source_details = {}
+        if self._data_router:
+            for name, adapter in self._data_router._sources.items():
+                if hasattr(adapter, 'get_status'):
+                    source_details[name] = adapter.get_status()
         return {
             "degrade_level": self._quote_degrade_level,
             "degrade_desc": self.degrade_desc,
             "cached_stocks": len(self._realtime_cache),
             "data_sources": list(self._data_router._sources.keys()) if self._data_router else [],
+            "source_details": source_details,
             "staleness_seconds": round(staleness, 1),
-            "is_stale": staleness > 30,  # 【v2.9.75】陈旧度>30s标记
+            "is_stale": staleness > 30,
             "degrade_duration_seconds": round(time.monotonic() - self._degrade_since, 1) if self._degrade_since > 0 else 0,
             "next_recover_in_seconds": max(0, round(self._recover_interval - (time.monotonic() - self._last_recover_attempt), 1)) if self._quote_degrade_level > 0 else 0,
         }
