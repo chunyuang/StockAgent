@@ -465,8 +465,15 @@ class SignalManager:
                         f"当前{now.strftime('%H:%M')} "
                         f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
                     )
+                    sig.signal_status = "blocked"
+                    sig.layer_trace = sig.layer_trace or {}
+                    sig.layer_trace["execution"] = {
+                        "mode": "strategy_filter",
+                        "reason": block_reason,
+                    }
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                         name, block_reason, sig)
+                    logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
                     return False, "time_filter"
         
         # A4: 首板打板换手率/市值限制
@@ -475,12 +482,22 @@ class SignalManager:
             min_tr = params.get('min_turnover_rate', 0)
             max_tr = params.get('max_turnover_rate', 999)
             if min_tr > 0 and tr < min_tr:
+                reason = f"过滤·换手{tr:.1f}%<下限{min_tr}% (首板需高换手保证流动性)"
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, f"过滤·换手{tr:.1f}%<下限{min_tr}% (首板需高换手保证流动性)", sig)
+                    name, reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                 return False, "turnover_filter"
             if max_tr < 999 and tr > max_tr:
+                reason = f"过滤·换手{tr:.1f}%>上限{max_tr}% (首板换手过高=接力盘混乱)"
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, f"过滤·换手{tr:.1f}%>上限{max_tr}% (首板换手过高=接力盘混乱)", sig)
+                    name, reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                 return False, "turnover_filter"
             # 市值限制(从实时数据或MongoDB读取)
             min_mcap = params.get('min_circulation_market_cap', 0)
@@ -492,34 +509,49 @@ class SignalManager:
                     circ_mv = getattr(sig, 'circulation_market_cap', 0) or 0
                 if circ_mv > 0:
                     if min_mcap > 0 and circ_mv < min_mcap:
+                        reason = f"流通市值{circ_mv:.0f}亿<{min_mcap}亿"
+                        sig.signal_status = "blocked"
+                        sig.layer_trace = sig.layer_trace or {}
+                        sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                         self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                            name, f"流通市值{circ_mv:.0f}亿<{min_mcap}亿", sig)
+                            name, reason, sig)
+                        logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                         return False, "mcap_filter"
                     if max_mcap < 999999 and circ_mv > max_mcap:
+                        reason = f"流通市值{circ_mv:.0f}亿>{max_mcap}亿"
+                        sig.signal_status = "blocked"
+                        sig.layer_trace = sig.layer_trace or {}
+                        sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                         self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                            name, f"流通市值{circ_mv:.0f}亿>{max_mcap}亿", sig)
+                            name, reason, sig)
+                        logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                         return False, "mcap_filter"
         
         # A6: 龙头低吸回调幅度限制
         if strategy == 'dragon_head':
-            # 从信号reason中提取回调幅度(或使用pct_chg)
             pct = abs(getattr(sig, 'pct_chg', 0) or 0)
-            min_correction = params.get('min_correction_pct', 0) * 100  # 0.05 → 5%
-            max_correction = params.get('max_correction_pct', 1) * 100   # 0.22 → 22%
-            # 简化判断: 用跌幅近似回调幅度(负pct_chg=回调)
+            min_correction = params.get('min_correction_pct', 0) * 100
+            max_correction = params.get('max_correction_pct', 1) * 100
             sig_pct = getattr(sig, 'pct_chg', 0) or 0
-            if sig_pct > 0:
-                # 龙头低吸应该是买跌的，正涨幅说明不是回调
-                pass  # 不过滤，可能是信号逻辑已经筛选
-            elif sig_pct < 0:
+            if sig_pct < 0:
                 correction = abs(sig_pct)
                 if min_correction > 0 and correction < min_correction:
+                    reason = f"回调{correction:.1f}%<{min_correction:.1f}%"
+                    sig.signal_status = "blocked"
+                    sig.layer_trace = sig.layer_trace or {}
+                    sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        name, f"回调{correction:.1f}%<{min_correction:.1f}%", sig)
+                        name, reason, sig)
+                    logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                     return False, "correction_filter"
                 if correction > max_correction:
+                    reason = f"回调{correction:.1f}%>{max_correction:.1f}%"
+                    sig.signal_status = "blocked"
+                    sig.layer_trace = sig.layer_trace or {}
+                    sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        name, f"回调{correction:.1f}%>{max_correction:.1f}%", sig)
+                        name, reason, sig)
+                    logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                     return False, "correction_filter"
         
         # A4(续): 跌停翘板换手率限制
@@ -527,8 +559,13 @@ class SignalManager:
             tr = getattr(sig, 'turnover_rate', 0) or 0
             min_tr = params.get('min_turnover_rate', 0)
             if min_tr > 0 and tr < min_tr:
+                reason = f"换手率{tr:.1f}%<{min_tr}%"
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, f"换手率{tr:.1f}%<{min_tr}%", sig)
+                    name, reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                 return False, "turnover_filter"
         
         # A7: 流动性门槛(与回测GLOBAL_RISK.liquidity_threshold对齐)
@@ -541,8 +578,13 @@ class SignalManager:
             if vol > 0 and sig.price > 0:
                 amount = sig.price * vol / 10000  # 粗估万元
         if liquidity_threshold > 0 and amount > 0 and amount < liquidity_threshold:
+            reason = f"流动性不足(成交额{amount:.0f}万<{liquidity_threshold}万)"
+            sig.signal_status = "blocked"
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                name, f"流动性不足(成交额{amount:.0f}万<{liquidity_threshold}万)", sig)
+                name, reason, sig)
+            logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
             return False, "liquidity_filter"
         
         return True, ""

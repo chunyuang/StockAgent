@@ -308,7 +308,7 @@ class RuntimePersistence:
                     continue
                 doc = dict(item)
                 doc["account_id"] = account_id
-                doc["trade_date"] = today
+                doc["trade_date"] = int(today) if today.isdigit() else today
                 docs.append(doc)
             
             if ghosts_skipped > 0:
@@ -319,8 +319,9 @@ class RuntimePersistence:
             
             # 去重
             existing_keys = set()
+            today_td = int(today) if today.isdigit() else today
             async for doc in mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id, "trade_date": today},
+                {"account_id": account_id, "trade_date": {"$in": [today, today_td]}},
                 {"time": 1, "ts_code": 1, "action": 1, "_id": 0}
             ):
                 existing_keys.add(f"{doc.get('time','')}|{doc.get('ts_code','')}|{doc.get('action','')}")
