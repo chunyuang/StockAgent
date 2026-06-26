@@ -117,6 +117,27 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 【P0-3】最近错误(用于弹窗) */
   const lastError = ref<string>('')
 
+  /** 【v2.9.105】行情数据状态(降级/告警) */
+  const quoteStatus = ref<{
+    level: number          // 0=正常, 1=降级, 2=日线缓存
+    isStale: boolean       // 行情是否陈旧
+    stalenessS: number     // 陈旧秒数
+    degradeDesc: string    // 降级描述
+    dataSources: string[]  // 数据源列表
+    lastWarning: string    // 最近告警消息
+    lastWarningTime: number // 告警时间戳
+    recovered: boolean     // 是否已恢复
+  }>({
+    level: 0,
+    isStale: false,
+    stalenessS: 0,
+    degradeDesc: '正常',
+    dataSources: [],
+    lastWarning: '',
+    lastWarningTime: 0,
+    recovered: true,
+  })
+
   // ==================== 数据新鲜度 ====================
 
   /** 最后WS更新时间 */
@@ -225,6 +246,32 @@ export const useScannerStore = defineStore('scanner', () => {
         // 【P0-3】记录状态和错误
         status.value = data
         if (data.event === 'scanner_error') lastError.value = data.error || '未知错误'
+        // 【v2.9.105】行情降级/告警/恢复事件
+        if (data.event === 'quote_degraded') {
+          quoteStatus.value = {
+            ...quoteStatus.value,
+            level: data.level ?? 1,
+            degradeDesc: data.message || `L${data.level}降级`,
+            lastWarning: data.message || `行情降级 L${data.level}`,
+            lastWarningTime: Date.now(),
+            recovered: false,
+          }
+        } else if (data.event === 'quote_warning') {
+          quoteStatus.value = {
+            ...quoteStatus.value,
+            lastWarning: data.message || '行情异常',
+            lastWarningTime: Date.now(),
+            recovered: false,
+          }
+        } else if (data.event === 'quote_recovered') {
+          quoteStatus.value = {
+            ...quoteStatus.value,
+            level: 0,
+            degradeDesc: '正常',
+            lastWarning: '',
+            recovered: true,
+          }
+        }
         break
     }
 
@@ -252,6 +299,19 @@ export const useScannerStore = defineStore('scanner', () => {
         if (Array.isArray(s.positions)) positions.value = s.positions
         // signals同理: 只接受数组
         if (Array.isArray(s.signals)) signals.value = s.signals
+        // 【v2.9.105】行情状态
+        if (s.quote) {
+          quoteStatus.value = {
+            level: s.quote.degrade_level ?? 0,
+            isStale: s.quote.is_stale ?? false,
+            stalenessS: s.quote.staleness_seconds ?? 0,
+            degradeDesc: s.quote.degrade_desc ?? '正常',
+            dataSources: s.quote.data_sources ?? [],
+            lastWarning: quoteStatus.value.lastWarning,
+            lastWarningTime: quoteStatus.value.lastWarningTime,
+            recovered: (s.quote.degrade_level ?? 0) === 0,
+          }
+        }
       }
 
       if (healthRes.status === 'fulfilled' && healthRes.value?.success) {
@@ -342,6 +402,10 @@ export const useScannerStore = defineStore('scanner', () => {
     isWsConnected,
     status,
     lastError,
+    quoteStatus,
+
+    // 【v2.9.105】行情状态
+    quoteStatus,
 
     // 数据新鲜度
     dataFreshness,

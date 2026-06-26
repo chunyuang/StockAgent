@@ -10,6 +10,7 @@ import { provide, defineAsyncComponent, ref, computed } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { useViewHelpers } from './useViewHelpers'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
+import { useScannerStore } from '@/stores/scanner'
 import { useThemeStore } from '@/stores/theme'
 // 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
@@ -34,6 +35,8 @@ provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
 
 // 确保themeStore独立初始化(避免composable返回undefined的问题)
 const themeStore = monitorData.themeStore || useThemeStore()
+const scannerStore = useScannerStore()
+const quoteStatus = scannerStore.quoteStatus
 
 // 在模板中使用的变量仍需解构(vue-tsc要求) — 必须从同一个实例解构
 const {
@@ -122,7 +125,13 @@ const {
         <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
         <div v-if="status?.data_sources?.length" class="ds-indicator">
-          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
+          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name === 'sina' ? '新浪' : ds.name }}</span>
+        </div>
+        <!-- 【v2.9.105】行情状态告警 -->
+        <div v-if="quoteStatus.level > 0 || quoteStatus.lastWarning" class="quote-alert" :class="{ danger: quoteStatus.level >= 2, warning: quoteStatus.level === 1 && !quoteStatus.lastWarning, stale: quoteStatus.isStale }">
+          <span class="qa-icon">{{ quoteStatus.level >= 2 ? '🔴' : '🟡' }}</span>
+          <span class="qa-text">{{ quoteStatus.lastWarning || quoteStatus.degradeDesc }}</span>
+          <span v-if="quoteStatus.stalenessS > 30" class="qa-stale">({{ Math.round(quoteStatus.stalenessS) }}s前)</span>
         </div>
         <!-- 【v2.9.71: WS连接状态指示器】 -->
         <div class="ws-indicator" :class="wsIsConnected ? 'ws-ok' : wsStatus === 'reconnecting' ? 'ws-warn' : 'ws-off'" :title="`WebSocket: ${wsStatus}${wsRetryCount > 0 ? ' (重试' + wsRetryCount + ')' : ''}`">
@@ -662,6 +671,14 @@ const {
 .ds-dot.ok { color: var(--stock-down); background: var(--stock-down-bg); }
 
 .ds-dot.err { color: var(--stock-up); background: var(--stock-up-bg); }
+/* 【v2.9.105】行情状态告警 */
+.quote-alert { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; animation: pulse 2s infinite; }
+.quote-alert.warning { color: #e6a700; background: rgba(230, 167, 0, 0.1); border: 1px solid rgba(230, 167, 0, 0.3); }
+.quote-alert.danger { color: #ff4d4f; background: rgba(255, 77, 79, 0.1); border: 1px solid rgba(255, 77, 79, 0.3); }
+.quote-alert.stale { color: #faad14; background: rgba(250, 173, 20, 0.1); }
+.qa-icon { font-size: 12px; }
+.qa-text { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-stale { font-size: 10px; opacity: 0.7; }
 
 .ws-indicator { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: 10px; font-weight: 600; cursor: help; padding: 1px 5px; border-radius: 3px; }
 

@@ -46,9 +46,11 @@ def register_subscribers(scanner) -> None:
     # 4. 扫描完成 → 健康指标更新
     bus.on("scan_completed", _make_scan_completed_handler(scanner))
     
-    # 5. 行情降级/恢复 → 健康指标更新 + Redis推送
+    # 5. 行情降级/恢复/告警 → 健康指标更新 + Redis推送 + 飞书通知
     bus.on("quote_degraded", _make_quote_degraded_handler(scanner))
     bus.on("quote_recovered", _make_quote_recovered_handler(scanner))
+    bus.on("quote_warning", _make_quote_warning_handler(scanner))
+    bus.on("quote_warning", _make_quote_warning_handler(scanner))
     
     # 6. 参数更新 → 审计日志(已有StrategyParamCenter._write_param_audit_log,
     #    这里补充EventBus侧的冗余记录,防止直接调用scanner方法时遗漏)
@@ -265,16 +267,30 @@ def _make_scan_completed_handler(scanner) -> Callable:
 def _make_quote_degraded_handler(scanner) -> Callable:
     """行情降级事件handler"""
     async def on_quote_degraded(data: Dict[str, Any]) -> None:
-        """行情降级事件: 推送Redis降级警告"""
+        """行情降级事件: 推送Redis降级警告 + 飞书通知"""
+        level = data.get('level', 1)
+        source = data.get('source', '')
+        error = data.get('error', '')
         # Redis推送(前端应显示降级警告)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "quote_degraded",
-            "level": data.get("level", 1),
-            "source": data.get("source", ""),
+            "level": level,
+            "source": source,
+            "message": data.get("message", ""),
         })
-        logger.warning(
-            f"[QUOTE] 行情降级: level={data.get('level')} source={data.get('source')}"
-        )
+        logger.warning(f"[QUOTE] 行情降级: level={level} source={source} error={error}")
+        # 飞书通知
+        try:
+            from core.managers.push_service import PushService
+            push = PushService()
+            level_desc = ["正常", "东财降级(用缓存)", "日线缓存"][min(level, 2)]
+            await push.push_risk_alert(
+                "行情数据降级",
+                f"**降级等级**: L{level} ({level_desc})\n**数据源**: {source}\n**错误**: {error}\n**影响**: 策略筛选可能产出0候选，实盘无法产生交易信号",
+                level="danger" if level >= 2 else "warning"
+            )
+        except Exception as e:
+            logger.debug(f"[QUOTE] 飞书通知失败: {e}")
     on_quote_degraded.__name__ = "on_quote_degraded"
     return on_quote_degraded
 
@@ -293,6 +309,40 @@ def _make_quote_recovered_handler(scanner) -> Callable:
         )
     on_quote_recovered.__name__ = "on_quote_recovered"
     return on_quote_recovered
+
+
+def _make_quote_warning_handler(scanner) -> Callable:
+    """【v2.9.105】行情告警事件handler — 行情陈旧/源切换等警告"""
+    async def on_quote_warning(data: Dict[str, Any]) -> None:
+        """行情告警事件: 推送Redis + 飞书通知"""
+        message = data.get("message", "行情异常")
+        source = data.get("source", "")
+        # Redis推送(前端显示告警)
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "quote_warning",
+            "message": message,
+            "source": source,
+            "level": data.get("level", "warning"),
+        })
+        logger.warning(f"[QUOTE] 行情告警: {message} (source={source})")
+        # 飞书通知(告警级别的行情警告)
+        try:
+            from core.managers.push_service import PushService
+            push = PushService()
+            extra_info = ""
+            if "staleness_s" in data:
+                extra_info = f"\n**陈旧度**: {data['staleness_s']:.0f}秒"
+            elif "stocks" in data:
+                extra_info = f"\n**股票数**: {data['stocks']}只"
+            await push.push_risk_alert(
+                "行情数据告警",
+                f"**告警内容**: {message}\n**当前数据源**: {source}{extra_info}\n**影响**: 策略筛选可能受影响，实盘可能无法产生交易信号",
+                level="warning"
+            )
+        except Exception as e:
+            logger.debug(f"[QUOTE] 飞书通知失败: {e}")
+    on_quote_warning.__name__ = "on_quote_warning"
+    return on_quote_warning
 
 
 def _make_param_updated_handler(scanner) -> Callable:
