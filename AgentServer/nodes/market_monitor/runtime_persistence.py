@@ -122,6 +122,22 @@ class RuntimePersistence:
                 if "pending_sells" in doc:
                     scanner._pending_sells = doc["pending_sells"]
                     logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
+                # 【v2.9.106】恢复风控状态
+                if "cooldown_info" in doc:
+                    scanner._cooldown_info = doc["cooldown_info"]
+                    if scanner._cooldown_info:
+                        logger.info(f"[SNAPSHOT] 恢复冷却期: {scanner._cooldown_info}")
+                if "force_empty_cooldown_until" in doc:
+                    scanner._force_empty_cooldown_until = doc["force_empty_cooldown_until"]
+                    if scanner._force_empty_cooldown_until:
+                        logger.info(f"[SNAPSHOT] 恢复强制空仓冷却: 截至{scanner._force_empty_cooldown_until}")
+                if "position_risk_overrides" in doc:
+                    scanner._position_risk_overrides = doc["position_risk_overrides"]
+                    if scanner._position_risk_overrides:
+                        logger.info(f"[SNAPSHOT] 恢复风控覆盖: {len(scanner._position_risk_overrides)}只")
+                if "premarket_force_empty_state" in doc:
+                    scanner._premarket_force_empty_state = doc["premarket_force_empty_state"]
+                    logger.info(f"[SNAPSHOT] 恢复竞价空仓状态: 确认{scanner._premarket_force_empty_state.get('confirm_count', 0)}次")
         
         # 恢复风控状态(跨日也恢复,不恢复trading_paused)
         if "circuit_breaker" in doc:
@@ -184,6 +200,14 @@ class RuntimePersistence:
         td = scanner._trade_date or datetime.now().strftime("%Y%m%d")
         doc["trade_date"] = int(td) if str(td).isdigit() else td
         doc["quote_degrade_level"] = scanner._quote_degrade_level
+        # 【v2.9.106】风控状态持久化(重启不丢)
+        with scanner._state_lock:
+            doc["cooldown_info"] = dict(scanner._cooldown_info) if hasattr(scanner, '_cooldown_info') else {}
+            doc["force_empty_cooldown_until"] = getattr(scanner, '_force_empty_cooldown_until', '')
+            doc["position_risk_overrides"] = dict(getattr(scanner, '_position_risk_overrides', {}))
+        # 竞价空仓确认状态(盘前关键)
+        if hasattr(scanner, '_premarket_force_empty_state'):
+            doc["premarket_force_empty_state"] = dict(scanner._premarket_force_empty_state)
         return doc
 
     async def _save_snapshot_mongo(self, scanner, doc: Dict, now: float) -> bool:
