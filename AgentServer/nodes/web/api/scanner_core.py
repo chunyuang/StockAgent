@@ -1623,16 +1623,17 @@ async def get_position_risk_matrix():
             d4_turnover = max(0, 10 - turnover * 2) if turnover > 0 else 5
             # D5: 波动率 (0-10分)
             d5_vol = min(abs(pos.profit_pct) * 0.8, 10)
+            # 【v2.9.105】追踪止损 trail 必须在 d6_trail 使用前赋值【修复NameError】
+            trail = trailing_stops.get(pos.ts_code, {})
             # D6: 追踪止损激活 (0-5分)
             d6_trail = 5 if trail.get('activated') else 0
             # D7: 行业集中度 (0-5分) — 同行业持仓过多
             d7_industry = min(industry_exp.get(industry, 0) / max(total_mv, 1) * 100 / 2, 5) if industry else 0
-            # D8: 新仓风险 (0-5分) — today_buy=1表示今天买入
-            d8_new = 5 if pos.today_buy else 0
+            # D8: 新仓风险 (0-5分) — today_buy_qty>0表示今天买入【v2.9.105修复AttributeError】
+            d8_new = 5 if getattr(pos, 'today_buy_qty', 0) > 0 else 0
             # D9: 连亏 (0-5分)
             d9_streak = min(max(0, -pos.profit_pct) * 0.5, 5) if pos.profit_pct < 0 else 0
             risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak, 100)
-            trail = trailing_stops.get(pos.ts_code, {})
 
             matrix.append({
                 "ts_code": pos.ts_code, "stock_name": pos.stock_name or getattr(scanner, '_stock_name_map', {}).get(pos.ts_code, ""),
