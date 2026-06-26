@@ -134,6 +134,7 @@ class SimulatedBroker:
         self._sync_mongo_client = None  # 【v2.9.97f】同步MongoDB客户端(用于关键写入,不依赖事件循环)
         self._sync_mongo_db = None      # 同步MongoDB数据库句柄
         self._today_rejected: set = set()  # 【v2.9.95f】当日已拒绝的ts_code去重缓存，避免同一股同日重复下单
+        self._need_reconciliation: bool = False  # 【v2.9.108】load_state后一致性标记，行情首次更新后强制recalc
 
     # ==================== 持久化 ====================
 
@@ -388,7 +389,11 @@ class SimulatedBroker:
                 )
 
     async def load_state(self) -> bool:
-        """从MongoDB恢复状态(断电/重启后)"""
+        """从MongoDB恢复状态(断电/重启后)
+
+        【v2.9.108】恢复后做一致性校验: 如果positions和accounts不同步,
+        以positions为权威重算accounts(防止cash虚高导致超额买入)。
+        """
         if not await self._ensure_mongo():
             return False
 
@@ -402,10 +407,61 @@ class SimulatedBroker:
             # 恢复今日订单
             await self._restore_orders_from_mongo()
 
+            # 【v2.9.108】一致性校验: positions是交易权威, accounts可能被外部重置
+            # 如果有持仓但available_cash=初始值(100万), 说明accounts和positions不同步
+            self._reconcile_after_load()
+
             return True
         except Exception as e:
             logger.error(f"[BROKER] 状态恢复失败: {e}")
             return False
+
+    def _reconcile_after_load(self) -> None:
+        """【v2.9.108】load_state后一致性校验: 以positions为权威重算accounts
+
+        场景: scanner崩溃→手动reset accounts→重启→load_state恢复旧accounts+新positions
+        结果: available_cash=初始值, 但positions占用资金 → 超额买入风险
+        修复: 从positions+orders反推正确的available_cash
+        """
+        if not self.positions:
+            return
+
+        self._recalc_account()
+
+        market_value = self.account.market_value
+        if market_value <= 0:
+            market_value = sum(p.avg_cost * p.total_qty for p in self.positions.values())
+
+        if not self._is_cash_suspicious(market_value):
+            self._need_reconciliation = False
+            return
+
+        self._fix_cash_from_positions(market_value)
+        self._need_reconciliation = True
+
+    def _is_cash_suspicious(self, market_value: float) -> bool:
+        """【v2.9.108】检测cash是否与positions不一致"""
+        if market_value <= 0:
+            return False
+        initial_cash = self.account.total_assets
+        return self.account.available_cash >= (initial_cash * 0.99)
+
+    def _fix_cash_from_positions(self, market_value: float) -> None:
+        """【v2.9.108】以positions为权威修正available_cash"""
+        initial_cash = self.account.total_assets
+        estimated_total = initial_cash + self.account.total_profit
+        estimated_cash = max(estimated_total - market_value, 0)
+
+        old_cash = self.account.available_cash
+        self.account.available_cash = estimated_cash
+        self.account.market_value = market_value
+        self.account.total_assets = estimated_cash + market_value
+
+        logger.warning(
+            f"[BROKER] ⚠️ 账户一致性修复: 现金{old_cash:.0f}→{estimated_cash:.0f} "
+            f"市值{market_value:.0f} 总资产{self.account.total_assets:.0f} "
+            f"(检测到{len(self.positions)}只持仓但现金=初始值)"
+        )
 
     async def _restore_account_from_mongo(self) -> None:
         """【v2.9.57提取】从MongoDB恢复账户"""
@@ -553,6 +609,14 @@ class SimulatedBroker:
             pos.current_price = price
             if pos.avg_cost > 0:
                 pos.profit_pct = (price - pos.avg_cost) / pos.avg_cost * 100
+
+            # 【v2.9.108】reconciliation: 行情首次更新后强制重算accounts
+            # 解决load_state时current_price=0导致market_value=0, cash虚高
+            if self._need_reconciliation:
+                self._recalc_account()
+                self._need_reconciliation = False
+                logger.info(f"[BROKER] 行情更新后一致性校验: 资产{self.account.total_assets:.0f} "
+                           f"现金{self.account.available_cash:.0f} 市值{self.account.market_value:.0f}")
 
     async def refresh_close_prices(self) -> int:
         """【v2.9.92x】收盘后用MongoDB当日收盘价刷新持仓(解决收盘后current_price不更新问题)"""
