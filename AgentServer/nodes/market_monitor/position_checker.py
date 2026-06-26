@@ -674,7 +674,7 @@ class PositionChecker:
     async def _persist_risk_decision(self, pos, reason: str, risk: Dict, source: str, order, trace_id: str) -> None:
         """【v2.9.106】风控决策审计 trail → MongoDB risk_decisions"""
         from core.managers import mongo_manager
-        if not getattr(mongo_manager, 'is_initialized', False) or not mongo_manager.db:
+        if not getattr(mongo_manager, '_initialized', False) or not mongo_manager.db:
             return
         scanner = self._scanner
         trade_date = getattr(scanner, '_trade_date', '') or datetime.now().strftime('%Y%m%d')
