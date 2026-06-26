@@ -181,7 +181,8 @@ class RuntimePersistence:
         doc["stats"] = dict(scanner._stats)
         doc["active_signals_count"] = len(scanner._active_signals)
         doc["dry_run"] = scanner._dry_run
-        doc["trade_date"] = scanner._trade_date
+        td = scanner._trade_date or datetime.now().strftime("%Y%m%d")
+        doc["trade_date"] = int(td) if str(td).isdigit() else td
         doc["quote_degrade_level"] = scanner._quote_degrade_level
         return doc
 
