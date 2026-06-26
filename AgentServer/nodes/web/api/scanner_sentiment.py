@@ -600,35 +600,62 @@ async def get_market_sentiment_detail(date: str = None):
 
 
 @router.get("/sentiment-live-log")
-async def get_sentiment_live_log(limit: int = 50):
-    """【v2.9.96h】盘中情绪实时计算日志
-    
+async def get_sentiment_live_log(limit: int = 50, date: Optional[str] = None):
+    """【v2.9.96h+v2.9.106】盘中情绪实时计算日志
+
     返回 scanner 运行过程中每次情绪计算的快照(时间、得分、周期、净倒仓、涨跌停、连板、涨跌比、溢价、炸板).
     供 SentimentTab 展示“近 N 次计算日志”面板.
-    
-    环形缓冲 maxlen=300 (在 emotion_cycle.py __init__ 中初始化).
-    只记录实时模式(limit_stocks!=None), 避免夜间调用污染.
+
+    【数据源】
+    1. 优先读取进程内存环形缓冲 _compute_log (maxlen=300)
+    2. 内存为空(进程刚重启 / scanner 未运行) -> 回查 MongoDB sentiment_live_log
+    3. 可选 date 参数: YYYYMMDD / YYYY-MM-DD 过滤指定交易日
     """
     scanner = await _get_scanner()
     try:
         # 【v2.9.96h】直接读全局单例 emotion_cycle_manager (不依赖 filter_pipeline)
         from nodes.market_monitor.emotion_cycle import emotion_cycle_manager as emotion
-        if not emotion:
-            return {"success": True, "data": {"logs": [], "count": 0, "reason": "emotion_cycle_not_initialized"}}
-        
-        log = getattr(emotion, '_compute_log', None)
-        if log is None:
-            return {"success": True, "data": {"logs": [], "count": 0, "reason": "no_compute_log"}}
-        
-        # 返回最近 N 条(逆序, 最新在前)
-        items = list(log)
-        items.reverse()
+        items: list = []
+        in_memory = 0
+        source = "memory"
+        if emotion is not None:
+            log = getattr(emotion, '_compute_log', None)
+            if log is not None and len(log) > 0:
+                items = list(log)
+                items.reverse()
+                in_memory = len(items)
+
+        # 【v2.9.106】内存为空 -> 回查 MongoDB
+        if not items:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    query: dict = {}
+                    if date:
+                        try:
+                            td_int = int(str(date).replace('-', ''))
+                            query['trade_date'] = td_int
+                        except Exception:
+                            pass
+                    cursor = mongo_manager.db["sentiment_live_log"].find(
+                        query, {'_id': 0}
+                    ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
+                    items = await cursor.to_list(length=max(1, min(limit, 300)))
+                    # 去除可能的 datetime ts 字段(API 返回 JSON 可序列化)
+                    for it in items:
+                        if 'ts' in it:
+                            it['ts'] = it['ts'].isoformat() if hasattr(it['ts'], 'isoformat') else str(it['ts'])
+                    source = "mongodb"
+            except Exception as _e:
+                logger.warning(f"[sentiment-live-log] mongo fallback failed: {_e}")
+
         items = items[:max(1, min(limit, 300))]
-        
+
         return _sanitize({"success": True, "data": {
             "logs": items,
             "count": len(items),
-            "total_buffer": len(log),
+            "total_buffer": in_memory,
+            "source": source,
         }})
     except Exception as e:
         return {"success": False, "message": str(e)}

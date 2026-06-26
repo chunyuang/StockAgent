@@ -209,6 +209,7 @@ class IntradaySentimentCalculator:
         )
         
         # 【v2.9.96h】记录盘中实时计算到全局 _compute_log供前端读取
+        # 【v2.9.106】同时持久化到 MongoDB sentiment_live_log 集合
         try:
             from datetime import datetime
             from .emotion_cycle import emotion_cycle_manager
@@ -221,8 +222,9 @@ class IntradaySentimentCalculator:
             d5 = max(0, 10 - broken_rate_calc / 5)  # 炸板率 10分
             d6 = min(15, max_continue * 1.5)    # 连板高度 15分
             d7 = min(15, max(0, today_premium * 3))  # 当日溢价 15分
-            emotion_cycle_manager._compute_log.append({
-                'time': datetime.now().strftime('%H:%M:%S'),
+            now = datetime.now()
+            entry = {
+                'time': now.strftime('%H:%M:%S'),
                 'trade_date': trade_date,
                 'score': round(score, 1),
                 'phase': period_en,
@@ -246,7 +248,14 @@ class IntradaySentimentCalculator:
                     'max_continue_score': round(d6, 1),
                     'zt_premium_score': round(d7, 1),
                 },
-            })
+            }
+            emotion_cycle_manager._compute_log.append(entry)
+            # 【v2.9.106】同步持久化 (fire-and-forget, 不阻塞主流程)
+            try:
+                import asyncio as _asyncio
+                _asyncio.create_task(_persist_live_log_entry(entry, now))
+            except Exception as _pe:
+                logger.debug(f"[GUARD] intraday_sentiment persist: {_pe}")
         except Exception as _e:
             logger.debug(f"[GUARD] intraday_sentiment: {_e}")
         
@@ -413,3 +422,58 @@ class IntradaySentimentCalculator:
 
 # 全局单例 — 在scanner进程内复用, 保持_prev_up_down_ratio状态
 intraday_calculator = IntradaySentimentCalculator()
+
+
+# 【v2.9.106】sentiment_live_log 持久化状态 — 避免重复创建索引
+_LIVE_LOG_INDEX_CREATED = False
+
+
+async def _ensure_live_log_indexes() -> None:
+    """创建 sentiment_live_log 集合的索引 — 进程内只跑一次"""
+    global _LIVE_LOG_INDEX_CREATED
+    if _LIVE_LOG_INDEX_CREATED:
+        return
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return
+        col = mongo_manager.db["sentiment_live_log"]
+        # 按 trade_date 倒序 / scan_time 倒序 联合索引，主查询“今日最近 N 条”
+        await col.create_index([("trade_date", -1), ("ts", -1)], background=True)
+        # TTL: ts 超过 7 天自动清理 (避免无限增长)
+        await col.create_index("ts", expireAfterSeconds=7 * 24 * 3600, background=True)
+        _LIVE_LOG_INDEX_CREATED = True
+        logger.info("[INTRA-EMO] sentiment_live_log 索引已创建 (TTL=7天)")
+    except Exception as _e:
+        logger.warning(f"[INTRA-EMO] sentiment_live_log 索引创建失败: {_e}")
+
+
+async def _persist_live_log_entry(entry: dict, now=None) -> None:
+    """【v2.9.106】把盘中情绪计算条目写入 sentiment_live_log 集合。
+
+    调用者：intraday_sentiment.calculate 与 emotion_cycle.calculate_daily_emotion。
+    不阻塞主流程，出错只记录 debug 日志。
+    """
+    try:
+        from core.managers import mongo_manager
+        from datetime import datetime as _dt
+        if not mongo_manager.is_initialized:
+            return
+        await _ensure_live_log_indexes()
+        ts = now or _dt.now()
+        # trade_date 统一为 int。入参可能是 '20260626' / 20260626 / '2026-06-26'
+        td = entry.get('trade_date')
+        try:
+            td_int = int(str(td).replace('-', '')) if td is not None else None
+        except Exception:
+            td_int = None
+        doc = dict(entry)
+        if td_int is not None:
+            doc['trade_date'] = td_int
+        doc['scan_time'] = ts.strftime('%Y-%m-%d %H:%M:%S')
+        doc['ts'] = ts
+        # 默认 formula 代表来源 (7dim / 5dim)
+        doc.setdefault('formula', '7dim')
+        await mongo_manager.db["sentiment_live_log"].insert_one(doc)
+    except Exception as _e:
+        logger.debug(f"[GUARD] persist_live_log: {_e}")

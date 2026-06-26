@@ -194,10 +194,12 @@ class EmotionCycleManager:
             'trade_date': trade_date,
         }
         # 【v2.9.96h】只在实时模式(limit_stocks!=None)记录日志, 避免夜审污染
+        # 【v2.9.106】同步持久化到 sentiment_live_log
         if limit_stocks is not None:
             from datetime import datetime
-            self._compute_log.append({
-                'time': datetime.now().strftime('%H:%M:%S'),
+            now = datetime.now()
+            entry = {
+                'time': now.strftime('%H:%M:%S'),
                 'trade_date': trade_date,
                 'score': round(score, 1),
                 'phase': phase.value,
@@ -210,6 +212,7 @@ class EmotionCycleManager:
                 'zt_premium': round(factors.get('zt_premium', 0.0), 2),
                 'broken': factors.get('broken_count', 0),
                 'broken_rate': round(factors.get('broken_rate', 0.0), 1),
+                'formula': '5dim',
                 # 5维拆解
                 'breakdown': {
                     'limit_up_score': min(30, factors.get('limit_up_count', 0)),
@@ -218,7 +221,15 @@ class EmotionCycleManager:
                     'up_down_score': int(factors.get('up_down_ratio', 0.0) * 15),
                     'zt_premium_score': min(15, max(0, int(factors.get('zt_premium', 0.0)))),
                 },
-            })
+            }
+            self._compute_log.append(entry)
+            # 【v2.9.106】持久化
+            try:
+                import asyncio as _asyncio
+                from .intraday_sentiment import _persist_live_log_entry
+                _asyncio.create_task(_persist_live_log_entry(entry, now))
+            except Exception as _pe:
+                logger.debug(f"[GUARD] emotion_cycle persist: {_pe}")
 
         logger.info(f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
             f"涨停={factors['limit_up_count']}, 跌停={factors['limit_down_count']}, "
