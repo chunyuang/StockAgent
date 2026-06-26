@@ -8,12 +8,12 @@
 import { ref, computed } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
+import { getChinaDateInt } from '@/utils/chinaDate'
 
 const scannerApi = '/scanner'
 
 function todayStr(): string {
-  const d = new Date()
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return getChinaDateInt()
 }
 
 // 接收核心状态的接口

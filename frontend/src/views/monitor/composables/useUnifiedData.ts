@@ -14,6 +14,7 @@
  */
 import { ref, computed, watch, type Ref } from 'vue'
 import { api } from '@/api/client'
+import { getChinaDateInt } from '@/utils/chinaDate'
 
 // ----- Types -----
 export interface UnifiedTrade {
@@ -80,8 +81,7 @@ export interface TradeSummary {
 
 // ----- 工具 -----
 function todayStr(): string {
-  const d = new Date()
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return getChinaDateInt()
 }
 
 function parseResponse(r: any): { success: boolean; data: any } {

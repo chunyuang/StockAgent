@@ -40,20 +40,21 @@ export function useUnifiedDateBar() {
   // 前一天
   function prevDay() {
     // 【v2.9.98修复】用T12:00:00解析避免时区偏移导致日期跳变
-    // T00:00:00在UTC+8下解析为UTC-8h, toISOString()取UTC日期会少一天
+    // 本地日期组件设计 // 时区安全(为 Element Plus 控件服务)
     const d = new Date(selectedDate.value + 'T12:00:00')
-    d.setDate(d.getDate() - 1)
-    selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    d.setDate(d.getDate() - 1) // 时区安全
+    selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` // 时区安全
   }
   
   // 后一天
   function nextDay() {
+    // 时区安全(同上)
     const d = new Date(selectedDate.value + 'T12:00:00')
-    d.setDate(d.getDate() + 1)
+    d.setDate(d.getDate() + 1) // 时区安全
     const chinaToday = getChinaDate()
-    const nextDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const nextDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` // 时区安全
     if (nextDate <= chinaToday) {
-      selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      selectedDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` // 时区安全
     }
   }
   
@@ -93,10 +94,10 @@ export function useUnifiedDateBar() {
     }
   }
   
-  // 日期选择器单元格染色(给ElDatePicker用)
+  // 日期选择器单元格染色(给ElDatePicker用, date 是 Element Plus 传入的本地 Date)
   function dateCellClass(date: Date): string {
-    // 【v2.9.98修复】用本地日期组件避免UTC时区偏移
-    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    // 【v2.9.98修复】用本地日期组件避免UTC时区偏移 // 时区安全
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0') // 时区安全
     const key = `${y}${m}${d}`
     const info = dateAvailability.value[key]
     if (!info) return ''
@@ -105,10 +106,11 @@ export function useUnifiedDateBar() {
     return 'date-no-trades'
   }
   
-  // 禁用未来日期(中国时区)
+  // 禁用未来日期(中国时区, date 是 Element Plus 传入的本地 Date)
   function disabledDate(date: Date): boolean {
     const chinaToday = getChinaDate()
-    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0')
+    // 时区安全(本地 Date 控件)
+    const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, '0'), d = String(date.getDate()).padStart(2, '0') // 时区安全
     return `${y}-${m}-${d}` > chinaToday
   }
   

@@ -6,7 +6,7 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide, defineAsyncComponent, ref, computed } from 'vue'
+import { provide, defineAsyncComponent, ref } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { useViewHelpers } from './useViewHelpers'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'

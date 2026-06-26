@@ -404,9 +404,6 @@ export const useScannerStore = defineStore('scanner', () => {
     lastError,
     quoteStatus,
 
-    // 【v2.9.105】行情状态
-    quoteStatus,
-
     // 数据新鲜度
     dataFreshness,
     lastWsUpdate,

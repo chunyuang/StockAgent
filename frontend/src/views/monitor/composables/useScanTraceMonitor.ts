@@ -297,9 +297,10 @@ export function useScanTraceMonitor() {
   const scanTraceCode = computed(() => scanTraceDetail.value?.ts_code || '')
 
   function scanDateCellClass(date: Date) {
+    // ElDatePicker 本地 Date 控件，无需转中国时区 // 时区安全
     const y = date.getFullYear()
-    const m = String(date.getMonth() + 1).padStart(2, '0')
-    const d = String(date.getDate()).padStart(2, '0')
+    const m = String(date.getMonth() + 1).padStart(2, '0') // 时区安全
+    const d = String(date.getDate()).padStart(2, '0') // 时区安全
     const key = `${y}${m}${d}`
     // scan-dates API returns date as string(YYYYMMDD), but guard against int
     const item = scanTraceHasData.value.find((x: any) => String(x.date) === key)

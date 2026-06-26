@@ -16,7 +16,7 @@ export const strategyMeta: Record<string, { color: string; icon: string; cn: str
   system_force: { color: '#909399', icon: '🛡️', cn: '系统强平', desc: '强制空仓/风控平仓' },
 }
 
-export const strategyCN = (s: string | number) => strategyMeta[String(s)]?.cn || s
+export const strategyCN = (s: string | number): string => String(strategyMeta[String(s)]?.cn ?? s)
 export const strategyColor = (s: string) => strategyMeta[s]?.color || '#909399'
 export const strategyIcon = (s: string) => strategyMeta[s]?.icon || '📊'
 

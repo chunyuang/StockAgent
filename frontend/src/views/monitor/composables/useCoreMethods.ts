@@ -11,6 +11,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import { useScannerStore } from '@/stores/scanner'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { getChinaHour, getChinaMinute } from '@/utils/chinaDate'
 import { parseResponse, signalRemaining as _signalRemaining } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
@@ -273,7 +274,7 @@ export function useCoreMethods(refs: CoreRefs) {
       }
     })
     nowTimer = setInterval(() => { refs.nowMs.value = Date.now() }, 1000)
-    const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }
+    const getRefreshInterval = () => { const h = getChinaHour(), m = getChinaMinute(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }
     // 【v2.9.72】修复:WS连接但Redis断开时数据不更新的bug
     // 当wsDataStale=true(WS连接但无scanner数据)时,仍执行轮询作为降级
     refreshTimer = setInterval(() => { if (!refs.autoRefresh.value) return; if (wsHook.isConnected.value && !wsDataStale.value) return; fetchScanner(); fetchHealth() }, getRefreshInterval())

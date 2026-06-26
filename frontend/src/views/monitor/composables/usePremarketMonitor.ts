@@ -8,6 +8,7 @@
 import { ref } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
+import { getChinaDate, getChinaWeekday, getChinaHHMM } from '@/utils/chinaDate'
 
 const scannerApi = '/scanner'
 
@@ -83,12 +84,10 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      const now = new Date()
-      const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-      const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
-      const todayStr = `${y}-${m}-${d}`
+      const todayStr = getChinaDate()
       const isOtherDate = premarketDate.value && premarketDate.value !== todayStr
-      const isWeekend = now.getDay() === 0 || now.getDay() === 6
+      const weekday = getChinaWeekday()
+      const isWeekend = weekday === 0 || weekday === 6
       
       // 决定是否用debug/sim API:
       // 1. 用户手动开了debug → 用
@@ -96,7 +95,7 @@ export function usePremarketMonitor() {
       // 3. 周末/节假日 → 用(没有实时数据)
       // 4. 交易日非竞价时段 → 也用! (scanner没运行时premarket-status返回空数据)
       //    竞价时段(9:00-9:25)且scanner运行中 → 用premarket-status
-      const hhmm = new Date().getHours() * 100 + new Date().getMinutes()
+      const hhmm = getChinaHHMM()
       const isInAuctionWindow = !isWeekend && hhmm >= 900 && hhmm < 925
       const useDebug = premarketDebugMode.value || isOtherDate || isWeekend || !isInAuctionWindow
       
@@ -202,9 +201,8 @@ export function usePremarketMonitor() {
 
   /** 判断当前是否非交易时间(盘前9:00之前、盘后15:30之后、周末) - 暴露给模板使用 */
   function isNonTradingHours(): boolean {
-    const now = new Date()
-    const day = now.getDay()
-    const hhmm = now.getHours() * 100 + now.getMinutes()
+    const day = getChinaWeekday()
+    const hhmm = getChinaHHMM()
     // 周末 或 9:00前 或 15:30后
     return day === 0 || day === 6 || hhmm < 900 || hhmm >= 1530
   }

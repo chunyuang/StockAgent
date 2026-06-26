@@ -56,6 +56,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { api } from '@/api/client'
+import { getChinaDateInt } from '@/utils/chinaDate'
 
 interface DateInfo {
   status: 'trades' | 'no-trades' | 'weekend'
@@ -89,8 +90,7 @@ const currentDate = computed(() => {
 })
 
 function todayStr(): string {
-  const d = new Date()
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return getChinaDateInt()
 }
 
 function ymdToDash(s: string): string {
@@ -173,11 +173,11 @@ function onPickerChange(val: string | null) {
   if (val) setDate(dashToYmd(val))
 }
 
-// 禁用周末和超出范围
+// 禁用周末和超出范围 (d 是 ElDatePicker 本地 Date) // 时区安全
 function isDisabledDate(d: Date): boolean {
-  if (d.getDay() === 0 || d.getDay() === 6) return true
+  if (d.getDay() === 0 || d.getDay() === 6) return true // 时区安全
   // 超出可用范围(60天前/明天后)禁用
-  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}` // 时区安全
   if (!availability.value[ymd] && ymd !== todayStr()) {
     // 不在可用列表中, 但允许选今天
     return true

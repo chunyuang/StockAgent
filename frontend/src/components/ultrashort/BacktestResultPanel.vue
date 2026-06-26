@@ -41,6 +41,7 @@ import {
   ElPagination,
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
+import { getChinaDate } from '@/utils/chinaDate'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
@@ -809,7 +810,7 @@ function exportTrades() {
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
-  link.download = `回测交易记录_${new Date().toISOString().slice(0, 10)}.csv`
+  link.download = `回测交易记录_${getChinaDate()}.csv`
   link.click()
   ElMessage.success('导出成功')
 }

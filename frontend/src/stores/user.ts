@@ -149,6 +149,7 @@ export const useUserStore = defineStore('user', () => {
   return {
     isLoggedIn,
     loading,
+    userInfo,
     
     // 计算属性
     userId,
