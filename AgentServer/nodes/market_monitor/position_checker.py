@@ -661,10 +661,57 @@ class PositionChecker:
             ok, msg, order, sell_info = self._place_sell_order(pos, reason, force_price, risk)
             if ok:
                 await self._post_sell_processing(pos, order, sell_info, reason, risk, source, trace_id=trace_id)
+                # 【v2.9.106】风控决策审计 trail
+                try:
+                    await self._persist_risk_decision(pos, reason, risk, source, order, trace_id)
+                except Exception as _e:
+                    logger.debug(f"[RISK_AUDIT] 持久化失败: {_e}")
             else:
                 self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"卖出失败: {msg}", None)
                 logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg} trace={trace_id}")
+
+    async def _persist_risk_decision(self, pos, reason: str, risk: Dict, source: str, order, trace_id: str) -> None:
+        """【v2.9.106】风控决策审计 trail → MongoDB risk_decisions"""
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, 'is_initialized', False) or not mongo_manager.db:
+            return
+        scanner = self._scanner
+        trade_date = getattr(scanner, '_trade_date', '') or datetime.now().strftime('%Y%m%d')
+        td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
+        # 判断决策类型
+        reason_lower = reason.lower() if reason else ''
+        if '止损' in reason or 'stop' in reason_lower:
+            decision_type = 'stop_loss'
+        elif '止盈' in reason or 'take_profit' in reason_lower:
+            decision_type = 'take_profit'
+        elif '移动止损' in reason or 'trailing' in reason_lower:
+            decision_type = 'trailing_stop'
+        elif '超时' in reason:
+            decision_type = 'timeout_force_sell'
+        else:
+            decision_type = 'other_sell'
+        doc = {
+            'trade_date': td_int,
+            'timestamp': datetime.now().isoformat(),
+            'scan_id': getattr(scanner, '_scan_count', 0),
+            'decision_type': decision_type,
+            'source': source,
+            'ts_code': pos.ts_code,
+            'stock_name': getattr(pos, 'stock_name', ''),
+            'strategy': getattr(pos, 'strategy', ''),
+            'trigger_reason': reason,
+            'trigger_price': getattr(pos, 'current_price', 0) or 0,
+            'cost_price': getattr(pos, 'avg_cost', 0) or getattr(pos, 'cost_price', 0) or 0,
+            'quantity': getattr(order, 'filled_qty', 0) or getattr(order, 'quantity', 0) or 0,
+            'filled_price': getattr(order, 'filled_price', 0) or 0,
+            'profit_pct': getattr(pos, 'profit_pct', 0) or 0,
+            'risk_level': risk.get('level', '') if isinstance(risk, dict) else '',
+            'trace_id': trace_id,
+            'account_id': getattr(scanner, 'account_id', 'default') or 'default',
+        }
+        await mongo_manager.db['risk_decisions'].insert_one(doc)
+        logger.info(f"[RISK_AUDIT] {decision_type} {pos.ts_code} {pos.stock_name} qty={doc['quantity']} @{doc['filled_price']} reason={reason}")
 
     def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str) -> None:
         """跌停不可卖时挂起pending_sells【v2.9.26提取,v2.9.50:移除hasattr防御(_pending_sells在__init__已初始化)】"""
