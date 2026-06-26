@@ -722,7 +722,18 @@ class LiveFilterPipeline:
         if realtime_data and len(realtime_data) > 100:
             try:
                 from .intraday_sentiment import intraday_calculator
-                result = await intraday_calculator.calculate(trade_date, realtime_data)
+                # 获取limit_list数据用于炸板判断
+                limit_list_data = None
+                try:
+                    from core.managers import mongo_manager
+                    if mongo_manager.is_initialized:
+                        trade_date_int = int(trade_date.replace('-', '')) if isinstance(trade_date, str) else trade_date
+                        limit_list_data = {}
+                        async for doc in mongo_manager.db["limit_list"].find({"trade_date": trade_date_int}):
+                            limit_list_data[doc.get("ts_code", "")] = doc
+                except Exception:
+                    pass
+                result = await intraday_calculator.calculate(trade_date, realtime_data, limit_list_data=limit_list_data)
                 # 保存维度明细供_apply_L3_sentiment写入L3_sentiment_data
                 self._last_intraday_dimensions = result.dimensions
                 return result.position_ratio, result.score, result.period_en
