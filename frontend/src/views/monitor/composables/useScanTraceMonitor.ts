@@ -232,7 +232,16 @@ export function useScanTraceMonitor() {
     for (const [layer, info] of Object.entries(trace)) {
       if (typeof info === 'object' && info !== null) {
         const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''
-        const detail = info.detail || info.reason || ''
+        let detail = info.detail !== undefined ? info.detail : (info.reason || '')
+        // detail 可能是 dict（如 L3_sentiment_data.detail），需平铺为可读字符串
+        if (detail && typeof detail === 'object') {
+          const parts: string[] = []
+          for (const [k, v] of Object.entries(detail)) {
+            if (v === undefined || v === null || v === '' || typeof v === 'object') continue
+            parts.push(`${k}=${v}`)
+          }
+          detail = parts.join(' · ') || JSON.stringify(detail)
+        }
         lines.push(`${applied} ${layerLabel(layer)}: ${detail}`)
       } else {
         lines.push(`${layerLabel(layer)}: ${info}`)
