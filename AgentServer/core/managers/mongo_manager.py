@@ -260,6 +260,30 @@ class MongoManager(BaseManager):
             IndexModel([("sync_type", ASCENDING)], unique=True),
         ])
         
+        # 【v2.9.106】运行时快照: 按 account_id + trade_date 查询, 30天自动过期
+        await self._db.scanner_runtime_snapshot.create_indexes([
+            IndexModel([("account_id", ASCENDING), ("trade_date", DESCENDING)], unique=True),
+            IndexModel([("updated_at", ASCENDING)], expireAfterSeconds=30*24*3600),
+        ])
+        
+        # 风控决策审计trail: 按日期查询
+        await self._db.risk_decisions.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("timestamp", DESCENDING)]),
+            IndexModel([("ts_code", ASCENDING), ("trade_date", DESCENDING)]),
+            IndexModel([("decision_type", ASCENDING)]),
+        ])
+        
+        # 盘中情绪时序: 按日期查询, 30天自动过期
+        await self._db.sentiment_live_log.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("_id", ASCENDING)]),
+            IndexModel([("ts", ASCENDING)], expireAfterSeconds=30*24*3600),
+        ])
+        
+        # 绩效快照: 按日期查询
+        await self._db.performance_snapshots.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("timestamp", ASCENDING)]),
+        ])
+        
         self.logger.info("MongoDB indexes ensured ✓")
     
     # ==================== 通用 CRUD ====================

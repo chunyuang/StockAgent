@@ -76,13 +76,29 @@ class RuntimePersistence:
         logger.info(f"[SNAPSHOT] 加载运行时快照成功")
     
     async def _load_snapshot_doc(self) -> Optional[dict]:
-        """从MongoDB或本地文件加载快照文档【v2.9.45提取】"""
+        """从MongoDB或本地文件加载快照文档【v2.9.45提取, v2.9.106:优先当天, fallback最近一天】
+        
+        加载顺序:
+        1. MongoDB: 当天快照(account_id + today)
+        2. MongoDB: 最近一天快照(用于跨日风控恢复)
+        3. 本地降级文件
+        """
         # 尝试MongoDB
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is not None:
+                today = datetime.now().strftime("%Y%m%d")
+                today_int = int(today)
+                # 1. 优先加载当天
                 doc = await mongo_manager.db["scanner_runtime_snapshot"].find_one(
-                    {"account_id": self.account_id}
+                    {"account_id": self.account_id, "trade_date": today_int}
+                )
+                if doc:
+                    return doc
+                # 2. fallback: 最近一天(用于跨日恢复cooldown等)
+                doc = await mongo_manager.db["scanner_runtime_snapshot"].find_one(
+                    {"account_id": self.account_id},
+                    sort=[("trade_date", -1)]
                 )
                 if doc:
                     return doc
@@ -103,15 +119,20 @@ class RuntimePersistence:
         return None
     
     def _restore_snapshot_data(self, doc: dict, is_same_day: bool) -> None:
-        """从快照文档恢复运行时状态【v2.9.45提取】
+        """从快照文档恢复运行时状态【v2.9.45提取, v2.9.106:风控字段跨日恢复】
         
         Args:
             doc: 快照文档
             is_same_day: 快照是否为当日(同日恢复追踪止损等日内状态)
+            
+        恢复策略:
+            - 同日恢复: trailing_stops/risk_levels/pending_sells/premarket_state (日内状态)
+            - 跨日恢复: cooldown_info/force_empty_cooldown/position_risk_overrides/circuit_breaker(连亏) (跨日有效)
+            - 跨日不恢复: stats/today_trades/today_losses (每日重置)
         """
         scanner = self._scanner
         
-        # 恢复同日状态(线程安全) — 追踪止损/风险等级/pending_sells仅同日有效
+        # === 同日恢复: 日内状态 ===
         if is_same_day:
             with scanner._state_lock:
                 if "trailing_stops" in doc:
@@ -122,44 +143,47 @@ class RuntimePersistence:
                 if "pending_sells" in doc:
                     scanner._pending_sells = doc["pending_sells"]
                     logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
-                # 【v2.9.106】恢复风控状态
-                if "cooldown_info" in doc:
-                    scanner._cooldown_info = doc["cooldown_info"]
-                    if scanner._cooldown_info:
-                        logger.info(f"[SNAPSHOT] 恢复冷却期: {scanner._cooldown_info}")
-                if "force_empty_cooldown_until" in doc:
-                    scanner._force_empty_cooldown_until = doc["force_empty_cooldown_until"]
-                    if scanner._force_empty_cooldown_until:
-                        logger.info(f"[SNAPSHOT] 恢复强制空仓冷却: 截至{scanner._force_empty_cooldown_until}")
-                if "position_risk_overrides" in doc:
-                    scanner._position_risk_overrides = doc["position_risk_overrides"]
-                    if scanner._position_risk_overrides:
-                        logger.info(f"[SNAPSHOT] 恢复风控覆盖: {len(scanner._position_risk_overrides)}只")
                 if "premarket_force_empty_state" in doc:
                     scanner._premarket_force_empty_state = doc["premarket_force_empty_state"]
                     logger.info(f"[SNAPSHOT] 恢复竞价空仓状态: 确认{scanner._premarket_force_empty_state.get('confirm_count', 0)}次")
         
-        # 恢复风控状态(跨日也恢复,不恢复trading_paused)
+        # === 跨日恢复: 风控状态(跨日有效) ===
+        with scanner._state_lock:
+            if "cooldown_info" in doc:
+                scanner._cooldown_info = doc["cooldown_info"]
+                if scanner._cooldown_info:
+                    logger.info(f"[SNAPSHOT] 恢复冷却期: {scanner._cooldown_info}")
+            if "force_empty_cooldown_until" in doc:
+                scanner._force_empty_cooldown_until = doc["force_empty_cooldown_until"]
+                if scanner._force_empty_cooldown_until:
+                    logger.info(f"[SNAPSHOT] 恢复强制空仓冷却: 截至{scanner._force_empty_cooldown_until}")
+            if "position_risk_overrides" in doc:
+                scanner._position_risk_overrides = doc["position_risk_overrides"]
+                if scanner._position_risk_overrides:
+                    logger.info(f"[SNAPSHOT] 恢复风控覆盖: {len(scanner._position_risk_overrides)}只")
+        
+        # === 跨日恢复: 熔断器(仅连亏次数, today_*不恢复) ===
         if "circuit_breaker" in doc:
             cb = doc["circuit_breaker"]
             if scanner._circuit_breaker is None:
                 scanner._circuit_breaker = {}
             scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
-            scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
-            scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
+            # today_trades/today_losses 仅同日恢复
+            if is_same_day:
+                scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
+                scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
         
-        # 恢复统计
-        if "stats" in doc:
-            scanner._stats.update(doc["stats"])
-        
-        # 恢复行情降级状态
-        if "quote_degrade_level" in doc and scanner._quote_manager:
-            scanner._quote_degrade_level = doc["quote_degrade_level"]
-            scanner._quote_manager._quote_degrade_level = doc["quote_degrade_level"]
-            if doc["quote_degrade_level"] > 0:
-                scanner._quote_manager._degrade_since = time.monotonic()
-                scanner._quote_manager._last_recover_attempt = time.monotonic()
-                logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
+        # === 同日恢复: 统计/行情降级 ===
+        if is_same_day:
+            if "stats" in doc:
+                scanner._stats.update(doc["stats"])
+            if "quote_degrade_level" in doc and scanner._quote_manager:
+                scanner._quote_degrade_level = doc["quote_degrade_level"]
+                scanner._quote_manager._quote_degrade_level = doc["quote_degrade_level"]
+                if doc["quote_degrade_level"] > 0:
+                    scanner._quote_manager._degrade_since = time.monotonic()
+                    scanner._quote_manager._last_recover_attempt = time.monotonic()
+                    logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
     
     async def save_runtime_snapshot(self, force: bool = False) -> None:
         """保存运行时快照到MongoDB【v2.9.56:提取_snapshot_doc构建+_save_snapshot_local降级】
@@ -211,15 +235,20 @@ class RuntimePersistence:
         return doc
 
     async def _save_snapshot_mongo(self, scanner, doc: Dict, now: float) -> bool:
-        """尝试保存快照到MongoDB【v2.9.56从save_runtime_snapshot提取】
+        """尝试保存快照到MongoDB【v2.9.56从save_runtime_snapshot提取, v2.9.106:按日期保留历史】
+        
+        保存策略: 按 account_id + trade_date upsert
+        - 同一天多次保存只更新当天记录(最新状态)
+        - 跨天保存自动创建新记录(历史可追溯)
         
         Returns: True=保存成功
         """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is not None:
+                td = doc.get("trade_date")
                 await mongo_manager.db["scanner_runtime_snapshot"].update_one(
-                    {"account_id": self.account_id},
+                    {"account_id": self.account_id, "trade_date": td},
                     {"$set": doc},
                     upsert=True,
                 )
