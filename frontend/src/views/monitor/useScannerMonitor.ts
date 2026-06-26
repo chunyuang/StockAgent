@@ -386,7 +386,7 @@ export function useScannerMonitor() {
     try {
       // 导出时间线+订单为JSON
       const data = {
-        export_time: new Date().toISOString(),
+        export_time: getChinaDate() + 'T' + new Date().toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }),
         timeline: timeline.value,
         orders: orders.value,
         closedPositions: closedPositions.value,
