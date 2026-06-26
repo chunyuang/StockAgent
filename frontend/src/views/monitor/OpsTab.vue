@@ -25,10 +25,13 @@ function toggleTradeExpand(orderId: string) {
 }
 function layerStatusIcon(layer: any): string {
   if (!layer || (typeof layer === 'object' && Object.keys(layer).length === 0)) return '⚪'
-  const detail = layer.detail || layer
-  // L1强制空仓: triggered=true表示禁止下单
-  if (detail.triggered === true) return '⛔'
-  if (detail.applied === false) return '⏭️'
+  // 后端格式: { detail: "...", applied: true/false, triggered?: bool }
+  // 优先看 layer 顶层, 再看 layer.detail (字段能是字符串也能是 dict)
+  const top = layer
+  const detail = layer.detail
+  const detailIsDict = detail && typeof detail === 'object'
+  if (top.triggered === true || (detailIsDict && detail.triggered === true)) return '⛔'
+  if (top.applied === false || (detailIsDict && detail.applied === false)) return '⏭️'
   return '✅'
 }
 function formatLayerName(key: string): string {
@@ -48,9 +51,13 @@ function formatLayerName(key: string): string {
 }
 function formatLayerDetail(_key: string, layer: any): string {
   if (!layer) return '无数据'
-  const detail = layer.detail || layer
-  if (typeof detail !== 'object' || Object.keys(detail).length === 0) return '未触发/无数据'
-  // 提取关键字段
+  const detail = layer.detail !== undefined ? layer.detail : layer
+  // 后端格式: { detail: "✅ 未触发 (...)", applied: true } —— detail 是字符串
+  if (typeof detail === 'string') return detail || '未触发/无数据'
+  if (typeof detail === 'number' || typeof detail === 'boolean') return String(detail)
+  if (!detail || typeof detail !== 'object') return '未触发/无数据'
+  if (Object.keys(detail).length === 0) return '未触发/无数据'
+  // 兜底: dict 提取关键字段
   const parts: string[] = []
   for (const [k, v] of Object.entries(detail)) {
     if (v === undefined || v === null || v === '' || k === 'applied') continue
