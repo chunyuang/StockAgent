@@ -257,10 +257,9 @@ class IntradaySentimentCalculator:
                 },
             }
             emotion_cycle_manager._compute_log.append(entry)
-            # 【v2.9.106】同步持久化 (fire-and-forget, 不阻塞主流程)
+            # 【v2.9.106】同步持久化 (直接await, 不用create_task避免GC丢失)
             try:
-                import asyncio as _asyncio
-                _asyncio.create_task(_persist_live_log_entry(entry, now))
+                await _persist_live_log_entry(entry, now)
             except Exception as _pe:
                 logger.debug(f"[GUARD] intraday_sentiment persist: {_pe}")
         except Exception as _e:

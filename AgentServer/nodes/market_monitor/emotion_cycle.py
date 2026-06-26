@@ -225,9 +225,8 @@ class EmotionCycleManager:
             self._compute_log.append(entry)
             # 【v2.9.106】持久化
             try:
-                import asyncio as _asyncio
                 from .intraday_sentiment import _persist_live_log_entry
-                _asyncio.create_task(_persist_live_log_entry(entry, now))
+                await _persist_live_log_entry(entry, now)
             except Exception as _pe:
                 logger.debug(f"[GUARD] emotion_cycle persist: {_pe}")
 
