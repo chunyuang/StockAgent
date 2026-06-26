@@ -467,18 +467,6 @@ async def get_market_sentiment_detail(date: str = None):
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
         
-        # 【v2.9.98ze-1】broken从limit_list.open_times补充(scanner._limit_pools无broken)
-        if broken == 0 and limit_up > 0:
-            try:
-                from core.managers import mongo_manager
-                if mongo_manager.is_initialized:
-                    _td = int(date) if date else int(datetime.now().strftime("%Y%m%d"))
-                    broken = await mongo_manager.db["limit_list"].count_documents({
-                        "trade_date": _td, "limit": "U", "open_times": {"$gt": 0}
-                    })
-            except Exception:
-                pass
-        
         # 涨跌停=0时从sentiment_scores补(优先指定日期,包括missing)
         if limit_up == 0 and limit_down == 0:
             try:
@@ -500,6 +488,18 @@ async def get_market_sentiment_detail(date: str = None):
                         mc = doc.get("max_continue", 0)
                         if mc > 0:
                             board_dist[str(mc)] = board_dist.get(str(mc), 0) + 1
+            except Exception:
+                pass
+        # 【v2.9.98ze-1】broken从limit_list.open_times补充(scanner._limit_pools无broken)
+        # 必须在sentiment_scores补涨跌停之后执行,否则limit_up=0时不进入
+        if broken == 0 and limit_up > 0:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    _td = int(date) if date else int(datetime.now().strftime("%Y%m%d"))
+                    broken = await mongo_manager.db["limit_list"].count_documents({
+                        "trade_date": _td, "limit": "U", "open_times": {"$gt": 0}
+                    })
             except Exception:
                 pass
         broken_rate = broken / max(limit_up + broken, 1) * 100
