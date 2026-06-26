@@ -48,7 +48,7 @@ const miniOption = computed(() => {
     yAxis: { type: 'value', show: false },
     series: [{
       type: 'candlestick',
-      data: data.map(d => [d.open, d.close, d.low, d.high]),
+      data: data.map(d => [d.open ?? 0, d.close ?? 0, d.low ?? 0, d.high ?? 0]),
       itemStyle: { color: '#f56c6c', color0: '#67c23a', borderColor: '#f56c6c', borderColor0: '#67c23a' },
     }],
     animation: false,
@@ -58,8 +58,8 @@ const miniOption = computed(() => {
 const fullOption = computed(() => {
   if (!kline.value.length) return {}
   const dates = kline.value.map(d => d.date.slice(-4))  // MM-DD
-  const ohlc = kline.value.map(d => [d.open, d.close, d.low, d.high])
-  const volumes = kline.value.map(d => d.volume)
+  const ohlc = kline.value.map(d => [d.open ?? 0, d.close ?? 0, d.low ?? 0, d.high ?? 0])
+  const volumes = kline.value.map(d => d.volume ?? 0)
   const ma5 = kline.value.map(d => d.ma5 ?? null)
   const ma10 = kline.value.map(d => d.ma10 ?? null)
   const ma20 = kline.value.map(d => d.ma20 ?? null)
@@ -70,8 +70,8 @@ const fullOption = computed(() => {
   annotations.value.forEach(a => {
     const idx = kline.value.findIndex(k => k.date === a.date)
     if (idx >= 0) {
-      if (a.action === 'buy') buyMarks.push({ coord: [idx, kline.value[idx].low], value: '买', itemStyle: { color: '#f56c6c' } })
-      if (a.action === 'sell') sellMarks.push({ coord: [idx, kline.value[idx].high], value: '卖', symbol: 'triangle', symbolRotate: 180, itemStyle: { color: '#67c23a' } })
+      if (a.action === 'buy') buyMarks.push({ coord: [idx, kline.value[idx]?.low ?? 0], value: '买', itemStyle: { color: '#f56c6c' } })
+      if (a.action === 'sell') sellMarks.push({ coord: [idx, kline.value[idx]?.high ?? 0], value: '卖', symbol: 'triangle', symbolRotate: 180, itemStyle: { color: '#67c23a' } })
     }
   })
 
