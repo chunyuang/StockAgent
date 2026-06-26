@@ -19,7 +19,7 @@ const {
   fetchSentimentData, strategyCN,
 } = m
 
-// ===== 日内涨跌停柱状图 =====
+// ===== 日内涨跌停柱状图(上半=涨停，下半=跌停) =====
 const intradayBarData = computed(() => {
   const tl = displayTimeline.value as Array<Record<string, any>>
   if (!tl.length) return { bars: [], maxVal: 10, svgWidth: 100 }
@@ -29,15 +29,74 @@ const intradayBarData = computed(() => {
   const svgWidth = tl.length * (barW + gap)
   const bars = tl.map((p: Record<string, any>, i: number) => ({
     x: i * (barW + gap) + gap / 2,
-    limitUpH: ((p.limit_up || 0) / maxVal) * 90,
-    limitDownH: ((p.limit_down || 0) / maxVal) * 90,
+    // 涨停向上(占上半50%区域)
+    limitUpH: ((p.limit_up || 0) / maxVal) * 45,
+    // 跌停向下(占下半50%区域)
+    limitDownH: ((p.limit_down || 0) / maxVal) * 45,
     score: p.score,
+    period: p.period,
     barW,
   }))
   return { bars, maxVal, svgWidth }
 })
 
-// ===== 日内涨跌比+score =====
+// Score曲线叠加到柱状图
+const intradayScoreLine = computed(() => {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  if (!tl.length) return ''
+  const barW = Math.max(8, Math.min(24, 800 / tl.length))
+  const gap = Math.max(2, barW * 0.2)
+  return tl.map((p: Record<string, any>, i: number) => {
+    const x = i * (barW + gap) + gap / 2 + barW / 2
+    const y = 100 - (p.score || 0)  // score 0-100映射到SVG 0-100
+    return `${x},${y}`
+  }).filter((_, i) => (tl[i] as any).score != null).join(' ')
+})
+
+// 周期阶段色条
+const intradayPeriodSegs = computed(() => {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  if (!tl.length) return []
+  const barW = Math.max(8, Math.min(24, 800 / tl.length))
+  const gap = Math.max(2, barW * 0.2)
+  const colors: Record<string, string> = { mania: '#f56c6c', greed: '#e6a23c', chaos: '#409eff', anxiety: '#909399', panic: '#67c23a', depression: '#67c23a' }
+  return tl.map((p: Record<string, any>, i: number) => ({
+    x: i * (barW + gap) + gap / 2,
+    w: barW,
+    color: colors[p.period || ''] || '#909399',
+  }))
+})
+
+// 日内最新数据点
+const intradayLatest = computed(() => {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  // 找最后一个有score的点
+  for (let i = tl.length - 1; i >= 0; i--) {
+    if (tl[i].score != null) return tl[i]
+  }
+  return tl.length ? tl[tl.length - 1] : null
+})
+
+// 日内hover
+const intradayHover = ref<Record<string, any> | null>(null)
+const intradayHoverLeft = computed(() => '50%')
+
+// 日内7维指标迷你条
+const intradayMetrics = computed(() => {
+  const p = intradayLatest.value
+  if (!p) return []
+  return [
+    { label: '涨跌比', val: ((p.up_down_ratio || 0) * 100).toFixed(0) + '%', pct: Math.min((p.up_down_ratio || 0) * 100, 100), color: (p.up_down_ratio || 0) > 0.5 ? '#f56c6c' : '#409eff' },
+    { label: '涨停比', val: ((p.limit_ratio || 0) * 100).toFixed(0) + '%', pct: (p.limit_ratio || 0) * 100, color: (p.limit_ratio || 0) > 0.6 ? '#f56c6c' : '#e6a23c' },
+    { label: '炸板率', val: ((p.broken_rate || 0) * 100).toFixed(0) + '%', pct: (p.broken_rate || 0) * 100, color: (p.broken_rate || 0) > 0.3 ? '#f56c6c' : '#67c23a' },
+    { label: '动量', val: (p.momentum || 0).toFixed(1), pct: Math.min(Math.abs(p.momentum || 0) * 20, 100), color: (p.momentum || 0) > 0 ? '#f56c6c' : (p.momentum || 0) < -0.5 ? '#67c23a' : '#e6a23c' },
+    { label: '溢价', val: (p.today_premium || 0).toFixed(1) + '%', pct: Math.min((p.today_premium || 0) * 10, 100), color: (p.today_premium || 0) > 3 ? '#f56c6c' : '#e6a23c' },
+    { label: 'Score', val: (p.score || 0).toFixed(0), pct: p.score || 0, color: scoreColor(p.score || 0) },
+    { label: '周期', val: periodCN(p.period || ''), pct: periodPct(p.period || ''), color: periodColor(p.period || '') },
+  ]
+})
+
+// ===== 日内涨跌比+score (旧,保留给其他引用) =====
 const intradayRatioData = computed(() => {
   const tl = displayTimeline.value as Array<Record<string, any>>
   if (!tl.length) return { points: '', fillPoints: '', svgWidth: 100, scorePoints: '' }
@@ -86,6 +145,18 @@ function scoreColor(s: number): string {
   if (s >= 40) return '#e6a23c'
   return '#67c23a'
 }
+function periodCN(p: string): string {
+  const map: Record<string, string> = { mania: '🔥高潮', greed: '😄贪婪', chaos: '🌀混沌', anxiety: '😰焦虑', panic: '😱恐慌', depression: '🥶冰点' }
+  return map[p] || p
+}
+function periodColor(p: string): string {
+  const map: Record<string, string> = { mania: '#f56c6c', greed: '#e6a23c', chaos: '#409eff', anxiety: '#909399', panic: '#67c23a', depression: '#67c23a' }
+  return map[p] || '#909399'
+}
+function periodPct(p: string): number {
+  const map: Record<string, number> = { mania: 90, greed: 72, chaos: 50, anxiety: 30, panic: 15, depression: 8 }
+  return map[p] || 50
+}
 let liveLogTimer: number | undefined
 onMounted(() => { fetchLiveLogs(); liveLogTimer = window.setInterval(fetchLiveLogs, 15000) })
 onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
@@ -117,41 +188,84 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
 
       <!-- ====== 日内: 多指标分区 ====== -->
       <template v-else-if="sentimentMode === 'intraday' && !isIntradayFallback">
-        <!-- 涨停/跌停柱状图 -->
+        <!-- 实时汇总条 -->
+        <div class="id-summary">
+          <div class="id-sum-item" v-if="intradayLatest">
+            <span class="id-sum-label">情绪分</span>
+            <span class="id-sum-val" :style="{ color: scoreColor(intradayLatest.score || 0) }">{{ (intradayLatest.score || 0).toFixed(0) }}</span>
+          </div>
+          <div class="id-sum-item" v-if="intradayLatest">
+            <span class="id-sum-label">周期</span>
+            <span class="id-sum-val" :style="{ color: periodColor(intradayLatest.period || '') }">{{ periodCN(intradayLatest.period || '') }}</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">涨停</span>
+            <span class="id-sum-val" style="color:#f56c6c">{{ intradayLatest?.limit_up ?? '-' }}</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">跌停</span>
+            <span class="id-sum-val" style="color:#409eff">{{ intradayLatest?.limit_down ?? '-' }}</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">炸板</span>
+            <span class="id-sum-val" style="color:#e6a23c">{{ intradayLatest?.broken ?? '-' }}</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">炸板率</span>
+            <span class="id-sum-val" :style="{ color: (intradayLatest?.broken_rate || 0) > 0.3 ? '#f56c6c' : '#e6a23c' }">{{ ((intradayLatest?.broken_rate || 0) * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">动量</span>
+            <span class="id-sum-val" :style="{ color: (intradayLatest?.momentum || 0) > 0 ? '#f56c6c' : (intradayLatest?.momentum || 0) < -0.5 ? '#67c23a' : '#e6a23c' }">{{ (intradayLatest?.momentum || 0) >= 0 ? '+' : '' }}{{ (intradayLatest?.momentum || 0).toFixed(1) }}</span>
+          </div>
+          <div class="id-sum-item">
+            <span class="id-sum-label">溢价</span>
+            <span class="id-sum-val" :style="{ color: (intradayLatest?.today_premium || 0) > 3 ? '#f56c6c' : '#e6a23c' }">{{ (intradayLatest?.today_premium || 0).toFixed(1) }}%</span>
+          </div>
+        </div>
+
+        <!-- 涨跌停柱状图 + Score叠加 -->
         <div class="intraday-panel">
-          <div class="ip-title">🔴 涨停 / 🔵 跌停 <span class="ip-sub">(5min采样)</span></div>
-          <div class="ip-chart" style="height:170px">
-            <div class="sc-y-axis"><span>{{ intradayBarData.maxVal }}</span><span>{{ Math.round(intradayBarData.maxVal / 2) }}</span><span>0</span></div>
+          <div class="ip-title">📊 涨跌停 + 情绪Score <span class="ip-sub">(5min采样)</span></div>
+          <div class="ip-chart" style="height:200px">
+            <div class="sc-y-axis" style="width:28px"><span style="font-size:9px;color:#f56c6c">{{ intradayBarData.maxVal }}</span><span style="font-size:9px">{{ Math.round(intradayBarData.maxVal / 2) }}</span><span style="font-size:9px">0</span></div>
             <div class="sc-chart-body">
+              <!-- 涨停区(上半) 背景 -->
+              <div style="position:absolute;top:0;height:50%;width:100%;background:rgba(245,108,108,0.03);z-index:0"></div>
+              <!-- 跌停区(下半) 背景 -->
+              <div style="position:absolute;top:50%;height:50%;width:100%;background:rgba(64,158,255,0.03);z-index:0"></div>
               <svg class="sc-svg" :viewBox="`0 0 ${intradayBarData.svgWidth} 100`" preserveAspectRatio="none">
                 <line x1="0" y1="50" :x2="intradayBarData.svgWidth" y2="50" stroke="var(--border-default)" stroke-width="0.3" stroke-dasharray="2,2" />
-                <g v-for="(bar, i) in intradayBarData.bars" :key="'u'+i"><rect :x="bar.x" :y="100 - bar.limitUpH" :width="bar.barW" :height="bar.limitUpH" fill="rgba(245,108,108,0.65)" rx="1" /></g>
-                <g v-for="(bar, i) in intradayBarData.bars" :key="'d'+i"><rect :x="bar.x + bar.barW * 0.35" :y="100 - bar.limitDownH" :width="bar.barW * 0.55" :height="bar.limitDownH" fill="rgba(64,158,255,0.55)" rx="1" /></g>
+                <g v-for="(bar, i) in intradayBarData.bars" :key="'u'+i"><rect :x="bar.x" :y="50 - bar.limitUpH" :width="bar.barW" :height="bar.limitUpH" fill="rgba(245,108,108,0.55)" rx="1" /></g>
+                <g v-for="(bar, i) in intradayBarData.bars" :key="'d'+i"><rect :x="bar.x" :y="50" :width="bar.barW" :height="bar.limitDownH" fill="rgba(64,158,255,0.45)" rx="1" /></g>
+                <!-- Score曲线叠加 -->
+                <polyline :points="intradayScoreLine" fill="none" stroke="var(--el-color-primary)" stroke-width="1.2" opacity="0.8" />
+                <!-- 周期阶段色条 -->
+                <g v-for="(seg, i) in intradayPeriodSegs" :key="'seg'+i"><rect :x="seg.x" y="96" :width="seg.w" height="4" :fill="seg.color" opacity="0.6" rx="1" /></g>
               </svg>
-              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#f56c6c">■ 涨停</span> <span style="color:#409eff;margin-left:6px">■ 跌停</span></div>
+              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5">
+                <span style="color:#f56c6c">■ 涨停</span>
+                <span style="color:#409eff;margin-left:6px">■ 跌停</span>
+                <span style="color:var(--el-color-primary);margin-left:6px">— Score</span>
+              </div>
+              <!-- hover卡片 -->
+              <div v-if="intradayHover" class="sc-hover-card" :style="{ left: intradayHoverLeft, bottom: '55%' }">
+                <div class="sc-hover-date">{{ intradayHover.time_label }}</div>
+                <div class="sc-hover-score" :style="{ color: scoreColor(intradayHover.score || 0) }">Score {{ (intradayHover.score || 0).toFixed(1) }} {{ periodCN(intradayHover.period || '') }}</div>
+                <div class="sc-hover-detail">涨停{{ intradayHover.limit_up || 0 }} 跌停{{ intradayHover.limit_down || 0 }} 炸板{{ intradayHover.broken || 0 }}</div>
+              </div>
             </div>
           </div>
           <div class="sc-x-labels"><span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
         </div>
 
-        <!-- 涨跌比 + Score -->
-        <div class="intraday-panel" style="margin-top:8px">
-          <div class="ip-title">📊 涨跌停比 <span style="color:var(--el-color-primary);margin-left:6px">--- Score</span> <span class="ip-sub">(&gt;50%偏强)</span></div>
-          <div class="ip-chart" style="height:110px">
-            <div class="sc-y-axis"><span>100%</span><span>50%</span><span>0%</span></div>
-            <div class="sc-chart-body">
-              <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:var(--border-default);z-index:2"></div>
-              <div style="position:absolute;top:0;height:50%;width:100%;background:rgba(245,108,108,0.04);z-index:1"></div>
-              <div style="position:absolute;top:50%;height:50%;width:100%;background:rgba(103,194,58,0.04);z-index:1"></div>
-              <svg class="sc-svg" :viewBox="`0 0 ${intradayRatioData.svgWidth} 100`" preserveAspectRatio="none">
-                <polygon :points="intradayRatioData.fillPoints" fill="rgba(64,158,255,0.12)" />
-                <polyline :points="intradayRatioData.points" fill="none" stroke="#409eff" stroke-width="1.5" />
-                <polyline :points="intradayRatioData.scorePoints" fill="none" stroke="var(--el-color-primary)" stroke-width="1" stroke-dasharray="3,3" opacity="0.5" />
-              </svg>
-              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#409eff">— 涨跌比</span> <span style="color:var(--el-color-primary);margin-left:6px">--- Score</span></div>
-            </div>
+        <!-- 7维指标迷你条 -->
+        <div class="id-metrics" style="margin-top:8px">
+          <div class="id-metric" v-for="m in intradayMetrics" :key="m.label">
+            <span class="id-m-label">{{ m.label }}</span>
+            <div class="id-m-bar-track"><div class="id-m-bar-fill" :style="{ width: m.pct + '%', background: m.color }"></div></div>
+            <span class="id-m-val" :style="{ color: m.color }">{{ m.val }}</span>
           </div>
-          <div class="sc-x-labels"><span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
         </div>
       </template>
 
@@ -281,6 +395,20 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
 .ip-title { padding: 6px 10px; font-size: 12px; font-weight: 700; background: var(--bg-secondary); border-bottom: 1px solid var(--border-default); }
 .ip-sub { font-weight: normal; color: var(--text-tertiary); font-size: 10px; }
 .ip-chart { display: flex; padding: 0; }
+
+/* 日内实时汇总条 */
+.id-summary { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 10px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 8px; }
+.id-sum-item { display: flex; flex-direction: column; align-items: center; min-width: 48px; }
+.id-sum-label { font-size: 9px; color: var(--text-tertiary); line-height: 1; }
+.id-sum-val { font-size: 14px; font-weight: 700; line-height: 1.3; }
+
+/* 7维指标迷你条 */
+.id-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px; padding: 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; }
+.id-metric { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+.id-m-label { width: 36px; color: var(--text-tertiary); flex-shrink: 0; }
+.id-m-bar-track { flex: 1; height: 4px; background: var(--fill-default); border-radius: 2px; overflow: hidden; }
+.id-m-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.id-m-val { width: 32px; text-align: right; font-weight: 600; flex-shrink: 0; font-size: 10px; }
 
 .sentiment-chart { display: flex; flex-direction: column; height: 260px; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
 .sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 36px; text-align: right; }
