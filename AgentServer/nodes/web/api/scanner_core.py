@@ -1487,12 +1487,23 @@ async def get_position_risk_matrix(date: str = None):
                 else:
                     risk_level = "normal"
                 
-                # 【v2.9.100】15维度风险评分 (MongoDB回退模式, 简化版)
+                # 【v2.9.100+审计】15维度风险评分 (MongoDB回退模式, D10-D15简化默认)
                 d1_sl = max(0, 25 - dist_sl * 5)
                 d2_pos = min(position_pct / 2, 15)
                 d3_loss = min(abs(profit_pct) * 2, 15)
                 d4_turnover = 5  # 无换手率数据, 默认中值
-                risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover, 100)
+                d5_vol = min(abs(profit_pct) * 0.8, 10)
+                d6_trail = 0  # 无追踪止损数据
+                d7_industry = min(industry_exp.get(industry, 0) / max(total_mv, 1) * 100 / 2, 5) if industry else 0
+                d8_new = 0  # 无today_buy_qty数据
+                d9_streak = min(max(0, -profit_pct) * 0.5, 5) if profit_pct < 0 else 0
+                d10_holding_days = 0  # 无持仓天数数据
+                d11_zt_premium = 0  # 无涨停溢价数据
+                d12_market_risk = 0  # 无实时情绪数据
+                d13_liquidity = 0  # 无成交额数据
+                d14_profit_reversal = min(max(0, profit_pct - 8) * 0.3, 2) if profit_pct > 8 else 0
+                d15_strategy_wr = 0  # 无策略胜率数据
+                risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak + d10_holding_days + d11_zt_premium + d12_market_risk + d13_liquidity + d14_profit_reversal + d15_strategy_wr, 100)
                 
                 matrix.append({
                     "ts_code": ts_code, "stock_name": stock_name,
@@ -1594,8 +1605,21 @@ async def get_position_risk_matrix(date: str = None):
                 elif dist_sl < 2: risk_level = "warning"
                 else: risk_level = "normal"
                 d1_sl = max(0, 25 - dist_sl * 5)
+                d2_pos = 0  # position_pct尚待计算
                 d3_loss = min(abs(profit_pct) * 2, 15)
-                risk_score = min(d1_sl + d3_loss + 5, 100)
+                d4_turnover = 5
+                d5_vol = min(abs(profit_pct) * 0.8, 10)
+                d6_trail = 0
+                d7_industry = min(industry_exp.get(industry, 0) / max(total_mv, 1) * 100 / 2, 5) if industry else 0
+                d8_new = 0
+                d9_streak = min(max(0, -profit_pct) * 0.5, 5) if profit_pct < 0 else 0
+                d10_holding_days = 0
+                d11_zt_premium = 0
+                d12_market_risk = 0
+                d13_liquidity = 0
+                d14_profit_reversal = min(max(0, profit_pct - 8) * 0.3, 2) if profit_pct > 8 else 0
+                d15_strategy_wr = 0
+                risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak + d10_holding_days + d11_zt_premium + d12_market_risk + d13_liquidity + d14_profit_reversal + d15_strategy_wr, 100)
                 matrix.append({
                     "ts_code": ts_code, "stock_name": stock_name,
                     "strategy": strategy, "strategy_name": strategy_cn.get(strat_key, strategy),
@@ -1735,7 +1759,60 @@ async def get_position_risk_matrix(date: str = None):
             d8_new = 5 if getattr(pos, 'today_buy_qty', 0) > 0 else 0
             # D9: 连亏 (0-5分)
             d9_streak = min(max(0, -pos.profit_pct) * 0.5, 5) if pos.profit_pct < 0 else 0
-            risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak, 100)
+            # D10: 持仓天数 (0-3分) — 持仓越久不确定性越高
+            d10_holding_days = 0
+            try:
+                from nodes.web.api.unified import _normalize_date as _nd2
+                buy_date_int = getattr(pos, 'buy_date_int', 0) or 0
+                if buy_date_int > 0:
+                    import datetime as _dt3
+                    buy_dt = _dt3.datetime.strptime(str(buy_date_int), "%Y%m%d")
+                    hold_days = (_dt3.datetime.now() - buy_dt).days
+                    d10_holding_days = min(hold_days * 0.3, 3)
+            except Exception:
+                pass
+            # D11: 涨停溢价风险 (0-2分) — 涨停板股票次日溢价不确定性
+            d11_zt_premium = 0
+            try:
+                if scanner._realtime_cache and pos.ts_code in scanner._realtime_cache:
+                    zt_p = scanner._realtime_cache[pos.ts_code].get("zt_premium", 0)
+                    if zt_p > 5: d11_zt_premium = 2
+                    elif zt_p > 0: d11_zt_premium = 1
+            except Exception:
+                pass
+            # D12: 大盘系统性风险 (0-2分) — 全市场下跌时个股难以独善
+            d12_market_risk = 0
+            try:
+                from nodes.market_monitor.emotion_cycle import emotion_cycle_manager as _ecm
+                if _ecm and hasattr(_ecm, 'score'):
+                    if _ecm.score < 30: d12_market_risk = 2
+                    elif _ecm.score < 45: d12_market_risk = 1
+            except Exception:
+                pass
+            # D13: 流动性风险 (0-2分) — 小市值/低成交额难以及时止损
+            d13_liquidity = 0
+            try:
+                if scanner._realtime_cache and pos.ts_code in scanner._realtime_cache:
+                    amt = scanner._realtime_cache[pos.ts_code].get("amount", 0)
+                    if amt > 0 and amt < 50_000_000: d13_liquidity = 2  # <5000万
+                    elif amt > 0 and amt < 200_000_000: d13_liquidity = 1  # <2亿
+            except Exception:
+                pass
+            # D14: 盈亏比偏离 (0-2分) — 浮盈过大时回撤风险
+            d14_profit_reversal = min(max(0, pos.profit_pct - 8) * 0.3, 2) if pos.profit_pct > 8 else 0
+            # D15: 策略胜率偏差 (0-2分) — 策略近期胜率低时风险更高
+            d15_strategy_wr = 0
+            try:
+                _strat = pos.strategy or "unknown"
+                if hasattr(scanner, '_stats') and scanner._stats:
+                    strat_key = _norm_strat(_strat) if 'norm_strat' in dir() else _strat
+                    # 从scanner._stats取策略胜率(粗略)
+                    _s_wr = scanner._stats.get(f"{strat_key}_win_rate", 0)
+                    if _s_wr and _s_wr < 30: d15_strategy_wr = 2
+                    elif _s_wr and _s_wr < 45: d15_strategy_wr = 1
+            except Exception:
+                pass
+            risk_score = min(d1_sl + d2_pos + d3_loss + d4_turnover + d5_vol + d6_trail + d7_industry + d8_new + d9_streak + d10_holding_days + d11_zt_premium + d12_market_risk + d13_liquidity + d14_profit_reversal + d15_strategy_wr, 100)
 
             matrix.append({
                 "ts_code": pos.ts_code, "stock_name": pos.stock_name or getattr(scanner, '_stock_name_map', {}).get(pos.ts_code, ""),
