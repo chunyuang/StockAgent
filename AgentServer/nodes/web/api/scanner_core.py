@@ -1542,6 +1542,97 @@ async def get_position_risk_matrix(date: str = None):
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
+        
+        # 【v2.9.98z】历史日期: 从broker_orders重建持仓，不走实时broker
+        if is_historical:
+            from nodes.web.api.unified import fetch_unified_positions
+            account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+            pos_result = await fetch_unified_positions(date=str(date_int), account_id=account_id)
+            positions_historical = pos_result if isinstance(pos_result, list) else pos_result.get("positions", []) if isinstance(pos_result, dict) else []
+            # 用历史持仓构建风控矩阵(复用fallback逻辑)
+            industry_map = {}
+            try:
+                async for doc in mongo_manager.db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "industry": 1}):
+                    industry_map[doc.get("ts_code", "")] = doc.get("industry", "")
+            except Exception:
+                pass
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+            strategy_cn = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}
+            matrix = []
+            industry_exp = {}
+            max_single_pct = 0
+            total_mv = 0
+            for p in positions_historical:
+                cost = p.get("avg_cost", p.get("cost_price", 0))
+                cur = p.get("current_price", 0)
+                qty = p.get("total_qty", p.get("shares", 0))
+                ts_code = p.get("ts_code", "")
+                stock_name = p.get("stock_name", "")
+                strategy = p.get("strategy", "halfway_chase")
+                if cost <= 0 or qty <= 0:
+                    continue
+                mv = cur * qty
+                total_mv += mv
+                strat_key = strategy
+                for k, v in STRATEGY_CONFIGS.items():
+                    if v.get("display_name") == strategy or k == strategy:
+                        strat_key = k; break
+                strat_cfg = STRATEGY_CONFIGS.get(strat_key, {})
+                sl_pct = strat_cfg.get("stop_loss_pct", GLOBAL_RISK.get("stop_loss_pct", 0.03))
+                tp_pct = strat_cfg.get("take_profit_pct", GLOBAL_RISK.get("take_profit_pct", 0.12))
+                if sl_pct > 1: sl_pct /= 100
+                if tp_pct > 1: tp_pct /= 100
+                sl_price = cost * (1 - sl_pct)
+                tp_price = cost * (1 + tp_pct)
+                dist_sl = (cur - sl_price) / cur * 100 if cur > 0 else 0
+                dist_tp = (tp_price - cur) / cur * 100 if cur > 0 else 0
+                profit_pct = (cur - cost) / cost * 100 if cost > 0 else 0
+                profit_amount = (cur - cost) * qty
+                industry = industry_map.get(ts_code, "未知")
+                industry_exp[industry] = industry_exp.get(industry, 0) + mv
+                if cur <= sl_price: risk_level = "critical"
+                elif dist_sl < 2: risk_level = "warning"
+                else: risk_level = "normal"
+                d1_sl = max(0, 25 - dist_sl * 5)
+                d3_loss = min(abs(profit_pct) * 2, 15)
+                risk_score = min(d1_sl + d3_loss + 5, 100)
+                matrix.append({
+                    "ts_code": ts_code, "stock_name": stock_name,
+                    "strategy": strategy, "strategy_name": strategy_cn.get(strat_key, strategy),
+                    "industry": industry, "current_price": cur, "cost_price": cost,
+                    "profit_pct": round(profit_pct, 2), "profit_amount": round(profit_amount, 0),
+                    "market_value": round(mv, 0), "position_pct": 0,
+                    "stop_loss_price": round(sl_price, 2), "take_profit_price": round(tp_price, 2),
+                    "dist_stop_loss": round(dist_sl, 1), "dist_take_profit": round(dist_tp, 1),
+                    "risk_level": risk_level, "risk_score": round(risk_score, 0),
+                    "trailing_stop": None, "total_qty": qty,
+                })
+            # 获取账户信息计算position_pct
+            acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
+            total_assets = (acct_doc.get("available_cash", 0) if acct_doc else 0) + total_mv
+            for m in matrix:
+                m["position_pct"] = round(m["market_value"] / max(total_assets, 1) * 100, 1)
+                max_single_pct = max(max_single_pct, m["position_pct"])
+            top_industry = max(industry_exp, key=industry_exp.get) if industry_exp else "无"
+            top_industry_pct = industry_exp.get(top_industry, 0) / max(total_assets, 1) * 100 if industry_exp else 0
+            normal = len([m for m in matrix if m["risk_level"] == "normal"])
+            warning = len([m for m in matrix if m["risk_level"] == "warning"])
+            critical = len([m for m in matrix if m["risk_level"] == "critical"])
+            return {"success": True, "data": {
+                "positions": matrix,
+                "global": {
+                    "total_assets": round(total_assets, 0),
+                    "cash_ratio": round((acct_doc.get("available_cash", 0) if acct_doc else 0) / max(total_assets, 1) * 100, 1),
+                    "position_ratio": round(total_mv / max(total_assets, 1) * 100, 1),
+                    "max_single_pct": round(max_single_pct, 1),
+                    "top_industry_concentration": round(top_industry_pct, 1),
+                    "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in industry_exp.items()},
+                    "position_count": len(matrix),
+                    "risk_summary": {"normal": normal, "warning": warning, "critical": critical},
+                },
+                "_fallback": True, "_historical": True,
+            }}
+        
         positions = scanner._broker.get_positions()
         acct = scanner._broker.get_account()
         
