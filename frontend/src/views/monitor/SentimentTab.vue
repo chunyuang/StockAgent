@@ -27,8 +27,8 @@ const {
 
 // 折叠状态
 const chartExpanded = ref(true)
-const statusExpanded = ref(true)
-const dimExpanded = ref(true)
+const statusExpanded = ref(false)
+const dimExpanded = ref(false)
 const logExpanded = ref(false)
 const guideExpanded = ref(false)
 const downgradeExpanded = ref(false)
@@ -144,7 +144,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         </div>
         <div class="review-section">
           <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
-          <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b></span>
+          <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b> 炸板<b>{{ sentimentLive.broken_count||0 }}</b> 开仓<b>{{ sentimentLive.can_open!==false?'✅':'❌' }}</b></span>
         </div>
         <div v-if="statusExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
           <div class="dev-title">🌡 当前状态</div>
@@ -158,7 +158,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         </div>
         <div class="review-section">
           <span class="section-title title-purple" style="cursor:pointer" @click="dimExpanded=!dimExpanded">🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dimExpanded?'▼':'▶' }}</span></span>
-          <span v-if="!dimExpanded&&sentimentLive&&sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null" class="section-detail">D1<b>{{ sentimentLive.dimensions.d1_limit_up }}</b> D2<b>{{ sentimentLive.dimensions.d2_limit_down }}</b> D4<b>{{ sentimentLive.dimensions.d4_momentum }}</b></span>
+          <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">D1涨停<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> D2跌停<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> D5炸板<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> D6连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b></template><template v-else>5维盘后 涨停<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b></template></span>
         </div>
         <div v-if="dimExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
           <div class="dev-title">🧮 8维拆解</div>
@@ -261,7 +261,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         <div class="sc-x-labels"><span v-for="(lbl,i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
       </div>
       <div class="review-section">
-        <span class="section-title title-purple" style="cursor:pointer" @click="algoExpanded=!algoExpanded">🔬 算法 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoExpanded?'▼':'▶' }}</span></span>
+        <span class="section-title title-purple" style="cursor:pointer" @click="algoExpanded=!algoExpanded">📐 算法日内8维 📊 数据源 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoExpanded?'▼':'▶' }}</span></span>
       </div>
       <div v-if="algoExpanded" class="dev-card" style="margin-top:2px">
         <div class="dev-title">📐 日内8维</div>
