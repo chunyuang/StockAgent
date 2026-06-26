@@ -602,68 +602,6 @@ async def get_risk_decisions(trade_date: str = None, limit: int = 50):
         return {"success": True, "data": [], "message": str(e)}
 
 
-# ==================== 风控决策审计 trail ====================
-
-@router.get("/risk-decisions")
-async def get_risk_decisions(trade_date: str = None, limit: int = 50):
-    """查询风控决策审计记录
-    
-    Args:
-        trade_date: 交易日期 YYYYMMDD (可选, 默认最近)
-        limit: 返回条数 (默认50)
-    """
-    try:
-        from core.managers import mongo_manager
-        if not mongo_manager.is_initialized:
-            return {"success": True, "data": []}
-        
-        query = {}
-        if trade_date:
-            td_int = int(trade_date) if trade_date.isdigit() else trade_date
-            query["trade_date"] = td_int
-        
-        decisions = []
-        cursor = mongo_manager.db["risk_decisions"].find(query).sort("timestamp", -1).limit(limit)
-        async for doc in cursor:
-            doc.pop("_id", None)
-            decisions.append(doc)
-        
-        return {"success": True, "data": decisions, "count": len(decisions)}
-    except Exception as e:
-        return {"success": True, "data": [], "message": str(e)}
-
-
-# ==================== 风控决策审计 trail ====================
-
-@router.get("/risk-decisions")
-async def get_risk_decisions(trade_date: str = None, limit: int = 50):
-    """查询风控决策审计记录
-    
-    Args:
-        trade_date: 交易日期 YYYYMMDD (可选, 默认最近)
-        limit: 返回条数 (默认50)
-    """
-    try:
-        from core.managers import mongo_manager
-        if not mongo_manager.is_initialized:
-            return {"success": True, "data": []}
-        
-        query = {}
-        if trade_date:
-            td_int = int(trade_date) if trade_date.isdigit() else trade_date
-            query["trade_date"] = td_int
-        
-        decisions = []
-        cursor = mongo_manager.db["risk_decisions"].find(query).sort("timestamp", -1).limit(limit)
-        async for doc in cursor:
-            doc.pop("_id", None)
-            decisions.append(doc)
-        
-        return {"success": True, "data": decisions, "count": len(decisions)}
-    except Exception as e:
-        return {"success": True, "data": [], "message": str(e)}
-
-
 # ==================== 策略漏斗时序聚合 ====================
 
 @router.get("/funnel-timeseries")

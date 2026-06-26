@@ -9,11 +9,13 @@
   "broken_count": "int",
   "broken_rate": "float",
   "board_distribution": {
-    "10": "int"
+    "1": "int"
   },
   "max_continue": "int",
   "up_down_ratio": "float",
   "zt_premium": "float",
+  "dimensions": {},
+  "formula": "str",
   "date": "int",
   "is_stale": "bool",
   "ranges": [

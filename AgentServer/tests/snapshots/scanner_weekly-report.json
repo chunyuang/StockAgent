@@ -1,7 +1,7 @@
 {
   "period": "str",
   "account": {
-    "total_assets": "int",
+    "total_assets": "float",
     "total_profit": "float",
     "available_cash": "int"
   },
@@ -35,10 +35,33 @@
           "pnl": "int"
         }
       }
+    },
+    "20260626": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "int",
+      "strategies": {
+        "first_limit_up": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "int"
+        }
+      }
     }
   },
   "strategy_summary": {
     "halfway_chase": {
+      "trades": "int",
+      "sell_count": "int",
+      "amount": "float",
+      "wins": "int",
+      "pnl": "int",
+      "win_rate": "float"
+    },
+    "first_limit_up": {
       "trades": "int",
       "sell_count": "int",
       "amount": "float",

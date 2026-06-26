@@ -7,7 +7,29 @@
       "<empty_list>"
     ],
     "critical": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "stock_name": "str",
+        "strategy": "str",
+        "strategy_name": "str",
+        "industry": "str",
+        "current_price": "int",
+        "cost_price": "float",
+        "profit_pct": "int",
+        "profit_amount": "float",
+        "market_value": "int",
+        "position_pct": "float",
+        "dist_stop_loss": "float",
+        "dist_take_profit": "float",
+        "stop_loss_price": "float",
+        "take_profit_price": "float",
+        "volatility": "int",
+        "turnover_rate": "int",
+        "risk_score": "float",
+        "risk_level": "str",
+        "trailing_stop": {},
+        "total_qty": "int"
+      }
     ]
   },
   "summary": {

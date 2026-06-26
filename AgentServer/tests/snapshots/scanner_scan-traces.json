@@ -75,7 +75,20 @@
         "total_stocks": "int",
         "total_candidates": "int",
         "passed": "int",
-        "rejected": "int"
+        "rejected": "int",
+        "strategy_funnel": [
+          {
+            "strategy": "str",
+            "name": "str",
+            "enabled": "bool",
+            "conditions": "int",
+            "candidates": "int",
+            "after_existing": "int",
+            "missing_fields": [
+              "<empty_list>"
+            ]
+          }
+        ]
       },
       "layer_details": {
         "L1_force_empty": "str",

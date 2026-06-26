@@ -1,15 +1,31 @@
 {
   "generated_at": "str",
   "account": {
-    "total_assets": "int",
+    "total_assets": "float",
     "available_cash": "int",
-    "market_value": "int",
+    "market_value": "float",
     "total_profit": "float",
     "position_ratio": "float",
     "position_count": "int"
   },
   "positions": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "shares": "int",
+      "available_qty": "int",
+      "cost_price": "float",
+      "current_price": "int",
+      "profit_pct": "int",
+      "market_value": "int",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "distance_to_stop": "float",
+      "is_t1_locked": "bool"
+    }
   ],
   "trade_stats": {
     "total_trades": "int",
@@ -21,7 +37,33 @@
     "avg_profit_pct": "int",
     "avg_loss_pct": "int"
   },
-  "strategy_performance": {},
+  "strategy_performance": {
+    "急速拉升": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "半路追涨": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "首板打板": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "强势涨停": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    },
+    "first_limit_up": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
+    }
+  },
   "risk_status": {
     "circuit_breaker_active": "bool",
     "circuit_breaker_reason": "str",
