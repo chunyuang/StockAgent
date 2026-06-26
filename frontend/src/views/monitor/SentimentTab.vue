@@ -174,7 +174,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       <!-- ========== 所有模式共享的折叠section ========== -->
       <div class="review-section">
         <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪分<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}</b> {{ sentimentLive.period_label||sentimentLive.period }} 仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b> 炸板<b>{{ sentimentLive.broken_count||0 }}</b> 开仓<b>{{ sentimentLive.can_open!==false?'✅':'❌' }}</b></span>
+        <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}分</b>{{ sentimentLive.period_label||sentimentLive.period }} | 建议仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> | 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b> 炸板<b>{{ sentimentLive.broken_count||0 }}</b> | 开仓<b>{{ sentimentLive.can_open!==false?'✅允许':'❌禁止' }}</b></span>
       </div>
       <div v-if="statusExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
         <div class="dev-title">🌡 当前状态</div>
@@ -189,7 +189,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="dimExpanded=!dimExpanded">🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dimExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">D1涨停<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> D2跌停<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> D3涨跌比<b>{{ sentimentLive.dimensions.d3_up_down }}/15</b> D4动量<b>{{ sentimentLive.dimensions.d4_momentum }}/10</b> D5炸板<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> D6连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b> D7昨溢价<b>{{ sentimentLive.dimensions.d7_zt_premium }}/5</b> D8今溢价<b>{{ sentimentLive.dimensions.d8_today_premium }}/5</b></template><template v-else>涨停<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 跌停<b>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b> 涨跌比<b>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</b> 溢价<b>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</b></template></span>
+        <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">涨停贡献<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> 跌停惩罚<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> 涨跌比<b>{{ sentimentLive.dimensions.d3_up_down }}/15</b> 动量<b>{{ sentimentLive.dimensions.d4_momentum }}/10</b> 炸板率<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> 连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b> 昨溢价<b>{{ sentimentLive.dimensions.d7_zt_premium }}/5</b> 今溢价<b>{{ sentimentLive.dimensions.d8_today_premium }}/5</b></template><template v-else>涨停贡献<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 跌停<b>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b> 涨跌比<b>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</b> 溢价<b>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</b></template></span>
       </div>
       <div v-if="dimExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
         <template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">
@@ -237,7 +237,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
       <div class="review-section">
         <span class="section-title title-cyan" style="cursor:pointer" @click="guideExpanded=!guideExpanded">📖 阶段说明 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ guideExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!guideExpanded&&sentimentLive" class="section-detail"><b :style="{color:(sentimentLive.score||0)>=70?'#f56c6c':(sentimentLive.score||0)>=55?'#e6a23c':(sentimentLive.score||0)>=40?'#409eff':'#67c23a'}">{{ (sentimentLive.score||0)>=70?'🔥高潮':(sentimentLive.score||0)>=55?'⚡分化':(sentimentLive.score||0)>=40?'🌀震荡':'🥶冰点' }}</b> 仓位<b>{{ (sentimentLive.score||0)>=70?'100%':(sentimentLive.score||0)>=55?'70%':(sentimentLive.score||0)>=40?'50%':'30%' }}</b> {{ (sentimentLive.score||0)>=70?'积极做多':(sentimentLive.score||0)>=55?'精选龙头':(sentimentLive.score||0)>=40?'轻仓操作':'空仓观望' }}</span>
+        <span v-if="!guideExpanded&&sentimentLive" class="section-detail">当前<b :style="{color:(sentimentLive.score||0)>=70?'#f56c6c':(sentimentLive.score||0)>=55?'#e6a23c':(sentimentLive.score||0)>=40?'#409eff':'#67c23a'}">{{ (sentimentLive.score||0)>=70?'🔥高潮期':(sentimentLive.score||0)>=55?'⚡分化期':(sentimentLive.score||0)>=40?'🌀震荡期':'🥶冰点期' }}</b>，建议仓位<b>{{ (sentimentLive.score||0)>=70?'100%满仓':(sentimentLive.score||0)>=55?'70%重仓':(sentimentLive.score||0)>=40?'50%半仓':'30%轻仓' }}</b>，策略：<b>{{ (sentimentLive.score||0)>=70?'积极做多，追涨龙头':(sentimentLive.score||0)>=55?'精选龙头，避免杂毛':(sentimentLive.score||0)>=40?'轻仓低吸，严格止损':'空仓观望，禁止开仓' }}</b></span>
       </div>
       <div v-if="guideExpanded" class="phase-guide">
         <div v-for="p in phaseGuide" :key="p.name" class="phase-card" :class="p.active?'active':''" :style="{borderColor:p.color}">
@@ -277,7 +277,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       <!-- ========== 算法说明 ========== -->
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="algoDimExpanded=!algoDimExpanded">📐 算法日内8维 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoDimExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoDimExpanded" class="section-detail">8维加权求和 → 0~100分 → 映射4阶段(🔥⚡🌀🥶)</span>
+        <span v-if="!algoDimExpanded" class="section-detail">8个维度加权求和得0~100分，映射为4个情绪阶段：🔥高潮(≥70) → ⚡分化(≥55) → 🌀震荡(≥40) → 🥶冰点(&lt;40)</span>
       </div>
       <div v-if="algoDimExpanded" class="dev-card" style="margin-top:2px">
         <table class="algo-tbl">
@@ -297,7 +297,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       </div>
       <div class="review-section">
         <span class="section-title title-cyan" style="cursor:pointer" @click="algoSourceExpanded=!algoSourceExpanded">📊 数据源 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoSourceExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoSourceExpanded" class="section-detail">盘中 Scanner 8维 | 炸板 limit_list | 历史 5维+8维</span>
+        <span v-if="!algoSourceExpanded" class="section-detail">盘中实时：Scanner 8维公式5min采样 | 炸板数：从limit_list.open_times读取 | 历史：sentiment_scores(5维) + sentiment_live_log(8维)</span>
       </div>
       <div v-if="algoSourceExpanded" class="dev-card" style="margin-top:2px">
         <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>盘中</b> Scanner 8维公式 5min采样 | <b>炸板</b> limit_list.open_times<br><b>历史</b> sentiment_scores(5维) + sentiment_live_log(8维)</div>
