@@ -41,7 +41,7 @@ const intradayMetrics = computed(() => {
     { label: '涨跌比', val: ((p.up_down_ratio || 0) * 100).toFixed(0) + '%', pct: Math.min((p.up_down_ratio || 0) * 100, 100), color: (p.up_down_ratio || 0) > 0.5 ? '#f56c6c' : '#409eff' },
     { label: '涨停比', val: ((p.limit_ratio || 0) * 100).toFixed(0) + '%', pct: (p.limit_ratio || 0) * 100, color: (p.limit_ratio || 0) > 0.6 ? '#f56c6c' : '#e6a23c' },
     { label: '炸板率', val: ((p.broken_rate || 0) * 100).toFixed(0) + '%', pct: (p.broken_rate || 0) * 100, color: (p.broken_rate || 0) > 0.3 ? '#f56c6c' : '#67c23a' },
-    { label: '动量', val: (p.momentum || 0).toFixed(1), pct: Math.min(Math.abs(p.momentum || 0) * 20, 100), color: (p.momentum || 0) > 0 ? '#f56c6c' : (p.momentum || 0) < -0.5 ? '#67c23a' : '#e6a23c' },
+    { label: '动量', val: (p.momentum || 0).toFixed(1), pct: Math.min(Math.abs(p.momentum || 0) * 50 + 50, 100), color: (p.momentum || 0) > 0 ? '#f56c6c' : (p.momentum || 0) < -0.05 ? '#67c23a' : '#e6a23c' },
     { label: '溢价', val: (p.today_premium || 0).toFixed(1) + '%', pct: Math.min((p.today_premium || 0) * 10, 100), color: (p.today_premium || 0) > 3 ? '#f56c6c' : '#e6a23c' },
     { label: 'Score', val: (p.score || 0).toFixed(0), pct: p.score || 0, color: scoreColor(p.score || 0) },
     { label: '周期', val: periodCN(p.period || ''), pct: periodPct(p.period || ''), color: periodColor(p.period || '') },
@@ -343,14 +343,27 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
             <div class="sl-row"><span>炸板率</span><span class="sl-val" :style="{ color: (sentimentLive?.broken_rate || 0) > 30 ? '#f56c6c' : 'var(--text-primary)' }">{{ (sentimentLive?.broken_rate || 0).toFixed(1) }}%</span></div>
             <div class="sl-row"><span>炸板数</span><span class="sl-val">{{ (sentimentLive?.broken_count || 0) }}</span></div>
           </div><div v-else class="empty" style="padding:8px 0">无数据</div></div>
-        <div class="sentiment-panel"><div class="st">🧮 得分拆解</div>
+        <div class="sentiment-panel"><div class="st">🧮 7维拆解</div>
           <div v-if="sentimentLive" class="sl-content">
-            <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, (sentimentLive?.limit_up_count || 0)) }}/30</span></div>
-            <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - (sentimentLive?.limit_down_count || 0) * 2) }}/20</span></div>
-            <div class="sl-row"><span>连板高度</span><span class="sl-val">{{ Math.min(20, (sentimentLive?.max_continue || 0) * 2) }}/20</span></div>
-            <div class="sl-row"><span>涨跌比</span><span class="sl-val">{{ Math.min(15, Math.round((sentimentLive?.up_down_ratio || 0) * 15)) }}/15</span></div>
-            <div class="sl-row"><span>涨停溢价</span><span class="sl-val">{{ Math.min(15, Math.max(0, Math.round(sentimentLive?.zt_premium || 0))) }}/15</span></div>
-            <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default)"><div style="font-size:10px;color:var(--text-quaternary);line-height:1.4">满分100 = 涨停30 + 跌停20 + 连板20 + 涨跌比15 + 溢价15<br>≥70高潮 | 55-70分化 | 40-55震荡 | &lt;40冰点</div></div>
+            <template v-if="sentimentLive.dimensions && Object.keys(sentimentLive.dimensions).length && sentimentLive.dimensions.d1_limit_up != null">
+              <div class="sl-row"><span>D1 涨停</span><span class="sl-val">{{ sentimentLive.dimensions.d1_limit_up }}/20</span></div>
+              <div class="sl-row"><span>D2 跌停</span><span class="sl-val">{{ sentimentLive.dimensions.d2_limit_down }}/15</span></div>
+              <div class="sl-row"><span>D3 涨跌比</span><span class="sl-val">{{ sentimentLive.dimensions.d3_up_down }}/15</span></div>
+              <div class="sl-row"><span>D4 动量</span><span class="sl-val">{{ sentimentLive.dimensions.d4_momentum }}/10</span></div>
+              <div class="sl-row"><span>D5 炸板率</span><span class="sl-val">{{ sentimentLive.dimensions.d5_broken_rate }}/10</span></div>
+              <div class="sl-row"><span>D6 连板</span><span class="sl-val">{{ sentimentLive.dimensions.d6_max_continue }}/10</span></div>
+              <div class="sl-row"><span>D7 昨溢价</span><span class="sl-val">{{ sentimentLive.dimensions.d7_zt_premium }}/5</span></div>
+              <div class="sl-row"><span>D8 今溢价</span><span class="sl-val">{{ sentimentLive.dimensions.d8_today_premium }}/5</span></div>
+              <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default)"><div style="font-size:10px;color:var(--text-quaternary);line-height:1.4">7维公式: zu(20)+zd(15)+ud(15)+momentum(10)+broken_rate(10)+lb+premium(20)+broken_count(10) = 100<br>≥70🔥高潮 | ≥55⚡分化 | ≥40🌀震荡 | &lt;40🥶冰点</div></div>
+            </template>
+            <template v-else>
+              <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, (sentimentLive?.limit_up_count || 0)) }}/30</span></div>
+              <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - (sentimentLive?.limit_down_count || 0) * 2) }}/20</span></div>
+              <div class="sl-row"><span>连板高度</span><span class="sl-val">{{ Math.min(20, (sentimentLive?.max_continue || 0) * 2) }}/20</span></div>
+              <div class="sl-row"><span>涨跌比</span><span class="sl-val">{{ Math.min(15, Math.round((sentimentLive?.up_down_ratio || 0) * 15)) }}/15</span></div>
+              <div class="sl-row"><span>涨停溢价</span><span class="sl-val">{{ Math.min(15, Math.max(0, Math.round(sentimentLive?.zt_premium || 0))) }}/15</span></div>
+              <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default)"><div style="font-size:10px;color:var(--text-quaternary);line-height:1.4">5维盘后公式(无7维实时数据时)<br>≥70🔥高潮 | ≥55⚡分化 | ≥40🌀震荡 | &lt;40🥶冰点</div></div>
+            </template>
           </div><div v-else class="empty" style="padding:8px 0">无数据</div></div>
       </div>
 
@@ -414,8 +427,8 @@ function dailyHoverBottom(): number { const hp = hoveredPoint.value as Record<st
       <!-- 算法说明 -->
       <div class="st" style="margin-top:12px">🔬 算法与数据源</div>
       <div class="algo-info">
-        <div class="algo-section"><div class="algo-title">📐 情绪得分算法</div><div class="algo-body">综合得分满分100，5维度加权：<strong>涨停数量(0-30分)</strong> — 每只+1分，50只以上满分<br><strong>跌停数量(0-20分)</strong> — 0跌停满分20，每只-2分<br><strong>最高连板(0-20分)</strong> — 每层+2分，10板满分<br><strong>涨跌家数比(0-15分)</strong> — 上涨占比×15<br><strong>昨日涨停溢价(0-15分)</strong> — 每1%+1分</div></div>
-        <div class="algo-section"><div class="algo-title">📊 数据来源</div><div class="algo-body"><strong>实时</strong>：Scanner内存缓存，盘中最快5秒更新<br><strong>历史</strong>：MongoDB sentiment_scores集合<br><strong>涨跌停</strong>：limit_list集合或daily_basic<br><strong>日内图表</strong>：5分钟采样聚合，涨停/跌停取时段峰值，涨跌比=涨停/(涨停+跌停)</div></div>
+        <div class="algo-section"><div class="algo-title">📐 日内情绪8维算法</div><div class="algo-body">盘中实时得分满分100，8维度加权：<strong>D1 涨停(0-20分)</strong> — 每只+1分，20只满分<br><strong>D2 跌停(0-15分)</strong> — 0跌停满分15，每只-1.5分<br><strong>D3 涨跌比(0-15分)</strong> — 上涨占比×15<br><strong>D4 动量(-5~10分)</strong> — 涨停加速度，正加速加分负加速扣分<br><strong>D5 炸板率(0-10分)</strong> — 封板率×10(炸板率低=高分)<br><strong>D6 连板(0-10分)</strong> — 每层+1分，10板满分<br><strong>D7 昨溢价(0-5分)</strong> — 昨日涨停今日溢价<br><strong>D8 今溢价(0-5分)</strong> — 今日涨停溢价×5<br>≥70🔥高潮 | ≥55⚡分化 | ≥40🌀震荡 | &lt;40🥶冰点</div></div>
+        <div class="algo-section"><div class="algo-title">📊 数据来源</div><div class="algo-body"><strong>盘中实时</strong>：Scanner 7维公式，5分钟采样，涨停/跌停从realtime_data<br><strong>炸板</strong>：limit_list集合open_times字段(曾涨停但开板次数&gt;0)<br><strong>历史</strong>：MongoDB sentiment_scores集合(盘后5维) + sentiment_live_log(盘中7维)<br><strong>Score曲线</strong>：紫色折线，右Y轴0-100，50中性虚线</div></div>
       </div>
     </div>
   </div>

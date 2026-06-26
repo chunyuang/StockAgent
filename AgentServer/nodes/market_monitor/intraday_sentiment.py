@@ -178,7 +178,7 @@ class IntradaySentimentCalculator:
 
         # ── 7维加权计算 ────────────────────────────────
 
-        score = self._compute_7dim_score(
+        dim_scores = self._compute_7dim_score(
             limit_up=limit_up,
             limit_down=limit_down,
             up_down_ratio=up_down_ratio,
@@ -188,6 +188,7 @@ class IntradaySentimentCalculator:
             zt_premium=zt_premium,
             today_premium=today_premium,
         )
+        score = dim_scores['total']
 
         period_en, period_cn, position_ratio = self._score_to_phase(score)
 
@@ -205,6 +206,15 @@ class IntradaySentimentCalculator:
             "today_premium": round(today_premium, 2),
             "sample_count": self._sample_count,
             "formula": "7dim",
+            # 【v2.9.98ze-1】各维度分数拆解
+            "d1_limit_up": round(dim_scores['d1'], 1),
+            "d2_limit_down": round(dim_scores['d2'], 1),
+            "d3_up_down": round(dim_scores['d3'], 1),
+            "d4_momentum": round(dim_scores['d4'], 1),
+            "d5_broken_rate": round(dim_scores['d5'], 1),
+            "d6_max_continue": round(dim_scores['d6'], 1),
+            "d7_zt_premium": round(dim_scores['d7'], 1),
+            "d8_today_premium": round(dim_scores['d8'], 1),
         }
 
         logger.debug(
@@ -283,7 +293,7 @@ class IntradaySentimentCalculator:
         max_continue: int,
         zt_premium: float,
         today_premium: float,
-    ) -> float:
+    ) -> Dict[str, float]:
         """
         7维加权情绪得分 - 满分100
 
@@ -306,9 +316,6 @@ class IntradaySentimentCalculator:
         d3 = up_down_ratio * 15
 
         # D4: 涨跌加速度 (10分)
-        # momentum ∈ [-0.3, +0.3] 典型范围
-        # 正加速(涨跌比上升) → 加分, 负加速 → 扣分
-        # 归一化: ±0.1 → ±5分, ±0.2 → ±10分
         d4 = max(-5, min(10, momentum * 50))
 
         # D5: 涨停开板率 (10分)
@@ -326,7 +333,7 @@ class IntradaySentimentCalculator:
 
         total = d1 + d2 + d3 + d4 + d5 + d6 + d7 + d8
 
-        return min(100, max(0, total))
+        return {'d1': d1, 'd2': d2, 'd3': d3, 'd4': d4, 'd5': d5, 'd6': d6, 'd7': d7, 'd8': d8, 'total': min(100, max(0, total))}
 
     def _score_to_phase(self, score: float) -> Tuple[str, str, float]:
         """得分→情绪阶段+仓位系数

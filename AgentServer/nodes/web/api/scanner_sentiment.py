@@ -467,6 +467,18 @@ async def get_market_sentiment_detail(date: str = None):
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
         
+        # 【v2.9.98ze-1】broken从limit_list.open_times补充(scanner._limit_pools无broken)
+        if broken == 0 and limit_up > 0:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    _td = int(date) if date else int(datetime.now().strftime("%Y%m%d"))
+                    broken = await mongo_manager.db["limit_list"].count_documents({
+                        "trade_date": _td, "limit": "U", "open_times": {"$gt": 0}
+                    })
+            except Exception:
+                pass
+        
         # 涨跌停=0时从sentiment_scores补(优先指定日期,包括missing)
         if limit_up == 0 and limit_down == 0:
             try:
@@ -585,6 +597,9 @@ async def get_market_sentiment_detail(date: str = None):
             "max_continue": max_continue,
             "up_down_ratio": round(up_down_ratio, 3),
             "zt_premium": round(zt_premium, 2),
+            # 【v2.9.98ze-1】7维拆解(从scanner内存)
+            "dimensions": dict(getattr(filter_pipeline, '_last_intraday_dimensions', None) or {}) if filter_pipeline else {},
+            "formula": "7dim" if (getattr(filter_pipeline, '_last_intraday_dimensions', None)) else "5dim",
             # 【v2.9.98新增-Issue3a53d130d1bc】日期+新鲜度标记
             "date": _actual_date,
             "is_stale": _is_stale,
