@@ -855,10 +855,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         new_signals = await self._apply_strategies(merged_df, trade_date)
         new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
 
-        # 异动检测(也经过筛选管道)
+        # 异动检测(也经过筛选管道，但 trace 标记为 anomaly)【v2.9.105】
         anomaly_signals = await self._detect_anomalies(realtime_data)
         if anomaly_signals:
-            anomaly_signals = await self._apply_filter_pipeline(anomaly_signals, trade_date, realtime_data)
+            anomaly_signals = await self._apply_filter_pipeline(
+                anomaly_signals, trade_date, realtime_data, source="anomaly"
+            )
         new_signals.extend(anomaly_signals)
 
         return new_signals
@@ -918,13 +920,22 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     # ==================== 因子合并 ====================
 
     async def _apply_filter_pipeline(
-        self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
+        self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict,
+        source: str = "full",
     ) -> List[ScanSignal]:
-        """9层筛选管道: 强制空仓/情绪/竞价/排序/仓位"""
+        """9层筛选管道: 强制空仓/情绪/竞价/排序/仓位
+
+        Args:
+            source: 信号源 - 'full' (主扫 5min/轮) / 'anomaly' (异动扫)
+                    以便 trace 区分两类记录【v2.9.105】
+        """
         # 【v2.9.104】即使 signals 为空也走一遍，以便写入含 total_stocks 的空 trace
         # 注意: 这不会增加策略计算量，只是使 L1-L9 层调用 + 记录 trace
         if signals is None:
             signals = []
+
+        # 记录本次 trace 的信号源, _build_trace_doc 读取
+        self._current_trace_source = source
 
         # 转换为管道输入格式
         candidates = self._signals_to_candidates(signals)

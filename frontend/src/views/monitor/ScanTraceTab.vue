@@ -110,11 +110,21 @@ const execSummaryDisplay = computed(() => {
 })
 
 function scanKind(s: any): 'full' | 'quick' | 'idle' | 'blocked' | 'other' {
+  // 【v2.9.105】优先用后端写入的 scan_type 区分主扫/异动扫
+  const scanType = String(s?.scan_type || '').toLowerCase()
+  if (scanType === 'anomaly') return 'quick'
+  if (scanType === 'full') {
+    // full 但 candidates=0 passed=0 仍然是空轮
+    const total = Number(s?.summary?.total_candidates || 0)
+    const passed = Number(s?.summary?.passed || 0)
+    if (total === 0) return 'idle'
+    if (total > 0 && passed === 0) return 'blocked'
+    return 'full'
+  }
+  // 后退兼容: 老文档没有 scan_type 时用 total_stocks/total_candidates 猜测
   const totalStocks = Number(s?.summary?.total_stocks || 0)
   const total = Number(s?.summary?.total_candidates || 0)
   const passed = Number(s?.summary?.passed || 0)
-  // 【v2.9.104】优先用 total_stocks(真正的全市场股票数) 判断
-  // 后退兼容: 老文档没有 total_stocks 时用 total_candidates 量级猜测
   if (totalStocks >= 3000) return 'full'
   if (totalStocks > 0 && totalStocks < 3000) return 'quick'
   if (total >= 1000) return 'full'

@@ -417,7 +417,7 @@ class RuntimePersistence:
             "trade_date": today_int,
             "scan_time": now.isoformat(),
             "session": "trading" if is_trading_session else "off_session",
-            "scan_type": "full",  # 【v2.9.104】每轮都是全市场扫描
+            "scan_type": getattr(self._scanner, "_current_trace_source", "full"),  # 【v2.9.105】full=全市场主扫, anomaly=异动扫
             "account_id": self.broker.account.account_id if self.broker else "default",
             "is_debug": not is_trading_session,
             "summary": {},
