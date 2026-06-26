@@ -277,10 +277,23 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       <!-- ========== 算法说明 ========== -->
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="algoDimExpanded=!algoDimExpanded">📐 算法日内8维 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoDimExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoDimExpanded" class="section-detail">D1涨停(0-20) D2跌停(0-15) D3涨跌比(0-15) D4动量(-5~10) D5炸板率(0-10) D6连板(0-10) D7昨溢价(0-5) D8今溢价(0-5)</span>
+        <span v-if="!algoDimExpanded" class="section-detail">8维加权求和 → 0~100分 → 映射4阶段(🔥⚡🌀🥶)</span>
       </div>
       <div v-if="algoDimExpanded" class="dev-card" style="margin-top:2px">
-        <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>D1涨停</b>(0-20) <b>D2跌停</b>(0-15) <b>D3涨跌比</b>(0-15) <b>D4动量</b>(-5~10) <b>D5炸板率</b>(0-10) <b>D6连板</b>(0-10) <b>D7昨溢价</b>(0-5) <b>D8今溢价</b>(0-5)<br>≥70🔥 | ≥55⚡ | ≥40🌀 | &lt;40🥶</div>
+        <table class="algo-tbl">
+          <thead><tr><th>维度</th><th>含义</th><th>分值</th><th>计算方式</th></tr></thead>
+          <tbody>
+            <tr><td class="at-dim">D1 涨停</td><td>涨停家数贡献</td><td class="at-score">0~20</td><td class="at-calc">涨停数×权重，越多越高</td></tr>
+            <tr><td class="at-dim">D2 跌停</td><td>跌停家数惩罚</td><td class="at-score">0~15</td><td class="at-calc">15 - 跌停数×扣分，跌停越多分越低</td></tr>
+            <tr><td class="at-dim">D3 涨跌比</td><td>上涨vs下跌家数比</td><td class="at-score">0~15</td><td class="at-calc">涨跌比×15，普涨时满分</td></tr>
+            <tr><td class="at-dim">D4 动量</td><td>今日vs昨日涨停变化</td><td class="at-score">-5~10</td><td class="at-calc">涨停增减率映射，连增加分连减扣分</td></tr>
+            <tr><td class="at-dim">D5 炸板率</td><td>开板/曾涨停比例</td><td class="at-score">0~10</td><td class="at-calc">10 - 炸板率×10，炸板越多分越低</td></tr>
+            <tr><td class="at-dim">D6 连板</td><td>最高连板高度</td><td class="at-score">0~10</td><td class="at-calc">最高连板天数映射，3连板起加分</td></tr>
+            <tr><td class="at-dim">D7 昨溢价</td><td>昨日涨停股今日溢价</td><td class="at-score">0~5</td><td class="at-calc">昨涨停股今均涨幅映射，溢价高=赚钱效应</td></tr>
+            <tr><td class="at-dim">D8 今溢价</td><td>今日涨停股当日溢价</td><td class="at-score">0~5</td><td class="at-calc">涨停股封板强度映射，封得牢=情绪强</td></tr>
+          </tbody>
+          <tfoot><tr><td colspan="4" class="at-foot">总分 = D1+D2+D3+D4+D5+D6+D7+D8 → <b>≥70🔥高潮</b> | <b>≥55⚡分化</b> | <b>≥40🌀震荡</b> | <b>&lt;40🥶冰点</b></td></tr></tfoot>
+        </table>
       </div>
       <div class="review-section">
         <span class="section-title title-cyan" style="cursor:pointer" @click="algoSourceExpanded=!algoSourceExpanded">📊 数据源 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoSourceExpanded?'▼':'▶' }}</span></span>
@@ -388,6 +401,15 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
+
+.algo-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.algo-tbl th { padding: 4px 6px; background: var(--bg-secondary); font-weight: 600; color: var(--text-tertiary); text-align: left; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+.algo-tbl td { padding: 3px 6px; border-bottom: 1px solid var(--border-subtle); }
+.algo-tbl tfoot td { border-top: 1px solid var(--border-default); padding: 5px 6px; }
+.at-dim { font-weight: 700; white-space: nowrap; color: var(--el-color-primary); }
+.at-score { font-family: 'Menlo','Monaco',monospace; font-weight: 600; white-space: nowrap; color: var(--text-secondary); }
+.at-calc { color: var(--text-tertiary); }
+.at-foot { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
 
 .dg-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 2px; }
 .dg-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; }
