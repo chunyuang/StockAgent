@@ -116,7 +116,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="rm-stat">
           <span class="rm-label">行业集中</span>
-          <span class="rm-val">{{ safeNum(globalRisk?.top_industry_concentration) }}%</span>
+          <span class="rm-val">{{ globalRisk?.top_industry_concentration != null && Number.isFinite(Number(globalRisk?.top_industry_concentration)) ? Number(globalRisk?.top_industry_concentration).toFixed(1) + '%' : '-' }}</span>
         </div>
         <div class="rm-risk-counts">
           <span class="rm-rc ok">🟢 {{ globalRisk?.risk_summary?.normal ?? 0 }}</span>
@@ -128,7 +128,7 @@ onUnmounted(() => clearInterval(timer))
         <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
           <span class="ind-label">{{ name }}</span>
           <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min(Number(pct || 0), 100).toFixed(0) + '%' }"></div></div>
-          <span class="ind-pct">{{ Number(pct || 0).toFixed(0) }}%</span>
+          <span class="ind-pct">{{ Number(pct || 0).toFixed(1) }}%</span>
         </div>
       </div>
     </div>

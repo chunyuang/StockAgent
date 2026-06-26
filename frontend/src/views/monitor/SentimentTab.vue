@@ -73,7 +73,8 @@ const intradayChartOption = computed(() => {
 })
 
 // ===== 日线 =====
-const dailyScorePoints = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); return tl.map((p: any, i: number) => `${i*20},${100-(p.score||0)}`).join(' ') })
+const dailyScorePoints = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); return tl.map((p: any, i: number) => { const prefix = (p.missing_data && i > 0) ? 'M' : 'L'; return `${i===0?'M':'L'}${i*20},${100-(p.score||0)}` }).join(' ') })
+const dailyMissingSegments = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); const segs: string[] = []; let inMissing = false; tl.forEach((p: any, i: number) => { if (p.missing_data && !inMissing) { inMissing = true; segs.push(`M${i*20},${100-(p.score||0)}`) } else if (p.missing_data && inMissing) { segs.push(`L${i*20},${100-(p.score||0)}`) } else if (!p.missing_data && inMissing) { inMissing = false } }); return segs.join(' ') })
 const scoredTimeline = computed(() => (displayTimeline.value as any[]).filter((p: any) => p.score != null))
 function matrixTotal(periods: Record<string,any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as any).count||0), 0) }
 function dailyDotBottom(p: any): number { return p.score||0 }
@@ -87,8 +88,8 @@ async function fetchLiveLogs() { liveLogsLoading.value = true; try { const r = a
 
 // ===== 工具函数 =====
 function scoreColor(s: number): string { return s >= 70 ? '#f56c6c' : s >= 55 ? '#409eff' : s >= 40 ? '#e6a23c' : '#67c23a' }
-function periodCN(p: string): string { return { rising:'🔥高潮', differentiation:'⚡分化', chaos:'🌀震荡', bearish:'🥶冰点', '高潮':'🔥高潮', '分化':'⚡分化', '震荡':'🌀震荡', '冰点':'🥶冰点' }[p] || p }
-function periodColor(p: string): string { return { rising:'#f56c6c', differentiation:'#e6a23c', chaos:'#409eff', bearish:'#67c23a', '高潮':'#f56c6c', '分化':'#e6a23c', '震荡':'#409eff', '冰点':'#67c23a' }[p] || '#909399' }
+function periodCN(p: string): string { return { rising:'🔥高潮', differentiation:'⚡分化', chaos:'🌀震荡', bearish:'🥶冰点', RISING:'🔥高潮', DIFFERENTIATION:'⚡分化', CHAOS:'🌀震荡', BEARISH:'🥶冰点', '高潮':'🔥高潮', '分化':'⚡分化', '震荡':'🌀震荡', '冰点':'🥶冰点' }[p] || p }
+function periodColor(p: string): string { return { rising:'#f56c6c', differentiation:'#e6a23c', chaos:'#409eff', bearish:'#67c23a', RISING:'#f56c6c', DIFFERENTIATION:'#e6a23c', CHAOS:'#409eff', BEARISH:'#67c23a', '高潮':'#f56c6c', '分化':'#e6a23c', '震荡':'#409eff', '冰点':'#67c23a' }[p] || '#909399' }
 function heroClass(s: number): string { return s >= 70 ? 'hot' : s >= 55 ? 'warm' : s >= 40 ? 'neutral' : 'cold' }
 
 let liveLogTimer: number | undefined
@@ -141,7 +142,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
           <span class="section-detail" style="color:var(--text-tertiary);font-style:italic">📡 无日内扫描数据（非交易日或Scanner未运行），下方显示日线参考</span>
         </div>
         <div v-if="!isIntradayFallback" class="review-section">
-          <span class="section-title title-blue" style="cursor:pointer" @click="chartExpanded=!chartExpanded">📈 情绪走势 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ chartExpanded?'▼':'▶' }} {{ displayTimeline.length }}点</span></span>
+          <span class="section-title title-blue" style="cursor:pointer" @click="chartExpanded=!chartExpanded">📈 情绪走势 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ chartExpanded?'▼':'▶' }} {{ displayTimeline.length }}点 <span v-if="sentimentMode==='intraday'">(5min采样)</span><span v-else-if="sentimentMode==='daily'">(日线)</span><span v-else-if="sentimentMode==='weekly'">(周线)</span><span v-else>(月线)</span></span></span>
         </div>
         <div v-if="chartExpanded&&!isIntradayFallback&&displayTimeline.length" class="chart-wrap">
           <VChart :option="intradayChartOption" autoresize style="height:240px;width:100%" />
@@ -157,7 +158,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
             <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)"></div>
             <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)"></div>
             <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)"></div>
-            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(scoredTimeline.length-1,1)*20} 100`" preserveAspectRatio="none"><polyline :points="dailyScorePoints" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" /></svg>
+            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(scoredTimeline.length-1,1)*20} 100`" preserveAspectRatio="none"><polyline :points="dailyScorePoints" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" /><polyline v-if="dailyMissingSegments" :points="dailyMissingSegments" fill="none" stroke="var(--el-color-warning)" stroke-width="1.5" stroke-dasharray="4,3" /></svg>
             <template v-for="(p,i) in (displayTimeline as any[])" :key="i">
               <div v-if="p.score!=null" class="sc-dot" :style="{left:`${i/Math.max((displayTimeline as any[]).length-1,1)*100}%`,bottom:`${dailyDotBottom(p)}%`}" :class="p.period==='高潮'?'hot':p.period==='冰点'?'cold':p.missing_data?'missing':''" @mouseenter="hoveredPoint=p" @mouseleave="hoveredPoint=null"></div>
             </template>
