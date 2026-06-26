@@ -98,7 +98,16 @@ async def get_database_stats():
     - 显示所有集合的大小和文档数
     - 特别显示 stock_daily_ak_full 的详细统计
     - 显示因子覆盖统计
+    
+    【v2.9.100优化】加内存缓存(60s TTL), 避免每次请求13s
     """
+    import time as _time
+    _cache_key = "_admin_db_stats_cache"
+    _cache_ttl = 60  # 60秒缓存
+    if hasattr(get_database_stats, _cache_key):
+        _cached = getattr(get_database_stats, _cache_key)
+        if _time.time() - _cached["ts"] < _cache_ttl:
+            return _cached["data"]
     # 获取 MongoDB 版本
     # 使用 mongo_manager._client 获取异步客户端
     info = await mongo_manager._client.admin.command('buildInfo')
@@ -229,7 +238,7 @@ async def get_database_stats():
     total_documents = sum(c["document_count"] for c in collections)
     total_size_bytes = sum(c["size_bytes"] for c in collections)
     
-    return {
+    result = {
         "success": True,
         "data": {
             "mongodb_version": mongodb_version,
@@ -242,6 +251,9 @@ async def get_database_stats():
         },
         "message": "数据库统计获取成功",
     }
+    # 【v2.9.100】缓存结果
+    setattr(get_database_stats, _cache_key, {"ts": _time.time(), "data": result})
+    return result
 
 
 @router.post("/clear-collection/{collection_name}")

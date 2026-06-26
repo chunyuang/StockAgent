@@ -397,13 +397,21 @@ async def get_historical_review(date: str = None, mode: str = "production", incl
             from nodes.web.api.scanner_review import get_trade_attribution, get_discipline_check, get_review_forward
             from nodes.web.api.scanner_scan import get_execution_quality
             import asyncio as _asyncio
-            _results = await _asyncio.gather(
-                get_trade_attribution(date),
-                get_discipline_check(date),
-                get_execution_quality(date),
-                get_review_forward(date),
-                return_exceptions=True,
-            )
+            # 【v2.9.100修复】加wait_for超时保护(防止单个子模块拖慢整个请求到26s+)
+            try:
+                _results = await _asyncio.wait_for(
+                    _asyncio.gather(
+                        get_trade_attribution(date),
+                        get_discipline_check(date),
+                        get_execution_quality(date),
+                        get_review_forward(date),
+                        return_exceptions=True,
+                    ),
+                    timeout=15.0  # 最多15秒
+                )
+            except _asyncio.TimeoutError:
+                logger.warning(f"historical-review: sub-module aggregation timed out (15s), returning partial data")
+                _results = [_sub_data[k] for k in ["trade_attributions", "discipline_check", "execution_quality", "forward_advice"]]
             _keys = ["trade_attributions", "discipline_check", "execution_quality", "forward_advice"]
             for i, key in enumerate(_keys):
                 r = _results[i]
