@@ -16,6 +16,8 @@ const m = useScannerMonitorInject()
 // 【v2.9.96】展开决策详情
 const expandedOrderIds = ref<Set<string>>(new Set())
 const tradesExpanded = ref(false)  // 自动交易列表默认折叠
+// 【v2.9.105】阶段表 + 扫描频率矩阵默认折叠
+const phaseTableExpanded = ref(false)
 function toggleTradeExpand(orderId: string) {
   if (expandedOrderIds.value.has(orderId)) expandedOrderIds.value.delete(orderId)
   else expandedOrderIds.value.add(orderId)
@@ -283,6 +285,66 @@ const {
       <!-- 系统健康 -->
       <SystemHealth />
 
+      <!-- 【v2.9.105】阶段表 + 扫描频率矩阵 默认折叠 -->
+      <div class="st collapsible" @click="phaseTableExpanded = !phaseTableExpanded" style="margin-top:12px">
+        📅 交易阶段表 · 扫描频率矩阵
+        <span class="collapse-summary">10 个阶段 · 扫描与下单闸锁说明</span>
+        <span class="collapse-arrow">{{ phaseTableExpanded ? '▲' : '▼' }}</span>
+      </div>
+      <template v-if="phaseTableExpanded">
+        <div class="phase-doc">
+          <div class="pd-section">
+            <div class="pd-title">⏰ 完整交易阶段表</div>
+            <table class="pd-table">
+              <thead>
+                <tr><th>阶段</th><th>时间</th><th>扫描</th><th>下单</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>weekend</code></td><td>周六 / 周日</td><td>✅ 低频持仓查</td><td>❌</td><td>调试模式, 60s/轮</td></tr>
+                <tr><td><code>deep_night</code></td><td>23:00-08:00</td><td>💤 30min/次</td><td>❌</td><td>极低频</td></tr>
+                <tr><td><code>premarket</code></td><td>09:00-09:15</td><td>⏸ 120s/次</td><td>❌</td><td>仅持仓跳空检查</td></tr>
+                <tr><td><code>premarket</code></td><td>09:15-09:25</td><td>✅ 60s/次 竞价全市场扫</td><td>❌</td><td>生成今日候选</td></tr>
+                <tr><td><code>auction</code></td><td>09:25-09:30</td><td>✅ 竞价</td><td>❌</td><td>集合竞价不接受订单</td></tr>
+                <tr class="hi"><td><code>morning</code></td><td>09:30-11:30</td><td>✅✅ 主扫 5min/轮 + 持仓 30s</td><td>✅</td><td>早盘 可开仓</td></tr>
+                <tr class="hi-warn"><td><code>lunch</code></td><td>11:30-13:00</td><td>✅✅ 主扫照常跑</td><td>❌</td><td><b>结果被闸锁拦截</b> · A 股午休不接受订单</td></tr>
+                <tr class="hi"><td><code>afternoon</code></td><td>13:00-14:30</td><td>✅✅ 主扫 5min/轮 + 持仓 30s</td><td>✅</td><td>午盘 可开仓</td></tr>
+                <tr><td><code>late_trading</code></td><td>14:30-15:00</td><td>⚠️ 仅持仓查 3s/次</td><td>⚠️ 只能卖</td><td>尾盘 禁开新仓</td></tr>
+                <tr><td><code>after_close</code></td><td>15:05+</td><td>💾 60s/次</td><td>❌</td><td>结算写入 broker_orders</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pd-section">
+            <div class="pd-title">🛡️ 下单闸锁设计 · 3 道防线</div>
+            <ul class="pd-list">
+              <li><b>防线 1</b> <code>scan_loop_runner._scan_loop</code> 主循环按时段降频 · 避免非交易时间点高频驱动</li>
+              <li><b>防线 2</b> <code>_scan_loop_trading</code> 尾盘 (14:30+) 禁开新仓 · 只走止损止盈</li>
+              <li><b>防线 3</b> <code>execute_signals</code> 最后闸锁 · phase 不在 <code>{MORNING, AFTERNOON, LATE_TRADING}</code> 则拦截下单</li>
+            </ul>
+            <div class="pd-note">⚠️ 事故案例 6/16 9:28: 手动 <code>scan_once(force=True)</code> 穿越了交易时段检查, 生成 10 笔未开盘时的伪交易. 防线 3 即为后续修复.</div>
+          </div>
+
+          <div class="pd-section">
+            <div class="pd-title">🍱 lunch 阶段的特殊处理 · 为什么扫描照样跑</div>
+            <ul class="pd-list">
+              <li><b>数据连续性</b> 午休价格走势对下午开盘有参考意义</li>
+              <li><b>scanner 暖机</b> 避免 13:00 启动延迟错过开盘 · 扫描器持续保鲜</li>
+              <li><b>交易所规则</b> A 股 11:30-13:00 撮合停止, 服务器接到订单也不会成交</li>
+            </ul>
+            <div class="pd-note">表现: 你会看到日志 <code>[EXEC] 非交易时间(lunch), 跳过 N 个信号的下单</code> · timeline 写入 blocked 但不影响实盘.</div>
+          </div>
+
+          <div class="pd-section">
+            <div class="pd-title">🎯 数据采集 vs 下单 · 解耦原则</div>
+            <ul class="pd-list">
+              <li>扫描产生信号 = "判断市场状态" · 不受交易时间限制</li>
+              <li>下单 = "执行行动" · 必须在 morning/afternoon/late_trading 三个阶段</li>
+              <li>何时变 blocked 仅仅是 UI 可见性 · 未在账户产生资金变动</li>
+            </ul>
+          </div>
+        </div>
+      </template>
+
       <!-- 手动下单 -->
       <div class="st" style="margin-top:16px">🔧 手动下单</div>
       <div class="mf ops-mf">
@@ -316,6 +378,23 @@ const {
 .st.collapsible { cursor: pointer; user-select: none; &:hover { color: var(--el-color-primary); } }
 .collapse-arrow { font-size: 9px; color: var(--text-tertiary); margin-left: 4px; }
 .collapse-summary { font-size: 10px; color: var(--text-tertiary); margin-left: 6px; font-weight: 400; }
+
+/* 【v2.9.105】阶段表 + 扫描频率矩阵 文档样式 */
+.phase-doc { margin: 8px 0 12px; padding: 10px 12px; background: var(--bg-tertiary, rgba(0,0,0,0.02)); border-radius: 6px; border: 1px solid var(--border-light, rgba(0,0,0,0.05)); }
+.pd-section { margin-bottom: 14px; }
+.pd-section:last-child { margin-bottom: 0; }
+.pd-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.pd-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.pd-table th { text-align: left; padding: 5px 6px; background: var(--bg-base, rgba(0,0,0,0.04)); color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border-default, rgba(0,0,0,0.08)); }
+.pd-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-light, rgba(0,0,0,0.04)); vertical-align: top; }
+.pd-table td code { font-size: 10px; padding: 1px 4px; background: var(--bg-hover, rgba(0,0,0,0.06)); border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Monaco, Consolas, monospace; }
+.pd-table tr.hi td { background: rgba(34,197,94,0.06); }
+.pd-table tr.hi-warn td { background: rgba(250,173,20,0.08); }
+.pd-list { margin: 4px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.7; color: var(--text-secondary); }
+.pd-list li { margin-bottom: 2px; }
+.pd-list li code { font-size: 10px; padding: 1px 4px; background: var(--bg-hover, rgba(0,0,0,0.06)); border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Monaco, Consolas, monospace; }
+.pd-note { margin-top: 5px; padding: 5px 8px; background: rgba(245,158,11,0.06); border-left: 2px solid var(--el-color-warning, #faad14); border-radius: 0 4px 4px 0; font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+.pd-note code { font-size: 10px; padding: 1px 4px; background: var(--bg-hover, rgba(0,0,0,0.06)); border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Monaco, Consolas, monospace; }
 
 .mf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
