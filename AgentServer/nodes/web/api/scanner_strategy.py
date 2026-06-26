@@ -662,3 +662,173 @@ async def get_risk_decisions(trade_date: str = None, limit: int = 50):
         return {"success": True, "data": decisions, "count": len(decisions)}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
+
+
+# ==================== 策略漏斗时序聚合 ====================
+
+@router.get("/funnel-timeseries")
+async def get_funnel_timeseries(trade_date: str = None, interval: int = 1, limit: int = 200):
+    """策略漏斗时序数据(从scan_traces聚合)
+    
+    每轮扫描的9层漏斗通过/拒绝变化趋势。
+    
+    Args:
+        trade_date: 交易日期 YYYYMMDD (可选, 默认最近)
+        interval: 采样间隔(每N轮取1条), 默认1=全部
+        limit: 最大返回条数, 默认200
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": []}
+        
+        # 确定日期
+        if trade_date:
+            td = int(trade_date) if trade_date.isdigit() else trade_date
+        else:
+            latest = await mongo_manager.db["scan_traces"].find_one(
+                {}, sort=[("trade_date", -1)], projection={"trade_date": 1}
+            )
+            if not latest:
+                return {"success": True, "data": []}
+            td = latest["trade_date"]
+        
+        # 查询时序数据
+        cursor = mongo_manager.db["scan_traces"].find(
+            {"trade_date": td, "is_debug": {"$ne": True}},
+            {"scan_time": 1, "summary": 1, "_id": 0}
+        ).sort("_id", 1).limit(limit * interval)
+        
+        points = []
+        idx = 0
+        async for doc in cursor:
+            if idx % interval != 0:
+                idx += 1
+                continue
+            idx += 1
+            summary = doc.get("summary", {})
+            point = {
+                "scan_time": doc.get("scan_time", ""),
+                "total_stocks": summary.get("total_stocks", 0),
+                "total_candidates": summary.get("total_candidates", 0),
+                "passed": summary.get("passed", 0),
+                "rejected": summary.get("rejected", 0),
+                "layers": {},
+            }
+            for layer_name in ["L1_force_empty", "L2_special_period", "L3_sentiment",
+                               "L4_premarket", "L5_auction", "L6_strategy",
+                               "L7_ranking", "L8_position", "L9_execute"]:
+                ld = summary.get(layer_name, {})
+                if isinstance(ld, dict) and ld.get("total", 0) > 0:
+                    point["layers"][layer_name] = {
+                        "input": ld.get("input", 0),
+                        "output": ld.get("output", 0),
+                        "rejected": ld.get("rejected", 0),
+                    }
+            # 策略漏斗
+            sf = summary.get("strategy_funnel", [])
+            if sf:
+                point["strategy_funnel"] = {
+                    s.get("strategy", ""): {
+                        "candidates": s.get("candidates", 0),
+                        "enabled": s.get("enabled", False),
+                    }
+                    for s in sf if isinstance(s, dict)
+                }
+            points.append(point)
+        
+        return {
+            "success": True,
+            "data": points,
+            "count": len(points),
+            "trade_date": td,
+            "interval": interval,
+        }
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+# ==================== 行情快照时序 ====================
+
+@router.get("/quote-snapshots")
+async def get_quote_snapshots(trade_date: str = None, limit: int = 200):
+    """行情快照时序数据(从sentiment_live_log + sentiment_scores聚合)
+    
+    涨跌家数/涨停跌停数/情绪分数的盘中变化趋势。
+    数据来源:
+    - sentiment_live_log: 盘中每次情绪计算(7维, 含涨跌家数)
+    - sentiment_scores: 盘后最终值(fallback)
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": []}
+        
+        # 确定日期
+        if trade_date:
+            td = int(trade_date) if trade_date.isdigit() else trade_date
+        else:
+            latest = await mongo_manager.db["sentiment_scores"].find_one(
+                {}, sort=[("trade_date", -1)], projection={"trade_date": 1}
+            )
+            if not latest:
+                return {"success": True, "data": []}
+            td = latest["trade_date"]
+        
+        points = []
+        
+        # 1. 优先从 sentiment_live_log 取盘中时序
+        cursor = mongo_manager.db["sentiment_live_log"].find(
+            {"trade_date": td},
+            {"_id": 0, "scan_time": 1, "time": 1, "score": 1, "phase": 1,
+             "limit_up": 1, "limit_down": 1, "up_down_ratio": 1,
+             "max_continue": 1, "zt_premium": 1, "broken": 1, "broken_rate": 1,
+             "position_ratio": 1, "breakdown": 1}
+        ).sort("_id", 1).limit(limit)
+        
+        async for doc in cursor:
+            points.append({
+                "time": doc.get("time", doc.get("scan_time", "")),
+                "score": doc.get("score", 0),
+                "phase": doc.get("phase", ""),
+                "limit_up": doc.get("limit_up", 0),
+                "limit_down": doc.get("limit_down", 0),
+                "up_down_ratio": doc.get("up_down_ratio", 0),
+                "max_continue": doc.get("max_continue", 0),
+                "zt_premium": doc.get("zt_premium", 0),
+                "broken": doc.get("broken", 0),
+                "broken_rate": doc.get("broken_rate", 0),
+                "position_ratio": doc.get("position_ratio", 0),
+                "breakdown": doc.get("breakdown", {}),
+                "source": "live_log",
+            })
+        
+        # 2. fallback: 如果 live_log 没数据, 从 sentiment_scores 取
+        if not points:
+            ss = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": td})
+            if ss:
+                points.append({
+                    "time": ss.get("updated_at", ""),
+                    "score": ss.get("score", 0),
+                    "phase": ss.get("period_raw", ""),
+                    "limit_up": ss.get("limit_up", 0),
+                    "limit_down": ss.get("limit_down", 0),
+                    "up_down_ratio": ss.get("up_down_ratio", 0),
+                    "max_continue": ss.get("max_continue", 0),
+                    "zt_premium": ss.get("zt_premium", 0),
+                    "broken": ss.get("broken", 0),
+                    "broken_rate": ss.get("broken_rate", 0),
+                    "position_ratio": ss.get("position_ratio", 0),
+                    "up_count": ss.get("up_count", 0),
+                    "down_count": ss.get("down_count", 0),
+                    "source": "sentiment_scores",
+                })
+        
+        return {
+            "success": True,
+            "data": points,
+            "count": len(points),
+            "trade_date": td,
+        }
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
