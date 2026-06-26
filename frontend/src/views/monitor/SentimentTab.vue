@@ -197,15 +197,26 @@ function scoreColor(s: number): string {
   return '#67c23a'
 }
 function periodCN(p: string): string {
-  const map: Record<string, string> = { mania: '🔥高潮', greed: '😄贪婪', chaos: '🌀混沌', anxiety: '😰焦虑', panic: '😱恐慌', depression: '🥶冰点' }
+  const map: Record<string, string> = {
+    // 后端intraday返回英文
+    rising: '🔥高潮', differentiation: '⚡分化', chaos: '🌀震荡', bearish: '🥶冰点',
+    // 后端daily返回中文
+    '高潮': '🔥高潮', '分化': '⚡分化', '震荡': '🌀震荡', '冰点': '🥶冰点',
+  }
   return map[p] || p
 }
 function periodColor(p: string): string {
-  const map: Record<string, string> = { mania: '#f56c6c', greed: '#e6a23c', chaos: '#409eff', anxiety: '#909399', panic: '#67c23a', depression: '#67c23a' }
+  const map: Record<string, string> = {
+    rising: '#f56c6c', differentiation: '#e6a23c', chaos: '#409eff', bearish: '#67c23a',
+    '高潮': '#f56c6c', '分化': '#e6a23c', '震荡': '#409eff', '冰点': '#67c23a',
+  }
   return map[p] || '#909399'
 }
 function periodPct(p: string): number {
-  const map: Record<string, number> = { mania: 90, greed: 72, chaos: 50, anxiety: 30, panic: 15, depression: 8 }
+  const map: Record<string, number> = {
+    rising: 90, differentiation: 62, chaos: 45, bearish: 12,
+    '高潮': 90, '分化': 62, '震荡': 45, '冰点': 12,
+  }
   return map[p] || 50
 }
 let liveLogTimer: number | undefined
