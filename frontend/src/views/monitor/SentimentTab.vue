@@ -33,7 +33,8 @@ const logExpanded = ref(false)
 const guideExpanded = ref(false)
 const downgradeExpanded = ref(false)
 const matrixExpanded = ref(false)
-const algoExpanded = ref(false)
+const algoDimExpanded = ref(false)
+const algoSourceExpanded = ref(false)
 
 // ===== 最新日内点 =====
 const intradayLatest = computed(() => {
@@ -260,17 +261,17 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         <div class="sc-x-labels"><span v-for="(lbl,i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
       </div>
       <div class="review-section">
-        <span class="section-title title-purple" style="cursor:pointer" @click="algoExpanded=!algoExpanded">📐 算法日内8维 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoExpanded" class="section-detail">D1涨停(0-20) D2跌停(0-15) D3涨跌比(0-15) D4动量(-5~10) D5炸板率(0-10) D6连板(0-10) D7昨溢价(0-5) D8今溢价(0-5)</span>
+        <span class="section-title title-purple" style="cursor:pointer" @click="algoDimExpanded=!algoDimExpanded">📐 算法日内8维 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoDimExpanded?'▼':'▶' }}</span></span>
+        <span v-if="!algoDimExpanded" class="section-detail">D1涨停(0-20) D2跌停(0-15) D3涨跌比(0-15) D4动量(-5~10) D5炸板率(0-10) D6连板(0-10) D7昨溢价(0-5) D8今溢价(0-5)</span>
       </div>
-      <div v-if="algoExpanded" class="dev-card" style="margin-top:2px">
+      <div v-if="algoDimExpanded" class="dev-card" style="margin-top:2px">
         <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>D1涨停</b>(0-20) <b>D2跌停</b>(0-15) <b>D3涨跌比</b>(0-15) <b>D4动量</b>(-5~10) <b>D5炸板率</b>(0-10) <b>D6连板</b>(0-10) <b>D7昨溢价</b>(0-5) <b>D8今溢价</b>(0-5)<br>≥70🔥 | ≥55⚡ | ≥40🌀 | &lt;40🥶</div>
       </div>
       <div class="review-section">
-        <span class="section-title title-cyan" style="cursor:pointer" @click="algoExpanded=!algoExpanded">📊 数据源 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoExpanded" class="section-detail">盘中 Scanner 8维 | 炸板 limit_list | 历史 5维+8维</span>
+        <span class="section-title title-cyan" style="cursor:pointer" @click="algoSourceExpanded=!algoSourceExpanded">📊 数据源 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoSourceExpanded?'▼':'▶' }}</span></span>
+        <span v-if="!algoSourceExpanded" class="section-detail">盘中 Scanner 8维 | 炸板 limit_list | 历史 5维+8维</span>
       </div>
-      <div v-if="algoExpanded" class="dev-card" style="margin-top:2px">
+      <div v-if="algoSourceExpanded" class="dev-card" style="margin-top:2px">
         <div style="font-size:10px;color:var(--text-secondary);line-height:1.6"><b>盘中</b> Scanner 8维公式 5min采样 | <b>炸板</b> limit_list.open_times<br><b>历史</b> sentiment_scores(5维) + sentiment_live_log(8维)</div>
       </div>
     </div>
