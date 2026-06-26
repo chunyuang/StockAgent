@@ -143,9 +143,31 @@ class RuntimePersistence:
                 if "pending_sells" in doc:
                     scanner._pending_sells = doc["pending_sells"]
                     logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
+                if "pending_orders" in doc:
+                    scanner._pending_orders = doc["pending_orders"]
+                    if scanner._pending_orders:
+                        logger.info(f"[SNAPSHOT] 恢复待处理订单: {len(scanner._pending_orders)}只")
                 if "premarket_force_empty_state" in doc:
                     scanner._premarket_force_empty_state = doc["premarket_force_empty_state"]
                     logger.info(f"[SNAPSHOT] 恢复竞价空仓状态: 确认{scanner._premarket_force_empty_state.get('confirm_count', 0)}次")
+                # 日内业务状态
+                if "current_position_ratio" in doc:
+                    scanner._current_position_ratio = doc["current_position_ratio"]
+                if "current_sentiment" in doc:
+                    scanner._current_sentiment = doc["current_sentiment"]
+                    logger.info(f"[SNAPSHOT] 恢复情绪状态: score={scanner._current_sentiment.get('score','?')} phase={scanner._current_sentiment.get('period','?')}")
+                if "execution_stats" in doc:
+                    scanner._execution_stats.update(doc["execution_stats"])
+                if "last_scan_ts" in doc:
+                    scanner._last_scan_ts = doc["last_scan_ts"]
+                if "last_scan_duration_ms" in doc:
+                    scanner._last_scan_duration_ms = doc["last_scan_duration_ms"]
+                if "scan_loop_error_count" in doc:
+                    scanner._scan_loop_error_count = doc["scan_loop_error_count"]
+            # filter_pipeline 情绪分数(独立恢复)
+            if "sentiment_score" in doc and scanner._filter_pipeline:
+                scanner._filter_pipeline._sentiment_score = doc["sentiment_score"]
+                logger.info(f"[SNAPSHOT] 恢复filter情绪分: {doc['sentiment_score']}")
         
         # === 跨日恢复: 风控状态(跨日有效) ===
         with scanner._state_lock:
@@ -232,6 +254,18 @@ class RuntimePersistence:
         # 竞价空仓确认状态(盘前关键)
         if hasattr(scanner, '_premarket_force_empty_state'):
             doc["premarket_force_empty_state"] = dict(scanner._premarket_force_empty_state)
+        # 【v2.9.106】完整持久化 - 所有业务状态字段
+        with scanner._state_lock:
+            doc["pending_orders"] = dict(getattr(scanner, '_pending_orders', {}))
+            doc["current_position_ratio"] = getattr(scanner, '_current_position_ratio', 1.0)
+            doc["current_sentiment"] = dict(getattr(scanner, '_current_sentiment', {}) or {})
+            doc["execution_stats"] = dict(getattr(scanner, '_execution_stats', {}))
+            doc["last_scan_ts"] = getattr(scanner, '_last_scan_ts', None)
+            doc["last_scan_duration_ms"] = getattr(scanner, '_last_scan_duration_ms', 0)
+            doc["scan_loop_error_count"] = getattr(scanner, '_scan_loop_error_count', 0)
+        # filter_pipeline 的情绪分数(独立于 _current_sentiment)
+        if scanner._filter_pipeline:
+            doc["sentiment_score"] = getattr(scanner._filter_pipeline, '_sentiment_score', 50.0)
         return doc
 
     async def _save_snapshot_mongo(self, scanner, doc: Dict, now: float) -> bool:
