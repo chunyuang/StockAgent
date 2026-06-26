@@ -1397,8 +1397,12 @@ async def get_kline_data(ts_code: str, days: int = 30):
 
 
 @router.get("/position-risk-matrix")
-async def get_position_risk_matrix():
-    """持仓风控矩阵 + 全局风险仪表"""
+async def get_position_risk_matrix(date: str = None):
+    """持仓风控矩阵 + 全局风险仪表，支持历史日期查询"""
+    from nodes.web.api.unified import _normalize_date
+    date_int = _normalize_date(date)
+    today_int = int(__import__('datetime').datetime.now().strftime("%Y%m%d"))
+    is_historical = date_int is not None and date_int != today_int
     scanner = await _get_scanner()
     if not scanner._broker:
         # Scanner未运行时: 从MongoDB直接构建风控矩阵(和analysis API同源)
@@ -1429,8 +1433,15 @@ async def get_position_risk_matrix():
             total_mv = 0
             
             positions_data = []
-            async for doc in db["broker_positions"].find({"account_id": "default"}):
-                positions_data.append(doc)
+            if is_historical:
+                # 历史日期: 从broker_orders重建持仓
+                from nodes.web.api.unified import fetch_unified_positions
+                account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+                pos_result = await fetch_unified_positions(date=str(date_int), account_id=account_id)
+                positions_data = pos_result if isinstance(pos_result, list) else pos_result.get("positions", []) if isinstance(pos_result, dict) else []
+            else:
+                async for doc in db["broker_positions"].find({"account_id": "default"}):
+                    positions_data.append(doc)
             
             for pos_doc in positions_data:
                 cost = pos_doc.get("avg_cost", 0)

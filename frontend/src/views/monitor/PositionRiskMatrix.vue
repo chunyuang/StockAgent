@@ -5,6 +5,8 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
+import UnifiedDateBar from './components/UnifiedDateBar.vue'
+import { getChinaDate } from '@/utils/chinaDate'
 
 
 interface RiskPosition {
@@ -26,10 +28,14 @@ const globalRisk = ref<GlobalRisk | null>(null)
 const loading = ref(false)
 const isFallback = ref(false)
 
+const selectedDate = ref(getChinaDate())
+
 async function fetchData() {
   loading.value = true
   try {
-    const r: any = await api.get('/scanner/position-risk-matrix')
+    const params: any = {}
+    if (selectedDate.value) params.date = selectedDate.value
+    const r: any = await api.get('/scanner/position-risk-matrix', { params })
     if (r?.success) {
       positions.value = Array.isArray(r.data?.positions) ? r.data.positions : []
       globalRisk.value = r.data?.global || null
@@ -80,6 +86,7 @@ onUnmounted(() => clearInterval(timer))
   <div class="risk-matrix">
     <div class="rm-header">
       <span class="rm-title">🛡️ 风控矩阵</span>
+      <UnifiedDateBar :modelValue="selectedDate" @change="(d: string) => { selectedDate = d; fetchData() }" />
       <span v-if="isFallback" style="font-size:10px;color:var(--el-color-warning);margin-right:6px">📜历史数据</span>
       <span class="rm-refresh cp" @click="fetchData">🔄</span>
     </div>
