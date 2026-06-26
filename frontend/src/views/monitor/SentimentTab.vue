@@ -73,8 +73,8 @@ const intradayChartOption = computed(() => {
 })
 
 // ===== 日线 =====
-const dailyScorePoints = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); return tl.map((p: any, i: number) => { const prefix = (p.missing_data && i > 0) ? 'M' : 'L'; return `${i===0?'M':'L'}${i*20},${100-(p.score||0)}` }).join(' ') })
-const dailyMissingSegments = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); const segs: string[] = []; let inMissing = false; tl.forEach((p: any, i: number) => { if (p.missing_data && !inMissing) { inMissing = true; segs.push(`M${i*20},${100-(p.score||0)}`) } else if (p.missing_data && inMissing) { segs.push(`L${i*20},${100-(p.score||0)}`) } else if (!p.missing_data && inMissing) { inMissing = false } }); return segs.join(' ') })
+const dailyScorePoints = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); return tl.map((p: any, i: number) => `${i*20},${100-(p.score||0)}`).join(' ') })
+const dailyMissingSegments = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); const segs: string[] = []; let inMissing = false; tl.forEach((p: any, i: number) => { if (p.missing_data && !inMissing) { inMissing = true; segs.push(`${i*20},${100-(p.score||0)}`) } else if (p.missing_data && inMissing) { segs.push(`${i*20},${100-(p.score||0)}`) } else if (!p.missing_data && inMissing) { inMissing = false } }); return segs.join(' ') })
 const scoredTimeline = computed(() => (displayTimeline.value as any[]).filter((p: any) => p.score != null))
 function matrixTotal(periods: Record<string,any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as any).count||0), 0) }
 function dailyDotBottom(p: any): number { return p.score||0 }
@@ -170,6 +170,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
           </div>
         </div>
         <div class="sc-x-labels"><span v-for="(lbl,i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
+        <div v-if="dailyMissingSegments" class="sc-legend"><span style="display:inline-block;width:20px;height:2px;background:var(--el-color-warning);border-top:2px dashed var(--el-color-warning);margin-right:4px;vertical-align:middle"></span><span style="font-size:10px;color:var(--text-tertiary)">缺失数据</span></div>
       </div>
 
       <!-- ========== 所有模式共享的折叠section ========== -->
@@ -365,6 +366,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 .sc-hover-score.cold { color: #67c23a; }
 .sc-hover-detail { color: var(--text-tertiary); margin-top: 2px; }
 .sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px 4px 40px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
+.sc-legend { display: flex; align-items: center; gap: 2px; padding: 2px 8px 2px 40px; }
 
 .phase-guide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 2px; }
 .phase-card { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; opacity: 0.6; }
