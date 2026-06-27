@@ -504,6 +504,40 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
         # 【v2.9.93b重构】抽出 _compute_positions_from_broker 独立函数，方便复用+测试
         positions = await _compute_positions_from_broker(mongo_manager.db)
 
+        # 8. 基准数据(沪深300同期涨跌，从东方财富API获取)
+        benchmark = []
+        try:
+            if daily_detail:
+                import requests as _req
+                dates_sorted = sorted([str(d["date"]).replace("-", "") for d in daily_detail if d.get("date")])
+                if dates_sorted:
+                    _bm_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+                    _bm_params = {"secid": "1.000300", "fields1": "f1,f2,f3", "fields2": "f51,f52,f53,f54,f55",
+                                  "klt": "101", "fqt": "1", "beg": dates_sorted[0], "end": dates_sorted[-1]}
+                    _bm_resp = _req.get(_bm_url, params=_bm_params, timeout=5)
+                    _bm_klines = _bm_resp.json().get("data", {}).get("klines", [])
+                    cum_ret = 0
+                    for kl in _bm_klines:
+                        parts = kl.split(",")
+                        if len(parts) >= 5:
+                            dt = parts[0].replace("-", "")
+                            close = float(parts[2])
+                            pre_close = float(parts[1]) if parts[1] else close
+                            pct = ((close / pre_close) - 1) * 100 if pre_close else 0
+                            cum_ret += pct
+                            benchmark.append({"date": dt, "close": round(close, 2), "pct_chg": round(pct, 2), "cum_return": round(cum_ret, 2)})
+        except Exception:
+            pass
+
+        # 9. 风控触发历史(最近20条)
+        risk_events = []
+        try:
+            risk_events = await mongo_manager.db["risk_decisions"].find(
+                {}, {"_id": 0}
+            ).sort("timestamp", -1).to_list(20)
+        except Exception:
+            pass
+
         return {"success": True, "data": {
             "kpi": kpi,
             "strategy_contrib": strategy_contrib,
@@ -516,6 +550,8 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             "risk_monitor": _get_risk_monitor_status(),
             # 【v2.9.92o】账户信息(直接从MongoDB读，不依赖scanner运行)
             "account": (await _get_account_from_mongo()) or {"account_id": "default", "total_assets": 0, "available_cash": 0, "market_value": 0, "total_cost": 0, "total_profit": 0, "position_count": 0, "position_ratio": 0},
+            "benchmark": benchmark,
+            "risk_events": risk_events,
         }}
     except Exception as e:
         import traceback
