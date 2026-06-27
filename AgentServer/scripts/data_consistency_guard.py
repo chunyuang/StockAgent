@@ -87,12 +87,11 @@ async def main():
                            f"¥{total_market:,.0f}", f"¥{acct_market_value:,.0f}",
                            f"差额¥{acct_market_value-total_market:,.0f}, 可能是成本价代市价"))
 
-        # 2b. broker_accounts.total_profit vs 实际总盈亏
-        acct_implied_total = acct.get("total_assets", 1000000) - 1000000
-        if abs(acct_implied_total - total_pnl_all) / max(abs(total_pnl_all), 1) > 0.1:
-            issues.append(("P0", "account.total_assets-100万 vs KPI总盈亏 偏差>10%",
-                           f"¥{total_pnl_all:,.0f}", f"¥{acct_implied_total:,.0f}",
-                           f"差额¥{acct_implied_total-total_pnl_all:,.0f}"))
+        # 2b. account.total_profit vs 未实现盈亏(market_value - total_cost)
+        if total_cost > 0 and abs(acct_total_profit - (total_market - total_cost)) / max(abs(total_market - total_cost), 1) > 0.1:
+            issues.append(("P1", "account.total_profit ≠ 市值-成本(未实现盈亏)",
+                           f"¥{total_market-total_cost:,.0f}", f"¥{acct_total_profit:,.0f}",
+                           f"差额¥{acct_total_profit-(total_market-total_cost):,.0f}"))
 
     # === 3. 胜率交叉验证 ===
     actual_win_rate = round(wins / len(sells) * 100, 1) if sells else 0
