@@ -104,7 +104,7 @@ const positions = computed(() => {
 const totalAssets = computed(() => acc.value.total_assets || 0)
 const availableCash = computed(() => acc.value.available_cash || 0)
 const marketValue = computed(() => acc.value.market_value || positions.value.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
-const totalProfit = computed(() => totalAssets.value - 1000000)
+const totalProfit = computed(() => kpiData.value?.kpi?.total_pnl_all || (totalAssets.value - 1000000))
 const positionRatio = computed(() => totalAssets.value > 0 ? marketValue.value / totalAssets.value * 100 : 0)
 const riskParams = GLOBAL_RISK  // 前端参数与后端strategy_defaults.py完全对齐(由sync脚本同步)
 const brokenSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken'))
@@ -131,8 +131,12 @@ const fmtPct = (v: number) => {
 }
 
 const realizedPnl = computed(() => {
-  const positions_pnl = positions.value.reduce((s: number, p: any) => s + (p.profit_amount || 0), 0)
-  return totalProfit.value - positions_pnl
+  // 已实现盈亏 = 后端KPI的total_profit(从卖出记录修正后汇总)
+  // 不用 totalProfit - positions_pnl，那个公式把浮盈浮亏加了两次
+  return kpiData.value?.kpi?.total_profit || 0
+})
+const unrealizedPnl = computed(() => {
+  return kpiData.value?.kpi?.unrealized_pnl || positions.value.reduce((s: number, p: any) => s + (p.profit_amount || 0), 0)
 })
 
 // ===== 资金曲线 =====
@@ -278,7 +282,8 @@ const posPie = computed(() => {
             <div class="eq-row eq-head"><span class="eq-label">项目</span><span class="eq-val">金额</span><span class="eq-pct">占比</span></div>
             <div class="eq-row"><span class="eq-label">初始资金</span><span class="eq-val">¥1,000,000</span><span class="eq-pct muted">—</span></div>
             <div class="eq-row"><span class="eq-label">已实现盈亏</span><span :class="['eq-val', cls(realizedPnl)]">{{ fmtPnl(realizedPnl) }}</span><span class="eq-pct muted">{{ (realizedPnl / 1000000 * 100).toFixed(2) }}%</span></div>
-            <div class="eq-sep"><span>── 持仓浮盈浮亏 ──</span></div>
+            <div class="eq-row"><span class="eq-label">未实现盈亏</span><span :class="['eq-val', cls(unrealizedPnl)]">{{ fmtPnl(unrealizedPnl) }}</span><span class="eq-pct muted">{{ (unrealizedPnl / 1000000 * 100).toFixed(2) }}%</span></div>
+            <div class="eq-sep"><span>── 持仓浮盈浮亏明细 ──</span></div>
             <div v-for="p in positions" :key="p.ts_code" class="eq-row eq-pos">
               <span class="eq-label"><span class="eq-pos-dot" :style="{background: (p.profit_pct||0)>=0?'#f56c6c':'#409eff'}"></span>{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
               <span :class="['eq-val', cls(p.profit_amount || 0)]">{{ fmtPnl(p.profit_amount || 0) }}</span>

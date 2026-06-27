@@ -217,7 +217,7 @@ const metricGroups = computed(() => {
   const k = kpi.value
   return [
     { title: '📈 收益指标', items: [
-      { name: '累计收益率', value: fmtPct(k.annual_return === 999.99 ? (k.total_pnl_all||0)/1000000*100 : k.annual_return), desc: '策略总收益' },
+      { name: '累计收益率', value: fmtPct((k.total_pnl_all||0)/1000000*100), desc: '策略总收益' },
       { name: '已实现盈亏', value: fmtPnl(k.total_profit||0), desc: '已平仓' },
       { name: '未实现盈亏', value: fmtPnl(k.unrealized_pnl||0), desc: '持仓浮盈浮亏' },
       { name: '期望值', value: fmtPnl(k.expectancy||0), desc: '每笔期望盈亏' },
