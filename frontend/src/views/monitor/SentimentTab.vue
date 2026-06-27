@@ -203,39 +203,39 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         <span class="section-title title-blue" style="cursor:pointer" @click="statusExpanded=!statusExpanded">🌡 当前状态 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ statusExpanded?'▼':'▶' }}</span></span>
         <span v-if="!statusExpanded&&sentimentLive" class="section-detail">情绪<b :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}分</b>{{ sentimentLive.period_label||sentimentLive.period }} | 建议仓位<b>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</b> | 涨停<b class="up">{{ sentimentLive.limit_up_count||0 }}</b> 跌停<b class="down">{{ sentimentLive.limit_down_count||0 }}</b> 炸板<b>{{ sentimentLive.broken_count||0 }}</b> | 开仓<b>{{ sentimentLive.can_open!==false?'✅允许':'❌禁止' }}</b></span>
       </div>
-      <div v-if="statusExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
-        <div class="dev-title">🌡 当前状态</div>
-        <div class="dev-row"><span>情绪分</span><span :style="{color:scoreColor(sentimentLive.score||0),fontWeight:700}">{{ (sentimentLive.score||0).toFixed(0) }}</span></div>
-        <div class="dev-row"><span>周期</span><span>{{ sentimentLive.period_label||sentimentLive.period }}</span></div>
-        <div class="dev-row"><span>仓位系数</span><span>{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}%</span></div>
-        <div class="dev-row"><span>允许开仓</span><span :style="{color:sentimentLive.can_open!==false?'#67c23a':'#f56c6c'}">{{ sentimentLive.can_open!==false?'✅ 是':'❌ 否' }}</span></div>
-        <div class="dev-row"><span>涨停</span><span class="up">{{ sentimentLive.limit_up_count||0 }}</span></div>
-        <div class="dev-row"><span>跌停</span><span class="down">{{ sentimentLive.limit_down_count||0 }}</span></div>
-        <div class="dev-row"><span>炸板</span><span>{{ sentimentLive.broken_count||0 }}(<b>{{ (sentimentLive.broken_rate||0).toFixed(1) }}%</b>)</span></div>
+      <div v-if="statusExpanded&&sentimentLive" class="st-grid" style="margin-top:2px">
+        <div class="st-card"><div class="st-label">情绪分</div><div class="st-val" :style="{color:scoreColor(sentimentLive.score||0)}">{{ (sentimentLive.score||0).toFixed(0) }}<small>分</small></div></div>
+        <div class="st-card"><div class="st-label">周期</div><div class="st-val">{{ sentimentLive.period_label||sentimentLive.period }}</div></div>
+        <div class="st-card"><div class="st-label">建议仓位</div><div class="st-val">{{ ((sentimentLive.position_ratio||0)*100).toFixed(0) }}<small>%</small></div></div>
+        <div class="st-card"><div class="st-label">允许开仓</div><div class="st-val" :style="{color:sentimentLive.can_open!==false?'#67c23a':'#f56c6c'}">{{ sentimentLive.can_open!==false?'✅ 允许':'❌ 禁止' }}</div></div>
+        <div class="st-card"><div class="st-label">涨停</div><div class="st-val up">{{ sentimentLive.limit_up_count||0 }}</div></div>
+        <div class="st-card"><div class="st-label">跌停</div><div class="st-val down">{{ sentimentLive.limit_down_count||0 }}</div></div>
+        <div class="st-card"><div class="st-label">炸板</div><div class="st-val">{{ sentimentLive.broken_count||0 }}<small>{{ (sentimentLive.broken_rate||0).toFixed(1) }}%</small></div></div>
+        <div class="st-card"><div class="st-label">连板</div><div class="st-val">{{ sentimentLive.max_continue||0 }}</div></div>
       </div>
 
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="dimExpanded=!dimExpanded">🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dimExpanded?'▼':'▶' }}</span></span>
         <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">涨停贡献<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> 跌停惩罚<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> 涨跌比<b>{{ sentimentLive.dimensions.d3_up_down }}/15</b> 动量<b>{{ sentimentLive.dimensions.d4_momentum }}/10</b> 炸板率<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> 连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b> 昨溢价<b>{{ sentimentLive.dimensions.d7_zt_premium }}/5</b> 今溢价<b>{{ sentimentLive.dimensions.d8_today_premium }}/5</b></template><template v-else>涨停贡献<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 跌停<b>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b> 涨跌比<b>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</b> 溢价<b>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</b></template></span>
       </div>
-      <div v-if="dimExpanded&&sentimentLive" class="dev-card" style="margin-top:2px">
+      <div v-if="dimExpanded&&sentimentLive" class="dim-grid" style="margin-top:2px">
         <template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">
-          <div class="dev-row"><span>D1 涨停</span><span>{{ sentimentLive.dimensions.d1_limit_up }}/20</span></div>
-          <div class="dev-row"><span>D2 跌停</span><span>{{ sentimentLive.dimensions.d2_limit_down }}/15</span></div>
-          <div class="dev-row"><span>D3 涨跌比</span><span>{{ sentimentLive.dimensions.d3_up_down }}/15</span></div>
-          <div class="dev-row"><span>D4 动量</span><span>{{ sentimentLive.dimensions.d4_momentum }}/10</span></div>
-          <div class="dev-row"><span>D5 炸板率</span><span>{{ sentimentLive.dimensions.d5_broken_rate }}/10</span></div>
-          <div class="dev-row"><span>D6 连板</span><span>{{ sentimentLive.dimensions.d6_max_continue }}/10</span></div>
-          <div class="dev-row"><span>D7 昨溢价</span><span>{{ sentimentLive.dimensions.d7_zt_premium }}/5</span></div>
-          <div class="dev-row"><span>D8 今溢价</span><span>{{ sentimentLive.dimensions.d8_today_premium }}/5</span></div>
+          <div class="dim-card"><div class="dim-label">D1 涨停贡献</div><div class="dim-val">{{ sentimentLive.dimensions.d1_limit_up }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d1_limit_up||0)/20*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D2 跌停惩罚</div><div class="dim-val">{{ sentimentLive.dimensions.d2_limit_down }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:((sentimentLive.dimensions.d2_limit_down||0)/15*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D3 涨跌比</div><div class="dim-val">{{ sentimentLive.dimensions.d3_up_down }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d3_up_down||0)/15*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D4 动量</div><div class="dim-val">{{ sentimentLive.dimensions.d4_momentum }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:Math.max(0,((sentimentLive.dimensions.d4_momentum||0)+5)/15*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D5 炸板率</div><div class="dim-val">{{ sentimentLive.dimensions.d5_broken_rate }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:((sentimentLive.dimensions.d5_broken_rate||0)/10*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D6 连板高度</div><div class="dim-val">{{ sentimentLive.dimensions.d6_max_continue }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d6_max_continue||0)/10*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D7 昨日溢价</div><div class="dim-val">{{ sentimentLive.dimensions.d7_zt_premium }}<small>/5</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d7_zt_premium||0)/5*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">D8 今日溢价</div><div class="dim-val">{{ sentimentLive.dimensions.d8_today_premium }}<small>/5</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d8_today_premium||0)/5*100)+'%'}"></div></div></div>
         </template>
         <template v-else>
-          <div class="dev-row"><span>涨停贡献</span><span>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</span></div>
-          <div class="dev-row"><span>跌停扣分</span><span>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</span></div>
-          <div class="dev-row"><span>连板高度</span><span>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</span></div>
-          <div class="dev-row"><span>涨跌比</span><span>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</span></div>
-          <div class="dev-row"><span>涨停溢价</span><span>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</span></div>
-          <div style="font-size:10px;color:var(--text-quaternary);margin-top:4px">5维盘后(无8维实时)</div>
+          <div class="dim-card"><div class="dim-label">涨停贡献</div><div class="dim-val">{{ Math.min(30,sentimentLive.limit_up_count||0) }}<small>/30</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(30,sentimentLive.limit_up_count||0)/30*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">跌停扣分</div><div class="dim-val">{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:(Math.max(0,20-(sentimentLive.limit_down_count||0)*2)/20*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">连板高度</div><div class="dim-val">{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(20,(sentimentLive.max_continue||0)*2)/20*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">涨跌比</div><div class="dim-val">{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15))/15*100)+'%'}"></div></div></div>
+          <div class="dim-card"><div class="dim-label">涨停溢价</div><div class="dim-val">{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0)))/15*100)+'%'}"></div></div></div>
+          <div class="dim-card dim-bad" style="grid-column:span 3"><div class="dim-label">5维盘后模式</div><div class="dim-val" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">无8维实时数据，使用5维盘后公式估算</div></div>
         </template>
       </div>
 
@@ -350,34 +350,34 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 .section-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.6; flex-basis: calc(100% - 110px); flex-shrink: 1; overflow: visible; }
 .section-detail b { font-weight: 600; color: var(--text-primary); font-size: 12px; margin: 0 1px; }
 
-.intraday-hero { padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; border: 1px solid var(--border-default); }
+.intraday-hero { padding: 4px 8px; border-radius: 4px; margin-bottom: 2px; border: 1px solid var(--border-default); }
 .intraday-hero.hot { background: linear-gradient(135deg, rgba(245,108,108,0.12), rgba(245,108,108,0.03)); border-color: rgba(245,108,108,0.25); }
 .intraday-hero.warm { background: linear-gradient(135deg, rgba(64,158,255,0.10), rgba(230,162,60,0.03)); border-color: rgba(64,158,255,0.18); }
 .intraday-hero.neutral { background: linear-gradient(135deg, rgba(230,162,60,0.08), rgba(230,162,60,0.02)); border-color: rgba(230,162,60,0.18); }
 .intraday-hero.cold { background: linear-gradient(135deg, rgba(103,194,58,0.10), rgba(103,194,58,0.03)); border-color: rgba(103,194,58,0.18); }
-.ih-top { display: flex; align-items: center; gap: 12px; }
-.ih-score-col { display: flex; flex-direction: column; align-items: center; min-width: 56px; }
-.ih-big-score { font-size: 32px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
+.ih-top { display: flex; align-items: center; gap: 8px; }
+.ih-score-col { display: flex; flex-direction: column; align-items: center; min-width: 48px; }
+.ih-big-score { font-size: 28px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
 .ih-score-unit { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
 .ih-info-col { flex: 1; }
-.ih-conclusion { font-size: 14px; font-weight: 700; line-height: 1.4; }
+.ih-conclusion { font-size: 13px; font-weight: 700; line-height: 1.3; }
 .ih-period { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 .ih-period b { font-weight: 600; color: var(--text-primary); margin: 0 2px; }
-.ih-market-row { display: flex; gap: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(128,128,128,0.12); font-size: 12px; color: var(--text-secondary); }
-.im-item b { font-weight: 700; font-size: 13px; margin-left: 2px; }
+.ih-market-row { display: flex; gap: 10px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(128,128,128,0.10); font-size: 11px; color: var(--text-secondary); }
+.im-item b { font-weight: 700; font-size: 12px; margin-left: 2px; }
 .im-item small { font-size: 10px; color: var(--text-tertiary); margin-left: 2px; }
 .im-up b { color: #f56c6c; }
 .im-down b { color: #409eff; }
 .im-warn b { color: #e6a23c; }
 
-.dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 4px; }
-.dim-card { padding: 6px 8px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border-default); transition: border-color 0.2s; }
+.dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-bottom: 2px; }
+.dim-card { padding: 4px 6px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border-default); transition: border-color 0.2s; }
 .dim-card.dim-good { border-color: rgba(103,194,58,0.4); }
 .dim-card.dim-bad { border-color: rgba(245,108,108,0.4); }
 .dim-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
-.dim-val { font-size: 16px; font-weight: 800; line-height: 1.2; }
+.dim-val { font-size: 14px; font-weight: 800; line-height: 1.2; }
 .dim-val small { font-size: 11px; font-weight: 400; color: var(--text-tertiary); }
-.dim-bar { height: 3px; background: rgba(128,128,128,0.1); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.dim-bar { height: 2px; background: rgba(128,128,128,0.1); border-radius: 1px; margin-top: 3px; overflow: hidden; }
 .dim-fill { height: 100%; background: var(--el-color-primary); border-radius: 2px; transition: width 0.3s; }
 .dim-fill-warn { background: #e6a23c; }
 
@@ -429,6 +429,12 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
+
+.st-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-bottom: 2px; }
+.st-card { padding: 4px 6px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border-default); text-align: center; }
+.st-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 1px; }
+.st-val { font-size: 14px; font-weight: 800; line-height: 1.2; }
+.st-val small { font-size: 10px; font-weight: 400; color: var(--text-tertiary); margin-left: 1px; }
 
 .algo-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
 .algo-tbl th { padding: 4px 6px; background: var(--bg-secondary); font-weight: 600; color: var(--text-tertiary); text-align: left; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
