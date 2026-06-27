@@ -4,11 +4,11 @@ import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, LineChart, BarChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent } from 'echarts/components'
+import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
-use([CanvasRenderer, PieChart, LineChart, BarChart, TooltipComponent, LegendComponent])
+use([CanvasRenderer, PieChart, LineChart, BarChart, TooltipComponent, LegendComponent, GridComponent])
 import { GLOBAL_RISK } from '@/config/strategyDefaults'
 import { useUnifiedData } from './composables/useUnifiedData'
 
