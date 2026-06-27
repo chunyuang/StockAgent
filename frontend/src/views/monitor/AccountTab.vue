@@ -16,6 +16,8 @@ const c = useChartColors().value
 const loading = ref(false)
 const kpiData = ref<any>(null)  // KPI/账户资金(仍从/analysis获取)
 const activeSection = ref('overview')
+const equityExpanded = ref(false)
+const dailyPnlExpanded = ref(false)
 
 /** 获取中国时区的日期字符串 YYYY-MM-DD */
 function getChinaDate(): string {
@@ -128,8 +130,8 @@ const equityCurve = computed(() => {
   const returns = values.map((v: number) => ((v / initial) - 1) * 100)
   return {
     tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 } },
-    grid: { left: 50, right: 20, top: 20, bottom: 30 },
-    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 }, axisLine: { lineStyle: { color: '#444' } } },
+    grid: { left: 56, right: 48, top: 28, bottom: 32 },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, color: '#888' }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false }, boundaryGap: false },
     yAxis: [
       { type: 'value', name: '净值¥', axisLabel: { fontSize: 10, formatter: (v: number) => (v/10000).toFixed(0)+'万' }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
       { type: 'value', name: '收益率%', position: 'right', axisLabel: { fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } },
@@ -146,11 +148,12 @@ const dailyPnlChart = computed(() => {
   const dd = kpiData.value?.daily_detail || []
   if (!dd.length) return null
   return {
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 } },
-    grid: { left: 50, right: 20, top: 20, bottom: 30 },
-    xAxis: { type: 'category', data: dd.map((d: any) => d.date), axisLabel: { fontSize: 10 }, axisLine: { lineStyle: { color: '#444' } } },
-    yAxis: { type: 'value', name: '¥', axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
-    series: [{ type: 'bar', data: dd.map((d: any) => d.profit || 0), itemStyle: { color: (p: any) => p.value >= 0 ? c.stockDown : c.stockUp, borderRadius: [2,2,0,0] }, label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => p.value >= 0 ? '+'+p.value : p.value } }],
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 },
+      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const d = dd[idx]; if (!d) return ''; const v = d.profit||0; return `<b>${d.date}</b><br/>盈亏 <b style="color:${v>=0?c.stockDown:c.stockUp}">${v>=0?'+':''}¥${v.toLocaleString()}</b><br/>买入${d.buys||0}笔 · 卖出${d.sells||0}笔` } },
+    grid: { left: 56, right: 48, top: 28, bottom: 32 },
+    xAxis: { type: 'category', data: dd.map((d: any) => d.date.slice(5)), axisLabel: { fontSize: 10, color: '#888' }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false } },
+    yAxis: { type: 'value', name: '¥', axisLabel: { fontSize: 10, formatter: (v: number) => v>=10000?(v/10000).toFixed(0)+'万':v }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
+    series: [{ type: 'bar', data: dd.map((d: any) => ({ value: d.profit || 0, buys: d.buys || 0, sells: d.sells || 0 })), itemStyle: { color: (p: any) => p.value.value >= 0 ? c.stockDown : c.stockUp, borderRadius: [3,3,0,0] }, barMaxWidth: 40, label: { show: true, position: (p: any) => p.value.value >= 0 ? 'top' : 'bottom', fontSize: 10, formatter: (p: any) => { const v = p.value.value; return v >= 0 ? '+¥'+v.toLocaleString() : '-¥'+Math.abs(v).toLocaleString() } } }],
   }
 })
 
@@ -209,24 +212,8 @@ const posPie = computed(() => {
 
     <!-- ===== Overview ===== -->
     <div v-show="activeSection === 'overview'" class="at-sec">
-      <!-- 资金曲线 -->
-      <div class="at-card" style="margin-bottom:6px">
-        <div class="at-card-t">📈 资金曲线 <span style="font-weight:400;font-size:10px;color:var(--text-tertiary)">初始¥100万</span></div>
-        <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:200px;width:100%" />
-        <div v-else class="at-empty">无历史数据</div>
-      </div>
-      <!-- 每日盈亏 -->
-      <div class="at-card" style="margin-bottom:6px">
-        <div class="at-card-t">📊 每日盈亏</div>
-        <VChart v-if="dailyPnlChart" :option="dailyPnlChart" autoresize style="height:160px;width:100%" />
-        <div v-else class="at-empty">无交易数据</div>
-      </div>
+      <!-- 盈亏构成 + 资产分布 (最重要，放最前) -->
       <div class="at-row2">
-        <div class="at-card">
-          <div class="at-card-t">🥧 资产分布</div>
-          <VChart v-if="posPie" :option="posPie" autoresize style="height:260px;width:100%" />
-          <div v-else class="at-empty">空仓</div>
-        </div>
         <div class="at-card">
           <div class="at-card-t">📋 盈亏构成</div>
           <div class="at-scroll">
@@ -241,6 +228,27 @@ const posPie = computed(() => {
             <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets || 0).toLocaleString() }}</span></div>
           </div>
         </div>
+        <div class="at-card">
+          <div class="at-card-t">🥧 资产分布</div>
+          <VChart v-if="posPie" :option="posPie" autoresize style="height:240px;width:100%" />
+          <div v-else class="at-empty">空仓</div>
+        </div>
+      </div>
+      <!-- 折叠：资金曲线 -->
+      <div class="review-section" style="cursor:pointer" @click="equityExpanded=!equityExpanded">
+        <span class="section-title title-blue">📈 资金曲线 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ equityExpanded?'▼':'▶' }} 初始¥100万 · 当前¥{{ (totalAssets||0).toLocaleString() }} · 收益{{ (totalProfit>=0?'+':'') + ((totalProfit/10000).toFixed(1)) + '万' }}</span></span>
+      </div>
+      <div v-if="equityExpanded" class="at-card" style="margin-bottom:4px">
+        <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:220px;width:100%" />
+        <div v-else class="at-empty">无历史数据</div>
+      </div>
+      <!-- 折叠：每日盈亏 -->
+      <div class="review-section" style="cursor:pointer" @click="dailyPnlExpanded=!dailyPnlExpanded">
+        <span class="section-title title-purple">📊 每日盈亏 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dailyPnlExpanded?'▼':'▶' }} {{ kpiData?.daily_detail?.length||0 }}个交易日</span></span>
+      </div>
+      <div v-if="dailyPnlExpanded" class="at-card" style="margin-bottom:4px">
+        <VChart v-if="dailyPnlChart" :option="dailyPnlChart" autoresize style="height:180px;width:100%" />
+        <div v-else class="at-empty">无交易数据</div>
       </div>
     </div>
 
@@ -380,6 +388,10 @@ const posPie = computed(() => {
 .at-nav-b.on { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
 
 /* Card */
+.review-section { padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; gap: 4px; }
+.section-title { font-size: 12px; font-weight: 600; }
+.title-blue { color: #409eff; }
+.title-purple { color: #a855f7; }
 .at-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 6px; padding: 10px; }
 .at-card-t { font-size: 13px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 .at-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--bg-muted); color: var(--text-tertiary); }
