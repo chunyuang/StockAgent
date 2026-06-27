@@ -29,7 +29,8 @@ function getChinaDate(): string {
   return `${y}-${m}-${d}`
 }
 
-const selectedDate = ref(getChinaDate())
+const selectedDate = ref('')  // 空字符串=全部历史
+const rangeMode = ref<'all' | 'date'>('all')  // 默认全部历史
 // date managed by UnifiedDateBar
 
 // 【v2.9.97d】统一数据层: 持仓从 unified 读取(唯一真相源)
@@ -47,18 +48,28 @@ const detailLoading = ref(false)
 const fetchKpi = async () => {
   loading.value = true
   try {
-    // 【v2.9.97g】统一日期: 用date参数查指定日数据
+    // 【v2.9.98zf】全部模式不传date，后端返回全部历史数据
     const d = selectedDate.value.replace(/-/g, '')
-    const url = `/api/v1/scanner/analysis?date=${d}`
+    const url = rangeMode.value === 'date' && d
+      ? `/api/v1/scanner/analysis?date=${d}`
+      : `/api/v1/scanner/analysis`
     const res = await fetch(url).then(r => r.json())
     kpiData.value = res.data || {}
-    unified.setDate(d)
+    unified.setDate(d || getChinaDate().replace(/-/g, ''))
   } catch (e) { console.error(e) }
   loading.value = false
 }
 
 // 日期变更回调
 const onDateChange = (_date: string, _dateApi: string) => {
+  rangeMode.value = 'date'
+  selectedDate.value = _date
+  fetchKpi()
+}
+
+function onSwitchToAll() {
+  rangeMode.value = 'all'
+  selectedDate.value = ''
   fetchKpi()
 }
 
@@ -176,6 +187,7 @@ const posPie = computed(() => {
     <div class="at-kpi-header">
       <span class="at-kpi-title">💼 账户</span>
       <UnifiedDateBar @change="onDateChange" />
+      <ElButton size="small" :type="rangeMode==='all'?'primary':'default'" @click="onSwitchToAll">全部</ElButton>
       <ElButton size="small" @click="fetchKpi" :loading="loading">🔄</ElButton>
     </div>
     <div class="at-kpi">
