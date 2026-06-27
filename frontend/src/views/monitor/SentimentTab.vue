@@ -43,43 +43,50 @@ const intradayLatest = computed(() => {
   return tl.length ? tl[tl.length - 1] : null
 })
 
-// ===== ECharts 日内图 =====
-const intradayChartOption = computed(() => {
+// ===== ECharts 通用图表（日内/日线/周线/月线共用） =====
+const sentimentChartOption = computed(() => {
   const tl = displayTimeline.value as Array<Record<string, any>>
   if (!tl.length) return {}
-  const times = tl.map((p: any) => p.time_label || '')
+  const isIntraday = sentimentMode.value === 'intraday'
+  const labels = tl.map((p: any) => isIntraday ? (p.time_label || '') : (p.date || ''))
   const limitUps = tl.map((p: any) => p.limit_up || 0)
   const limitDowns = tl.map((p: any) => -(p.limit_down || 0))
   const scores = tl.map((p: any) => p.score != null ? p.score : null)
+  const brokenRates = tl.map((p: any) => p.broken_rate != null ? (p.broken_rate * 100) : null)
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 },
-      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const p = tl[idx]; if (!p) return ''; return `<div style="font-weight:600;margin-bottom:4px">${p.time_label||''}</div>涨停<b style="color:#f56c6c">${p.limit_up||0}</b> 跌停<b style="color:#409eff">${p.limit_down||0}</b> 炸板<b style="color:#e6a23c">${p.broken||0}</b><br/>Score: <b style="color:${scoreColor(p.score||0)}">${(p.score||0).toFixed(1)}</b> ${periodCN(p.period||'')}<br/>动量${(p.momentum||0)>=0?'+':''}${(p.momentum||0).toFixed(1)} 溢价${(p.today_premium||0).toFixed(1)}% 炸板率${((p.broken_rate||0)*100).toFixed(0)}%` }
+      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const p = tl[idx]; if (!p) return ''; const d = isIntraday ? (p.time_label||'') : (p.date||''); return `<div style="font-weight:600;margin-bottom:4px">${d}</div>情绪分<b style="color:${scoreColor(p.score||0)}">${(p.score||0).toFixed(1)}</b> ${periodCN(p.period||'')}<br/>涨停<b style="color:#f56c6c">${p.limit_up||0}</b> 跌停<b style="color:#409eff">${p.limit_down||0}</b> 炸板<b style="color:#e6a23c">${p.broken||0}</b>${p.broken_rate!=null?` 炸板率${((p.broken_rate)*100).toFixed(0)}%`:''}<br/>${p.momentum!=null?`动量${(p.momentum)>=0?'+':''}${(p.momentum).toFixed(1)} `:''}${p.today_premium!=null?`溢价${(p.today_premium).toFixed(1)}%`:''}` }
     },
-    legend: { data: ['涨停','跌停','Score'], top: 4, right: 8, textStyle: { fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
+    legend: { data: ['涨停','跌停','Score','炸板率%'], top: 4, right: 8, textStyle: { fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
     grid: { left: 42, right: 42, top: 32, bottom: 28 },
-    xAxis: { type: 'category', data: times, axisLabel: { fontSize: 9, interval: Math.max(0, Math.floor(times.length/8)-1), color: '#999' }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false } },
+    xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 9, interval: Math.max(0, Math.floor(labels.length/10)-1), color: '#999', rotate: labels.length > 30 ? 30 : 0 }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false } },
     yAxis: [
       { type: 'value', name: '数量', nameTextStyle: { fontSize: 9, color: '#999' }, axisLabel: { fontSize: 9, color: '#999', formatter: (v: number) => Math.abs(v) }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } }, axisLine: { show: false } },
-      { type: 'value', name: 'Score', min: 0, max: 100, nameTextStyle: { fontSize: 9, color: '#999' }, axisLabel: { fontSize: 9, color: '#999' }, splitLine: { show: false }, axisLine: { show: false } },
+      { type: 'value', name: 'Score / %', min: 0, max: 100, nameTextStyle: { fontSize: 9, color: '#999' }, axisLabel: { fontSize: 9, color: '#999' }, splitLine: { show: false }, axisLine: { show: false } },
     ],
     series: [
       { name: '涨停', type: 'bar', data: limitUps, itemStyle: { color: 'rgba(245,108,108,0.7)', borderRadius: [2,2,0,0] }, barMaxWidth: 16 },
       { name: '跌停', type: 'bar', data: limitDowns, itemStyle: { color: 'rgba(64,158,255,0.6)', borderRadius: [0,0,2,2] }, barMaxWidth: 16 },
-      { name: 'Score', type: 'line', data: scores, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 2, color: '#a855f7' }, itemStyle: { color: '#a855f7' }, symbol: 'circle', symbolSize: 3, connectNulls: true,
-        markLine: { silent: true, lineStyle: { color: '#666', type: 'dashed', width: 1 }, label: { fontSize: 9, color: '#888' }, data: [{ yAxis: 50, label: { formatter: '50 中性' } }] } },
+      { name: 'Score', type: 'line', data: scores, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 2, color: '#a855f7' }, itemStyle: { color: '#a855f7' }, symbol: 'circle', symbolSize: scores.length > 60 ? 2 : 4, connectNulls: true,
+        markLine: { silent: true, lineStyle: { color: '#666', type: 'dashed', width: 1 }, label: { fontSize: 9, color: '#888' }, data: [
+          { yAxis: 70, label: { formatter: '70🔥' } },
+          { yAxis: 55, label: { formatter: '55⚡' } },
+          { yAxis: 40, label: { formatter: '40🌀' } },
+        ] } },
+      { name: '炸板率%', type: 'line', data: brokenRates, yAxisIndex: 1, smooth: 0.2, lineStyle: { width: 1, color: '#e6a23c', type: 'dashed' }, itemStyle: { color: '#e6a23c' }, symbol: 'none', connectNulls: true },
     ],
     animation: true, animationDuration: 400,
   }
 })
 
-// ===== 日线 =====
-const dailyScorePoints = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); return tl.map((p: any, i: number) => `${i*20},${100-(p.score||0)}`).join(' ') })
-const dailyMissingSegments = computed(() => { const tl = (displayTimeline.value as any[]).filter((p: any) => p.score != null); const segs: string[] = []; let inMissing = false; tl.forEach((p: any, i: number) => { if (p.missing_data && !inMissing) { inMissing = true; segs.push(`${i*20},${100-(p.score||0)}`) } else if (p.missing_data && inMissing) { segs.push(`${i*20},${100-(p.score||0)}`) } else if (!p.missing_data && inMissing) { inMissing = false } }); return segs.join(' ') })
+// ===== 日线辅助（SVG已弃用，保留hover函数兼容） =====
+const dailyScorePoints = computed(() => '')
+const dailyMissingSegments = computed(() => '')
 const scoredTimeline = computed(() => (displayTimeline.value as any[]).filter((p: any) => p.score != null))
 function matrixTotal(periods: Record<string,any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as any).count||0), 0) }
 function dailyDotBottom(p: any): number { return p.score||0 }
-function dailyHoverLeft(): number { const tl = displayTimeline.value as any[]; const hp = hoveredPoint.value as any; if (!hp) return 0; return Math.min(tl.findIndex(p => p === hp) / Math.max(tl.length-1,1) * 100, 75) }
-function dailyHoverBottom(): number { const hp = hoveredPoint.value as any; return Math.min((hp?.score||30)+8, 85) }
+function dailyHoverLeft(): number { return 0 }
+function dailyHoverBottom(): number { return 30 }
 
 // ===== 盘中日志 =====
 const liveLogs = ref<any[]>([])
@@ -145,32 +152,13 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
           <span class="section-title title-blue" style="cursor:pointer" @click="chartExpanded=!chartExpanded">📈 情绪走势 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ chartExpanded?'▼':'▶' }} {{ displayTimeline.length }}点 <span v-if="sentimentMode==='intraday'">(5min采样)</span><span v-else-if="sentimentMode==='daily'">(日线)</span><span v-else-if="sentimentMode==='weekly'">(周线)</span><span v-else>(月线)</span></span></span>
         </div>
         <div v-if="chartExpanded&&!isIntradayFallback&&displayTimeline.length" class="chart-wrap">
-          <VChart :option="intradayChartOption" autoresize style="height:240px;width:100%" />
+          <VChart :option="sentimentChartOption" autoresize style="height:240px;width:100%" />
         </div>
       </template>
 
       <!-- ========== 日线/周线/月线 SVG 图表 ========== -->
-      <div v-if="sentimentMode!=='intraday'||isIntradayFallback" class="sentiment-chart">
-        <div class="sc-chart-row">
-          <div class="sc-y-axis"><span>100</span><span>70</span><span>55</span><span>40</span><span>0</span></div>
-          <div class="sc-chart-body">
-            <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)"></div>
-            <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)"></div>
-            <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)"></div>
-            <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)"></div>
-            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(scoredTimeline.length-1,1)*20} 100`" preserveAspectRatio="none"><polyline :points="dailyScorePoints" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" /><polyline v-if="dailyMissingSegments" :points="dailyMissingSegments" fill="none" stroke="var(--el-color-warning)" stroke-width="1.5" stroke-dasharray="4,3" /></svg>
-            <template v-for="(p,i) in (displayTimeline as any[])" :key="i">
-              <div v-if="p.score!=null" class="sc-dot" :style="{left:`${i/Math.max((displayTimeline as any[]).length-1,1)*100}%`,bottom:`${dailyDotBottom(p)}%`}" :class="p.period==='高潮'?'hot':p.period==='冰点'?'cold':p.missing_data?'missing':''" @mouseenter="hoveredPoint=p" @mouseleave="hoveredPoint=null"></div>
-            </template>
-            <div v-if="hoveredPoint" class="sc-hover-card" :style="{left:`${dailyHoverLeft()}%`,bottom:`${dailyHoverBottom()}%`}">
-              <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
-              <div class="sc-hover-score" :class="hoveredPoint.period==='高潮'?'hot':hoveredPoint.period==='冰点'?'cold':''">{{ (hoveredPoint.score??0).toFixed(1) }} {{ hoveredPoint.period }}</div>
-              <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up||0 }} 跌停{{ hoveredPoint.limit_down||0 }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="sc-x-labels"><span v-for="(lbl,i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
-        <div v-if="dailyMissingSegments" class="sc-legend"><span style="display:inline-block;width:20px;height:2px;background:var(--el-color-warning);border-top:2px dashed var(--el-color-warning);margin-right:4px;vertical-align:middle"></span><span style="font-size:10px;color:var(--text-tertiary)">缺失数据</span></div>
+      <div v-if="sentimentMode!=='intraday'||isIntradayFallback" class="chart-wrap" style="margin-top:4px">
+        <VChart :option="sentimentChartOption" autoresize style="height:280px;width:100%" />
       </div>
 
       <!-- ========== 所有模式共享的折叠section ========== -->
@@ -348,24 +336,6 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
 .chart-wrap { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; background: var(--bg-elevated); padding: 2px; margin-bottom: 2px; }
 
-.sentiment-chart { display: flex; flex-direction: column; height: 260px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; background: var(--bg-elevated); margin-top: 4px; }
-.sc-chart-row { display: flex; flex: 1; min-height: 0; }
-.sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 36px; text-align: right; }
-.sc-chart-body { flex: 1; position: relative; display: flex; flex-direction: column-reverse; }
-.sc-band { width: 100%; position: relative; z-index: 1; }
-.sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; }
-.sc-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-primary); transform: translate(-50%, 50%); z-index: 4; cursor: pointer; transition: transform 0.15s; }
-.sc-dot:hover { transform: translate(-50%, 50%) scale(2); }
-.sc-dot.hot { background: #f56c6c; }
-.sc-dot.cold { background: #67c23a; }
-.sc-dot.missing { background: var(--el-color-warning); opacity: 0.6; border: 1px dashed var(--el-color-warning); }
-.sc-hover-card { position: absolute; z-index: 10; background: var(--el-bg-color-overlay); border: 1px solid var(--el-border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap; }
-.sc-hover-date { color: var(--text-secondary); margin-bottom: 2px; }
-.sc-hover-score { font-weight: 600; font-size: 14px; }
-.sc-hover-score.hot { color: #f56c6c; }
-.sc-hover-score.cold { color: #67c23a; }
-.sc-hover-detail { color: var(--text-tertiary); margin-top: 2px; }
-.sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px 4px 40px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
 .sc-legend { display: flex; align-items: center; gap: 2px; padding: 2px 8px 2px 40px; }
 
 .phase-guide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 2px; }
