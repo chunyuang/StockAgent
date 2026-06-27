@@ -140,48 +140,17 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
             <span class="im-item">溢价 <b>{{ (intradayLatest.today_premium||0).toFixed(1) }}%</b></span>
           </div>
         </div>
-        <div v-if="intradayLatest&&!isIntradayFallback" class="dim-grid">
-          <div class="dim-card" :class="(intradayLatest.limit_up||0)>=10?'dim-good':(intradayLatest.limit_up||0)<=3?'dim-bad':''">
-            <div class="dim-label">D1 涨停贡献</div>
-            <div class="dim-val">{{ intradayLatest.limit_up||0 }}<small>/20</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.limit_up||0)/20)*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card" :class="(intradayLatest.limit_down||0)>10?'dim-bad':(intradayLatest.limit_down||0)<=2?'dim-good':''">
-            <div class="dim-label">D2 跌停惩罚</div>
-            <div class="dim-val">{{ intradayLatest.limit_down||0 }}<small>/15</small></div>
-            <div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width: Math.min(100,((intradayLatest.limit_down||0)/15)*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card">
-            <div class="dim-label">D3 涨跌比</div>
-            <div class="dim-val">{{ ((intradayLatest.up_down_ratio||0)*100).toFixed(0) }}<small>%/15</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.up_down_ratio||0))*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card" :class="(intradayLatest.momentum||0)>0?'dim-good':(intradayLatest.momentum||0)<-0.05?'dim-bad':''">
-            <div class="dim-label">D4 动量</div>
-            <div class="dim-val">{{ (intradayLatest.momentum||0).toFixed(2) }}<small>/10</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,Math.max(0,((intradayLatest.momentum||0)+5)/15*100))+'%'}"></div></div>
-          </div>
-          <div class="dim-card" :class="(intradayLatest.broken_rate||0)>0.3?'dim-bad':(intradayLatest.broken_rate||0)<=0.1?'dim-good':''">
-            <div class="dim-label">D5 炸板率</div>
-            <div class="dim-val">{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}<small>%/10</small></div>
-            <div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width: Math.min(100,((intradayLatest.broken_rate||0))*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card" :class="(sentimentLive?.max_continue||0)>=3?'dim-good':(sentimentLive?.max_continue||0)<=1?'dim-bad':''">
-            <div class="dim-label">D6 连板高度</div>
-            <div class="dim-val">{{ sentimentLive?.max_continue||0 }}<small>/10</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((sentimentLive?.max_continue||0)/10)*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card">
-            <div class="dim-label">D7 昨日溢价</div>
-            <div class="dim-val">{{ (sentimentLive?.zt_premium||0).toFixed(1) }}<small>/5</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((sentimentLive?.zt_premium||0)/5)*100)+'%'}"></div></div>
-          </div>
-          <div class="dim-card">
-            <div class="dim-label">D8 今日溢价</div>
-            <div class="dim-val">{{ (intradayLatest.today_premium||0).toFixed(1) }}<small>/5</small></div>
-            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.today_premium||0)/5)*100)+'%'}"></div></div>
-          </div>
-        </div>
+        <div v-if="intradayLatest&&!isIntradayFallback" class="dim-tbl">
+          <div class="dt-row"><span class="dt-id">D1</span><span class="dt-name">涨停家数</span><span class="dt-raw">{{ intradayLatest.limit_up||0 }}<small>家</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d1_limit_up??Math.min(20,intradayLatest.limit_up||0) }}<small>/20</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive?.dimensions?.d1_limit_up??Math.min(20,intradayLatest.limit_up||0))/20*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D2</span><span class="dt-name">跌停家数</span><span class="dt-raw">{{ intradayLatest.limit_down||0 }}<small>家</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d2_limit_down??Math.max(0,15-Math.floor((intradayLatest.limit_down||0)*0.5)) }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill dt-warn" :style="{width:((sentimentLive?.dimensions?.d2_limit_down??Math.max(0,15-Math.floor((intradayLatest.limit_down||0)*0.5)))/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D3</span><span class="dt-name">涨跌比率</span><span class="dt-raw">{{ ((intradayLatest.up_down_ratio||0)*100).toFixed(0) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d3_up_down??'-' }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive?.dimensions?.d3_up_down||0)/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D4</span><span class="dt-name">涨停动量</span><span class="dt-raw">{{ (intradayLatest.momentum||0).toFixed(2) }}</span><span class="dt-sc">{{ sentimentLive?.dimensions?.d4_momentum??'-' }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:Math.max(0,((sentimentLive?.dimensions?.d4_momentum??5)+5)/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D5</span><span class="dt-name">炸板比例</span><span class="dt-raw">{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d5_broken_rate??'-' }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill dt-warn" :style="{width:((sentimentLive?.dimensions?.d5_broken_rate||0)/10*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D6</span><span class="dt-name">最高连板</span><span class="dt-raw">{{ sentimentLive?.max_continue||0 }}<small>板</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d6_max_continue??'-' }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive?.dimensions?.d6_max_continue||0)/10*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D7</span><span class="dt-name">昨日溢价</span><span class="dt-raw">{{ (sentimentLive?.zt_premium||0).toFixed(1) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d7_zt_premium??'-' }}<small>/5</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive?.dimensions?.d7_zt_premium||0)/5*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D8</span><span class="dt-name">今日溢价</span><span class="dt-raw">{{ (intradayLatest.today_premium||0).toFixed(1) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive?.dimensions?.d8_today_premium??'-' }}<small>/5</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive?.dimensions?.d8_today_premium||0)/5*100)+'%'}"></div></div></div>
+          <div class="dt-foot">原始值→得分/满分 · 条=得分占比 · 涨停多/跌停少/涨跌比高/动量正/炸板低/连板高/溢价高→情绪分高</div>
+        </div>/div>
         <div v-if="isIntradayFallback||!intradayLatest" class="review-section">
           <span class="section-detail" style="color:var(--text-tertiary);font-style:italic">📡 无日内扫描数据（非交易日或Scanner未运行），下方显示日线参考</span>
         </div>
@@ -216,28 +185,28 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="dimExpanded=!dimExpanded">🧮 8维拆解 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dimExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">涨停贡献<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> 跌停惩罚<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> 涨跌比<b>{{ sentimentLive.dimensions.d3_up_down }}/15</b> 动量<b>{{ sentimentLive.dimensions.d4_momentum }}/10</b> 炸板率<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> 连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b> 昨溢价<b>{{ sentimentLive.dimensions.d7_zt_premium }}/5</b> 今溢价<b>{{ sentimentLive.dimensions.d8_today_premium }}/5</b></template><template v-else>涨停贡献<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 跌停<b>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b> 涨跌比<b>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</b> 溢价<b>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</b></template></span>
+        <span v-if="!dimExpanded&&sentimentLive" class="section-detail"><template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">D1涨停<b>{{ sentimentLive.dimensions.d1_limit_up }}/20</b> D2跌停<b>{{ sentimentLive.dimensions.d2_limit_down }}/15</b> D3涨跌比<b>{{ sentimentLive.dimensions.d3_up_down }}/15</b> D4动量<b>{{ sentimentLive.dimensions.d4_momentum }}/10</b> D5炸板<b>{{ sentimentLive.dimensions.d5_broken_rate }}/10</b> D6连板<b>{{ sentimentLive.dimensions.d6_max_continue }}/10</b> D7昨溢价<b>{{ sentimentLive.dimensions.d7_zt_premium }}/5</b> D8今溢价<b>{{ sentimentLive.dimensions.d8_today_premium }}/5</b></template><template v-else>涨停<b>{{ Math.min(30,sentimentLive.limit_up_count||0) }}/30</b> 跌停<b>{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}/20</b> 连板<b>{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}/20</b> 涨跌比<b>{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}/15</b> 溢价<b>{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}/15</b> <span style="color:var(--text-quaternary)">(5维盘后)</span></template></span>
       </div>
-      <div v-if="dimExpanded&&sentimentLive" class="dim-grid" style="margin-top:2px">
+      <div v-if="dimExpanded&&sentimentLive" class="dim-tbl" style="margin-top:2px">
         <template v-if="sentimentLive.dimensions&&sentimentLive.dimensions.d1_limit_up!=null">
-          <div class="dim-card"><div class="dim-label">D1 涨停贡献</div><div class="dim-val">{{ sentimentLive.dimensions.d1_limit_up }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d1_limit_up||0)/20*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D2 跌停惩罚</div><div class="dim-val">{{ sentimentLive.dimensions.d2_limit_down }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:((sentimentLive.dimensions.d2_limit_down||0)/15*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D3 涨跌比</div><div class="dim-val">{{ sentimentLive.dimensions.d3_up_down }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d3_up_down||0)/15*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D4 动量</div><div class="dim-val">{{ sentimentLive.dimensions.d4_momentum }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:Math.max(0,((sentimentLive.dimensions.d4_momentum||0)+5)/15*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D5 炸板率</div><div class="dim-val">{{ sentimentLive.dimensions.d5_broken_rate }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:((sentimentLive.dimensions.d5_broken_rate||0)/10*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D6 连板高度</div><div class="dim-val">{{ sentimentLive.dimensions.d6_max_continue }}<small>/10</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d6_max_continue||0)/10*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D7 昨日溢价</div><div class="dim-val">{{ sentimentLive.dimensions.d7_zt_premium }}<small>/5</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d7_zt_premium||0)/5*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">D8 今日溢价</div><div class="dim-val">{{ sentimentLive.dimensions.d8_today_premium }}<small>/5</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:((sentimentLive.dimensions.d8_today_premium||0)/5*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D1</span><span class="dt-name">涨停家数</span><span class="dt-raw">{{ sentimentLive.limit_up_count||0 }}<small>家</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d1_limit_up }}<small>/20</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive.dimensions.d1_limit_up||0)/20*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D2</span><span class="dt-name">跌停家数</span><span class="dt-raw">{{ sentimentLive.limit_down_count||0 }}<small>家</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d2_limit_down }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill dt-warn" :style="{width:((sentimentLive.dimensions.d2_limit_down||0)/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D3</span><span class="dt-name">涨跌比率</span><span class="dt-raw">{{ ((sentimentLive.up_down_ratio||0)*100).toFixed(0) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d3_up_down }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive.dimensions.d3_up_down||0)/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D4</span><span class="dt-name">涨停动量</span><span class="dt-raw">{{ (sentimentLive.momentum||0).toFixed(2) }}</span><span class="dt-sc">{{ sentimentLive.dimensions.d4_momentum }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:Math.max(0,((sentimentLive.dimensions.d4_momentum||0)+5)/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D5</span><span class="dt-name">炸板比例</span><span class="dt-raw">{{ ((sentimentLive.broken_rate||0)*100).toFixed(0) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d5_broken_rate }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill dt-warn" :style="{width:((sentimentLive.dimensions.d5_broken_rate||0)/10*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D6</span><span class="dt-name">最高连板</span><span class="dt-raw">{{ sentimentLive.max_continue||0 }}<small>板</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d6_max_continue }}<small>/10</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive.dimensions.d6_max_continue||0)/10*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D7</span><span class="dt-name">昨日溢价</span><span class="dt-raw">{{ (sentimentLive.zt_premium||0).toFixed(1) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d7_zt_premium }}<small>/5</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive.dimensions.d7_zt_premium||0)/5*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D8</span><span class="dt-name">今日溢价</span><span class="dt-raw">{{ (sentimentLive.today_premium||0).toFixed(1) }}<small>%</small></span><span class="dt-sc">{{ sentimentLive.dimensions.d8_today_premium }}<small>/5</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:((sentimentLive.dimensions.d8_today_premium||0)/5*100)+'%'}"></div></div></div>
         </template>
         <template v-else>
-          <div class="dim-card"><div class="dim-label">涨停贡献</div><div class="dim-val">{{ Math.min(30,sentimentLive.limit_up_count||0) }}<small>/30</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(30,sentimentLive.limit_up_count||0)/30*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">跌停扣分</div><div class="dim-val">{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width:(Math.max(0,20-(sentimentLive.limit_down_count||0)*2)/20*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">连板高度</div><div class="dim-val">{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}<small>/20</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(20,(sentimentLive.max_continue||0)*2)/20*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">涨跌比</div><div class="dim-val">{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15))/15*100)+'%'}"></div></div></div>
-          <div class="dim-card"><div class="dim-label">涨停溢价</div><div class="dim-val">{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}<small>/15</small></div><div class="dim-bar"><div class="dim-fill" :style="{width:(Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0)))/15*100)+'%'}"></div></div></div>
-          <div class="dim-card dim-bad" style="grid-column:span 3"><div class="dim-label">5维盘后模式</div><div class="dim-val" style="font-size:11px;font-weight:400;color:var(--text-tertiary)">无8维实时数据，使用5维盘后公式估算</div></div>
+          <div class="dt-row"><span class="dt-id">D1</span><span class="dt-name">涨停</span><span class="dt-raw">{{ sentimentLive.limit_up_count||0 }}<small>家</small></span><span class="dt-sc">{{ Math.min(30,sentimentLive.limit_up_count||0) }}<small>/30</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:(Math.min(30,sentimentLive.limit_up_count||0)/30*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D2</span><span class="dt-name">跌停</span><span class="dt-raw">{{ sentimentLive.limit_down_count||0 }}<small>家</small></span><span class="dt-sc">{{ Math.max(0,20-(sentimentLive.limit_down_count||0)*2) }}<small>/20</small></span><div class="dt-bar"><div class="dt-fill dt-warn" :style="{width:(Math.max(0,20-(sentimentLive.limit_down_count||0)*2)/20*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D3</span><span class="dt-name">连板</span><span class="dt-raw">{{ sentimentLive.max_continue||0 }}<small>板</small></span><span class="dt-sc">{{ Math.min(20,(sentimentLive.max_continue||0)*2) }}<small>/20</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:(Math.min(20,(sentimentLive.max_continue||0)*2)/20*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D4</span><span class="dt-name">涨跌比</span><span class="dt-raw">{{ ((sentimentLive.up_down_ratio||0)*100).toFixed(0) }}<small>%</small></span><span class="dt-sc">{{ Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15)) }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:(Math.min(15,Math.round((sentimentLive.up_down_ratio||0)*15))/15*100)+'%'}"></div></div></div>
+          <div class="dt-row"><span class="dt-id">D5</span><span class="dt-name">溢价</span><span class="dt-raw">{{ (sentimentLive.zt_premium||0).toFixed(1) }}<small>%</small></span><span class="dt-sc">{{ Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0))) }}<small>/15</small></span><div class="dt-bar"><div class="dt-fill" :style="{width:(Math.min(15,Math.max(0,Math.round(sentimentLive.zt_premium||0)))/15*100)+'%'}"></div></div></div>
+          <div class="dt-row dt-muted"><span class="dt-id">⚠</span><span class="dt-name" style="color:var(--text-tertiary)">5维盘后模式</span><span class="dt-raw" style="grid-column:span 2;color:var(--text-tertiary)">无8维实时数据，使用5维盘后公式估算</span></div>
         </template>
-      </div>
+      </div>/div>
 
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="logExpanded=!logExpanded">📜 计算日志 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ logExpanded?'▼':'▶' }} {{ liveLogs.length }}条</span></span>
@@ -370,16 +339,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 .im-down b { color: #409eff; }
 .im-warn b { color: #e6a23c; }
 
-.dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-bottom: 2px; }
-.dim-card { padding: 4px 6px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border-default); transition: border-color 0.2s; }
-.dim-card.dim-good { border-color: rgba(103,194,58,0.4); }
-.dim-card.dim-bad { border-color: rgba(245,108,108,0.4); }
-.dim-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
-.dim-val { font-size: 14px; font-weight: 800; line-height: 1.2; }
-.dim-val small { font-size: 11px; font-weight: 400; color: var(--text-tertiary); }
-.dim-bar { height: 2px; background: rgba(128,128,128,0.1); border-radius: 1px; margin-top: 3px; overflow: hidden; }
-.dim-fill { height: 100%; background: var(--el-color-primary); border-radius: 2px; transition: width 0.3s; }
-.dim-fill-warn { background: #e6a23c; }
+
 
 
 
