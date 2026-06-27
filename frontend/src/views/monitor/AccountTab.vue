@@ -3,12 +3,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { PieChart } from 'echarts/charts'
+import { PieChart, LineChart, BarChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
-use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent])
+use([CanvasRenderer, PieChart, LineChart, BarChart, TooltipComponent, LegendComponent])
 import { GLOBAL_RISK } from '@/config/strategyDefaults'
 import { useUnifiedData } from './composables/useUnifiedData'
 
@@ -105,6 +105,44 @@ const realizedPnl = computed(() => {
   return totalProfit.value - positions_pnl
 })
 
+// ===== 资金曲线 (从daily trades构建) =====
+const equityCurve = computed(() => {
+  const dd = kpiData.value?.daily_detail || []
+  if (!dd.length) return null
+  // 从daily_detail构建累计净值曲线
+  let cumPnl = 0
+  const initial = 1000000
+  const dates = dd.map((d: any) => d.date)
+  const values = dd.map((d: any) => { cumPnl += d.profit || 0; return initial + cumPnl })
+  const returns = values.map((v: number) => ((v / initial) - 1) * 100)
+  return {
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 } },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 }, axisLine: { lineStyle: { color: '#444' } } },
+    yAxis: [
+      { type: 'value', name: '净值¥', axisLabel: { fontSize: 10, formatter: (v: number) => (v/10000).toFixed(0)+'万' }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
+      { type: 'value', name: '收益率%', position: 'right', axisLabel: { fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } },
+    ],
+    series: [
+      { name: '总资产', type: 'line', data: values, smooth: 0.3, lineStyle: { width: 2, color: c.primary }, itemStyle: { color: c.primary }, symbol: 'circle', symbolSize: 6, areaStyle: { opacity: 0.08 } },
+      { name: '收益率', type: 'line', data: returns, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 1, color: '#a855f7', type: 'dashed' }, itemStyle: { color: '#a855f7' }, symbol: 'none' },
+    ],
+  }
+})
+
+// ===== 每日盈亏柱状图 =====
+const dailyPnlChart = computed(() => {
+  const dd = kpiData.value?.daily_detail || []
+  if (!dd.length) return null
+  return {
+    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 } },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: dd.map((d: any) => d.date), axisLabel: { fontSize: 10 }, axisLine: { lineStyle: { color: '#444' } } },
+    yAxis: { type: 'value', name: '¥', axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
+    series: [{ type: 'bar', data: dd.map((d: any) => d.profit || 0), itemStyle: { color: (p: any) => p.value >= 0 ? c.stockDown : c.stockUp, borderRadius: [2,2,0,0] }, label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => p.value >= 0 ? '+'+p.value : p.value } }],
+  }
+})
+
 const posPie = computed(() => {
   const pos = positions.value
   if (!pos.length) return null
@@ -141,10 +179,11 @@ const posPie = computed(() => {
       <ElButton size="small" @click="fetchKpi" :loading="loading">🔄</ElButton>
     </div>
     <div class="at-kpi">
-      <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">{{ fmt(totalAssets) }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">{{ fmt(availableCash) }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">持仓市值</div><div class="at-kpi-v">{{ fmt(marketValue) }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">总盈亏</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ totalProfit >= 0 ? '+' : '' }}{{ fmt(totalProfit) }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">¥{{ totalAssets.toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">¥{{ availableCash.toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">持仓市值</div><div class="at-kpi-v">¥{{ marketValue.toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">总盈亏</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ totalProfit >= 0 ? '+' : '' }}¥{{ Math.abs(totalProfit).toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">收益率</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ (totalProfit / 1000000 * 100).toFixed(2) }}%</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">仓位</div><div class="at-kpi-v">{{ (positionRatio || 0).toFixed(1) }}%</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">持仓</div><div class="at-kpi-v">{{ positions.length }}只<el-badge v-if="brokenSL.length" :value="brokenSL.length" type="danger" style="margin-left:4px" /></div></div>
     </div>
@@ -158,9 +197,21 @@ const posPie = computed(() => {
 
     <!-- ===== Overview ===== -->
     <div v-show="activeSection === 'overview'" class="at-sec">
+      <!-- 资金曲线 -->
+      <div class="at-card" style="margin-bottom:6px">
+        <div class="at-card-t">📈 资金曲线 <span style="font-weight:400;font-size:10px;color:var(--text-tertiary)">初始¥100万</span></div>
+        <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:200px;width:100%" />
+        <div v-else class="at-empty">无历史数据</div>
+      </div>
+      <!-- 每日盈亏 -->
+      <div class="at-card" style="margin-bottom:6px">
+        <div class="at-card-t">📊 每日盈亏</div>
+        <VChart v-if="dailyPnlChart" :option="dailyPnlChart" autoresize style="height:160px;width:100%" />
+        <div v-else class="at-empty">无交易数据</div>
+      </div>
       <div class="at-row2">
         <div class="at-card">
-          <div class="at-card-t">📊 资产分布</div>
+          <div class="at-card-t">🥧 资产分布</div>
           <VChart v-if="posPie" :option="posPie" autoresize style="height:260px;width:100%" />
           <div v-else class="at-empty">空仓</div>
         </div>
@@ -168,14 +219,14 @@ const posPie = computed(() => {
           <div class="at-card-t">📋 盈亏构成</div>
           <div class="at-scroll">
             <div class="at-eq-row at-eq-head"><span>项目</span><span>金额</span></div>
-            <div class="at-eq-row"><span>初始资金</span><span>¥100.00万</span></div>
-            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(realizedPnl)">{{ (realizedPnl >= 0 ? '+' : '') }}¥{{ ((realizedPnl || 0) / 10000).toFixed(2) }}万</span></div>
-            <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏 ──</span><span></span></div>
+            <div class="at-eq-row"><span>初始资金</span><span>¥1,000,000</span></div>
+            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(kpiData?.kpi?.total_profit||0)">{{ ((kpiData?.kpi?.total_profit||0) >= 0 ? '+' : '') }}¥{{ Math.abs(kpiData?.kpi?.total_profit||0).toLocaleString() }}</span></div>
+            <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏(浮盈浮亏) ──</span><span></span></div>
             <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
               <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
               <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
             </div>
-            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ ((totalAssets || 0) / 10000).toFixed(2) }}万</span></div>
+            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets || 0).toLocaleString() }}</span></div>
           </div>
         </div>
       </div>
@@ -205,7 +256,7 @@ const posPie = computed(() => {
               </div>
               <div :class="['pos-pnl', cls(p.profit_pct || 0)]">
                 <span class="pos-pnl-pct">{{ (Number(p.profit_pct) || 0) >= 0 ? '+' : '' }}{{ (Number(p.profit_pct) || 0).toFixed(1) }}%</span>
-                <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ (p.profit_amount || 0).toLocaleString() }}</span>
+                <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(p.profit_amount || 0).toLocaleString() }}</span>
               </div>
             </div>
             <!-- Row 2: Key numbers -->
