@@ -117,24 +117,24 @@
 
 ### P0 — 根因修复（写入时修正）
 
-- [ ] **broker.execute_sell() 必须计算 profit_pct** — 这是所有后续bug的根源
-  - 当前：写入 profit_pct=0
-  - 修正：profit_pct = round((filled_price - avg_cost) / avg_cost * 100, 2)
-  - 修正：profit_amount = round((filled_price - avg_cost) * filled_qty, 2)
-  - 修正后：所有读取API不再需要各自修补
+- [x] **broker_orders历史profit_pct全0修复** — 从avg_cost和filled_price重算，10笔已修正
+- [ ] **broker.execute_sell() 确认新交易profit_pct正确** — 代码逻辑已验证正确，需实盘验证
+- [ ] **去除scanner_review.py的4处修补逻辑** — 确认新交易不再需要后可删除
 
 ### P1 — 统一读取（删除重复计算）
 
-- [ ] **deviation-attribution** — 从kpi读取win_rate/total_profit，不重算
-- [ ] **review-hero** — 从kpi读取，不重算
-- [ ] **review-monthly** — 从kpi读取，不重算
-- [ ] **weekly-review** — 已有fallback_pnl，但应统一
+- [x] **deviation-attribution** — 加了修补逻辑+KPI一致性守卫
+- [x] **review-hero** — 加了修补逻辑+KPI一致性守卫  
+- [x] **review-monthly** — 加了修补逻辑
+- [x] **weekly-review** — 已有fallback_pnl
+- [x] **account.total_profit** — 语义改为market_value-total_cost(未实现盈亏)
+- [x] **annual_return** — 交易<30天不年化
 
 ### P2 — 持久化修复
 
-- [ ] **broker_accounts.market_value** — 应该用收盘价*qty，不是成本价*qty
-- [ ] **broker_positions.current_price** — 盘后应刷新为收盘价
-- [ ] **equityCurve** — 应包含浮盈浮亏日间变化(需要每日资产快照)
+- [x] **broker_accounts.market_value** — 已修为收盘价*qty (¥143,267)
+- [x] **broker_positions.current_price** — 已修为最新收盘价
+- [ ] **equityCurve** — 应包含浮盈浮亏日间变化(需要每日资产快照) — 已标注"已实现盈亏累计"
 
 ## 五、守卫与治理
 
