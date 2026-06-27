@@ -256,17 +256,12 @@ async def validate_params_before_update(request: Request):
 
 @router.get("/strategy-performance")
 async def get_strategy_performance():
-    """策略实时绩效看板"""
-    scanner = await _get_scanner()
-    if not scanner._broker:
-        return {"success": True, "data": []}
-
+    """策略实时绩效看板 — 直接读MongoDB，不依赖scanner运行"""
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
-        positions = scanner._broker.get_positions()
-        timeline = scanner._timeline
+        db = mongo_manager.db
         from nodes.backtest_engine.strategy_defaults import STRATEGY_ID_TO_NAME
         strategy_names = dict(STRATEGY_ID_TO_NAME)
         strategy_names["manual"] = "手动"
@@ -275,31 +270,57 @@ async def get_strategy_performance():
         for key, name in strategy_names.items():
             strategies[key] = {"key": key, "name": name, "today_profit": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "position_count": 0, "closed_count": 0, "max_win_pct": 0, "max_loss_pct": 0, "sparkline": []}
 
+        # 1. 从broker_positions读当前持仓
+        import datetime as _dt
+        today_str = _dt.datetime.now().strftime("%Y%m%d")
+        positions = await db["broker_positions"].find({}).to_list(1000)
         for pos in positions:
-            key = pos.strategy or "manual"
+            key = pos.get("strategy") or "manual"
             if key not in strategies:
                 strategies[key] = {"key": key, "name": strategy_names.get(key, key), "today_profit": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "position_count": 0, "closed_count": 0, "max_win_pct": 0, "max_loss_pct": 0, "sparkline": []}
-            profit = (pos.current_price - pos.avg_cost) * pos.total_qty
+            qty = pos.get("total_qty") or pos.get("quantity") or 0
+            cost = pos.get("avg_cost") or pos.get("cost_price") or 0
+            cur = pos.get("current_price") or 0
+            profit = (cur - cost) * qty if cur and cost else 0
             strategies[key]["position_count"] += 1
             strategies[key]["total_profit"] += profit
             strategies[key]["today_profit"] += profit
             if profit >= 0: strategies[key]["win_count"] += 1
             else: strategies[key]["loss_count"] += 1
 
+        # 2. 从broker_orders读卖出记录(已平仓盈亏)
+        sells = await db["broker_orders"].find({"side": "sell", "status": "filled"}).to_list(5000)
+        # 【v2.9.98zf】修正盈亏数据：profit_pct/profit_amount为0时从买入记录推算
+        buy_records = await db["broker_orders"].find({"side": "buy", "status": "filled"}).to_list(5000)
+        avg_cost_map = {}
+        for b in buy_records:
+            tc = b.get("ts_code", "")
+            fp = b.get("filled_price", 0) or 0
+            avg_cost_map[tc] = fp  # 最近一次买入价≈avg_cost
+        for s in sells:
+            if (s.get("profit_pct", 0) or 0) == 0 and (s.get("profit_amount", 0) or 0) == 0:
+                fp = s.get("filled_price", 0) or 0
+                tc = s.get("ts_code", "")
+                cost = avg_cost_map.get(tc, 0)
+                if cost > 0 and fp > 0:
+                    qty = s.get("filled_qty", 0) or s.get("quantity", 0)
+                    s["profit_pct"] = round((fp - cost) / cost * 100, 2)
+                    s["profit_amount"] = round((fp - cost) * qty, 2)
         all_profits = {}
-        for item in (timeline or []):
-            if item.get("action") == "sell" and item.get("strategy"):
-                key = item["strategy"]
-                pct = item.get("profit_pct", 0)
-                all_profits.setdefault(key, []).append(pct)
-                if key in strategies:
-                    strategies[key]["closed_count"] += 1
-                    if pct >= 0:
-                        strategies[key]["win_count"] += 1
-                        strategies[key]["max_win_pct"] = max(strategies[key]["max_win_pct"], pct)
-                    else:
-                        strategies[key]["loss_count"] += 1
-                        strategies[key]["max_loss_pct"] = min(strategies[key]["max_loss_pct"], pct)
+        for s in sells:
+            key = s.get("strategy") or "manual"
+            pct = s.get("profit_pct", 0) or 0
+            all_profits.setdefault(key, []).append(pct)
+            if key not in strategies:
+                strategies[key] = {"key": key, "name": strategy_names.get(key, key), "today_profit": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "position_count": 0, "closed_count": 0, "max_win_pct": 0, "max_loss_pct": 0, "sparkline": []}
+            strategies[key]["closed_count"] += 1
+            strategies[key]["total_profit"] += s.get("profit_amount", 0) or 0
+            if pct >= 0:
+                strategies[key]["win_count"] += 1
+                strategies[key]["max_win_pct"] = max(strategies[key]["max_win_pct"], pct)
+            else:
+                strategies[key]["loss_count"] += 1
+                strategies[key]["max_loss_pct"] = min(strategies[key]["max_loss_pct"], pct)
 
         for key, s in strategies.items():
             total = s["win_count"] + s["loss_count"]
@@ -310,12 +331,12 @@ async def get_strategy_performance():
             s["profit_loss_ratio"] = round(avg_win / max(avg_loss, 0.01), 2)
             s["avg_profit_pct"] = round(sum(profits) / max(len(profits), 1), 2) if profits else 0
 
-        # Sparkline from performance snapshots
+        # 3. Sparkline from performance snapshots
         try:
             from datetime import datetime, timedelta
             start = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
             perf_data = []
-            async for doc in mongo_manager.db["scanner_performance"].find({"date": {"$gte": start}}, {"_id": 0, "date": 1, "total_assets": 1}).sort("date", 1):
+            async for doc in db["scanner_performance"].find({"date": {"$gte": start}}, {"_id": 0, "date": 1, "total_assets": 1}).sort("date", 1):
                 perf_data.append(doc)
             if perf_data:
                 baseline = perf_data[0].get("total_assets", 1000000)
