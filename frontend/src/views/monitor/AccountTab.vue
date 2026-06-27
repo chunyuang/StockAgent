@@ -4,11 +4,11 @@ import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, LineChart, BarChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import { TooltipComponent, LegendComponent, GridComponent, MarkLineComponent } from 'echarts/components'
 import { useChartColors } from './useChartColors'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 
-use([CanvasRenderer, PieChart, LineChart, BarChart, TooltipComponent, LegendComponent, GridComponent])
+use([CanvasRenderer, PieChart, LineChart, BarChart, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent])
 import { GLOBAL_RISK } from '@/config/strategyDefaults'
 import { useUnifiedData } from './composables/useUnifiedData'
 
@@ -113,33 +113,66 @@ const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_sta
 const fmt = (v: number) => `¥${((v || 0) / 10000).toFixed(2)}万`
 const cls = (v: number) => v >= 0 ? 'up' : 'down'
 
+const fmtMoney = (v: number) => {
+  if (v == null || isNaN(v)) return '¥0'
+  const abs = Math.abs(v), sign = v >= 0 ? '' : '-'
+  if (abs >= 10000) return sign + '¥' + (abs/10000).toFixed(2) + '万'
+  return sign + '¥' + abs.toLocaleString()
+}
+const fmtPnl = (v: number) => {
+  if (v == null || isNaN(v)) return '¥0'
+  const abs = Math.abs(v), sign = v >= 0 ? '+' : '-'
+  if (abs >= 10000) return sign + '¥' + (abs/10000).toFixed(2) + '万'
+  return sign + '¥' + abs.toLocaleString()
+}
+const fmtPct = (v: number) => {
+  if (v == null || isNaN(v)) return '-'
+  return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
+}
+
 const realizedPnl = computed(() => {
   const positions_pnl = positions.value.reduce((s: number, p: any) => s + (p.profit_amount || 0), 0)
   return totalProfit.value - positions_pnl
 })
 
-// ===== 资金曲线 (从daily trades构建) =====
+// ===== 资金曲线 =====
 const equityCurve = computed(() => {
   const dd = kpiData.value?.daily_detail || []
   if (!dd.length) return null
-  // 从daily_detail构建累计净值曲线
   let cumPnl = 0
   const initial = 1000000
-  const dates = dd.map((d: any) => d.date)
+  const dates = dd.map((d: any) => d.date.slice(5))
   const values = dd.map((d: any) => { cumPnl += d.profit || 0; return initial + cumPnl })
   const returns = values.map((v: number) => ((v / initial) - 1) * 100)
   return {
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 } },
-    grid: { left: 56, right: 48, top: 28, bottom: 32 },
+    tooltip: {
+      trigger: 'axis', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 },
+      formatter: (params: any[]) => {
+        const idx = params[0]?.dataIndex ?? 0; const d = dd[idx]; if (!d) return ''
+        const v = values[idx]; const r = returns[idx]
+        return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>` +
+          `<div>总资产 <b style="color:#fff">¥${v.toLocaleString()}</b></div>` +
+          `<div>收益率 <b style="color:${r>=0?'#f56c6c':'#409eff'}">${r>=0?'+':''}${r.toFixed(2)}%</b></div>` +
+          `<div style="color:#aaa;font-size:11px;margin-top:2px">当日 ${fmtPnl(d.profit||0)} · 买${d.buys||0}笔 卖${d.sells||0}笔</div>`
+      }
+    },
+    legend: { data: ['总资产','收益率%'], top: 2, right: 8, textStyle: { fontSize: 10, color: '#999' }, itemWidth: 14, itemHeight: 7 },
+    grid: { left: 60, right: 54, top: 30, bottom: 28 },
     xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, color: '#888' }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false }, boundaryGap: false },
     yAxis: [
-      { type: 'value', name: '净值¥', axisLabel: { fontSize: 10, formatter: (v: number) => (v/10000).toFixed(0)+'万' }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
-      { type: 'value', name: '收益率%', position: 'right', axisLabel: { fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } },
+      { type: 'value', name: '净值', axisLabel: { fontSize: 10, color: '#aaa', formatter: (v: number) => (v/10000).toFixed(1)+'万' }, splitLine: { lineStyle: { color: '#2a2a2a', type: 'dashed' } }, axisLine: { show: false } },
+      { type: 'value', name: '收益率%', position: 'right', axisLabel: { fontSize: 10, color: '#a855f7', formatter: (v: number) => v.toFixed(1)+'%' }, splitLine: { show: false }, axisLine: { show: false } },
     ],
     series: [
-      { name: '总资产', type: 'line', data: values, smooth: 0.3, lineStyle: { width: 2, color: c.primary }, itemStyle: { color: c.primary }, symbol: 'circle', symbolSize: 6, areaStyle: { opacity: 0.08 } },
-      { name: '收益率', type: 'line', data: returns, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 1, color: '#a855f7', type: 'dashed' }, itemStyle: { color: '#a855f7' }, symbol: 'none' },
+      { name: '总资产', type: 'line', data: values, smooth: 0.3, lineStyle: { width: 2.5, color: c.primary }, itemStyle: { color: c.primary }, symbol: 'circle', symbolSize: 7,
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(64,158,255,0.15)' }, { offset: 1, color: 'rgba(64,158,255,0)' }] } },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: '#666', type: 'dotted', width: 1 }, label: { fontSize: 9, color: '#888', position: 'insideStartTop' }, data: [{ yAxis: initial, label: { formatter: '初始 ¥100万' } }] }
+      },
+      { name: '收益率%', type: 'line', data: returns, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 1.5, color: '#a855f7', type: 'dashed' }, itemStyle: { color: '#a855f7' }, symbol: 'none',
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: '#555', type: 'dashed', width: 1 }, label: { fontSize: 9, color: '#777' }, data: [{ yAxis: 0, label: { formatter: '0%' } }] }
+      },
     ],
+    animation: true, animationDuration: 600,
   }
 })
 
@@ -147,13 +180,29 @@ const equityCurve = computed(() => {
 const dailyPnlChart = computed(() => {
   const dd = kpiData.value?.daily_detail || []
   if (!dd.length) return null
+  const profits = dd.map((d: any) => d.profit || 0)
   return {
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 },
-      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const d = dd[idx]; if (!d) return ''; const v = d.profit||0; return `<b>${d.date}</b><br/>盈亏 <b style="color:${v>=0?c.stockDown:c.stockUp}">${v>=0?'+':''}¥${v.toLocaleString()}</b><br/>买入${d.buys||0}笔 · 卖出${d.sells||0}笔` } },
-    grid: { left: 56, right: 48, top: 28, bottom: 32 },
+    tooltip: {
+      trigger: 'axis', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 },
+      formatter: (params: any[]) => {
+        const idx = params[0]?.dataIndex ?? 0; const d = dd[idx]; if (!d) return ''
+        const v = d.profit || 0
+        return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>` +
+          `<div>盈亏 <b style="color:${v>=0?'#f56c6c':'#409eff'}">${fmtPnl(v)}</b></div>` +
+          `<div style="color:#aaa;font-size:11px">买入 ${d.buys||0}笔 · 卖出 ${d.sells||0}笔${d.win_rate!=null?' · 胜率'+d.win_rate+'%':''}</div>`
+      }
+    },
+    grid: { left: 60, right: 16, top: 24, bottom: 28 },
     xAxis: { type: 'category', data: dd.map((d: any) => d.date.slice(5)), axisLabel: { fontSize: 10, color: '#888' }, axisLine: { lineStyle: { color: '#444' } }, axisTick: { show: false } },
-    yAxis: { type: 'value', name: '¥', axisLabel: { fontSize: 10, formatter: (v: number) => v>=10000?(v/10000).toFixed(0)+'万':v }, splitLine: { lineStyle: { color: '#333', type: 'dashed' } } },
-    series: [{ type: 'bar', data: dd.map((d: any) => ({ value: d.profit || 0, buys: d.buys || 0, sells: d.sells || 0 })), itemStyle: { color: (p: any) => p.value.value >= 0 ? c.stockDown : c.stockUp, borderRadius: [3,3,0,0] }, barMaxWidth: 40, label: { show: true, position: (p: any) => p.value.value >= 0 ? 'top' : 'bottom', fontSize: 10, formatter: (p: any) => { const v = p.value.value; return v >= 0 ? '+¥'+v.toLocaleString() : '-¥'+Math.abs(v).toLocaleString() } } }],
+    yAxis: { type: 'value', name: '盈亏', axisLabel: { fontSize: 10, color: '#aaa', formatter: (v: number) => { if(Math.abs(v)>=10000) return (v/10000).toFixed(1)+'万'; return String(v) } }, splitLine: { lineStyle: { color: '#2a2a2a', type: 'dashed' } }, axisLine: { show: false } },
+    series: [{
+      type: 'bar', data: profits,
+      itemStyle: { color: (p: any) => (p.value||0)>=0 ? 'rgba(245,108,108,0.7)' : 'rgba(64,158,255,0.6)', borderRadius: [3,3,0,0] },
+      barMaxWidth: 48,
+      label: { show: true, position: (p: any) => (p.value||0)>=0 ? 'top' : 'bottom', fontSize: 10, color: '#ccc', formatter: (p: any) => { const v=p.value||0; return v===0?'':fmtPnl(v) } },
+      markLine: { silent: true, symbol: 'none', lineStyle: { color: '#555', type: 'dashed', width: 1 }, data: [{ yAxis: 0 }] }
+    }],
+    animation: true, animationDuration: 400,
   }
 })
 
@@ -162,16 +211,25 @@ const posPie = computed(() => {
   if (!pos.length) return null
   const up = pos.filter((p: any) => (p.profit_pct ?? 0) >= 0)
   const down = pos.filter((p: any) => (p.profit_pct ?? 0) < 0)
+  const upVal = Math.round(up.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
+  const downVal = Math.round(down.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
+  const cashVal = Math.round(availableCash.value)
   return {
-    tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
-    legend: { bottom: 0, textStyle: { fontSize: 11, color: '#999' } },
+    tooltip: {
+      trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 },
+      formatter: (p: any) => `<b>${p.name}</b><br/>金额 ¥${p.value.toLocaleString()}<br/>占比 ${p.percent.toFixed(1)}%`
+    },
+    legend: { bottom: 0, textStyle: { fontSize: 11, color: '#999' }, itemWidth: 10, itemHeight: 8 },
     series: [{
-      type: 'pie', radius: ['35%', '65%'], center: ['50%', '45%'],
-      label: { formatter: '{b}\n{d}%', fontSize: 10, color: '#999' },
+      type: 'pie', radius: ['38%', '68%'], center: ['50%', '44%'],
+      label: { formatter: (p: any) => `${p.name}\n¥${(p.value/10000).toFixed(1)}万`, fontSize: 10, color: '#ccc', lineHeight: 14 },
+      labelLine: { lineStyle: { color: '#555' } },
+      itemStyle: { borderColor: '#1a1a1a', borderWidth: 2 },
+      emphasis: { label: { fontSize: 12, fontWeight: 'bold' }, itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } },
       data: [
-        ...(up.length ? [{ value: Math.round(up.reduce((s: number, p: any) => s + p.market_value, 0)), name: '盈利持仓', itemStyle: { color: c.stockDown } }] : []),
-        ...(down.length ? [{ value: Math.round(down.reduce((s: number, p: any) => s + p.market_value, 0)), name: '亏损持仓', itemStyle: { color: c.stockUp } }] : []),
-        { value: Math.round(availableCash.value), name: '可用现金', itemStyle: { color: '#909399' } },
+        ...(up.length ? [{ value: upVal, name: '盈利持仓', itemStyle: { color: '#f56c6c' } }] : []),
+        ...(down.length ? [{ value: downVal, name: '亏损持仓', itemStyle: { color: '#409eff' } }] : []),
+        { value: cashVal, name: '可用现金', itemStyle: { color: '#909399' } },
       ]
     }]
   }
@@ -216,16 +274,17 @@ const posPie = computed(() => {
       <div class="at-row2">
         <div class="at-card">
           <div class="at-card-t">📋 盈亏构成</div>
-          <div class="at-scroll">
-            <div class="at-eq-row at-eq-head"><span>项目</span><span>金额</span></div>
-            <div class="at-eq-row"><span>初始资金</span><span>¥1,000,000</span></div>
-            <div class="at-eq-row"><span>已实现盈亏</span><span :class="cls(kpiData?.kpi?.total_profit||0)">{{ ((kpiData?.kpi?.total_profit||0) >= 0 ? '+' : '') }}¥{{ Math.abs(kpiData?.kpi?.total_profit||0).toLocaleString() }}</span></div>
-            <div class="at-eq-row at-eq-sep"><span style="font-size:11px;color:var(--text-tertiary)">── 未实现盈亏(浮盈浮亏) ──</span><span></span></div>
-            <div v-for="p in positions" :key="p.ts_code" class="at-eq-row">
-              <span class="at-eq-name">{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
-              <span :class="cls(p.profit_amount || 0)">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ ((p.profit_amount || 0) / 10000).toFixed(2) }}万</span>
+          <div class="eq-table">
+            <div class="eq-row eq-head"><span class="eq-label">项目</span><span class="eq-val">金额</span><span class="eq-pct">占比</span></div>
+            <div class="eq-row"><span class="eq-label">初始资金</span><span class="eq-val">¥1,000,000</span><span class="eq-pct muted">—</span></div>
+            <div class="eq-row"><span class="eq-label">已实现盈亏</span><span :class="['eq-val', cls(realizedPnl)]">{{ fmtPnl(realizedPnl) }}</span><span class="eq-pct muted">{{ (realizedPnl / 1000000 * 100).toFixed(2) }}%</span></div>
+            <div class="eq-sep"><span>── 持仓浮盈浮亏 ──</span></div>
+            <div v-for="p in positions" :key="p.ts_code" class="eq-row eq-pos">
+              <span class="eq-label"><span class="eq-pos-dot" :style="{background: (p.profit_pct||0)>=0?'#f56c6c':'#409eff'}"></span>{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
+              <span :class="['eq-val', cls(p.profit_amount || 0)]">{{ fmtPnl(p.profit_amount || 0) }}</span>
+              <span class="eq-pct" :class="cls(p.profit_pct || 0)">{{ fmtPct(p.profit_pct || 0) }}</span>
             </div>
-            <div class="at-eq-row at-eq-total"><span>当前总资产</span><span>¥{{ (totalAssets || 0).toLocaleString() }}</span></div>
+            <div class="eq-row eq-total"><span class="eq-label">当前总资产</span><span class="eq-val">¥{{ totalAssets.toLocaleString() }}</span><span class="eq-pct">{{ fmtPct(totalProfit / 1000000 * 100) }}</span></div>
           </div>
         </div>
         <div class="at-card">
@@ -236,18 +295,18 @@ const posPie = computed(() => {
       </div>
       <!-- 折叠：资金曲线 -->
       <div class="review-section" style="cursor:pointer" @click="equityExpanded=!equityExpanded">
-        <span class="section-title title-blue">📈 资金曲线 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ equityExpanded?'▼':'▶' }} 初始¥100万 · 当前¥{{ (totalAssets||0).toLocaleString() }} · 收益{{ (totalProfit>=0?'+':'') + ((totalProfit/10000).toFixed(1)) + '万' }}</span></span>
+        <span class="section-title title-blue">📈 资金曲线 {{ equityExpanded?'▼':'▶' }}</span><span class="section-summary">初始¥100万 · 当前¥{{ totalAssets.toLocaleString() }} · {{ fmtPct(totalProfit / 1000000 * 100) }}</span>
       </div>
       <div v-if="equityExpanded" class="at-card" style="margin-bottom:4px">
-        <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:220px;width:100%" />
+        <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:260px;width:100%" />
         <div v-else class="at-empty">无历史数据</div>
       </div>
       <!-- 折叠：每日盈亏 -->
       <div class="review-section" style="cursor:pointer" @click="dailyPnlExpanded=!dailyPnlExpanded">
-        <span class="section-title title-purple">📊 每日盈亏 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ dailyPnlExpanded?'▼':'▶' }} {{ kpiData?.daily_detail?.length||0 }}个交易日</span></span>
+        <span class="section-title title-purple">📊 每日盈亏 {{ dailyPnlExpanded?'▼':'▶' }}</span><span class="section-summary">{{ kpiData?.daily_detail?.length||0 }}个交易日</span>
       </div>
       <div v-if="dailyPnlExpanded" class="at-card" style="margin-bottom:4px">
-        <VChart v-if="dailyPnlChart" :option="dailyPnlChart" autoresize style="height:180px;width:100%" />
+        <VChart v-if="dailyPnlChart" :option="dailyPnlChart" autoresize style="height:220px;width:100%" />
         <div v-else class="at-empty">无交易数据</div>
       </div>
     </div>
@@ -275,8 +334,8 @@ const posPie = computed(() => {
                 <span v-else-if="p.stop_loss_status === 'near'" class="sl-near">⚠近止损</span>
               </div>
               <div :class="['pos-pnl', cls(p.profit_pct || 0)]">
-                <span class="pos-pnl-pct">{{ (Number(p.profit_pct) || 0) >= 0 ? '+' : '' }}{{ (Number(p.profit_pct) || 0).toFixed(1) }}%</span>
-                <span class="pos-pnl-amt">{{ (p.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(p.profit_amount || 0).toLocaleString() }}</span>
+                <span class="pos-pnl-pct">{{ fmtPct(Number(p.profit_pct) || 0) }}</span>
+                <span class="pos-pnl-amt">{{ fmtPnl(p.profit_amount || 0) }}</span>
               </div>
             </div>
             <!-- Row 2: Key numbers -->
@@ -403,12 +462,16 @@ const posPie = computed(() => {
 .at-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* Scrollable equity breakdown */
-.at-scroll { max-height: 320px; overflow-y: auto; }
-.at-eq-row { display: flex; justify-content: space-between; padding: 3px 6px; border-bottom: 1px solid var(--border-light); font-size: 12px; }
-.at-eq-head { font-weight: 600; color: var(--text-tertiary); font-size: 11px; border-bottom: 2px solid var(--border); }
-.at-eq-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.at-eq-sep { text-align: center; color: var(--text-tertiary); border-bottom: none; }
-.at-eq-total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; margin-top: 2px; }
+.eq-table { font-size: 12px; }
+.eq-row { display: flex; align-items: center; padding: 4px 6px; border-bottom: 1px solid var(--border-light); }
+.eq-head { font-weight: 600; color: var(--text-tertiary); font-size: 11px; border-bottom: 2px solid var(--border); padding-bottom: 5px; }
+.eq-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.eq-val { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+.eq-pct { width: 60px; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; }
+.eq-pos-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.eq-sep { text-align: center; color: var(--text-tertiary); padding: 3px 6px; font-size: 11px; }
+.eq-total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; margin-top: 2px; padding-top: 5px; }
+.section-summary { font-size: 11px; color: var(--text-tertiary); margin-left: 8px; }
 
 /* ===== Position Cards ===== */
 .pos-list { display: flex; flex-direction: column; gap: 5px; max-height: calc(100vh - 220px); overflow-y: auto; }
