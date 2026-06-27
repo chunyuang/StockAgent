@@ -207,16 +207,24 @@ async function showDayDetail(date: string) {
 
       <template v-if="analysisData && !loading">
         <!-- KPI卡片 -->
-        <div class="kpi-strip">
-          <div :class="['kpi-chip', (kpi.total_profit || 0) >= 0 ? 'kpi-positive' : 'kpi-negative']"><div class="kpi-icon">📈</div><div class="kpi-body"><span class="kpi-label">累计盈亏</span><span class="kpi-value">¥{{ (kpi.total_profit || 0).toLocaleString() }}</span></div></div>
-          <div :class="['kpi-chip', (kpi.win_rate || 0) >= 50 ? 'kpi-positive' : 'kpi-negative']"><div class="kpi-icon">🎯</div><div class="kpi-body"><span class="kpi-label">胜率</span><span class="kpi-value">{{ (kpi.win_rate || 0).toFixed(1) }}%</span></div></div>
-          <div class="kpi-chip kpi-neutral"><div class="kpi-icon">🔢</div><div class="kpi-body"><span class="kpi-label">交易笔数</span><span class="kpi-value">{{ kpi.total_trades || 0 }}</span></div></div>
-          <div :class="['kpi-chip', (kpi.profit_loss_ratio || 0) >= 2 ? 'kpi-positive' : 'kpi-warning']"><div class="kpi-icon">⚖️</div><div class="kpi-body"><span class="kpi-label">盈亏比</span><span class="kpi-value">{{ (kpi.profit_loss_ratio || 0).toFixed(2) }}</span></div></div>
-          <div class="kpi-chip kpi-warning"><div class="kpi-icon">⬇️</div><div class="kpi-body"><span class="kpi-label">最大回撤</span><span class="kpi-value">{{ (kpi.max_drawdown || 0).toFixed(1) }}%</span></div></div>
-          <div class="kpi-chip kpi-neutral"><div class="kpi-icon">📊</div><div class="kpi-body"><span class="kpi-label">均盈亏%</span><span class="kpi-value" :class="(kpi.avg_profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (kpi.avg_profit_pct || 0).toFixed(2) }}%</span></div></div>
-          <div class="kpi-chip kpi-accent"><div class="kpi-icon">✅</div><div class="kpi-body"><span class="kpi-label">均盈利%</span><span class="kpi-value up">{{ (kpi.avg_win_pct || 0).toFixed(2) }}%</span></div></div>
-          <div class="kpi-chip kpi-warning"><div class="kpi-icon">❌</div><div class="kpi-body"><span class="kpi-label">均亏损%</span><span class="kpi-value down">{{ (kpi.avg_loss_pct || 0).toFixed(2) }}%</span></div></div>
-        </div>
+        <!-- 账户概览 -->
+      <div class="account-bar" v-if="analysisData?.account">
+        <div class="ab-item"><span class="ab-label">总资产</span><span class="ab-val">¥{{ formatMoney(analysisData.account.total_assets) }}</span></div>
+        <div class="ab-item"><span class="ab-label">可用现金</span><span class="ab-val">¥{{ formatMoney(analysisData.account.available_cash) }}</span></div>
+        <div class="ab-item"><span class="ab-label">持仓市值</span><span class="ab-val">¥{{ formatMoney(analysisData.account.market_value) }}</span></div>
+        <div class="ab-item"><span class="ab-label">持仓成本</span><span class="ab-val">¥{{ formatMoney(analysisData.account.total_cost) }}</span></div>
+        <div class="ab-item"><span class="ab-label">未实现盈亏</span><span class="ab-val" :class="(kpi.unrealized_pnl||0)>=0?'up':'down'">¥{{ formatMoney(kpi.unrealized_pnl||0) }}</span></div>
+        <div class="ab-item"><span class="ab-label">总盈亏(含浮盈)</span><span class="ab-val" :class="(kpi.total_pnl_all||kpi.total_profit||0)>=0?'up':'down'">¥{{ formatMoney(kpi.total_pnl_all||kpi.total_profit||0) }}</span></div>
+      </div>
+      <!-- 核心KPI -->
+      <div class="kpi-strip">
+        <div :class="['kpi-chip', (kpi.total_profit||0)>=0?'kpi-positive':'kpi-negative']"><div class="kpi-icon">📈</div><div class="kpi-body"><span class="kpi-label">已实现盈亏</span><span class="kpi-value">¥{{ formatMoney(kpi.total_profit||0) }}</span><span class="kpi-sub">{{ kpi.win_count||0 }}胜{{ kpi.loss_count||0 }}负</span></div></div>
+        <div :class="['kpi-chip', (kpi.win_rate||0)>=50?'kpi-positive':'kpi-negative']"><div class="kpi-icon">🎯</div><div class="kpi-body"><span class="kpi-label">胜率</span><span class="kpi-value">{{ (kpi.win_rate||0).toFixed(1) }}%</span><span class="kpi-sub">连赢{{ kpi.max_consec_win||0 }} 连亏{{ kpi.max_consec_loss||0 }}</span></div></div>
+        <div :class="['kpi-chip', (kpi.profit_loss_ratio||0)>=2?'kpi-positive':'kpi-warning']"><div class="kpi-icon">⚖️</div><div class="kpi-body"><span class="kpi-label">盈亏比</span><span class="kpi-value">{{ (kpi.profit_loss_ratio||0).toFixed(2) }}</span><span class="kpi-sub">PF {{ (kpi.profit_factor||0).toFixed(2) }}</span></div></div>
+        <div :class="['kpi-chip', (kpi.sharpe_ratio||0)>=1?'kpi-positive':'kpi-neutral']"><div class="kpi-icon">📐</div><div class="kpi-body"><span class="kpi-label">Sharpe</span><span class="kpi-value">{{ kpi.sharpe_ratio!=null?kpi.sharpe_ratio.toFixed(2):'-' }}</span><span class="kpi-sub">Sortino {{ kpi.sortino_ratio!=null?kpi.sortino_ratio.toFixed(2):'-' }}</span></div></div>
+        <div class="kpi-chip kpi-warning"><div class="kpi-icon">⬇️</div><div class="kpi-body"><span class="kpi-label">最大回撤</span><span class="kpi-value">{{ (kpi.max_drawdown||0).toFixed(1) }}%</span><span class="kpi-sub">Calmar {{ kpi.calmar_ratio!=null?kpi.calmar_ratio.toFixed(2):'-' }}</span></div></div>
+        <div class="kpi-chip kpi-accent"><div class="kpi-icon">✅</div><div class="kpi-body"><span class="kpi-label">均盈利%</span><span class="kpi-value up">{{ (kpi.avg_win_pct||0).toFixed(2) }}%</span><span class="kpi-sub">均亏损 <span class="down">{{ (kpi.avg_loss_pct||0).toFixed(2) }}%</span></span></div></div>
+      </div>
 
         <!-- 卖出分布条 -->
         <div v-if="sellReasons.length" class="sell-reason-bar">
@@ -368,6 +376,13 @@ async function showDayDetail(date: string) {
 .ana-stat { font-size: 10px; color: var(--text-tertiary); font-weight: 400; }
 
 .kpi-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.account-bar { display: flex; gap: 12px; padding: 4px 8px; margin-bottom: 4px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 4px; font-size: 11px; flex-wrap: wrap; }
+.ab-item { display: flex; gap: 4px; align-items: baseline; }
+.ab-label { color: var(--text-tertiary); }
+.ab-val { font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.ab-val.up { color: var(--stock-down); }
+.ab-val.down { color: var(--stock-up); }
+.kpi-sub { font-size: 9px; color: var(--text-quaternary); margin-top: 1px; display: block; }
 .kpi-chip { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-default); transition: box-shadow 0.2s, transform 0.15s; &:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); } }
 .kpi-icon { font-size: 20px; flex-shrink: 0; }
 .kpi-body { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
