@@ -121,29 +121,66 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
       <!-- ========== 日内专属区 ========== -->
       <template v-if="sentimentMode==='intraday'">
-        <div v-if="intradayLatest&&!isIntradayFallback" class="hero-banner" :class="heroClass(intradayLatest.score||0)">
-          <div class="hero-conclusion">{{ (intradayLatest.score||0)>=70?'市场高潮，积极做多':(intradayLatest.score||0)>=55?'市场分化，精选龙头':(intradayLatest.score||0)>=40?'市场震荡，轻仓操作':'市场冰点，空仓观望' }}</div>
-          <div class="hero-big-score" :style="{color:scoreColor(intradayLatest.score||0)}">{{ (intradayLatest.score||0).toFixed(0) }}<span class="hero-unit">分</span></div>
-          <div class="hero-meta">
-            <span :style="{color:periodColor(intradayLatest.period||'')}">{{ periodCN(intradayLatest.period||'') }}</span>
-            <span>涨停<b class="up">{{ intradayLatest.limit_up||0 }}</b></span>
-            <span>跌停<b class="down">{{ intradayLatest.limit_down||0 }}</b></span>
-            <span>炸板<b>{{ intradayLatest.broken||0 }}</b>(<b>{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}%</b>)</span>
-            <span>动量<b :class="(intradayLatest.momentum||0)>0?'up':'down'">{{ (intradayLatest.momentum||0)>=0?'+':'' }}{{ (intradayLatest.momentum||0).toFixed(1) }}</b></span>
-            <span>溢价<b>{{ (intradayLatest.today_premium||0).toFixed(1) }}%</b></span>
+        <div v-if="intradayLatest&&!isIntradayFallback" class="intraday-hero" :class="heroClass(intradayLatest.score||0)">
+          <div class="ih-top">
+            <div class="ih-score-col">
+              <div class="ih-big-score" :style="{color:scoreColor(intradayLatest.score||0)}">{{ (intradayLatest.score||0).toFixed(0) }}</div>
+              <div class="ih-score-unit">分</div>
+            </div>
+            <div class="ih-info-col">
+              <div class="ih-conclusion">{{ (intradayLatest.score||0)>=70?'🔥 市场高潮，积极做多':(intradayLatest.score||0)>=55?'⚡ 市场分化，精选龙头':(intradayLatest.score||0)>=40?'🌀 市场震荡，轻仓操作':'🥶 市场冰点，空仓观望' }}</div>
+              <div class="ih-period" :style="{color:periodColor(intradayLatest.period||'')}">{{ periodCN(intradayLatest.period||'') }} · 建议仓位<b>{{ (sentimentLive?.position_ratio||0)>=0.7?'100%满仓':(sentimentLive?.position_ratio||0)>=0.5?'70%重仓':(sentimentLive?.position_ratio||0)>=0.3?'50%半仓':'30%轻仓' }}</b> · 开仓<b>{{ sentimentLive?.can_open!==false?'✅允许':'❌禁止' }}</b></div>
+            </div>
+          </div>
+          <div class="ih-market-row">
+            <span class="im-item im-up">涨停 <b>{{ intradayLatest.limit_up||0 }}</b></span>
+            <span class="im-item im-down">跌停 <b>{{ intradayLatest.limit_down||0 }}</b></span>
+            <span class="im-item im-warn">炸板 <b>{{ intradayLatest.broken||0 }}</b> <small>{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}%</small></span>
+            <span class="im-item">动量 <b :class="(intradayLatest.momentum||0)>0?'up':'down'">{{ (intradayLatest.momentum||0)>=0?'+':'' }}{{ (intradayLatest.momentum||0).toFixed(1) }}</b></span>
+            <span class="im-item">溢价 <b>{{ (intradayLatest.today_premium||0).toFixed(1) }}%</b></span>
           </div>
         </div>
-        <div v-if="intradayLatest&&!isIntradayFallback" class="metric-strip">
-          <span class="ms">D1涨停 <b>{{ intradayLatest.limit_up||0 }}/20</b></span>
-          <span class="ms">D2跌停 <b :class="(intradayLatest.limit_down||0)>10?'down':''">{{ intradayLatest.limit_down||0 }}/15</b></span>
-          <span class="ms">D3涨跌比 <b>{{ ((intradayLatest.up_down_ratio||0)*100).toFixed(0) }}%</b></span>
-          <span class="ms">D4动量 <b :class="(intradayLatest.momentum||0)>0?'up':(intradayLatest.momentum||0)<-0.05?'down':''">{{ (intradayLatest.momentum||0).toFixed(2) }}</b></span>
-          <span class="ms">D5炸板率 <b :class="(intradayLatest.broken_rate||0)>0.3?'down':''">{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}%</b></span>
-          <span class="ms">D6连板 <b>{{ sentimentLive?.max_continue||0 }}/10</b></span>
-          <span class="ms">D7昨溢价 <b>{{ (sentimentLive?.zt_premium||0).toFixed(1) }}/5</b></span>
-          <span class="ms">D8今溢价 <b>{{ (intradayLatest.today_premium||0).toFixed(1) }}/5</b></span>
-          <span class="ms">仓位 <b :style="{color:(sentimentLive?.position_ratio||0)>=0.7?'#f56c6c':(sentimentLive?.position_ratio||0)>=0.5?'#409eff':'#67c23a'}">{{ ((sentimentLive?.position_ratio||0)*100).toFixed(0) }}%</b></span>
-          <span class="ms">开仓 <b :class="sentimentLive?.can_open!==false?'up':'down'">{{ sentimentLive?.can_open!==false?'✅':'❌' }}</b></span>
+        <div v-if="intradayLatest&&!isIntradayFallback" class="dim-grid">
+          <div class="dim-card" :class="(intradayLatest.limit_up||0)>=10?'dim-good':(intradayLatest.limit_up||0)<=3?'dim-bad':''">
+            <div class="dim-label">D1 涨停贡献</div>
+            <div class="dim-val">{{ intradayLatest.limit_up||0 }}<small>/20</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.limit_up||0)/20)*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card" :class="(intradayLatest.limit_down||0)>10?'dim-bad':(intradayLatest.limit_down||0)<=2?'dim-good':''">
+            <div class="dim-label">D2 跌停惩罚</div>
+            <div class="dim-val">{{ intradayLatest.limit_down||0 }}<small>/15</small></div>
+            <div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width: Math.min(100,((intradayLatest.limit_down||0)/15)*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card">
+            <div class="dim-label">D3 涨跌比</div>
+            <div class="dim-val">{{ ((intradayLatest.up_down_ratio||0)*100).toFixed(0) }}<small>%/15</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.up_down_ratio||0))*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card" :class="(intradayLatest.momentum||0)>0?'dim-good':(intradayLatest.momentum||0)<-0.05?'dim-bad':''">
+            <div class="dim-label">D4 动量</div>
+            <div class="dim-val">{{ (intradayLatest.momentum||0).toFixed(2) }}<small>/10</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,Math.max(0,((intradayLatest.momentum||0)+5)/15*100))+'%'}"></div></div>
+          </div>
+          <div class="dim-card" :class="(intradayLatest.broken_rate||0)>0.3?'dim-bad':(intradayLatest.broken_rate||0)<=0.1?'dim-good':''">
+            <div class="dim-label">D5 炸板率</div>
+            <div class="dim-val">{{ ((intradayLatest.broken_rate||0)*100).toFixed(0) }}<small>%/10</small></div>
+            <div class="dim-bar"><div class="dim-fill dim-fill-warn" :style="{width: Math.min(100,((intradayLatest.broken_rate||0))*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card" :class="(sentimentLive?.max_continue||0)>=3?'dim-good':(sentimentLive?.max_continue||0)<=1?'dim-bad':''">
+            <div class="dim-label">D6 连板高度</div>
+            <div class="dim-val">{{ sentimentLive?.max_continue||0 }}<small>/10</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((sentimentLive?.max_continue||0)/10)*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card">
+            <div class="dim-label">D7 昨日溢价</div>
+            <div class="dim-val">{{ (sentimentLive?.zt_premium||0).toFixed(1) }}<small>/5</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((sentimentLive?.zt_premium||0)/5)*100)+'%'}"></div></div>
+          </div>
+          <div class="dim-card">
+            <div class="dim-label">D8 今日溢价</div>
+            <div class="dim-val">{{ (intradayLatest.today_premium||0).toFixed(1) }}<small>/5</small></div>
+            <div class="dim-bar"><div class="dim-fill" :style="{width: Math.min(100,((intradayLatest.today_premium||0)/5)*100)+'%'}"></div></div>
+          </div>
         </div>
         <div v-if="isIntradayFallback||!intradayLatest" class="review-section">
           <span class="section-detail" style="color:var(--text-tertiary);font-style:italic">📡 无日内扫描数据（非交易日或Scanner未运行），下方显示日线参考</span>
@@ -313,20 +350,38 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 .section-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.6; flex-basis: calc(100% - 110px); flex-shrink: 1; overflow: visible; }
 .section-detail b { font-weight: 600; color: var(--text-primary); font-size: 12px; margin: 0 1px; }
 
-.hero-banner { padding: 4px 8px; border-radius: 4px; margin-bottom: 2px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.hero-conclusion { font-size: 12px; font-weight: 700; }
-.hero-big-score { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
-.hero-unit { font-size: 11px; font-weight: 400; margin-left: 1px; }
-.hero-meta { display: flex; gap: 8px; font-size: 10px; color: var(--text-secondary); margin-left: auto; }
-.hero-banner.hot { background: linear-gradient(135deg, rgba(245,108,108,0.12), rgba(245,108,108,0.03)); border: 1px solid rgba(245,108,108,0.25); }
-.hero-banner.warm { background: linear-gradient(135deg, rgba(64,158,255,0.10), rgba(230,162,60,0.03)); border: 1px solid rgba(64,158,255,0.18); }
-.hero-banner.neutral { background: linear-gradient(135deg, rgba(230,162,60,0.08), rgba(230,162,60,0.02)); border: 1px solid rgba(230,162,60,0.18); }
-.hero-banner.cold { background: linear-gradient(135deg, rgba(103,194,58,0.10), rgba(103,194,58,0.03)); border: 1px solid rgba(103,194,58,0.18); }
+.intraday-hero { padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; border: 1px solid var(--border-default); }
+.intraday-hero.hot { background: linear-gradient(135deg, rgba(245,108,108,0.12), rgba(245,108,108,0.03)); border-color: rgba(245,108,108,0.25); }
+.intraday-hero.warm { background: linear-gradient(135deg, rgba(64,158,255,0.10), rgba(230,162,60,0.03)); border-color: rgba(64,158,255,0.18); }
+.intraday-hero.neutral { background: linear-gradient(135deg, rgba(230,162,60,0.08), rgba(230,162,60,0.02)); border-color: rgba(230,162,60,0.18); }
+.intraday-hero.cold { background: linear-gradient(135deg, rgba(103,194,58,0.10), rgba(103,194,58,0.03)); border-color: rgba(103,194,58,0.18); }
+.ih-top { display: flex; align-items: center; gap: 12px; }
+.ih-score-col { display: flex; flex-direction: column; align-items: center; min-width: 56px; }
+.ih-big-score { font-size: 32px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
+.ih-score-unit { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
+.ih-info-col { flex: 1; }
+.ih-conclusion { font-size: 14px; font-weight: 700; line-height: 1.4; }
+.ih-period { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.ih-period b { font-weight: 600; color: var(--text-primary); margin: 0 2px; }
+.ih-market-row { display: flex; gap: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(128,128,128,0.12); font-size: 12px; color: var(--text-secondary); }
+.im-item b { font-weight: 700; font-size: 13px; margin-left: 2px; }
+.im-item small { font-size: 10px; color: var(--text-tertiary); margin-left: 2px; }
+.im-up b { color: #f56c6c; }
+.im-down b { color: #409eff; }
+.im-warn b { color: #e6a23c; }
 
-.metric-strip { display: flex; flex-wrap: wrap; gap: 2px 6px; margin-top: 2px; padding: 3px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 3px; font-size: 10px; color: var(--text-tertiary); }
-.metric-strip .ms b { font-weight: 600; color: var(--text-primary); font-size: 11px; margin-left: 2px; }
-.metric-strip .ms b.down { color: #f56c6c; }
-.metric-strip .ms b.up { color: #67c23a; }
+.dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 4px; }
+.dim-card { padding: 6px 8px; border-radius: 4px; background: var(--bg-elevated); border: 1px solid var(--border-default); transition: border-color 0.2s; }
+.dim-card.dim-good { border-color: rgba(103,194,58,0.4); }
+.dim-card.dim-bad { border-color: rgba(245,108,108,0.4); }
+.dim-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
+.dim-val { font-size: 16px; font-weight: 800; line-height: 1.2; }
+.dim-val small { font-size: 11px; font-weight: 400; color: var(--text-tertiary); }
+.dim-bar { height: 3px; background: rgba(128,128,128,0.1); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.dim-fill { height: 100%; background: var(--el-color-primary); border-radius: 2px; transition: width 0.3s; }
+.dim-fill-warn { background: #e6a23c; }
+
+
 
 .review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
 .dev-card { padding: 8px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
