@@ -460,8 +460,9 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             })
         
         # 6. 每日明细（包含所有有交易的日期：买入+卖出，而非仅卖出日）
+        # 【v2.9.98zf】用修正后的sells数据(盈亏已从买入记录推算)
         daily_data = {}
-        # 先从所有filled记录构建（买入+卖出都算交易日）
+        # 先从所有filled记录构建交易日和买卖笔数
         all_filled = await db["broker_orders"].find(
             {"status": "filled", **({"$and": [df]} if "$or" in df else df)} if df else {"status": "filled"}
         ).to_list(10000)
@@ -472,13 +473,17 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             if td not in daily_data:
                 daily_data[td] = {"profit": 0, "trades": 0, "wins": 0, "buys": 0, "sells": 0}
             daily_data[td]["trades"] += 1
-            if r.get("side") == "sell":
-                daily_data[td]["sells"] += 1
-                daily_data[td]["profit"] += r.get("profit_amount", 0) or 0
-                if (r.get("profit_pct", 0) or 0) >= 0:
-                    daily_data[td]["wins"] += 1
-            else:
+            if r.get("side") == "buy":
                 daily_data[td]["buys"] += 1
+            else:
+                daily_data[td]["sells"] += 1
+        # 用修正后的sells覆盖盈亏数据(前面已经对sells做了profit_pct/profit_amount修正)
+        for s in sells:
+            td = str(s.get("trade_date", ""))
+            if td and td in daily_data:
+                daily_data[td]["profit"] += s.get("profit_amount", 0) or 0
+                if (s.get("profit_pct", 0) or 0) >= 0:
+                    daily_data[td]["wins"] += 1
 
         daily_detail = []
         for d in sorted(daily_data.keys()):
