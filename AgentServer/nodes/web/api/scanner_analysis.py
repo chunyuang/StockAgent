@@ -329,13 +329,17 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             sortino = 0
         
         # Calmar Ratio = 年化收益 / 最大回撤
-        # 年化收益: 从第一笔到最后一笔的复合收益率
+        # 年化收益: 用实际交易天数计算
         if profits and max_dd > 0:
-            total_return_pct = sum(profits)
+            total_return_pct = sum(profits)  # 累计收益率(每笔交易收益率之和)
             n_days = len(set(str(s.get("trade_date", "")) for s in sells))
-            annual_return = ((1 + total_return_pct / 100) ** (252 / max(n_days, 1)) - 1) * 100
+            # 防止短期数据导致年化虚高: 交易天数<30天时不做年化,直接用累计收益率
+            if n_days >= 30:
+                annual_return = ((1 + total_return_pct / 100) ** (252 / max(n_days, 1)) - 1) * 100
+            else:
+                annual_return = total_return_pct  # 短期用累计收益率,不年化
             annual_return = max(-99.99, min(annual_return, 999.99))  # cap
-            calmar = annual_return / max_dd
+            calmar = annual_return / max_dd if max_dd > 0 else 0
         else:
             annual_return = 0; calmar = 0
         
@@ -648,7 +652,7 @@ async def _get_account_from_mongo():
             "available_cash": round(available_cash, 2),
             "market_value": round(total_market_value, 2),
             "total_cost": round(total_cost, 2),
-            "total_profit": round(total_assets - 1000000, 2),  # 初始100万
+            "total_profit": round(total_market_value - total_cost, 2),  # 未实现盈亏(市值-成本)≠总盈亏，总盈亏应从KPI读取
             "position_count": len(pos_list),
             "position_ratio": round(total_market_value / max(total_assets, 1) * 100, 1),
             "positions": pos_list,

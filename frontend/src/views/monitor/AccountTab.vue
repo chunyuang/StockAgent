@@ -300,7 +300,7 @@ const posPie = computed(() => {
       </div>
       <!-- 折叠：资金曲线 -->
       <div class="review-section" style="cursor:pointer" @click="equityExpanded=!equityExpanded">
-        <span class="section-title title-blue">📈 资金曲线 {{ equityExpanded?'▼':'▶' }}</span><span class="section-summary">初始¥100万 · 当前¥{{ totalAssets.toLocaleString() }} · {{ fmtPct(totalProfit / 1000000 * 100) }}</span>
+        <span class="section-title title-blue">📈 资金曲线 {{ equityExpanded?'▼':'▶' }}</span><span class="section-summary">已实现盈亏累计 · 当前¥{{ totalAssets.toLocaleString() }} · 总{{ fmtPct(totalProfit / 1000000 * 100) }}</span>
       </div>
       <div v-if="equityExpanded" class="at-card" style="margin-bottom:4px">
         <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:260px;width:100%" />
