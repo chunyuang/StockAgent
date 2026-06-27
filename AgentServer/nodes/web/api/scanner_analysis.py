@@ -387,26 +387,38 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
                 "win_rate": round(d["wins"] / d["trades"] * 100, 1) if d["trades"] else 0,
             })
         
-        # 6. 每日明细
+        # 6. 每日明细（包含所有有交易的日期：买入+卖出，而非仅卖出日）
         daily_data = {}
-        for s in sells:
-            td = str(s.get("trade_date", ""))
-            if td:
-                if td not in daily_data:
-                    daily_data[td] = {"profit": 0, "trades": 0, "wins": 0}
-                daily_data[td]["profit"] += s.get("profit_amount", 0) or 0
-                daily_data[td]["trades"] += 1
-                if (s.get("profit_pct", 0) or 0) >= 0:
+        # 先从所有filled记录构建（买入+卖出都算交易日）
+        all_filled = await db["broker_orders"].find(
+            {"status": "filled", **({"$and": [df]} if "$or" in df else df)} if df else {"status": "filled"}
+        ).to_list(10000)
+        for r in all_filled:
+            td = str(r.get("trade_date", ""))
+            if not td:
+                continue
+            if td not in daily_data:
+                daily_data[td] = {"profit": 0, "trades": 0, "wins": 0, "buys": 0, "sells": 0}
+            daily_data[td]["trades"] += 1
+            if r.get("side") == "sell":
+                daily_data[td]["sells"] += 1
+                daily_data[td]["profit"] += r.get("profit_amount", 0) or 0
+                if (r.get("profit_pct", 0) or 0) >= 0:
                     daily_data[td]["wins"] += 1
-        
+            else:
+                daily_data[td]["buys"] += 1
+
         daily_detail = []
         for d in sorted(daily_data.keys()):
             info = daily_data[d]
+            sells_that_day = info["sells"]
             daily_detail.append({
                 "date": f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 else d,
                 "trades": info["trades"],
+                "buys": info["buys"],
+                "sells": sells_that_day,
                 "profit": round(info["profit"], 0),
-                "win_rate": round(info["wins"] / info["trades"] * 100, 1) if info["trades"] else 0,
+                "win_rate": round(info["wins"] / sells_that_day * 100, 1) if sells_that_day else None,
             })
         
         # 7. 当前持仓【v2.9.93修复】改以broker_positions为唯一真相源，不再从scanner_timeline累加推算

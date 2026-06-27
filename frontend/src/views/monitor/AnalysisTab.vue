@@ -270,9 +270,9 @@ async function showDayDetail(date: string) {
           <div class="chart-section">
             <div class="chart-title">📋 每日明细 <span class="ana-stat">点击展开</span></div>
             <div v-if="!dailyDetail.length" class="ana-empty-sm">暂无数据</div>
-            <table class="ana-tbl" v-else><thead><tr><th>日期</th><th>笔数</th><th>胜率</th><th>盈亏</th></tr></thead><tbody>
+            <table class="ana-tbl" v-else><thead><tr><th>日期</th><th>买</th><th>卖</th><th>胜率</th><th>盈亏</th></tr></thead><tbody>
               <template v-for="d in dailyDetail" :key="d.date">
-                <tr class="dl-row" :class="(d.profit || 0) >= 0 ? 'row-up' : 'row-down'" @click="showDayDetail(d.date)" style="cursor:pointer"><td>{{ d.date }} <span style="font-size:9px;color:var(--text-tertiary)">{{ selectedDay === d.date ? '▲' : '▼' }}</span></td><td>{{ d.trades }}</td><td :class="(d.win_rate || 0) >= 50 ? 'up' : 'down'">{{ d.win_rate ?? '-' }}%</td><td :class="(d.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (d.profit || 0).toLocaleString() }}</td></tr>
+                <tr class="dl-row" :class="(d.profit || 0) >= 0 ? 'row-up' : 'row-down'" @click="showDayDetail(d.date)" style="cursor:pointer"><td>{{ d.date }} <span style="font-size:9px;color:var(--text-tertiary)">{{ selectedDay === d.date ? '▲' : '▼' }}</span></td><td class="up">{{ d.buys ?? 0 }}</td><td class="down">{{ d.sells ?? 0 }}</td><td :class="(d.win_rate || 0) >= 50 ? 'up' : 'down'">{{ d.win_rate != null ? d.win_rate + '%' : '-' }}</td><td :class="(d.profit || 0) >= 0 ? 'up' : 'down'">¥{{ (d.profit || 0).toLocaleString() }}</td></tr>
                 <tr v-if="selectedDay === d.date"><td colspan="4" style="padding:4px 8px;background:var(--bg-muted)">
                   <div v-if="dailyTradesLoading" style="font-size:11px;color:var(--text-tertiary)">加载中...</div>
                   <div v-else-if="!dailyTrades.length" style="font-size:11px;color:var(--text-tertiary)">无交易记录</div>
