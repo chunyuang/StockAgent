@@ -33,6 +33,7 @@ const stratContrib = computed(() => kpiData.value?.strategy_contrib || [])
 const sellReasons = computed(() => kpiData.value?.sell_reasons || [])
 const benchmark = computed(() => kpiData.value?.benchmark || [])
 const riskEvents = computed(() => kpiData.value?.risk_events || [])
+const closedTrades = computed(() => kpiData.value?.closed_trades || [])
 const positions = computed(() => kpiData.value?.account?.positions || [])
 
 const fmtPnl = (v: number) => { if (v == null || isNaN(v)) return '¥0'; const abs = Math.abs(v), sign = v >= 0 ? '+' : '-'; if (abs >= 10000) return sign + '¥' + (abs/10000).toFixed(2) + '万'; return sign + '¥' + abs.toLocaleString() }
@@ -316,6 +317,38 @@ const metricGroups = computed(() => {
         </div>
       </div>
     </div>
+
+    <!-- ===== 交易记录(已平仓) ===== -->
+    <div class="perf-card">
+      <div class="perf-card-t">📝 交易记录 <span class="perf-hint">已平仓{{ closedTrades.length }}笔 · 按盈亏排序</span></div>
+      <div v-if="!closedTrades.length" class="perf-empty">暂无已平仓交易</div>
+      <div v-else class="ct-list">
+        <div class="ct-header">
+          <span class="ct-code">代码</span>
+          <span class="ct-name">名称</span>
+          <span class="ct-strat">策略</span>
+          <span class="ct-buy">买入</span>
+          <span class="ct-sell">卖出</span>
+          <span class="ct-qty">数量</span>
+          <span class="ct-hold">持仓</span>
+          <span class="ct-pnl">盈亏</span>
+          <span class="ct-pnl-pct">收益率</span>
+          <span class="ct-reason">卖出原因</span>
+        </div>
+        <div v-for="(t, i) in closedTrades" :key="i" :class="['ct-row', (t.profit_amount||0)>=0?'ct-win':'ct-loss']">
+          <span class="ct-code">{{ t.ts_code?.slice(0,6) }}</span>
+          <span class="ct-name">{{ t.stock_name }}</span>
+          <span class="ct-strat">{{ t.strategy?.slice(0,4) }}</span>
+          <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price?.toFixed(2) }}</span>
+          <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price?.toFixed(2) }}</span>
+          <span class="ct-qty">{{ t.qty }}</span>
+          <span class="ct-hold">{{ t.hold_days!=null?t.hold_days+'天':'-' }}</span>
+          <span :class="['ct-pnl', cls(t.profit_amount||0)]">{{ fmtPnl(t.profit_amount||0) }}</span>
+          <span :class="['ct-pnl-pct', cls(t.profit_pct||0)]">{{ fmtPct(t.profit_pct||0) }}</span>
+          <span class="ct-reason">{{ t.reason }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -351,6 +384,24 @@ const metricGroups = computed(() => {
 .re-type { flex: 1; color: var(--text-secondary); }
 .re-pnl { font-variant-numeric: tabular-nums; min-width: 80px; text-align: right; }
 
+
+/* Closed trades table */
+.ct-list { font-size: 11px; overflow-x: auto; }
+.ct-header, .ct-row { display: grid; grid-template-columns: 50px 60px 42px 90px 90px 46px 36px 72px 58px 1fr; gap: 2px; padding: 3px 4px; align-items: center; border-bottom: 1px solid var(--border-light); }
+.ct-header { font-weight: 600; color: var(--text-tertiary); font-size: 10px; position: sticky; top: 0; background: var(--bg-card); }
+.ct-row { transition: background 0.15s; }
+.ct-row:hover { background: rgba(255,255,255,0.03); }
+.ct-win { border-left: 2px solid rgba(245,108,108,0.3); }
+.ct-loss { border-left: 2px solid rgba(64,158,255,0.3); }
+.ct-code { font-family: monospace; font-size: 10px; }
+.ct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-strat { color: var(--text-tertiary); font-size: 10px; }
+.ct-buy, .ct-sell { font-variant-numeric: tabular-nums; font-size: 10px; }
+.ct-qty { text-align: right; font-variant-numeric: tabular-nums; }
+.ct-hold { text-align: center; color: var(--text-tertiary); }
+.ct-pnl { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.ct-pnl-pct { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.ct-reason { color: var(--text-secondary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .up { color: var(--stock-down); }
 .down { color: var(--stock-up); }
 .muted { color: var(--text-tertiary); }

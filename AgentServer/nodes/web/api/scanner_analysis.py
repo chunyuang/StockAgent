@@ -552,6 +552,8 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
             "account": (await _get_account_from_mongo()) or {"account_id": "default", "total_assets": 0, "available_cash": 0, "market_value": 0, "total_cost": 0, "total_profit": 0, "position_count": 0, "position_ratio": 0},
             "benchmark": benchmark,
             "risk_events": risk_events,
+            # 已平仓交易明细(完整买卖闭环)
+            "closed_trades": _build_closed_trades(sells, buy_records),
         }}
     except Exception as e:
         import traceback
@@ -809,3 +811,60 @@ async def get_stock_detail(ts_code: str):
     except Exception as e:
         import traceback
         return {"success": False, "message": str(e), "traceback": traceback.format_exc()}
+
+
+def _build_closed_trades(sells: list, buy_records: list) -> list:
+    """从卖出记录+买入记录构建已平仓交易明细(完整买卖闭环)"""
+    buy_map = {}
+    for b in buy_records:
+        tc = b.get("ts_code", "")
+        if tc not in buy_map:
+            buy_map[tc] = []
+        buy_map[tc].append(b)
+    for tc in buy_map:
+        buy_map[tc].sort(key=lambda x: x.get("trade_date", 0))
+
+    closed = []
+    buy_used = {}
+    for s in sells:
+        tc = s.get("ts_code", "")
+        sell_td = s.get("trade_date", 0)
+        buy = None
+        if tc in buy_map:
+            idx = buy_used.get(tc, 0)
+            buys_for_code = buy_map[tc]
+            while idx < len(buys_for_code):
+                b = buys_for_code[idx]
+                if b.get("trade_date", 0) <= sell_td:
+                    buy = b
+                    buy_used[tc] = idx + 1
+                    break
+                idx += 1
+            buy_used.setdefault(tc, idx)
+
+        buy_price = buy.get("filled_price", 0) or buy.get("price", 0) if buy else 0
+        sell_price = s.get("filled_price", 0) or 0
+        qty = s.get("filled_qty", 0) or s.get("quantity", 0)
+        hold_days = None
+        try:
+            if buy and str(buy.get("trade_date", "")).isdigit() and str(sell_td).isdigit():
+                hold_days = int(str(sell_td)) - int(str(buy.get("trade_date", "")))
+        except (ValueError, TypeError):
+            pass
+
+        closed.append({
+            "ts_code": tc,
+            "stock_name": s.get("stock_name", "") or (buy.get("stock_name", "") if buy else ""),
+            "strategy": s.get("strategy", "") or (buy.get("strategy", "") if buy else ""),
+            "buy_date": str(buy.get("trade_date", "")) if buy else "",
+            "sell_date": str(sell_td),
+            "buy_price": round(buy_price, 2),
+            "sell_price": round(sell_price, 2),
+            "qty": qty,
+            "profit_pct": s.get("profit_pct", 0) or 0,
+            "profit_amount": round(s.get("profit_amount", 0) or 0, 0),
+            "reason": s.get("reason", ""),
+            "hold_days": hold_days,
+        })
+    closed.sort(key=lambda x: x.get("profit_amount", 0), reverse=True)
+    return closed
