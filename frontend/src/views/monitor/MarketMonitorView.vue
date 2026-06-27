@@ -23,6 +23,7 @@ const SentimentTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('
 const HistoryTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./HistoryTab.vue') })
 const AnalysisTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AnalysisTab.vue') })
 const AccountTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./AccountTab.vue') })
+const PerfTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PerfTab.vue') })
 const ScanTraceTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ScanTraceTab.vue') })
 const PositionRiskMatrix = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PositionRiskMatrix.vue') })
 const MiniKline = defineAsyncComponent({ ...asyncOpts, loader: () => import('./MiniKline.vue') })
@@ -199,6 +200,10 @@ const {
       <button :class="['tab-btn', activeTab === 'account' ? 'active' : '']" @click="activeTab = 'account'">
         <span class="tab-icon">💰</span>
         <span class="tab-text"><span class="tab-label">账户资产</span><span class="tab-desc">资产持仓</span></span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'perf' ? 'active' : '']" @click="activeTab = 'perf'">
+        <span class="tab-icon">📈</span>
+        <span class="tab-text"><span class="tab-label">绩效分析</span><span class="tab-desc">月度归因</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
@@ -526,6 +531,7 @@ const {
     <HistoryTab v-if="activeTab === 'history'" />
     <AnalysisTab v-if="activeTab === 'analysis'" />
     <AccountTab v-if="activeTab === 'account'" />
+    <PerfTab v-if="activeTab === 'perf'" />
 
     <OpsTab v-if="activeTab === 'ops'" />
 
