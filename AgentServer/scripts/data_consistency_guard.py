@@ -115,6 +115,24 @@ async def main():
                            f"累计{cum_return_fixed:.1f}%", f"年化{cum_return:.1f}%",
                            "短期数据年化放大，应显示累计收益率"))
 
+    # === 5. available_cash交叉验证 ===
+    if acct:
+        # 从orders推算正确的cash
+        buy_cost_total = sum(
+            (b.get("filled_price",0) or 0) * (b.get("filled_qty",0) or b.get("quantity",0))
+            for b in buys
+        )
+        sell_income_total = sum(
+            (s.get("filled_price",0) or 0) * (s.get("filled_qty",0) or s.get("quantity",0))
+            for s in sells
+        )
+        correct_cash = 1000000 - buy_cost_total + sell_income_total
+        acct_cash = acct.get("available_cash", 0) or 0
+        if abs(acct_cash - correct_cash) / max(abs(correct_cash), 1) > 0.01:
+            issues.append(("P0", "available_cash不匹配(从orders推算)",
+                           f"¥{correct_cash:,.0f}", f"¥{acct_cash:,.0f}",
+                           f"差额¥{acct_cash-correct_cash:,.0f}, 买入没扣钱或卖出没加钱"))
+
     # === 5. equityCurve终值 vs account.total_assets ===
     # 如果API可用，检查资金曲线终值
     try:

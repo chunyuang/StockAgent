@@ -245,6 +245,24 @@ class SimulatedBroker:
                     {"account_id": account_id, "ts_code": position.ts_code}
                 )
             
+            # 4. 【v2.9.98zf-39】同步写入账户(关键路径: 交易后accounts必须立即持久化)
+            # 之前只写order+position，accounts靠异步save_state，崩溃时会丢数据
+            self._recalc_account()  # 重算market_value/total_assets
+            db["broker_accounts"].update_one(
+                {"account_id": account_id},
+                {"$set": {
+                    "account_id": account_id,
+                    "total_assets": self.account.total_assets,
+                    "available_cash": self.account.available_cash,
+                    "frozen_cash": self.account.frozen_cash,
+                    "market_value": self.account.market_value,
+                    "today_profit": self.account.today_profit,
+                    "total_profit": self.account.total_profit,
+                    "updated_at": datetime.now().isoformat(),
+                }},
+                upsert=True,
+            )
+            
             return True
         except Exception as e:
             logger.error(f"[BROKER] 同步写入订单+持仓失败: {e}")
@@ -447,19 +465,34 @@ class SimulatedBroker:
         return self.account.available_cash >= (initial_cash * 0.99)
 
     def _fix_cash_from_positions(self, market_value: float) -> None:
-        """【v2.9.108】以positions为权威修正available_cash"""
-        initial_cash = self.account.total_assets
-        estimated_total = initial_cash + self.account.total_profit
-        estimated_cash = max(estimated_total - market_value, 0)
+        """【v2.9.98zf-39】以orders为权威修正available_cash
+
+        核心思路: cash = initial_cash - 买入支出 + 卖出收入
+        不依赖account.total_profit(可能不准)，直接从orders推算
+        """
+        initial_cash = 1_000_000  # 初始资金
+        buy_cost = sum(
+            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'buy' and str(o.status) == 'filled'
+        )
+        sell_income = sum(
+            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'sell' and str(o.status) == 'filled'
+        )
+        correct_cash = initial_cash - buy_cost + sell_income
+        correct_total = correct_cash + market_value
 
         old_cash = self.account.available_cash
-        self.account.available_cash = estimated_cash
+        self.account.available_cash = correct_cash
         self.account.market_value = market_value
-        self.account.total_assets = estimated_cash + market_value
+        self.account.total_assets = correct_total
+        self.account.total_profit = market_value - sum(
+            p.avg_cost * p.total_qty for p in self.positions.values()
+        )  # 未实现盈亏
 
         logger.warning(
-            f"[BROKER] ⚠️ 账户一致性修复: 现金{old_cash:.0f}→{estimated_cash:.0f} "
-            f"市值{market_value:.0f} 总资产{self.account.total_assets:.0f} "
+            f"[BROKER] ⚠️ 账户一致性修复: 现金{old_cash:.0f}→{correct_cash:.0f} "
+            f"市值{market_value:.0f} 总资产{correct_total:.0f} "
             f"(检测到{len(self.positions)}只持仓但现金=初始值)"
         )
 
@@ -1091,7 +1124,10 @@ class SimulatedBroker:
         logger.info(f"[BROKER] 日结算: {len(self.positions)}持仓, 可用{self.account.available_cash:.0f}")
 
     def _recalc_account(self) -> None:
-        """重算账户总值"""
+        """重算账户总值
+
+        【v2.9.98zf-39】从orders推算available_cash，而不是信任内存值
+        """
         market_value = 0
         for pos in self.positions.values():
             if pos.current_price > 0:
@@ -1099,8 +1135,23 @@ class SimulatedBroker:
             elif pos.avg_cost > 0:
                 market_value += pos.avg_cost * pos.total_qty
 
+        # 从orders推算正确的available_cash
+        buy_cost = sum(
+            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'buy' and str(o.status) == 'filled'
+        )
+        sell_income = sum(
+            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'sell' and str(o.status) == 'filled'
+        )
+        correct_cash = 1_000_000 - buy_cost + sell_income
+
+        self.account.available_cash = correct_cash
         self.account.market_value = market_value
-        self.account.total_assets = self.account.available_cash + market_value
+        self.account.total_assets = correct_cash + market_value
+        self.account.total_profit = market_value - sum(
+            p.avg_cost * p.total_qty for p in self.positions.values()
+        )  # 未实现盈亏
 
     def get_today_trades(self) -> List[Dict]:
         """获取今日成交"""
