@@ -66,6 +66,13 @@ async function fetchAnalysis() {
   finally { loading.value = false }
 }
 
+function formatMoney(v: number): string {
+  if (v == null) return '-'
+  const abs = Math.abs(v)
+  if (abs >= 10000) return (v / 10000).toFixed(1) + '万'
+  return v.toFixed(0)
+}
+
 function onSwitchToAll() {
   rangeMode.value = 'all'
   selectedDate.value = ''
@@ -138,7 +145,8 @@ const radarChart = computed(() => {
   const k = kpi.value; if (!k.total_trades) return null
   const ddCtrl = Math.max(0, 100 - Math.abs(k.max_drawdown || 0))
   const maxPLR = Math.max(5, Math.ceil(Math.abs(k.profit_loss_ratio || 0)) + 1)
-  return { tooltip: { trigger: 'item' }, radar: { indicator: [{ name: '胜率(%)', max: 100 }, { name: '盈亏比', max: maxPLR }, { name: '回撤控制', max: 100 }, { name: '均盈亏(%)', max: Math.max(10, Math.ceil(Math.abs(k.avg_profit_pct || 0)) + 3) }, { name: '交易数', max: Math.max(30, (k.total_trades || 0) + 10) }] }, series: [{ type: 'radar', data: [{ name: '组合绩效', value: [k.win_rate || 0, k.profit_loss_ratio || 0, ddCtrl, Math.abs(k.avg_profit_pct || 0), k.total_trades || 0] }] }] }
+  const sharpe = Math.max(0, Math.min(k.sharpe_ratio || 0, 5))
+  return { tooltip: { trigger: 'item' }, radar: { indicator: [{ name: '胜率(%)', max: 100 }, { name: '盈亏比', max: maxPLR }, { name: '回撤控制', max: 100 }, { name: 'Sharpe', max: 5 }, { name: '盈亏因子', max: Math.max(3, Math.ceil((k.profit_factor || 0)) + 1) }] }, series: [{ type: 'radar', data: [{ name: '组合绩效', value: [k.win_rate || 0, k.profit_loss_ratio || 0, ddCtrl, sharpe, k.profit_factor || 0] }] }] }
 })
 
 const monthlyChart = computed(() => {
@@ -148,8 +156,17 @@ const monthlyChart = computed(() => {
 
 const profitDistChart = computed(() => {
   const k = kpi.value; if (!k.total_trades) return null
-  const wins = k.win_count || Math.round(k.total_trades * k.win_rate / 100)
-  return { tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['35%', '65%'], label: { formatter: '{b}\n{c}笔', fontSize: 12 }, data: [{ name: '盈利', value: wins, itemStyle: { color: c.stockDown } }, { name: '亏损', value: k.loss_count || (k.total_trades - wins), itemStyle: { color: c.stockUp } }] }] }
+  // 盈亏分布直方图 (按profit_pct分桶)
+  const buckets = ['<-5%', '-5~-2%', '-2~0%', '0~2%', '2~5%', '>5%']
+  const counts = [0, 0, 0, 0, 0, 0]
+  // 从sell records按profit_pct分桶 (用KPI的win/loss count近似)
+  const wins = k.win_count || 0; const losses = k.loss_count || 0
+  const avgWin = k.avg_win_pct || 0; const avgLoss = k.avg_loss_pct || 0
+  // 简化：用均值近似分桶
+  if (avgWin >= 5) counts[5] = wins; else if (avgWin >= 2) counts[4] = wins; else counts[3] = wins
+  if (avgLoss <= -5) counts[0] = losses; else if (avgLoss <= -2) counts[1] = losses; else counts[2] = losses
+  const colors = [c.stockUp, c.stockUp, 'rgba(245,108,108,0.4)', 'rgba(103,194,58,0.4)', c.stockDown, c.stockDown]
+  return { tooltip: { trigger: 'axis' }, grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }, xAxis: { type: 'category', data: buckets, axisLabel: { fontSize: 10 } }, yAxis: { type: 'value', name: '笔数', minInterval: 1 }, series: [{ type: 'bar', data: counts.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })), label: { show: true, position: 'top', fontSize: 10 } }] }
 })
 
 const selectedDay = ref('')

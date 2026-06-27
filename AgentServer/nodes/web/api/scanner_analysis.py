@@ -294,17 +294,89 @@ async def get_analysis(start_date: str = None, end_date: str = None, date: str =
                 if dd > max_dd:
                     max_dd = dd
         
+        # ===== 专业量化指标 (参考QuantConnect/Zipline/聚宽) =====
+        # Profit Factor = 总盈利金额 / 总亏损金额
+        total_win_amt = sum(a for a, p in zip(profit_amounts, profits) if p >= 0)
+        total_loss_amt = abs(sum(a for a, p in zip(profit_amounts, profits) if p < 0))
+        profit_factor = total_win_amt / max(total_loss_amt, 1)
+        
+        # Expectancy = (胜率×均盈) - (败率×均亏)
+        loss_rate = 1 - win_rate / 100 if sell_count > 0 else 0
+        expectancy = (win_rate / 100 * avg_win_amt) - (loss_rate * abs(avg_loss_amt))
+        
+        # 最大连续胜/负
+        max_consec_win = 0; max_consec_loss = 0; cw = 0; cl = 0
+        for p in profits:
+            if p >= 0: cw += 1; cl = 0; max_consec_win = max(max_consec_win, cw)
+            else: cl += 1; cw = 0; max_consec_loss = max(max_consec_loss, cl)
+        
+        # Sharpe Ratio (每笔交易收益率为r, 假设无风险利率=0)
+        import math
+        if len(profits) > 1:
+            mean_r = sum(profits) / len(profits)
+            std_r = math.sqrt(sum((r - mean_r) ** 2 for r in profits) / (len(profits) - 1))
+            sharpe = mean_r / std_r * math.sqrt(252) if std_r > 0 else 0  # 年化
+        else:
+            sharpe = 0
+        
+        # Sortino Ratio (只考虑下行波动)
+        if len(profits) > 1:
+            mean_r = sum(profits) / len(profits)
+            downside = [min(r, 0) for r in profits]
+            down_std = math.sqrt(sum(d ** 2 for d in downside) / len(downside)) if downside else 1
+            sortino = mean_r / down_std * math.sqrt(252) if down_std > 0 else 0
+        else:
+            sortino = 0
+        
+        # Calmar Ratio = 年化收益 / 最大回撤
+        # 年化收益: 从第一笔到最后一笔的复合收益率
+        if profits and max_dd > 0:
+            total_return_pct = sum(profits)
+            n_days = len(set(str(s.get("trade_date", "")) for s in sells))
+            annual_return = ((1 + total_return_pct / 100) ** (252 / max(n_days, 1)) - 1) * 100
+            annual_return = max(-99.99, min(annual_return, 999.99))  # cap
+            calmar = annual_return / max_dd
+        else:
+            annual_return = 0; calmar = 0
+        
+        # 未实现盈亏 (从broker_positions)
+        unrealized_pnl = 0
+        try:
+            pos_cursor = db["broker_positions"].find({})
+            pos_list = await pos_cursor.to_list(100)
+            for pos in pos_list:
+                qty = pos.get("total_qty") or pos.get("quantity") or 0
+                cost = pos.get("avg_cost") or pos.get("cost_price") or 0
+                cur = pos.get("current_price") or 0
+                if cur <= 0:  # current_price未刷新, 从stock_daily_ak_full取
+                    tc = pos.get("ts_code", "")
+                    latest = await db["stock_daily_ak_full"].find_one({"ts_code": tc}, sort=[("trade_date", -1)])
+                    if latest: cur = latest.get("close", 0) or 0
+                unrealized_pnl += (cur - cost) * qty if cur > 0 and cost > 0 else 0
+        except Exception:
+            pass
+        
         kpi = {
             "total_trades": total_trades,
             "total_profit": round(total_profit, 0),
+            "unrealized_pnl": round(unrealized_pnl, 0),
+            "total_pnl_all": round(total_profit + unrealized_pnl, 0),
             "win_rate": round(win_rate, 1),
-            "win_count": len(wins),  # FIX6: 直接返回盈亏笔数
+            "win_count": len(wins),
             "loss_count": len(losses),
             "profit_loss_ratio": round(min(profit_loss_ratio, 99.99), 2),
+            "profit_factor": round(min(profit_factor, 99.99), 2),
+            "expectancy": round(expectancy, 0),
             "max_drawdown": round(max_dd, 2),
+            "sharpe_ratio": round(sharpe, 2),
+            "sortino_ratio": round(sortino, 2),
+            "calmar_ratio": round(calmar, 2),
+            "annual_return": round(annual_return, 2),
             "avg_profit_pct": round(sum(profits) / len(profits), 2) if profits else 0,
             "avg_win_pct": round(avg_profit, 2),
             "avg_loss_pct": round(avg_loss, 2),
+            "max_consec_win": max_consec_win,
+            "max_consec_loss": max_consec_loss,
         }
         
         # 3. 策略贡献
@@ -494,14 +566,21 @@ async def _get_account_from_mongo():
         if not acct_doc:
             return None
         
-        # 从broker_positions读持仓列表
+        # 从broker_positions读持仓列表, 刷新收盘价
         pos_list = []
         total_market_value = 0
         total_cost = 0
         async for doc in db["broker_positions"].find({"account_id": "default"}):
             cost = doc.get("avg_cost", 0)
             qty = doc.get("total_qty", 0)
-            cur = doc.get("current_price", cost)
+            cur = doc.get("current_price", 0) or 0
+            # 【v2.9.98zf】current_price=0时从stock_daily_ak_full取最新收盘价
+            if cur <= 0 and qty > 0:
+                tc = doc.get("ts_code", "")
+                try:
+                    latest = await db["stock_daily_ak_full"].find_one({"ts_code": tc}, sort=[("trade_date", -1)])
+                    if latest: cur = latest.get("close", 0) or 0
+                except Exception: pass
             mkt_val = cur * qty
             total_market_value += mkt_val
             total_cost += cost * qty
@@ -511,7 +590,7 @@ async def _get_account_from_mongo():
                 "shares": qty,
                 "cost_price": round(cost, 2),
                 "current_price": round(cur, 2),
-                "profit_pct": round((cur - cost) / cost * 100, 2) if cost > 0 else 0,
+                "profit_pct": round((cur - cost) / cost * 100, 2) if cost > 0 and cur > 0 else 0,
                 "profit_amount": round((cur - cost) * qty, 0),
                 "market_value": round(mkt_val, 0),
                 "strategy": doc.get("strategy", ""),
