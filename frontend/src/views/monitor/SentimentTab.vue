@@ -277,7 +277,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
       <!-- ========== 算法说明 ========== -->
       <div class="review-section">
         <span class="section-title title-purple" style="cursor:pointer" @click="algoDimExpanded=!algoDimExpanded">📐 算法日内8维 <span style="font-weight:400;font-size:11px;color:var(--text-tertiary)">{{ algoDimExpanded?'▼':'▶' }}</span></span>
-        <span v-if="!algoDimExpanded" class="section-detail">8个维度加权求和得0~100分，映射为4个情绪阶段：🔥高潮(≥70) → ⚡分化(≥55) → 🌀震荡(≥40) → 🥶冰点(&lt;40)</span>
+        <span v-if="!algoDimExpanded" class="section-detail">8维加权求和0~100分 → 🔥≥70高潮 · ⚡≥55分化 · 🌀≥40震荡 · 🥶<40冰点</span>
       </div>
       <div v-if="algoDimExpanded" class="dev-card" style="margin-top:2px">
         <table class="algo-tbl">
