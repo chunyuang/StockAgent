@@ -488,6 +488,18 @@ async def get_review_hero(date: str = None):
         for doc in await query_trades(db, date=date_int):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
+        # 【v2.9.98zf-35】修正盈亏数据(profit_pct=0时从买入价推算)
+        _rh_cost_map = {b.get("ts_code",""): b.get("filled_price",0) for b in buys}
+        for s in sells:
+            pp = s.get("profit_pct",0) or 0
+            if pp == 0:
+                fp = s.get("filled_price",0) or 0
+                cost = _rh_cost_map.get(s.get("ts_code",""),0)
+                if cost > 0 and fp > 0:
+                    qty = s.get("filled_qty",0) or s.get("quantity",0)
+                    s["profit_pct"] = round((fp-cost)/cost*100,2)
+                    s["profit_amount"] = round((fp-cost)*qty,2)
+
         # 【v2.9.97i】未实现盈亏: 有买入但无卖出时，从broker_positions计算浮盈/浮亏
         unrealized_pct = None
         if buys and not sells:
@@ -600,14 +612,22 @@ async def get_review_hero(date: str = None):
         # 6. 连续亏损
         all_sells = await query_trades(
             db, side="sell",
-            projection={"profit_pct":1,"trade_date":1},
+            projection={"profit_pct":1,"filled_price":1,"filled_qty":1,"ts_code":1,"trade_date":1},
             sort=[("trade_date",1)],
             limit=500
         )
+        # 【v2.9.98zf-35】修正盈亏数据
+        _all_buys = await query_trades(db, side="buy", projection={"filled_price":1,"ts_code":1}, limit=500)
+        _all_cost_map = {b.get("ts_code",""): b.get("filled_price",0) for b in _all_buys}
         max_consecutive_loss = 0
         current_loss_streak = 0
         for s in all_sells:
             pct = s.get("profit_pct",0) or 0
+            if pct == 0:
+                fp = s.get("filled_price",0) or 0
+                cost = _all_cost_map.get(s.get("ts_code",""),0)
+                if cost > 0 and fp > 0:
+                    pct = round((fp - cost) / cost * 100, 2)
             if pct < 0:
                 current_loss_streak += 1
                 max_consecutive_loss = max(max_consecutive_loss, current_loss_streak)
@@ -1083,11 +1103,26 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         else:
             sells = await query_trades(db, side="sell", date_gte=sd_int, date_lte=ed_int)
 
-        # 2. 获取同区间买入订单(用于计算纪律偏差)
+        # 2. 获取同区间买入订单(用于计算纪律偏差+盈亏修正)
         if sd == ed:
             buys = await query_trades(db, side="buy", date=sd_int)
         else:
             buys = await query_trades(db, side="buy", date_gte=sd_int, date_lte=ed_int)
+
+        # 【v2.9.98zf-35】修正卖出记录的盈亏数据(profit_pct/profit_amount全0时从买入价推算)
+        buy_cost_map = {}  # ts_code -> filled_price
+        for b in buys:
+            buy_cost_map[b.get("ts_code", "")] = b.get("filled_price", 0) or 0
+        for s in sells:
+            pp = s.get("profit_pct", 0) or 0
+            pa = s.get("profit_amount", 0) or 0
+            if pp == 0 and pa == 0:
+                fp = s.get("filled_price", 0) or 0
+                cost = buy_cost_map.get(s.get("ts_code", ""), 0)
+                if cost > 0 and fp > 0:
+                    qty = s.get("filled_qty", 0) or s.get("quantity", 0)
+                    s["profit_pct"] = round((fp - cost) / cost * 100, 2)
+                    s["profit_amount"] = round((fp - cost) * qty, 2)
 
         # 3. 获取情绪数据(用于纪律检查)
         sentiment_map = {}
@@ -1596,6 +1631,18 @@ async def review_monthly(date: str = None):
         # 月度统计
         sells = await query_trades(db, side="sell", date_gte=month_start_int, date_lte=last_day_int)
         buys = await query_trades(db, side="buy", date_gte=month_start_int, date_lte=last_day_int)
+
+        # 【v2.9.98zf-35】修正盈亏数据
+        _m_cost_map = {b.get("ts_code",""): b.get("filled_price",0) for b in buys}
+        for s in sells:
+            pp = s.get("profit_pct",0) or 0
+            if pp == 0:
+                fp = s.get("filled_price",0) or 0
+                cost = _m_cost_map.get(s.get("ts_code",""),0)
+                if cost > 0 and fp > 0:
+                    qty = s.get("filled_qty",0) or s.get("quantity",0)
+                    s["profit_pct"] = round((fp-cost)/cost*100,2)
+                    s["profit_amount"] = round((fp-cost)*qty,2)
 
         total_sells = len(sells)
         total_wins = sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0)
