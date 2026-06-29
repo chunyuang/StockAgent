@@ -900,11 +900,13 @@ class PositionChecker:
         if is_st:
             return pct <= -4.5  # ST股±5%, 用-4.5%容差
         elif ts_code.startswith('688'):
-            return pct <= -19.5
-        elif ts_code.startswith(('4', '8')):
-            return pct <= -29.5
+            return pct <= -19.5  # 科创板±20%
+        elif ts_code.startswith(('4', '8')) and ts_code.endswith('.BJ'):
+            return pct <= -29.5  # 北交所±30%(与broker._calc_limit_prices对齐,检查.BJ后缀)
+        elif ts_code.startswith('300'):
+            return pct <= -19.5  # 创业板±20%
         else:
-            return pct <= -9.5
+            return pct <= -9.5   # 主板±10%
 
     def is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停(公开接口,替代_is_limit_down)【v2.9.18】"""

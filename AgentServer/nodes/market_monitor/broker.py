@@ -1144,12 +1144,14 @@ class SimulatedBroker:
         
         解决: _restore_orders_from_mongo只恢复今日orders, 
         _recalc_account用内存orders算cash会缺历史天数。
+        
+        【v2.9.108fix】买入成本=价格*数量+佣金(万3), 卖出收入=价格*数量-佣金(万3)-印花税(千1)
+        与_execute_buy/execute_sell的实际资金变动对齐。
         """
         try:
             if not self._ensure_sync_mongo():
                 return (0, 0)
             db = self._sync_mongo_db
-            # 同步查询全量filled orders
             buy_cost = 0
             sell_income = 0
             for doc in db["broker_orders"].find({
@@ -1160,7 +1162,10 @@ class SimulatedBroker:
             }):
                 qty = doc.get("filled_qty") or doc.get("quantity") or 0
                 price = doc.get("filled_price") or 0
-                buy_cost += price * qty
+                amount = price * qty
+                # 买入成本含佣金(万3, 最低5元)
+                commission = max(amount * self.COMMISSION_RATE, self.MIN_COMMISSION)
+                buy_cost += amount + commission
 
             for doc in db["broker_orders"].find({
                 "account_id": self.account.account_id,
@@ -1170,7 +1175,11 @@ class SimulatedBroker:
             }):
                 qty = doc.get("filled_qty") or doc.get("quantity") or 0
                 price = doc.get("filled_price") or 0
-                sell_income += price * qty
+                amount = price * qty
+                # 卖出收入扣佣金(万3)+印花税(千1)
+                commission = max(amount * self.COMMISSION_RATE, self.MIN_COMMISSION)
+                stamp_duty = amount * self.STAMP_DUTY_RATE
+                sell_income += amount - commission - stamp_duty
 
             return (buy_cost, sell_income)
         except Exception as e:
