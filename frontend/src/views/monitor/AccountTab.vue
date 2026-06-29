@@ -104,8 +104,8 @@ const positions = computed(() => {
 const totalAssets = computed(() => acc.value.total_assets || 0)
 const availableCash = computed(() => acc.value.available_cash || 0)
 const marketValue = computed(() => acc.value.market_value || positions.value.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
-const totalProfit = computed(() => kpiData.value?.kpi?.total_pnl_all || (totalAssets.value - 1000000))
-const positionRatio = computed(() => totalAssets.value > 0 ? marketValue.value / totalAssets.value * 100 : 0)
+const totalProfit = computed(() => kpiData.value?.kpi?.total_pnl_all ?? (totalAssets.value - 1000000) ?? 0)
+const positionRatio = computed(() => (totalAssets.value ?? 0) > 0 ? (marketValue.value ?? 0) / (totalAssets.value ?? 1) * 100 : 0)
 const riskParams = GLOBAL_RISK  // 前端参数与后端strategy_defaults.py完全对齐(由sync脚本同步)
 const brokenSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken'))
 const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'near'))
@@ -256,11 +256,11 @@ const posPie = computed(() => {
       <ElButton size="small" @click="fetchKpi" :loading="loading">🔄</ElButton>
     </div>
     <div class="at-kpi">
-      <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">¥{{ totalAssets.toLocaleString() }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">¥{{ availableCash.toLocaleString() }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">持仓市值</div><div class="at-kpi-v">¥{{ marketValue.toLocaleString() }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">总盈亏</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ totalProfit >= 0 ? '+' : '' }}¥{{ Math.abs(totalProfit).toLocaleString() }}</div></div>
-      <div class="at-kpi-c"><div class="at-kpi-l">收益率</div><div :class="['at-kpi-v', cls(totalProfit)]">{{ (totalProfit / 1000000 * 100).toFixed(2) }}%</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">总资产</div><div class="at-kpi-v">¥{{ (totalAssets ?? 0).toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">可用现金</div><div class="at-kpi-v">¥{{ (availableCash ?? 0).toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">持仓市值</div><div class="at-kpi-v">¥{{ (marketValue ?? 0).toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">总盈亏</div><div :class="['at-kpi-v', cls(totalProfit ?? 0)]">{{ (totalProfit ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(totalProfit ?? 0).toLocaleString() }}</div></div>
+      <div class="at-kpi-c"><div class="at-kpi-l">收益率</div><div :class="['at-kpi-v', cls(totalProfit ?? 0)]">{{ ((totalProfit ?? 0) / 1000000 * 100).toFixed(2) }}%</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">仓位</div><div class="at-kpi-v">{{ (positionRatio || 0).toFixed(1) }}%</div></div>
       <div class="at-kpi-c"><div class="at-kpi-l">持仓</div><div class="at-kpi-v">{{ positions.length }}只<el-badge v-if="brokenSL.length" :value="brokenSL.length" type="danger" style="margin-left:4px" /></div></div>
     </div>
@@ -281,15 +281,15 @@ const posPie = computed(() => {
           <div class="eq-table">
             <div class="eq-row eq-head"><span class="eq-label">项目</span><span class="eq-val">金额</span><span class="eq-pct">占比</span></div>
             <div class="eq-row"><span class="eq-label">初始资金</span><span class="eq-val">¥1,000,000</span><span class="eq-pct muted">—</span></div>
-            <div class="eq-row"><span class="eq-label">已实现盈亏</span><span :class="['eq-val', cls(realizedPnl)]">{{ fmtPnl(realizedPnl) }}</span><span class="eq-pct muted">{{ (realizedPnl / 1000000 * 100).toFixed(2) }}%</span></div>
-            <div class="eq-row"><span class="eq-label">未实现盈亏</span><span :class="['eq-val', cls(unrealizedPnl)]">{{ fmtPnl(unrealizedPnl) }}</span><span class="eq-pct muted">{{ (unrealizedPnl / 1000000 * 100).toFixed(2) }}%</span></div>
+            <div class="eq-row"><span class="eq-label">已实现盈亏</span><span :class="['eq-val', cls(realizedPnl ?? 0)]">{{ fmtPnl(realizedPnl ?? 0) }}</span><span class="eq-pct muted">{{ ((realizedPnl ?? 0) / 1000000 * 100).toFixed(2) }}%</span></div>
+            <div class="eq-row"><span class="eq-label">未实现盈亏</span><span :class="['eq-val', cls(unrealizedPnl ?? 0)]">{{ fmtPnl(unrealizedPnl ?? 0) }}</span><span class="eq-pct muted">{{ ((unrealizedPnl ?? 0) / 1000000 * 100).toFixed(2) }}%</span></div>
             <div class="eq-sep"><span>── 持仓浮盈浮亏明细 ──</span></div>
             <div v-for="p in positions" :key="p.ts_code" class="eq-row eq-pos">
               <span class="eq-label"><span class="eq-pos-dot" :style="{background: (p.profit_pct||0)>=0?'#f56c6c':'#409eff'}"></span>{{ p.stock_name || p.ts_code?.slice(0,6) }}</span>
               <span :class="['eq-val', cls(p.profit_amount || 0)]">{{ fmtPnl(p.profit_amount || 0) }}</span>
               <span class="eq-pct" :class="cls(p.profit_pct || 0)">{{ fmtPct(p.profit_pct || 0) }}</span>
             </div>
-            <div class="eq-row eq-total"><span class="eq-label">当前总资产</span><span class="eq-val">¥{{ totalAssets.toLocaleString() }}</span><span class="eq-pct">{{ fmtPct(totalProfit / 1000000 * 100) }}</span></div>
+            <div class="eq-row eq-total"><span class="eq-label">当前总资产</span><span class="eq-val">¥{{ (totalAssets ?? 0).toLocaleString() }}</span><span class="eq-pct">{{ fmtPct((totalProfit ?? 0) / 1000000 * 100) }}</span></div>
           </div>
         </div>
         <div class="at-card">
@@ -300,7 +300,7 @@ const posPie = computed(() => {
       </div>
       <!-- 折叠：资金曲线 -->
       <div class="review-section" style="cursor:pointer" @click="equityExpanded=!equityExpanded">
-        <span class="section-title title-blue">📈 资金曲线 {{ equityExpanded?'▼':'▶' }}</span><span class="section-summary">已实现盈亏累计 · 当前¥{{ totalAssets.toLocaleString() }} · 总{{ fmtPct(totalProfit / 1000000 * 100) }}</span>
+        <span class="section-title title-blue">📈 资金曲线 {{ equityExpanded?'▼':'▶' }}</span><span class="section-summary">已实现盈亏累计 · 当前¥{{ (totalAssets ?? 0).toLocaleString() }} · 总{{ fmtPct((totalProfit ?? 0) / 1000000 * 100) }}</span>
       </div>
       <div v-if="equityExpanded" class="at-card" style="margin-bottom:4px">
         <VChart v-if="equityCurve" :option="equityCurve" autoresize style="height:260px;width:100%" />
@@ -350,7 +350,7 @@ const posPie = computed(() => {
               <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price?.toFixed(2) || '-' }}</span></div>
               <div class="pos-m"><span class="pos-ml">数量</span><span>{{ p.shares }}</span></div>
               <div class="pos-m"><span class="pos-ml">市值</span><span>¥{{ (p.market_value || 0).toLocaleString() }}</span></div>
-              <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ totalAssets > 0 ? ((p.market_value || 0) / totalAssets * 100).toFixed(1) : 0 }}%</span></div>
+              <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ (totalAssets ?? 0) > 0 ? ((p.market_value || 0) / (totalAssets ?? 1) * 100).toFixed(1) : 0 }}%</span></div>
               <div class="pos-m" v-if="p.stop_loss_status === 'broken' && p.risk_monitor_desc"><span class="pos-ml">风控</span><span class="down" style="font-size:10px">⚠ {{ p.risk_monitor_desc }}</span></div>
             </div>
             <!-- Expand detail -->

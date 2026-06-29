@@ -288,7 +288,7 @@ const {
             <span class="ct-title">💰 今日已平仓</span>
             <ElTag size="small" type="info" class="ct-count">{{ todayClosedTrades.length }}笔</ElTag>
             <span class="ct-total" :class="closedTradesProfitTotal >= 0 ? 'up' : 'down'">
-              总盈亏 {{ closedTradesProfitTotal >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal).toFixed(0) }}
+              总盈亏 {{ (closedTradesProfitTotal ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal ?? 0).toFixed(0) }}
             </span>
           </div>
           <div v-show="!closedTradesCollapsed" class="closed-trades-body">
