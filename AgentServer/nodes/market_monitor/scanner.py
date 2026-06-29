@@ -638,6 +638,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                     rt["auction_price"] = op
                     rt["auction_pct"] = rt["opening_pct_chg"]
             
+            # 【v2.9.108】竞价风控状态机: 更新force_empty_confirm
+            # 之前premarket_scan不调用此方法, 导致data_quality永远=unknown
+            self._update_premarket_force_empty_state(None, realtime_data)
+            
             # Step 3: 合并日级因子+实时数据
             self._update_name_map(realtime_data)
             merged_df = self._merge_factors(realtime_data)
