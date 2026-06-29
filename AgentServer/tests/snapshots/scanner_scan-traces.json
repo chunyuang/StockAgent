@@ -91,29 +91,7 @@
         ]
       },
       "layer_details": {
-        "L1_force_empty": "str",
-        "L2_special_period": "str",
-        "L3_sentiment": "str",
-        "L3_sentiment_data": {
-          "score": "float",
-          "period": "str",
-          "position_ratio": "float",
-          "l3_drop_count": "int",
-          "formula": "str",
-          "limit_up": "int",
-          "limit_down": "int",
-          "up_down_ratio": "float",
-          "momentum": "float",
-          "broken": "int",
-          "broken_rate": "float",
-          "today_premium": "float"
-        },
-        "L4_premarket": "str",
-        "L5_auction": "str",
-        "L6_strategy": "str",
-        "L7_ranking": "str",
-        "L8_ma60": "str",
-        "L8_position": "str"
+        "L1_force_empty": "str"
       },
       "scan_id": "str",
       "exec": {

@@ -4,13 +4,18 @@
     "trades": "int",
     "wins": "int",
     "win_rate": "float",
-    "pnl": "int"
+    "pnl": "float"
   },
   "strategy_stats": {
+    "first_limit_up": {
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "float"
+    },
     "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
-      "pnl": "int"
+      "pnl": "float"
     }
   },
   "behavior_drift": {
@@ -45,7 +50,7 @@
       "end": "str",
       "trades": "int",
       "win_rate": "float",
-      "pnl": "int",
+      "pnl": "float",
       "days": "int"
     }
   ],
@@ -57,7 +62,7 @@
         "level": "str",
         "key": "str",
         "old": "NoneType",
-        "new": "int",
+        "new": "float",
         "severity": "str"
       }
     ],

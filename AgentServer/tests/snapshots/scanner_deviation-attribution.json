@@ -40,7 +40,15 @@
   },
   "details": {
     "slippage": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "stock_name": "str",
+        "signal_price": "float",
+        "filled_price": "float",
+        "slippage_pct": "float",
+        "strategy": "str",
+        "trade_date": "int"
+      }
     ],
     "discipline": [
       "<empty_list>"

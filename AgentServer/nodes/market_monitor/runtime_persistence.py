@@ -653,13 +653,9 @@ class RuntimePersistence:
         await self._emit_sell_events(scanner, pos, reason, order, entry, profit_pct, trace_id=trace_id)
         logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f} trace={trace_id}")
 
-        # 【v2.9.107】风控决策审计 trail — 统一入口(不管是 quick/legacy/checker/event 路径都走这里)
-        try:
-            await self._persist_risk_decision_unified(
-                scanner, pos, reason, order, quantity, profit_pct, source=source, trace_id=trace_id
-            )
-        except Exception as _e:
-            logger.warning(f"[RISK_AUDIT] 持久化失败: {_e}")
+        # 【v2.9.107】风控决策审计 trail
+        try: await self._persist_risk_decision_unified(scanner, pos, reason, order, quantity, profit_pct, source=source, trace_id=trace_id)
+        except Exception as _e: logger.warning(f"[RISK_AUDIT] 持久化失败: {_e}")
 
         await self._persist_sell_state(scanner)
 

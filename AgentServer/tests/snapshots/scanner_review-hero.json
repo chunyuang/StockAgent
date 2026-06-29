@@ -24,7 +24,7 @@
   },
   "sentiment": {
     "period": "str",
-    "score": "float"
+    "score": "int"
   },
   "violations": [
     {

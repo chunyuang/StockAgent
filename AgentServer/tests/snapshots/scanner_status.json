@@ -29,7 +29,7 @@
         "high_price": "float",
         "trailing_stop_pct": "float",
         "activated": "bool",
-        "activated_at": "NoneType",
+        "activated_at": "str",
         "stop_price": "float"
       },
       "risk_level": "str",
@@ -39,7 +39,7 @@
   "stocks_scanned": "int",
   "account": {
     "total_assets": "float",
-    "available_cash": "int",
+    "available_cash": "float",
     "market_value": "float",
     "total_profit": "float"
   },
@@ -56,8 +56,32 @@
   "filter_pipeline": {
     "position_ratio": "float",
     "sentiment": {
-      "score": "int",
-      "period": "str"
+      "score": "float",
+      "period": "str",
+      "dimensions": {
+        "limit_up": "int",
+        "limit_down": "int",
+        "up_count": "int",
+        "down_count": "int",
+        "up_down_ratio": "float",
+        "momentum": "float",
+        "broken": "int",
+        "broken_rate": "float",
+        "max_continue": "int",
+        "zt_premium": "float",
+        "today_premium": "float",
+        "sample_count": "int",
+        "formula": "str",
+        "d1_limit_up": "int",
+        "d2_limit_down": "int",
+        "d3_up_down": "float",
+        "d4_momentum": "float",
+        "d5_broken_rate": "float",
+        "d6_max_continue": "float",
+        "d7_zt_premium": "int",
+        "d8_today_premium": "int"
+      },
+      "formula": "str"
     }
   },
   "risk_watchdog": {
@@ -94,7 +118,36 @@
   "tiered_scanner": {},
   "quote_degrade_level": "int",
   "quote_degrade_desc": "str",
-  "trailing_stops": {},
+  "trailing_stops": {
+    "688796.SH": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "603039.SH": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "002422.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    },
+    "002317.SZ": {
+      "high_price": "float",
+      "trailing_stop_pct": "float",
+      "activated": "bool",
+      "activated_at": "str",
+      "stop_price": "float"
+    }
+  },
   "position_risk_levels": {},
   "execution_stats": {
     "total_slippage_pct": "float",
@@ -107,13 +160,13 @@
   },
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
-  "realtime_cache_age_sec": "float",
+  "realtime_cache_age_sec": "NoneType",
   "smart_check_interval": "float",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",
     "is_healthy": "bool",
-    "scan_lag_seconds": "int",
+    "scan_lag_seconds": "float",
     "risk_check_lag_seconds": "int",
     "quote_staleness_seconds": "float",
     "risk_thread_alive": "bool",
@@ -145,8 +198,32 @@
     "<empty_list>"
   ],
   "sentiment": {
-    "score": "int",
-    "period": "str"
+    "score": "float",
+    "period": "str",
+    "dimensions": {
+      "limit_up": "int",
+      "limit_down": "int",
+      "up_count": "int",
+      "down_count": "int",
+      "up_down_ratio": "float",
+      "momentum": "float",
+      "broken": "int",
+      "broken_rate": "float",
+      "max_continue": "int",
+      "zt_premium": "float",
+      "today_premium": "float",
+      "sample_count": "int",
+      "formula": "str",
+      "d1_limit_up": "int",
+      "d2_limit_down": "int",
+      "d3_up_down": "float",
+      "d4_momentum": "float",
+      "d5_broken_rate": "float",
+      "d6_max_continue": "float",
+      "d7_zt_premium": "int",
+      "d8_today_premium": "int"
+    },
+    "formula": "str"
   },
   "position_ratio": "float",
   "position_count": "int",

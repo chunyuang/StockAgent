@@ -2,7 +2,7 @@
   "generated_at": "str",
   "account": {
     "total_assets": "float",
-    "available_cash": "int",
+    "available_cash": "float",
     "market_value": "float",
     "total_profit": "float",
     "position_ratio": "float",
@@ -34,8 +34,8 @@
     "win_trades": "int",
     "loss_trades": "int",
     "win_rate": "float",
-    "avg_profit_pct": "int",
-    "avg_loss_pct": "int"
+    "avg_profit_pct": "float",
+    "avg_loss_pct": "float"
   },
   "strategy_performance": {
     "急速拉升": {
@@ -59,6 +59,11 @@
       "total_pnl": "int"
     },
     "first_limit_up": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "float"
+    },
+    "halfway_chase": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "int"
@@ -95,8 +100,32 @@
     "positions": "int"
   },
   "sentiment": {
-    "score": "int",
-    "period": "str"
+    "score": "float",
+    "period": "str",
+    "dimensions": {
+      "limit_up": "int",
+      "limit_down": "int",
+      "up_count": "int",
+      "down_count": "int",
+      "up_down_ratio": "float",
+      "momentum": "float",
+      "broken": "int",
+      "broken_rate": "float",
+      "max_continue": "int",
+      "zt_premium": "float",
+      "today_premium": "float",
+      "sample_count": "int",
+      "formula": "str",
+      "d1_limit_up": "int",
+      "d2_limit_down": "int",
+      "d3_up_down": "float",
+      "d4_momentum": "float",
+      "d5_broken_rate": "float",
+      "d6_max_continue": "float",
+      "d7_zt_premium": "int",
+      "d8_today_premium": "int"
+    },
+    "formula": "str"
   },
   "position_ratio": "float"
 }

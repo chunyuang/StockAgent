@@ -45,19 +45,19 @@
         },
         "selection_params": {
           "strategy": "str",
-          "min_rise_pct": "NoneType",
-          "max_rise_pct": "NoneType",
+          "min_rise_pct": "float",
+          "max_rise_pct": "float",
           "min_volume_ratio": "float",
-          "max_volume_ratio": "NoneType",
-          "min_turnover_rate": "int",
-          "max_turnover_rate": "int",
-          "min_circulation_market_cap": "int",
-          "max_circulation_market_cap": "int",
-          "max_open_rise_pct": "NoneType",
-          "min_close_rise_pct": "NoneType",
-          "allow_after_10am": "NoneType",
-          "opening_pct_min": "float",
-          "opening_pct_max": "float",
+          "max_volume_ratio": "float",
+          "min_turnover_rate": "NoneType",
+          "max_turnover_rate": "NoneType",
+          "min_circulation_market_cap": "NoneType",
+          "max_circulation_market_cap": "NoneType",
+          "max_open_rise_pct": "float",
+          "min_close_rise_pct": "float",
+          "allow_after_10am": "bool",
+          "opening_pct_min": "NoneType",
+          "opening_pct_max": "NoneType",
           "min_consecutive_limit": "NoneType",
           "min_correction_pct": "NoneType",
           "max_correction_pct": "NoneType",
@@ -69,7 +69,7 @@
           "trailing_stop_pct": "float",
           "max_hold_days": "int",
           "slippage_pct": "float",
-          "hold_protection_threshold": "NoneType"
+          "hold_protection_threshold": "float"
         },
         "layers": {
           "L1_force_empty": {
@@ -117,7 +117,7 @@
           "position_ratio_factor": "float"
         },
         "account_context": {
-          "available_cash_before": "float",
+          "available_cash_before": "int",
           "total_assets_before": "float",
           "position_count_before": "int",
           "max_positions": "int",

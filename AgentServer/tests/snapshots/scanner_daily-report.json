@@ -2,7 +2,7 @@
   "date": "str",
   "account": {
     "total_assets": "float",
-    "available_cash": "int",
+    "available_cash": "float",
     "market_value": "float",
     "today_profit": "int",
     "total_profit": "float",
@@ -11,7 +11,7 @@
   "positions": {
     "count": "int",
     "strategy_summary": {
-      "first_limit_up": {
+      "halfway_chase": {
         "count": "int",
         "market_value": "float",
         "total_profit": "float",
@@ -32,7 +32,7 @@
       {
         "ts_code": "str",
         "name": "str",
-        "pct": "int"
+        "pct": "float"
       }
     ],
     "top_loss": [
@@ -48,7 +48,7 @@
     "sell": "int",
     "total_amount": "int"
   },
-  "win_rate": "int",
+  "win_rate": "float",
   "stop_loss_count": "int",
   "take_profit_count": "int",
   "risk": {

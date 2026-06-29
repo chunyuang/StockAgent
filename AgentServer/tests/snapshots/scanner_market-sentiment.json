@@ -1,5 +1,5 @@
 {
-  "score": "float",
+  "score": "int",
   "period": "str",
   "period_label": "str",
   "position_ratio": "float",

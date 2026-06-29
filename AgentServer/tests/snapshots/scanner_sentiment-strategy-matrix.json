@@ -9,13 +9,31 @@
         "losses": "int",
         "profit_loss_ratio": "float"
       }
+    },
+    "first_limit_up": {
+      "未知": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      }
     }
   },
   "strategy_names": {
-    "halfway_chase": "str"
+    "halfway_chase": "str",
+    "first_limit_up": "str"
   },
   "strategy_totals": {
     "halfway_chase": {
+      "count": "int",
+      "wins": "int",
+      "losses": "int",
+      "win_rate": "float",
+      "total_pnl": "int"
+    },
+    "first_limit_up": {
       "count": "int",
       "wins": "int",
       "losses": "int",
