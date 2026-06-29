@@ -115,12 +115,11 @@ class IntradaySentimentCalculator:
                 limit_down += 1
             elif 0 < pct < lu_thresh:
                 # 曾涨停但开板: 优先用limit_list的open_times判断
-                if limit_list_data:
-                    ll = limit_list_data.get(code)
-                    if ll and ll.get('open_times', 0) > 0 and ll.get('limit') == 'U':
-                        broken += 1
+                ll = limit_list_data.get(code) if limit_list_data else None
+                if ll and ll.get('open_times', 0) > 0 and ll.get('limit') == 'U':
+                    broken += 1
                 else:
-                    # fallback: 用盘中最高价判断
+                    # fallback: 用盘中最高价判断(limit_list无此股或无open_times)
                     high_pct = data.get("high_pct", pct)
                     if high_pct >= lu_thresh:
                         broken += 1

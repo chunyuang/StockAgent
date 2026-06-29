@@ -248,11 +248,24 @@ class EmotionCycleManager:
         if limit_stocks is not None:
             limit_up_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
             limit_down_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
+            # 【v2.9.108】炸板统计: 从limit_stocks的open_times>0统计
+            broken_count = sum(1 for v in limit_stocks.values() 
+                             if v.get("open_times", 0) > 0 and v.get("limit") == "U")
         else:
             query = {"trade_date": int(trade_date), "is_limit_up": True}
             limit_up_count = await mongo_manager.count(C.LIMIT_LIST, query)
             query = {"trade_date": int(trade_date), "is_limit_down": True}
             limit_down_count = await mongo_manager.count(C.LIMIT_LIST, query)
+            # 【v2.9.108】炸板统计: 从limit_list的open_times>0统计
+            broken_count = await mongo_manager.count(C.LIMIT_LIST, {
+                "trade_date": int(trade_date), 
+                "open_times": {"$gt": 0}, 
+                "limit": "U"
+            })
+        
+        # 炸板率 = 炸板 / (涨停 + 炸板)
+        total_ever_limit = limit_up_count + broken_count
+        broken_rate = broken_count / max(total_ever_limit, 1)
 
         # 最高连板高度
         max_continue_limit = await self._get_max_continuation_limit(trade_date, limit_up_count)
@@ -286,6 +299,8 @@ class EmotionCycleManager:
             "zt_premium": zt_premium,
             "up_count": up_count,
             "down_count": down_count,
+            "broken_count": broken_count,
+            "broken_rate": broken_rate,
         }
 
     def _build_emotion_score(
