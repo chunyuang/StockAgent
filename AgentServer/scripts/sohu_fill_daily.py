@@ -93,9 +93,15 @@ def parse_sohu_data(data, trade_date_int):
             pct_chg = float(row[4].replace("%", "")) if "%" in str(row[4]) else 0
             low = float(row[5]) if row[5] else 0
             high = float(row[6]) if row[6] else 0
-            vol = float(row[7]) * 100 if row[7] else 0  # 手 -> 股
-            amount = float(row[8]) * 10000 if row[8] else 0  # 万 -> 元
-            turn = float(row[9].replace("%", "")) if "%" in str(row[9]) else 0
+            # 【单位标准】MongoDB stock_daily_ak_full:
+            #   vol=手, amount=百元, turnover_rate=百分数(如25.04)
+            # 搜狐原始: vol=手, amount=万元, turn=百分数(如0.25%)
+            #   注意: 搜狐row[9]格式是"0.25%", 去掉%后=0.25(已是百分数)
+            #   MongoDB标准: turnover_rate=25.04(百分数), 搜狐=0.25 → 需×100
+            vol = float(row[7]) if row[7] else 0               # 手(与MongoDB一致)
+            amount = float(row[8]) * 100 if row[8] else 0      # 万元→百元
+            turn_raw = float(str(row[9]).replace("%", "")) if "%" in str(row[9]) else 0
+            turnover_rate = turn_raw * 100  # 搜狐0.25→MongoDB 25.0
             
             if close == 0:
                 continue
@@ -108,11 +114,11 @@ def parse_sohu_data(data, trade_date_int):
                 "low": low,
                 "close": close,
                 "pct_chg": pct_chg,
-                "chg": chg,
                 "vol": vol,
                 "amount": amount,
-                "turn": turn,
+                "turnover_rate": turnover_rate,
                 "pre_close": round(close - chg, 2) if chg else 0,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             docs.append(doc)
         except (ValueError, IndexError) as e:
@@ -179,8 +185,8 @@ if __name__ == "__main__":
     parser.add_argument("--date", required=True, help="日期 YYYYMMDD")
     args = parser.parse_args()
     
-    date_str = f"{args.date[:4]}-{args.date[4:6]}-{args.date[6:8]}"
+    date_str = args.date  # YYYYMMDD格式(搜狐要求无横杠)
     date_int = int(args.date)
     
-    print(f"=== 补采 {args.date} ({date_str}) 日K线数据 ===")
+    print(f"=== 补采 {args.date} 日K线数据 ===")
     fill_daily(date_str, date_int)
