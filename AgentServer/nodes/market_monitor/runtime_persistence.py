@@ -1002,24 +1002,12 @@ class RuntimePersistence:
         except Exception as _e:
             logger.warning(f"[SCANNER] 停止时绩效快照保存失败: {_e}")
 
-        # 保存pending_sells状态到MongoDB(防止重启丢失)
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db:
-                from nodes.market_monitor.risk_watchdog import RiskWatchdog
-                pending = RiskWatchdog._with_state_lock(
-                    scanner, lambda: dict(scanner._pending_sells),
-                    fallback=lambda: dict(scanner._pending_sells),
-                )
-                if pending:
-                    await mongo_manager.db["scanner_state"].update_one(
-                        {"_id": "pending_sells"},
-                        {"$set": {"items": pending, "saved_at": datetime.now().isoformat()}},
-                        upsert=True,
-                    )
-                    logger.info(f"[STOP] 保存{len(pending)}个pending_sells到MongoDB")
-        except Exception as e:
-            logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
+        # 【v2.9.107】pending_sells 已在 _build_snapshot_doc 中保存到 scanner_runtime_snapshot.pending_sells
+        # 不再单独写 scanner_state 集合（冗余，已废弃）
+        # 历史代码保留供回滚参考:
+        #     await mongo_manager.db["scanner_state"].update_one(
+        #         {"_id": "pending_sells"}, {"$set": {"items": pending, ...}}, upsert=True
+        #     )
 
     async def restore_start_state(self) -> None:
         """启动时恢复状态(审计索引+pending_sells)【v2.9.32从scanner提取】"""
@@ -1079,17 +1067,8 @@ class RuntimePersistence:
         except Exception as _e:
             logger.debug(f"[START] 审计日志TTL索引创建失败: {_e}")
 
-        # 从MongoDB恢复pending_sells(上次停机时保存的跌停挂起)
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db:
-                doc = await mongo_manager.db["scanner_state"].find_one({"_id": "pending_sells"})
-                if doc and doc.get("items"):
-                    with scanner._state_lock:
-                        scanner._pending_sells.update(doc["items"])
-                    logger.info(f"[START] 恢复{len(doc['items'])}个pending_sells")
-        except Exception as e:
-            logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
+        # 【v2.9.107】pending_sells 已从 scanner_runtime_snapshot.pending_sells 恢复(见 load_runtime_snapshot)
+        # 不再从 scanner_state 集合恢复（已废弃）
 
     async def load_positions(self) -> None:
         """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)

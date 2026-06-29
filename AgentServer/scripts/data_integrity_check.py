@@ -168,22 +168,32 @@ def main():
         print(f"  ✅ 持仓一致 (net_holding={len(net_holding)}, positions={len(positions_set)})")
     
     # ============================================
-    # 4. 过时pending_sells清理
+    # 4. 过时pending_sells检查 【v2.9.107: 改从 scanner_runtime_snapshot 读】
     # ============================================
     print("\n## 4. 过时pending_sells检查")
-    
-    pending = db['scanner_state'].find_one({"_id": "pending_sells"})
+
+    # 从 scanner_runtime_snapshot 读取 pending_sells (代替废弃的 scanner_state 集合)
+    snapshot_doc = db['scanner_runtime_snapshot'].find_one(
+        {}, sort=[('trade_date', -1)]
+    )
+    pending = snapshot_doc.get('pending_sells') if snapshot_doc else None
     if pending:
-        items = pending.get('items', {})
+        items = pending if isinstance(pending, dict) else {}
         pending_codes = set(items.keys())
         stale = pending_codes - positions_set
-        
+
         if stale:
             issues.append(f"🟡 过时pending_sells: {len(stale)}只已不在持仓 — {stale}")
             print(f"  🟡 过时pending_sells: {len(stale)}只 ({stale})")
-            
+
             if args.fix:
-                db['scanner_state'].delete_one({"_id": "pending_sells"})
+                # 从 runtime_snapshot 中移除stale codes
+                for code in stale:
+                    items.pop(code, None)
+                db['scanner_runtime_snapshot'].update_one(
+                    {'_id': snapshot_doc['_id']},
+                    {'$set': {'pending_sells': items}}
+                )
                 fixed.append(f"✅ 清理过时pending_sells: {len(stale)}只")
                 print(f"  ✅ 已清理")
         else:
