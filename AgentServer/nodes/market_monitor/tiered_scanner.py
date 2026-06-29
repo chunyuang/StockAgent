@@ -305,11 +305,18 @@ class TieredScanner:
 
     # ──────────────────────────── 辅助方法 ────────────────────────
 
-    def _is_trading_time(self) -> bool:
-        """是否在交易时间(含竞价)"""
+    def _is_trading_time(self, level: int = 0) -> bool:
+        """是否在交易时间
+        
+        L1/L2: 含竞价阶段(09:25起可提前扫描候选)
+        L3: 仅连续竞价时段(止损卖出需broker可成交)
+        """
         from nodes.market_monitor.market_phase import MarketPhase
         phase = MarketPhase.classify()
-        # L1/L2/L3需要在竞价+交易时段都运行(09:25-15:00)
+        if level == 3:
+            # L3止损卖出需要broker可成交, 仅连续竞价时段
+            return MarketPhase.is_continuous_auction(phase)
+        # L1/L2扫描可在竞价+交易时段都运行(09:25-15:00)
         return phase in MarketPhase.ACTIVE_PHASES or phase in MarketPhase.TRADING_PHASES
 
     def _record_latency(self, level: int, latency_ms: float) -> None:
@@ -347,7 +354,7 @@ class TieredScanner:
 
         while self._is_running:
             try:
-                if not self._is_trading_time():
+                if not self._is_trading_time(level=1):
                     await asyncio.sleep(30)
                     continue
 
@@ -494,7 +501,7 @@ class TieredScanner:
 
         while self._is_running:
             try:
-                if not self._is_trading_time():
+                if not self._is_trading_time(level=2):
                     await asyncio.sleep(15)
                     continue
 
@@ -614,7 +621,7 @@ class TieredScanner:
 
         while self._is_running:
             try:
-                if not self._is_trading_time():
+                if not self._is_trading_time(level=3):
                     await asyncio.sleep(10)
                     continue
 
