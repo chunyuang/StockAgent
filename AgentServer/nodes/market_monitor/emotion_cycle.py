@@ -246,26 +246,26 @@ class EmotionCycleManager:
         """
         # 涨跌停数量
         if limit_stocks is not None:
-            limit_up_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
-            limit_down_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
+            limit_up_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U" or v.get("limit") == "U")
+            limit_down_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D" or v.get("limit") == "D")
             # 【v2.9.108】炸板统计: 从limit_stocks的open_times>0统计
             broken_count = sum(1 for v in limit_stocks.values() 
-                             if v.get("open_times", 0) > 0 and v.get("limit") == "U")
+                             if v.get("open_times", 0) > 0 and (v.get("limit") == "U" or v.get("limit_type") == "U"))
         else:
-            query = {"trade_date": int(trade_date), "is_limit_up": True}
+            # 【v2.9.108】用 limit字段查询, is_limit_up字段在部分数据源中未设置
+            query = {"trade_date": int(trade_date), "limit": "U"}
             limit_up_count = await mongo_manager.count(C.LIMIT_LIST, query)
-            query = {"trade_date": int(trade_date), "is_limit_down": True}
+            query = {"trade_date": int(trade_date), "limit": "D"}
             limit_down_count = await mongo_manager.count(C.LIMIT_LIST, query)
-            # 【v2.9.108】炸板统计: 从limit_list的open_times>0统计
+            # 炸板统计: open_times>0 且 limit=U
             broken_count = await mongo_manager.count(C.LIMIT_LIST, {
                 "trade_date": int(trade_date), 
                 "open_times": {"$gt": 0}, 
                 "limit": "U"
             })
         
-        # 炸板率 = 炸板 / (涨停 + 炸板)
-        total_ever_limit = limit_up_count + broken_count
-        broken_rate = broken_count / max(total_ever_limit, 1)
+        # 炸板率 = 炸板 / 涨停总数(limit=U含封板+炸板)
+        broken_rate = broken_count / max(limit_up_count, 1)
 
         # 最高连板高度
         max_continue_limit = await self._get_max_continuation_limit(trade_date, limit_up_count)
