@@ -727,7 +727,7 @@ class RuntimePersistence:
         from core.managers import mongo_manager
         if not getattr(mongo_manager, '_initialized', False) or not mongo_manager.db:
             return
-        trade_date = getattr(scanner, '_trade_date', '') or datetime.now().strftime('%Y%m%d')
+        trade_date = scanner._trade_date or datetime.now().strftime('%Y%m%d')
         td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
         reason_lower = reason.lower() if reason else ''
         if '跳空止损' in reason or 'gap' in reason_lower:
