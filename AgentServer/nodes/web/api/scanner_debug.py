@@ -717,3 +717,82 @@ class PartialSellRequest(BaseModel):
     reason: str = ""
 
 
+
+
+# ==================== 【v2.9.107】事件流查询 API ====================
+
+@router.get("/event-stream/quote-degrade")
+async def get_quote_degrade_events(limit: int = 50, date: Optional[str] = None):
+    """行情降级/恢复事件流"""
+    try:
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, '_initialized', False):
+            return {"success": True, "data": {"events": [], "count": 0}}
+        query: dict = {}
+        if date:
+            try:
+                query['trade_date'] = int(str(date).replace('-', ''))
+            except Exception:
+                pass
+        cursor = mongo_manager.db["quote_degrade_events"].find(
+            query, {'_id': 0}
+        ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
+        events = await cursor.to_list(length=300)
+        for e in events:
+            if 'ts' in e and hasattr(e['ts'], 'isoformat'):
+                e['ts'] = e['ts'].isoformat()
+        return {"success": True, "data": {"events": events, "count": len(events)}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/event-stream/data-source")
+async def get_data_source_events(limit: int = 50, date: Optional[str] = None):
+    """数据源切换事件流"""
+    try:
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, '_initialized', False):
+            return {"success": True, "data": {"events": [], "count": 0}}
+        query: dict = {}
+        if date:
+            try:
+                query['trade_date'] = int(str(date).replace('-', ''))
+            except Exception:
+                pass
+        cursor = mongo_manager.db["data_source_events"].find(
+            query, {'_id': 0}
+        ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
+        events = await cursor.to_list(length=300)
+        for e in events:
+            if 'ts' in e and hasattr(e['ts'], 'isoformat'):
+                e['ts'] = e['ts'].isoformat()
+        return {"success": True, "data": {"events": events, "count": len(events)}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/event-stream/risk-alerts")
+async def get_risk_alerts(limit: int = 50, severity: Optional[str] = None, date: Optional[str] = None):
+    """风控告警事件流"""
+    try:
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, '_initialized', False):
+            return {"success": True, "data": {"events": [], "count": 0}}
+        query: dict = {}
+        if date:
+            try:
+                query['trade_date'] = int(str(date).replace('-', ''))
+            except Exception:
+                pass
+        if severity:
+            query['severity'] = severity
+        cursor = mongo_manager.db["risk_alerts"].find(
+            query, {'_id': 0}
+        ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
+        events = await cursor.to_list(length=300)
+        for e in events:
+            if 'ts' in e and hasattr(e['ts'], 'isoformat'):
+                e['ts'] = e['ts'].isoformat()
+        return {"success": True, "data": {"events": events, "count": len(events)}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

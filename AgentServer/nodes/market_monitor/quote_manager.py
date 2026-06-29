@@ -264,9 +264,21 @@ class QuoteManager:
         if self._quote_degrade_level <= 0:
             return
         degrade_duration = time.monotonic() - self._degrade_since
+        from_level = self._quote_degrade_level
         self._quote_degrade_level = 0
         self._degrade_since = 0
         logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
+        # 【v2.9.107】持久化恢复事件
+        try:
+            from .market_event_log import log_quote_degrade
+            asyncio.get_event_loop().create_task(log_quote_degrade(
+                from_level=from_level, to_level=0,
+                reason=f"恢复正常, 持续{degrade_duration:.0f}秒",
+                fail_count=self._quote_fail_count,
+            ))
+        except Exception:
+            pass
+        self._quote_fail_count = 0
         if self._event_emitter:
             try:
                 loop = asyncio.get_running_loop()
@@ -283,10 +295,20 @@ class QuoteManager:
         self._quote_fail_count += 1
         if self._quote_fail_count >= 6 and self._quote_degrade_level < 2:
             # 连续6次失败(约2个扫描周期), 升级到level 2(MongoDB日线)
+            from_lv = self._quote_degrade_level
             self._quote_degrade_level = 2
             self._degrade_since = time.monotonic()
             self._last_recover_attempt = time.monotonic()
             logger.warning(f"[QUOTE] 东方财富连续{self._quote_fail_count}次失败,降级到level 2(日线缓存): {error}")
+            # 【v2.9.107】持久化降级事件
+            try:
+                from .market_event_log import log_quote_degrade
+                asyncio.get_event_loop().create_task(log_quote_degrade(
+                    from_level=from_lv, to_level=2,
+                    reason=str(error)[:300], fail_count=self._quote_fail_count,
+                ))
+            except Exception:
+                pass
             if self._event_emitter:
                 try:
                     loop = asyncio.get_running_loop()
@@ -302,6 +324,15 @@ class QuoteManager:
             self._degrade_since = time.monotonic()
             self._last_recover_attempt = time.monotonic()
             logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1(缓存模式): {error}")
+            # 【v2.9.107】持久化降级事件
+            try:
+                from .market_event_log import log_quote_degrade
+                asyncio.get_event_loop().create_task(log_quote_degrade(
+                    from_level=0, to_level=1,
+                    reason=str(error)[:300], fail_count=self._quote_fail_count,
+                ))
+            except Exception:
+                pass
             if self._event_emitter:
                 try:
                     loop = asyncio.get_running_loop()

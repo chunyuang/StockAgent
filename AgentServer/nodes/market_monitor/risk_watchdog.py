@@ -587,6 +587,21 @@ class RiskWatchdog:
         self._last_alerts[check_name] = now
         self._state.alert_count += 1
 
+        # 【v2.9.107】持久化告警到 risk_alerts 集合
+        try:
+            from .market_event_log import log_risk_alert
+            await log_risk_alert(
+                check_name=check_name,
+                severity=check.status.value if hasattr(check.status, 'value') else str(check.status),
+                message=check.message or '',
+                details={
+                    'value': str(check.value), 'threshold': str(check.threshold),
+                    'name': check.name,
+                },
+            )
+        except Exception as _e:
+            logger.debug(f"[WATCHDOG] 告警持久化失败: {_e}")
+
         # 构建告警信号
         from nodes.market_monitor.signal_dispatcher import (
             SignalDispatcher, DispatchSignal, SignalPriority

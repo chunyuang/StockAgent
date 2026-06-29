@@ -138,16 +138,38 @@ class DataSourceRouter:
                 best_priority = self._priorities[name]
 
         if best:
+            old = self._active_source
             self._active_source = best
             logger.info(f"[ROUTER] 切换到数据源: {best}")
+            # 【v2.9.107】持久化切换事件
+            if old != best:
+                try:
+                    import asyncio as _asyncio
+                    from .market_event_log import log_data_source_switch
+                    _asyncio.get_event_loop().create_task(log_data_source_switch(
+                        from_source=old or '', to_source=best, reason='auto_select_best_available',
+                    ))
+                except Exception:
+                    pass
         else:
             logger.error("[ROUTER] 无可用数据源!")
 
     def set_active_source(self, name: str) -> bool:
         """手动切换数据源"""
         if name in self._sources and self._statuses[name].available:
+            old = self._active_source
             self._active_source = name
             logger.info(f"[ROUTER] 手动切换到数据源: {name}")
+            # 【v2.9.107】持久化手动切换事件
+            if old != name:
+                try:
+                    import asyncio as _asyncio
+                    from .market_event_log import log_data_source_switch
+                    _asyncio.get_event_loop().create_task(log_data_source_switch(
+                        from_source=old or '', to_source=name, reason='manual_switch',
+                    ))
+                except Exception:
+                    pass
             return True
         else:
             logger.warning(f"[ROUTER] 数据源 {name} 不可用")
