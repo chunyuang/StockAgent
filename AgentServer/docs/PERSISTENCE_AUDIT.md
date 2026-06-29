@@ -199,3 +199,71 @@ await db.broker_account.drop()
 4. 三个事件流集合，并提供查询 API
 
 是否让我开始实现 P0？
+---
+
+## 五、修复执行记录 (2026-06-29)
+
+### ✅ P0 完成 (commit 4ad0fa44)
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| `performance_snapshots` | 0条 | **30条** (回填+daily_settlement强制) |
+| `risk_decisions` | 0条 | **3条** (今日+统一入口 _persist_risk_decision_unified) |
+| `scanner_signals` 索引 | 无 | 4个复合索引 |
+| `sentiment_scores` 索引 | 无 | trade_date unique |
+| `premarket_snapshots` 索引 | 无 | 2个复合索引 |
+| `broker_accounts` 索引 | 无 | account_id unique |
+| `scan_traces` 索引 | 仅trade_date | +trade_date+account_id, scan_id |
+| `data_consistency_guard` | 5项 | **8项** (含持久化检查) |
+
+**🐛 关键 bug**: 跳空止损 risk_decisions 丢失
+- 根因: 跳空止损走 event_subscriber 路径, 不经过 position_checker
+- 修复: post_sell_cleanup 调用统一 `_persist_risk_decision_unified`, 所有卖出路径一律审计
+
+### ✅ P1 完成 (commit abf2b692)
+
+新建 `market_event_log.py` 模块：
+
+| 集合 | 触发点 | TTL |
+|---|---|---|
+| `quote_degrade_events` | 东方财富 3/6 次失败降级 + 恢复 | 30天 |
+| `data_source_events` | 量脉↔东财切换 | 30天 |
+| `risk_alerts` | risk_watchdog critical/dead 告警 | 90天 |
+
+新增 API:
+- `GET /scanner/event-stream/quote-degrade`
+- `GET /scanner/event-stream/data-source`
+- `GET /scanner/event-stream/risk-alerts`
+
+### ✅ P2 完成 (commit 21ee7560)
+
+冗余集合清理：
+- `scanner_state` (废弃, pending_sells 改读 scanner_runtime_snapshot.pending_sells)
+- `broker_account` 单数 (废弃, 与 broker_accounts 复数重复)
+- 两个集合已 drop, 业务代码引用全部清理
+
+**单一真相源 (Final)**:
+- `broker_orders/broker_positions/broker_accounts` → 持仓+订单+账户
+- `scanner_runtime_snapshot` → 所有 scanner 内存状态
+- `scanner_timeline` → 决策日志
+- `sentiment_scores/sentiment_live_log` → 情绪汇总+盘中日志
+- `performance_snapshots` → 资金曲线
+- `risk_decisions` → 风控审计 trail
+- `quote_degrade_events/data_source_events/risk_alerts` → 事件流
+
+### 📊 验证 (data_consistency_guard 8 项)
+
+```
+检查项: 8 | P0: 0 | P1: 0 | P2: 0
+✅ 全部通过 — 所有数据之间一致性校验OK
+```
+
+8 项检查覆盖：
+1. trade_date 类型一致性 (int)
+2. broker_orders profit_pct 字段
+3. broker_accounts.market_value vs 收盘价
+4. KPI vs broker_orders 总盈亏一致
+5. KPI vs broker_accounts 资产一致
+6. **performance_snapshots 工作日缺失** (v2.9.107新)
+7. **risk_decisions vs 卖出记录一致** (v2.9.107新)
+8. **sentiment_live_log 盘中工作日缺失** (v2.9.107新)
