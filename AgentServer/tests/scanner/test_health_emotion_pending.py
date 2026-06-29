@@ -309,7 +309,7 @@ class TestPendingSellsPersistence:
     """pending_sells MongoDB持久化测试(stop时保存/start时恢复)"""
 
     def test_stop_saves_pending_sells(self):
-        """stop时pending_sells写入MongoDB scanner_state集合"""
+        """stop时pending_sells写入MongoDB scanner_runtime_snapshot.pending_sells 【v2.9.107: 代替 scanner_state】"""
         import nodes.market_monitor.scanner as scanner_mod
         scanner = MagicMock()
         scanner._pending_sells = {
@@ -328,12 +328,12 @@ class TestPendingSellsPersistence:
         scanner._save_runtime_snapshot = AsyncMock()
         scanner._publish_scanner_event = AsyncMock()
         
-        # 验证scanner_state.update_one被调用
+        # 验证pending_sells会被 _build_snapshot_doc 写入 scanner_runtime_snapshot
         # (需要async测试,此处仅验证逻辑路径不报错)
         assert len(scanner._pending_sells) == 1
 
     def test_start_restores_pending_sells(self):
-        """start时从MongoDB scanner_state恢复pending_sells"""
+        """start时从MongoDB scanner_runtime_snapshot.pending_sells恢复pending_sells 【v2.9.107: 代替 scanner_state】"""
         # 此测试验证恢复逻辑路径
         # 实际async测试需要MongoDB mock,此处验证数据结构兼容
         saved_items = {
