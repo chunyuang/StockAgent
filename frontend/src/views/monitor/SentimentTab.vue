@@ -67,7 +67,7 @@ const sentimentChartOption = computed(() => {
     series: [
       { name: '涨停', type: 'bar', data: limitUps, itemStyle: { color: 'rgba(245,108,108,0.7)', borderRadius: [2,2,0,0] }, barMaxWidth: 16 },
       { name: '跌停', type: 'bar', data: limitDowns, itemStyle: { color: 'rgba(64,158,255,0.6)', borderRadius: [0,0,2,2] }, barMaxWidth: 16 },
-      { name: 'Score', type: 'line', data: scores, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 2, color: '#a855f7' }, itemStyle: { color: '#a855f7' }, symbol: 'circle', symbolSize: scores.length > 60 ? 2 : 4, connectNulls: true,
+      { name: 'Score', type: 'line', data: scores, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 2, color: '#a855f7' }, itemStyle: { color: '#a855f7' }, symbol: 'circle', symbolSize: scores.length > 60 ? 2 : 4, connectNulls: false,
         markLine: { silent: true, lineStyle: { color: '#666', type: 'dashed', width: 1 }, label: { fontSize: 9, color: '#888' }, data: [
           { yAxis: 70, label: { formatter: '70🔥' } },
           { yAxis: 55, label: { formatter: '55⚡' } },
