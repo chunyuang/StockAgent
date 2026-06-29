@@ -653,6 +653,14 @@ class RuntimePersistence:
         await self._emit_sell_events(scanner, pos, reason, order, entry, profit_pct, trace_id=trace_id)
         logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f} trace={trace_id}")
 
+        # 【v2.9.107】风控决策审计 trail — 统一入口(不管是 quick/legacy/checker/event 路径都走这里)
+        try:
+            await self._persist_risk_decision_unified(
+                scanner, pos, reason, order, quantity, profit_pct, source=source, trace_id=trace_id
+            )
+        except Exception as _e:
+            logger.warning(f"[RISK_AUDIT] 持久化失败: {_e}")
+
         await self._persist_sell_state(scanner)
 
     @staticmethod
@@ -701,11 +709,59 @@ class RuntimePersistence:
         except Exception as _e:
             logger.warning(f"[SCANNER] 卖出后运行时快照失败: {_e}")
         # 【v2.9.94修复】卖出后立即保存timeline到MongoDB，防止进程崩溃时丢失
-        # P0事故2026-06-15: 5笔卖出后scanner重启，timeline只在内存中未持久化，导致前端无当日交易明细
+        # P0事故2026-06-15: 5笔卖出后scanner重启, timeline只在内存中未持久化, 导致前端无当日交易明细
         try:
             await scanner._runtime_persistence.save_timeline()
         except Exception as _e:
             logger.warning(f"[SCANNER] 卖出后Timeline保存失败: {_e}")
+
+    async def _persist_risk_decision_unified(
+        self, scanner, pos, reason: str, order, quantity: int,
+        profit_pct: float, *, source: str = "sell", trace_id: str = ""
+    ) -> None:
+        """【v2.9.107】风控决策审计 trail — 统一入口
+
+        适用于所有卖出路径(quick/legacy/checker/event_subscriber/跳空止损)。
+        以前只有 position_checker._persist_risk_decision 写入，跳空止损走 event 路径丢失。
+        """
+        from core.managers import mongo_manager
+        if not getattr(mongo_manager, '_initialized', False) or not mongo_manager.db:
+            return
+        trade_date = getattr(scanner, '_trade_date', '') or datetime.now().strftime('%Y%m%d')
+        td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
+        reason_lower = reason.lower() if reason else ''
+        if '跳空止损' in reason or 'gap' in reason_lower:
+            decision_type = 'gap_stop_loss'
+        elif '追踪止损' in reason or 'trailing' in reason_lower or '移动止损' in reason:
+            decision_type = 'trailing_stop'
+        elif '止盈' in reason or 'take_profit' in reason_lower:
+            decision_type = 'take_profit'
+        elif '止损' in reason or 'stop' in reason_lower:
+            decision_type = 'stop_loss'
+        elif '超时' in reason:
+            decision_type = 'timeout_force_sell'
+        else:
+            decision_type = 'other_sell'
+        doc = {
+            'trade_date': td_int,
+            'timestamp': datetime.now().isoformat(),
+            'scan_id': getattr(scanner, '_scan_count', 0),
+            'decision_type': decision_type,
+            'source': source,
+            'ts_code': pos.ts_code,
+            'stock_name': getattr(pos, 'stock_name', ''),
+            'strategy': getattr(pos, 'strategy', ''),
+            'trigger_reason': reason,
+            'trigger_price': getattr(pos, 'current_price', 0) or 0,
+            'cost_price': getattr(pos, 'avg_cost', 0) or getattr(pos, 'cost_price', 0) or 0,
+            'quantity': quantity or 0,
+            'filled_price': getattr(order, 'filled_price', 0) or 0,
+            'profit_pct': profit_pct or 0,
+            'trace_id': trace_id,
+            'account_id': getattr(scanner, 'account_id', 'default') or 'default',
+        }
+        await mongo_manager.db['risk_decisions'].insert_one(doc)
+        logger.info(f"[RISK_AUDIT] {decision_type} {pos.ts_code} qty={doc['quantity']} @{doc['filled_price']} reason={reason}")
 
     # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
     
@@ -1336,6 +1392,13 @@ class RuntimePersistence:
             await self._scanner._sync_close_data_to_mongo(trade_date)
         except Exception as _e:
             logger.warning(f"[SCANNER] 盘后数据同步失败: {_e}")
+
+        # 6. 【v2.9.107】强制保存结算结束时的绩效快照 (不依赖 event subscriber)
+        try:
+            await self.save_performance_snapshot(trade_date)
+            logger.info("[SCANNER] 盘后绩效快照已强制保存")
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 盘后绩效快照失败: {_e}")
 
     async def persist_scan_result(self) -> None:
         """扫描结果持久化: broker状态+时间线+运行时快照+定期绩效快照【v2.9.41:从scanner._persist_scan_result提取】"""

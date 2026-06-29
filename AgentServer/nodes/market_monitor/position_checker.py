@@ -661,11 +661,8 @@ class PositionChecker:
             ok, msg, order, sell_info = self._place_sell_order(pos, reason, force_price, risk)
             if ok:
                 await self._post_sell_processing(pos, order, sell_info, reason, risk, source, trace_id=trace_id)
-                # 【v2.9.106】风控决策审计 trail
-                try:
-                    await self._persist_risk_decision(pos, reason, risk, source, order, trace_id)
-                except Exception as _e:
-                    logger.debug(f"[RISK_AUDIT] 持久化失败: {_e}")
+                # 【v2.9.107】risk_decisions 持久化已改为由 post_sell_cleanup -> _persist_risk_decision_unified 统一处理
+                # 原本处调用已取消避免重复写入
             else:
                 self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"卖出失败: {msg}", None)

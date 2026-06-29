@@ -281,6 +281,38 @@ class MongoManager(BaseManager):
         # 绩效快照: 按日期查询
         await self._db.performance_snapshots.create_indexes([
             IndexModel([("trade_date", DESCENDING), ("timestamp", ASCENDING)]),
+            IndexModel([("account_id", ASCENDING), ("trade_date", DESCENDING)]),
+        ])
+
+        # 【v2.9.107】按优先级补全 5 个集合索引
+        # 1. scanner_signals: 1769条无索引 → 查今日信号全表扫
+        await self._db.scanner_signals.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("account_id", ASCENDING)]),
+            IndexModel([("ts_code", ASCENDING), ("trade_date", DESCENDING)]),
+            IndexModel([("scan_time", DESCENDING)]),
+            IndexModel([("strategy", ASCENDING), ("trade_date", DESCENDING)]),
+        ])
+
+        # 2. sentiment_scores: 526条无索引
+        await self._db.sentiment_scores.create_indexes([
+            IndexModel([("trade_date", DESCENDING)], unique=True),
+        ])
+
+        # 3. premarket_snapshots: 97条无索引
+        await self._db.premarket_snapshots.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("account_id", ASCENDING)]),
+            IndexModel([("ts_code", ASCENDING), ("trade_date", DESCENDING)]),
+        ])
+
+        # 4. broker_accounts: account_id 查询
+        await self._db.broker_accounts.create_indexes([
+            IndexModel([("account_id", ASCENDING)], unique=True),
+        ])
+
+        # 5. scan_traces: 补 ts_code + account_id 复合索引
+        await self._db.scan_traces.create_indexes([
+            IndexModel([("trade_date", DESCENDING), ("account_id", ASCENDING)]),
+            IndexModel([("scan_id", ASCENDING)]),
         ])
         
         self.logger.info("MongoDB indexes ensured ✓")
