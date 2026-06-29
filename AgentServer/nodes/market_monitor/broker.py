@@ -121,6 +121,7 @@ class SimulatedBroker:
 
     def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000, virtual_mode: bool = False):
         self.account = Account(account_id=account_id, total_assets=initial_cash, available_cash=initial_cash)
+        self._initial_cash = initial_cash  # 【v2.9.108】初始资金, 用于_recalc_account推算cash
         self.positions: Dict[str, Position] = {}
         self.orders: List[Order] = []
         self._realtime_prices: Dict[str, float] = {}
@@ -461,25 +462,16 @@ class SimulatedBroker:
         """【v2.9.108】检测cash是否与positions不一致"""
         if market_value <= 0:
             return False
-        initial_cash = self.account.total_assets
-        return self.account.available_cash >= (initial_cash * 0.99)
+        return self.account.available_cash >= (self._initial_cash * 0.99)
 
     def _fix_cash_from_positions(self, market_value: float) -> None:
         """【v2.9.98zf-39】以orders为权威修正available_cash
 
         核心思路: cash = initial_cash - 买入支出 + 卖出收入
-        不依赖account.total_profit(可能不准)，直接从orders推算
+        【v2.9.108】从MongoDB查全量orders，不依赖内存中只有今天的
         """
-        initial_cash = 1_000_000  # 初始资金
-        buy_cost = sum(
-            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
-            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'buy' and str(o.status) == 'filled'
-        )
-        sell_income = sum(
-            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
-            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'sell' and str(o.status) == 'filled'
-        )
-        correct_cash = initial_cash - buy_cost + sell_income
+        buy_cost, sell_income = self._calc_cash_from_mongo_orders()
+        correct_cash = self._initial_cash - buy_cost + sell_income
         correct_total = correct_cash + market_value
 
         old_cash = self.account.available_cash
@@ -1127,6 +1119,7 @@ class SimulatedBroker:
         """重算账户总值
 
         【v2.9.98zf-39】从orders推算available_cash，而不是信任内存值
+        【v2.9.108】从MongoDB查全量filled orders，不依赖内存中只有今天的orders
         """
         market_value = 0
         for pos in self.positions.values():
@@ -1135,16 +1128,9 @@ class SimulatedBroker:
             elif pos.avg_cost > 0:
                 market_value += pos.avg_cost * pos.total_qty
 
-        # 从orders推算正确的available_cash
-        buy_cost = sum(
-            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
-            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'buy' and str(o.status) == 'filled'
-        )
-        sell_income = sum(
-            (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
-            for o in self.orders if hasattr(o, 'side') and str(o.side) == 'sell' and str(o.status) == 'filled'
-        )
-        correct_cash = 1_000_000 - buy_cost + sell_income
+        # 从MongoDB查全量filled orders推算available_cash(内存只有今天的)
+        buy_cost, sell_income = self._calc_cash_from_mongo_orders()
+        correct_cash = self._initial_cash - buy_cost + sell_income
 
         self.account.available_cash = correct_cash
         self.account.market_value = market_value
@@ -1152,6 +1138,52 @@ class SimulatedBroker:
         self.account.total_profit = market_value - sum(
             p.avg_cost * p.total_qty for p in self.positions.values()
         )  # 未实现盈亏
+
+    def _calc_cash_from_mongo_orders(self) -> tuple:
+        """【v2.9.108】从MongoDB查全量filled orders推算buy_cost和sell_income
+        
+        解决: _restore_orders_from_mongo只恢复今日orders, 
+        _recalc_account用内存orders算cash会缺历史天数。
+        """
+        try:
+            if not self._ensure_sync_mongo():
+                return (0, 0)
+            db = self._sync_mongo_db
+            # 同步查询全量filled orders
+            buy_cost = 0
+            sell_income = 0
+            for doc in db["broker_orders"].find({
+                "account_id": self.account.account_id,
+                "status": "filled",
+                "side": "buy",
+                "filled_price": {"$gt": 0},
+            }):
+                qty = doc.get("filled_qty") or doc.get("quantity") or 0
+                price = doc.get("filled_price") or 0
+                buy_cost += price * qty
+
+            for doc in db["broker_orders"].find({
+                "account_id": self.account.account_id,
+                "status": "filled",
+                "side": "sell",
+                "filled_price": {"$gt": 0},
+            }):
+                qty = doc.get("filled_qty") or doc.get("quantity") or 0
+                price = doc.get("filled_price") or 0
+                sell_income += price * qty
+
+            return (buy_cost, sell_income)
+        except Exception as e:
+            logger.error(f"[BROKER] MongoDB查询orders失败: {e}, fallback到内存orders")
+            buy_cost = sum(
+                (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+                for o in self.orders if hasattr(o, 'side') and str(o.side) == 'buy' and str(o.status) == 'filled'
+            )
+            sell_income = sum(
+                (o.filled_price or 0) * (o.filled_qty or o.quantity or 0)
+                for o in self.orders if hasattr(o, 'side') and str(o.side) == 'sell' and str(o.status) == 'filled'
+            )
+            return (buy_cost, sell_income)
 
     def get_today_trades(self) -> List[Dict]:
         """获取今日成交"""
