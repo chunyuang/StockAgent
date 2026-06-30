@@ -785,11 +785,11 @@ const reviewReport = computed(() => {
 
   // 最优/最差策略
   let bestStrategy = '', worstStrategy = ''
-  let bestReturn = -Infinity, worstReturn = Infinity
+  let bestReturn = 0, worstReturn = 0
   for (const [name, data] of strategyEntries) {
     const ret = Number(data.total_return) || 0
-    if (ret > bestReturn) { bestReturn = ret; bestStrategy = name }
-    if (ret < worstReturn) { worstReturn = ret; worstStrategy = name }
+    if (strategyEntries.length > 0 && (bestStrategy === '' || ret > bestReturn)) { bestReturn = ret; bestStrategy = name }
+    if (strategyEntries.length > 0 && (worstStrategy === '' || ret < worstReturn)) { worstReturn = ret; worstStrategy = name }
   }
 
   // 最常见卖出原因
