@@ -7,12 +7,12 @@
     "pnl": "float"
   },
   "strategy_stats": {
-    "first_limit_up": {
+    "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
     },
-    "halfway_chase": {
+    "first_limit_up": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
@@ -62,7 +62,11 @@
         "level": "str",
         "key": "str",
         "old": "NoneType",
-        "new": "float",
+        "new": {
+          "rising": "int",
+          "differentiation": "int",
+          "chaos": "int"
+        },
         "severity": "str"
       }
     ],

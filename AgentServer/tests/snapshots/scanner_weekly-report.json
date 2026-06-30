@@ -2,7 +2,7 @@
   "period": "str",
   "account": {
     "total_assets": "float",
-    "total_profit": "float",
+    "total_profit": "int",
     "available_cash": "float"
   },
   "daily_stats": {
@@ -70,6 +70,21 @@
           "amount": "float",
           "wins": "int",
           "pnl": "int"
+        }
+      }
+    },
+    "20260630": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "float"
         }
       }
     }

@@ -18,6 +18,8 @@
       "status": "str",
       "create_time": "str",
       "fill_time": "str",
+      "profit_pct": "float",
+      "profit_amount": "float",
       "decision_trace": {
         "version": "str",
         "stock": {
@@ -40,7 +42,7 @@
           "low": "float",
           "pre_close": "float",
           "circ_mv": "float",
-          "ma5": "NoneType",
+          "ma5": "float",
           "rsi_6": "NoneType"
         },
         "selection_params": {
@@ -100,10 +102,7 @@
             "detail": "str",
             "applied": "bool"
           },
-          "L8_ma60": {
-            "detail": "str",
-            "applied": "bool"
-          },
+          "L8_ma60": {},
           "L8_position": {
             "detail": "str",
             "applied": "bool"
@@ -117,7 +116,7 @@
           "position_ratio_factor": "float"
         },
         "account_context": {
-          "available_cash_before": "int",
+          "available_cash_before": "float",
           "total_assets_before": "float",
           "position_count_before": "int",
           "max_positions": "int",
