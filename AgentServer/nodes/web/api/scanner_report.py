@@ -85,7 +85,8 @@ async def get_daily_report(date: str = None, mode: str = "production", include_d
             else:
                 strategy_summary[key]["loss_count"] += 1
         
-        # 从时间线统计已平仓策略表现
+        _buy_idx_gdr = {}  # 【v2.9.103】默认空, try块内可能被赋值
+    # 从时间线统计已平仓策略表现
         # 【v2.9.99-r6】scanner._timeline 的 profit_pct/amount 也是空 (broker 时序问题),
         # 改从 broker_orders 查 + fallback
         try:
@@ -424,10 +425,44 @@ async def get_historical_review(date: str = None, mode: str = "production", incl
         except Exception as e:
             logger.warning(f"historical-review: sub-module aggregation error: {e}")
 
+        # 【v2.9.103修复】sells补充buy_price(逐笔归因需要)
+        # 先构建buy_index: ts_code -> 最近买入order
+        _buy_idx = {}
+        for b in buys:
+            tc = b.get("ts_code", "")
+            if tc and tc not in _buy_idx:
+                _buy_idx[tc] = b  # 只留第一笔(按fill_time排序已是最早)
+        # 如果没在当日buys中找到, 从全历史buy_index补充
+        if not _buy_idx:
+            try:
+                from nodes.web.api.pnl_helper import build_buy_price_index
+                _buy_idx = await build_buy_price_index(db)
+            except Exception:
+                pass
+
+        _sells_with_bp = []
+        for s in sells:
+            s_entry = {"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", ""), "profit_pct": s.get("profit_pct", 0), "profit_amount": s.get("profit_amount", 0)}
+            _tc = s.get("ts_code", "")
+            try:
+                _bd = _buy_idx.get(_tc)
+                if _bd:
+                    s_entry["buy_price"] = _bd.get("filled_price", 0) or _bd.get("price", 0)
+                else:
+                    _sp = s.get("filled_price", 0) or 0
+                    _pp = s.get("profit_pct", 0) or 0
+                    if _sp > 0 and _pp != 0:
+                        s_entry["buy_price"] = round(_sp / (1 + _pp / 100), 2)
+                    elif _sp > 0:
+                        s_entry["buy_price"] = round(_sp, 2)
+            except Exception:
+                pass
+            _sells_with_bp.append(s_entry)
+
         return {"success": True, "data": {
             "date": date,
             "buys": [{"ts_code": b.get("ts_code"), "stock_name": b.get("stock_name", ""), "strategy": b.get("strategy", ""), "price": b.get("filled_price", 0), "qty": b.get("filled_qty", 0), "time": b.get("fill_time", "")} for b in buys],
-            "sells": [{"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", ""), "profit_pct": s.get("profit_pct", 0), "profit_amount": s.get("profit_amount", 0)} for s in sells],
+            "sells": _sells_with_bp,
             "strategy_summary": strategy_summary,
             "scan_stats": {"scan_count": scan_count, "debug_scan_count": debug_count, "total_signals": total_passed, "buy_count": len(buys), "sell_count": len(sells)},
             "funnel_summary": {k: dict(v) for k, v in funnel_agg.items()},

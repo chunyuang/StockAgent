@@ -1764,6 +1764,7 @@ async def review_monthly(date: str = None):
             "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
             "behavior_drift": {
                 "stop_loss_execution_rate": min(round(stop_loss_at_loss/max(loss_sells,1)*100,1), 100.0),  # 分母=全部亏损笔数(含非止损亏损)
+                "stop_loss_triggered_rate": min(round(stop_loss_at_loss/max(stop_loss_sells,1)*100,1), 100.0),  # 分母=止损触发笔数(含盈利时追踪止损)
                 "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
                 "stop_loss_triggered": stop_loss_sells,  # 止损触发笔数(含盈利时追踪止损)
                 "loss_sells": loss_sells,
