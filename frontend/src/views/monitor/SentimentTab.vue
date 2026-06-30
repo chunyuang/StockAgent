@@ -18,9 +18,9 @@ use([CanvasRenderer, BarChart, LineChart, TitleComponent, TooltipComponent, Lege
 
 const m = useScannerMonitorInject()
 const {
-  sentimentMode, sentimentDate, hoveredPoint, sentimentTimeline,
+  sentimentMode, sentimentDate,
   displayTimeline, isIntradayFallback,
-  xAxisLabels, sentimentMatrix, sentimentLoading,
+  sentimentMatrix, sentimentLoading,
   sentimentLive, phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
   fetchSentimentData, strategyCN,
 } = m
@@ -53,9 +53,12 @@ const sentimentChartOption = computed(() => {
   const limitDowns = tl.map((p: any) => -(p.limit_down || 0))
   const scores = tl.map((p: any) => p.score != null ? p.score : null)
   const brokenRates = tl.map((p: any) => p.broken_rate != null ? (p.broken_rate * 100) : null)
+  // 【v2.9.106】missing_data 虚线标注: 分数存在但 missing_data=true 的点用空心圆+半透明
+  const scoreItemStyles = tl.map((p: any) => p.missing_data ? { opacity: 0.4 } : {})
+  const scoreSymbols = tl.map((p: any) => p.missing_data ? 'emptyCircle' : 'circle')
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(30,30,30,0.92)', borderColor: '#444', textStyle: { color: '#eee', fontSize: 11 },
-      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const p = tl[idx]; if (!p) return ''; const d = isIntraday ? (p.time_label||'') : (p.date||''); return `<div style="font-weight:600;margin-bottom:4px">${d}</div>情绪分<b style="color:${scoreColor(p.score||0)}">${(p.score||0).toFixed(1)}</b> ${periodCN(p.period||'')}<br/>涨停<b style="color:#f56c6c">${p.limit_up||0}</b> 跌停<b style="color:#409eff">${p.limit_down||0}</b> 炸板<b style="color:#e6a23c">${p.broken||0}</b>${p.broken_rate!=null?` 炸板率${((p.broken_rate)*100).toFixed(0)}%`:''}<br/>${p.momentum!=null?`动量${(p.momentum)>=0?'+':''}${(p.momentum).toFixed(1)} `:''}${p.today_premium!=null?`溢价${(p.today_premium).toFixed(1)}%`:''}` }
+      formatter: (params: any[]) => { const idx = params[0]?.dataIndex ?? 0; const p = tl[idx]; if (!p) return ''; const d = isIntraday ? (p.time_label||'') : (p.date||''); const missingTag = p.missing_data ? ' <span style="color:#e6a23c">⚠缺数据</span>' : ''; return `<div style="font-weight:600;margin-bottom:4px">${d}${missingTag}</div>情绪分<b style="color:${scoreColor(p.score||0)}">${(p.score||0).toFixed(1)}</b> ${periodCN(p.period||'')}<br/>涨停<b style="color:#f56c6c">${p.limit_up||0}</b> 跌停<b style="color:#409eff">${p.limit_down||0}</b> 炸板<b style="color:#e6a23c">${p.broken||0}</b>${p.broken_rate!=null?` 炸板率${((p.broken_rate)*100).toFixed(0)}%`:''}<br/>${p.momentum!=null?`动量${(p.momentum)>=0?'+':''}${(p.momentum).toFixed(1)} `:''}${p.today_premium!=null?`溢价${(p.today_premium).toFixed(1)}%`:''}` }
     },
     legend: { data: ['涨停','跌停','Score','炸板率%'], top: 4, right: 8, textStyle: { fontSize: 10 }, itemWidth: 12, itemHeight: 8 },
     grid: { left: 42, right: 42, top: 32, bottom: 28 },
@@ -68,6 +71,8 @@ const sentimentChartOption = computed(() => {
       { name: '涨停', type: 'bar', data: limitUps, itemStyle: { color: 'rgba(245,108,108,0.7)', borderRadius: [2,2,0,0] }, barMaxWidth: 16 },
       { name: '跌停', type: 'bar', data: limitDowns, itemStyle: { color: 'rgba(64,158,255,0.6)', borderRadius: [0,0,2,2] }, barMaxWidth: 16 },
       { name: 'Score', type: 'line', data: scores, yAxisIndex: 1, smooth: 0.3, lineStyle: { width: 2, color: '#a855f7' }, itemStyle: { color: '#a855f7' }, symbol: 'circle', symbolSize: scores.length > 60 ? 2 : 4, connectNulls: false,
+        // 【v2.9.106】missing_data虚线标注: 空心圆+半透明覆盖默认样式
+        ...(scoreItemStyles.some((s:any) => s.opacity) ? { data: scores.map((v: any, i: number) => ({ value: v, itemStyle: scoreItemStyles[i], symbol: scoreSymbols[i] })) } : {}),
         markLine: { silent: true, lineStyle: { color: '#666', type: 'dashed', width: 1 }, label: { fontSize: 9, color: '#888' }, data: [
           { yAxis: 70, label: { formatter: '70🔥' } },
           { yAxis: 55, label: { formatter: '55⚡' } },
@@ -80,12 +85,8 @@ const sentimentChartOption = computed(() => {
 })
 
 // ===== 日线 =====
-const dailyScorePoints = computed(() => '')
-const scoredTimeline = computed(() => (displayTimeline.value as any[]).filter((p: any) => p.score != null))
+// (SVG chart helpers removed — ECharts handles all rendering now)
 function matrixTotal(periods: Record<string,any>): number { return Object.values(periods).reduce((s: number, v: any) => s + ((v as any).count||0), 0) }
-function dailyDotBottom(p: any): number { return p.score||0 }
-function dailyHoverLeft(): number { return 0 }
-function dailyHoverBottom(): number { return 30 }
 
 // ===== 盘中日志 =====
 const liveLogs = ref<any[]>([])
@@ -94,8 +95,13 @@ async function fetchLiveLogs() { liveLogsLoading.value = true; try { const r = a
 
 // ===== 工具函数 =====
 function scoreColor(s: number): string { return s >= 70 ? '#f56c6c' : s >= 55 ? '#409eff' : s >= 40 ? '#e6a23c' : '#67c23a' }
-function periodCN(p: string): string { return { rising:'🔥高潮', differentiation:'⚡分化', chaos:'🌀震荡', bearish:'🥶冰点', RISING:'🔥高潮', DIFFERENTIATION:'⚡分化', CHAOS:'🌀震荡', BEARISH:'🥶冰点', '高潮':'🔥高潮', '分化':'⚡分化', '震荡':'🌀震荡', '冰点':'🥶冰点' }[p] || p }
-function periodColor(p: string): string { return { rising:'#f56c6c', differentiation:'#e6a23c', chaos:'#409eff', bearish:'#67c23a', RISING:'#f56c6c', DIFFERENTIATION:'#e6a23c', CHAOS:'#409eff', BEARISH:'#67c23a', '高潮':'#f56c6c', '分化':'#e6a23c', '震荡':'#409eff', '冰点':'#67c23a' }[p] || '#909399' }
+// periodCN: unified via composable's phaseCN (EN→CN), then add emoji prefix for SentimentTab display
+function periodCN(p: string): string {
+  const cn = m.phaseCN(p) // maps EN→CN, passes CN through
+  const emojiMap: Record<string, string> = { '高潮': '🔥', '分化': '⚡', '震荡': '🌀', '冰点': '🥶' }
+  return (emojiMap[cn] || '') + cn
+}
+function periodColor(p: string): string { return m.phaseColors[p] || m.phaseColors[m.phaseCN(p)] || '#909399' }
 function heroClass(s: number): string { return s >= 70 ? 'hot' : s >= 55 ? 'warm' : s >= 40 ? 'neutral' : 'cold' }
 
 let liveLogTimer: number | undefined

@@ -72,9 +72,11 @@ const riskScore = computed(() => {
   if (!globalRisk.value) return 0
   const c = globalRisk.value?.risk_summary?.critical ?? 0
   const w = globalRisk.value?.risk_summary?.warning ?? 0
-  const t = globalRisk.value?.position_count ?? 1
+  const n = globalRisk.value?.risk_summary?.normal ?? 0
+  const t = c + w + n
   if (t === 0) return 0
-  return safeNum(Math.round((c * 100 + w * 50) / t))
+  // 【v2.9.106】加权评分: critical=80, warning=45, normal=10, 然后按持仓数归一化到0-100
+  return safeNum(Math.round((c * 80 + w * 45 + n * 10) / t))
 })
 
 let timer: number

@@ -100,11 +100,14 @@ export function useSentimentMonitor() {
     { from: '高潮', to: '震荡', action: '减仓50%', desc: '市场转弱，保留核心' },
   ]
 
-  const phaseColors: Record<string, string> = { '高潮': '#f56c6c', '分化': '#e6a23c', '震荡': '#409eff', '冰点': '#67c23a', 'RISING': '#f56c6c', 'DIFFERENTIATION': '#e6a23c', 'CHAOS': '#409eff', 'BEARISH': '#67c23a' }
+  const phaseColors: Record<string, string> = { '高潮': '#f56c6c', '分化': '#e6a23c', '震荡': '#409eff', '冰点': '#67c23a', 'RISING': '#f56c6c', 'DIFFERENTIATION': '#e6a23c', 'CHAOS': '#409eff', 'BEARISH': '#67c23a', 'rising': '#f56c6c', 'differentiation': '#e6a23c', 'chaos': '#409eff', 'bearish': '#67c23a' }
 
   // 【v2.9.100】情绪周期英文→中文映射(后端已统一,前端兜底)
   function phaseCN(label: string): string {
-    const map: Record<string, string> = { 'RISING': '高潮', 'DIFFERENTIATION': '分化', 'CHAOS': '震荡', 'BEARISH': '冰点' }
+    const map: Record<string, string> = {
+      'RISING': '高潮', 'DIFFERENTIATION': '分化', 'CHAOS': '震荡', 'BEARISH': '冰点',
+      'rising': '高潮', 'differentiation': '分化', 'chaos': '震荡', 'bearish': '冰点',
+    }
     return map[label] || label
   }
 
