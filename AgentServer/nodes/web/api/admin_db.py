@@ -101,6 +101,7 @@ async def get_database_stats():
     
     【v2.9.100优化】加内存缓存(60s TTL), 避免每次请求13s
     """
+    # 【v2.9.103优化】先检查缓存, 后获取数据
     import time as _time
     _cache_key = "_admin_db_stats_cache"
     _cache_ttl = 60  # 60秒缓存
@@ -108,10 +109,15 @@ async def get_database_stats():
         _cached = getattr(get_database_stats, _cache_key)
         if _time.time() - _cached["ts"] < _cache_ttl:
             return _cached["data"]
+
     # 获取 MongoDB 版本
-    # 使用 mongo_manager._client 获取异步客户端
-    info = await mongo_manager._client.admin.command('buildInfo')
-    mongodb_version = info.get('version', 'unknown')
+    # 【v2.9.103优化】用同步client做buildInfo(更快), 避免motor的额外开销
+    try:
+        sync_info = mongo_manager._sync_client.admin.command('buildInfo')
+        mongodb_version = sync_info.get('version', 'unknown')
+    except Exception:
+        info = await mongo_manager._client.admin.command('buildInfo')
+        mongodb_version = info.get('version', 'unknown')
     
     # 获取所有集合统计
     collections = []
@@ -120,18 +126,41 @@ async def get_database_stats():
     # motor 异步方式获取集合列表
     collection_names = await db.list_collection_names()
     
+    # 【v2.9.103优化】跳过scan_traces/broker_orders等大集合的collstats, 用估算
+    # 对>100MB的集合使用$collStats的countOnly模式, 避免全量scan
+    LARGE_COLLECTIONS_SKIP_STATS = {'scan_traces', 'stock_daily_ak_full', 'stock_1min_factors'}
+    
     for coll_name in collection_names:
         # 获取集合统计
         try:
-            # motor 使用 async 方式
-            stats = await db.command("collstats", coll_name)
-            collections.append({
-                "name": coll_name,
-                "document_count": stats.get("count", 0),
-                "size_bytes": stats.get("size", 0),
-                "size_human": _bytes_to_human(stats.get("size", 0)),
-                "avg_document_size": stats.get("avgObjSize", 0),
-            })
+            if coll_name in LARGE_COLLECTIONS_SKIP_STATS:
+                # 轻量模式: 只获取文档数, 不计算size
+                count = await db[coll_name].count_documents({}, hint='_id_')
+                # 用上一次缓存的size或估算
+                prev_size = 0
+                if hasattr(get_database_stats, _cache_key):
+                    prev_cached = getattr(get_database_stats, _cache_key)
+                    for pc in prev_cached.get("data", {}).get("data", {}).get("collections", []):
+                        if pc["name"] == coll_name:
+                            prev_size = pc.get("size_bytes", 0)
+                            break
+                collections.append({
+                    "name": coll_name,
+                    "document_count": count,
+                    "size_bytes": prev_size,
+                    "size_human": _bytes_to_human(prev_size) if prev_size else "~",
+                    "avg_document_size": 0,
+                    "_estimated": prev_size == 0,
+                })
+            else:
+                stats = await db.command("collstats", coll_name)
+                collections.append({
+                    "name": coll_name,
+                    "document_count": stats.get("count", 0),
+                    "size_bytes": stats.get("size", 0),
+                    "size_human": _bytes_to_human(stats.get("size", 0)),
+                    "avg_document_size": stats.get("avgObjSize", 0),
+                })
         except Exception as e:
             logger.warning(f"Failed to get stats for {coll_name}: {e}")
             collections.append({

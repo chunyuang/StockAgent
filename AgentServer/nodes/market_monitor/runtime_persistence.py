@@ -463,9 +463,11 @@ class RuntimePersistence:
         """分离passed/rejected候选【v2.9.56从save_scan_traces提取】
         
         passed候选保留完整layer_results(关注重点), rejected只保留摘要(省空间)。
+        【v2.9.103优化】rejected上限200条,超出截断(防止单条trace>1MB)
         """
         passed = []
         rejected = []
+        _REJECTED_CAP = 200  # 【v2.9.103】rejected上限,超出部分丢弃(仅保留前200条摘要)
         for t in trace_candidates:
             base = {
                 "ts_code": t.ts_code,
@@ -482,7 +484,12 @@ class RuntimePersistence:
                 base["layer_results"] = t.layer_results
                 passed.append(base)
             else:
-                rejected.append(base)
+                if len(rejected) < _REJECTED_CAP:
+                    rejected.append(base)
+        # 如果有截断, 记录原始数量
+        total_rejected = sum(1 for t in trace_candidates if t.final_status != "passed")
+        if total_rejected > _REJECTED_CAP:
+            rejected.append({"_truncated": True, "original_count": total_rejected, "kept": _REJECTED_CAP})
         return passed, rejected
 
     def _build_trace_doc(self, filter_result, passed_candidates: List, rejected_summary: List) -> Dict:

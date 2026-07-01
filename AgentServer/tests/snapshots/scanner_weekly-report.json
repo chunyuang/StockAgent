@@ -6,21 +6,6 @@
     "available_cash": "float"
   },
   "daily_stats": {
-    "20260624": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "int",
-      "strategies": {
-        "halfway_chase": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "int"
-        }
-      }
-    },
     "20260625": {
       "buys": "int",
       "sells": "int",

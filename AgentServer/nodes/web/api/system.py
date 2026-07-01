@@ -1,7 +1,7 @@
 """
 系统状态和风控配置 API
 
-提供：
+提供:
 - 策略近期表现统计查询
 - 策略权重配置保存
 - 风控配置查询和保存
@@ -36,16 +36,26 @@ async def health_check() -> Dict[str, Any]:
     服务健康检查
     
     检查所有核心服务状态：后端API、回测引擎、MongoDB、前端Vite代理。
-    用于前端“一键服务检查”按钮。
+    用于前端"一键服务检查"按钮。
+    
+    【v2.9.103优化】加60s内存缓存, 避免重复开销大的count_documents
     """
     import socket
     import asyncio
     import aiohttp
+    import time as _time
     from datetime import datetime
+    
+    # 【v2.9.103】缓存60s
+    _ck = "_system_health_cache"
+    if hasattr(health_check, _ck):
+        _c = getattr(health_check, _ck)
+        if _time.time() - _c["ts"] < 60:
+            return _c["data"]
     
     checks = {}
     overall = "ok"
-    
+
     # 1. MongoDB连接检查
     try:
         from core.managers import mongo_manager
@@ -58,20 +68,20 @@ async def health_check() -> Dict[str, Any]:
     except Exception as e:
         checks["mongodb"] = {"status": "error", "message": f"MongoDB连接失败: {str(e)[:100]}"}
         overall = "error"
-    
+
     # 2. 回测引擎检查（本地执行模式，不再需要独立端口50057）
+    # 【v2.9.103优化】跳过PortfolioBacktester实例化(太慢), 改为import检查
     try:
-        from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-        bt = PortfolioBacktester()
+        import nodes.backtest_engine.factor_selection.portfolio_backtest as _pbt
         checks["backtest_node"] = {"status": "ok", "message": "回测引擎就绪（本地执行模式）"}
     except Exception as e:
         checks["backtest_node"] = {"status": "error", "message": f"回测引擎加载失败: {str(e)[:100]}"}
         if overall == "ok":
             overall = "warning"
-    
+
     # 3. 后端Web服务自检
     checks["web_api"] = {"status": "ok", "message": f"Web API运行中 (pid={os.getpid()})"}
-    
+
     # 4. 前端Vite代理检查
     try:
         reader, writer = await asyncio.wait_for(
@@ -84,7 +94,7 @@ async def health_check() -> Dict[str, Any]:
         checks["frontend"] = {"status": "warning", "message": "前端Vite服务端口5174不可达"}
         if overall == "ok":
             overall = "warning"
-    
+
     # 5. 回测历史记录检查
     try:
         from core.managers import mongo_manager
@@ -94,17 +104,17 @@ async def health_check() -> Dict[str, Any]:
         checks["backtest_history"] = {"status": "error", "message": f"查询回测历史失败: {str(e)[:80]}"}
         if overall == "ok":
             overall = "error"
-    
+
     # 6. 数据完整性检查
+    # 【v2.9.103优化】用estimated_document_count代替count_documents(快100x)
     try:
-        # 【v2.9.49】P2修复: 异步查询, 避免同步pymongo阻塞事件循环
         from core.managers import mongo_manager
-        daily_count = await mongo_manager.count_documents("stock_daily_ak_full", {})
-        basic_count = await mongo_manager.count_documents("daily_basic", {})
+        daily_count = await mongo_manager.db["stock_daily_ak_full"].estimated_document_count()
+        basic_count = await mongo_manager.db["daily_basic"].estimated_document_count()
         latest_cursor = mongo_manager.db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
         latest_doc = await latest_cursor.to_list(length=1)
         latest_date = str(latest_doc[0]['trade_date']) if latest_doc else '无数据'
-        
+
         data_msg = f"日线{daily_count//1000}K条, 基础{basic_count//1000}K条, 最新日期{latest_date}"
         if daily_count > 0:
             checks["data"] = {"status": "ok", "message": data_msg}
@@ -115,8 +125,8 @@ async def health_check() -> Dict[str, Any]:
         checks["data"] = {"status": "error", "message": f"数据检查失败: {str(e)[:80]}"}
         if overall == "ok":
             overall = "error"
-    
-    return {
+
+    result = {
         "success": True,
         "status": overall,
         "checks": checks,
@@ -126,6 +136,9 @@ async def health_check() -> Dict[str, Any]:
             "branch": _GIT_BRANCH,
         }
     }
+    # 【v2.9.103】缓存
+    setattr(health_check, _ck, {"ts": _time.time(), "data": result})
+    return result
 
 
 # ==================== 数据模型 ====================
@@ -151,7 +164,7 @@ class SaveWeightsRequest(BaseModel):
     """保存策略权重请求"""
     strategies: List[Dict[str, Any]] = Field(
         ...,
-        description="策略列表，每个元素包含 code 和 weight"
+        description="策略列表,每个元素包含 code 和 weight"
     )
 
 
@@ -180,8 +193,8 @@ async def get_strategy_stats(
 ) -> Dict[str, Any]:
     """
     获取各个策略近期表现统计
-    
-    返回：
+
+    返回:
     - 累计收益率
     - 胜率
     - 盈亏比
@@ -242,7 +255,7 @@ async def get_strategy_stats(
             "weight": 0.0,
         },
     ]
-    
+
     # 尝试从数据库读取保存的权重
     try:
         config_doc = await mongo_manager.find_one(
@@ -259,7 +272,7 @@ async def get_strategy_stats(
                     s["weight"] = saved["weight"]
     except Exception as e:
         logger.warning(f"Failed to load saved strategy weights: {e}")
-    
+
     # 尝试从历史回测结果读取性能统计
     # 聚合查询各个策略的最近回测结果
     try:
@@ -274,20 +287,20 @@ async def get_strategy_stats(
                 }
             }
         ]
-        # 这里简化：获取最近完成的回测结果，如果有数据更新统计
+        # 这里简化:获取最近完成的回测结果,如果有数据更新统计
         recent_tasks = await mongo_manager.aggregate("backtest_tasks", pipeline)
         if recent_tasks:
-            # 更新统计数据（简化实现）
+            # 更新统计数据(简化实现)
             # 实际项目中应该聚合计算
             pass
     except Exception as e:
         logger.warning(f"Failed to query recent backtest stats: {e}")
-    
+
     # 转换为响应对象
     strategy_stats = [
         StrategyStat(**s) for s in default_strategies
     ]
-    
+
     return {
         "success": True,
         "data": {
@@ -304,14 +317,14 @@ async def save_strategy_weights(
 ) -> Dict[str, Any]:
     """
     保存用户调整后的策略权重配置
-    
-    权重总和应该接近 1.0，前端已经做了提示，这里只保存
+
+    权重总和应该接近 1.0,前端已经做了提示,这里只保存
     """
     try:
-        
+
         # 验证权重总和检查
         total_weight = sum(s.get("weight", 0) for s in request.strategies)
-        
+
         # 保存到数据库
         await mongo_manager.update_one(
             "system_config",
@@ -327,11 +340,11 @@ async def save_strategy_weights(
             },
             upsert=True
         )
-        
+
         logger.info(f"User {user_id} saved strategy weights, total: {total_weight:.2f}")
         return {
             "success": True,
-            "message": f"已保存 {len(request.strategies)} 个策略权重，总权重 {total_weight:.2f}",
+            "message": f"已保存 {len(request.strategies)} 个策略权重,总权重 {total_weight:.2f}",
             "total_weight": total_weight
         }
     except Exception as e:
@@ -345,15 +358,15 @@ async def get_risk_config(
 ) -> Dict[str, Any]:
     """
     获取当前风控配置
-    
-    默认配置：
-    - 强化止损：启用，止损 8%
-    - 动态止盈：启用，止盈 10%
-    - 大盘 MA60 过滤：启用
-    - 板块集中度过滤：启用，保留前 3 名
+
+    默认配置:
+    - 强化止损:启用,止损 8%
+    - 动态止盈:启用,止盈 10%
+    - 大盘 MA60 过滤:启用
+    - 板块集中度过滤:启用,保留前 3 名
     """
     default_config = RiskConfig()
-    
+
     # 尝试从数据库读取已保存的配置
     try:
         doc = await mongo_manager.find_one(
@@ -371,7 +384,7 @@ async def get_risk_config(
             }
     except Exception as e:
         logger.warning(f"Failed to load saved risk config: {e}")
-    
+
     # 返回默认配置
     return {
         "success": True,
@@ -389,7 +402,7 @@ async def save_risk_config(
     保存用户修改后的风控配置
     """
     try:
-        
+
         # 保存到数据库
         await mongo_manager.update_one(
             "system_config",
@@ -404,7 +417,7 @@ async def save_risk_config(
             },
             upsert=True
         )
-        
+
         logger.info(f"User {user_id} saved risk config")
         return {
             "success": True,
@@ -430,22 +443,22 @@ async def get_push_config(
 ) -> Dict[str, Any]:
     """
     获取推送配置
-    
+
     返回飞书/企业微信Webhook地址、推送开关、最小发送间隔等配置。
     """
     try:
-        
+
         record = await mongo_manager.find_one(
             "system_config",
             {"user_id": user_id, "type": "push_config"},
         )
-        
+
         if record and "config" in record:
             return {
                 "success": True,
                 "config": record["config"]
             }
-        
+
         # 默认配置
         return {
             "success": True,
@@ -475,12 +488,12 @@ async def save_push_config(
 ) -> Dict[str, Any]:
     """
     保存推送配置
-    
+
     保存飞书/企业微信Webhook地址、推送开关、最小发送间隔等配置。
     前端PushConfigPanel组件调用此接口保存配置。
     """
     try:
-        
+
         await mongo_manager.update_one(
             "system_config",
             {"user_id": user_id, "type": "push_config"},
@@ -494,7 +507,7 @@ async def save_push_config(
             },
             upsert=True
         )
-        
+
         logger.info(f"User {user_id} saved push config")
         return {
             "success": True,
@@ -512,21 +525,21 @@ async def test_push(
 ) -> Dict[str, Any]:
     """
     发送测试推送消息
-    
-    使用当前保存的推送配置发送一条测试消息，验证Webhook地址是否有效。
+
+    使用当前保存的推送配置发送一条测试消息,验证Webhook地址是否有效。
     """
     try:
-        
+
         record = await mongo_manager.find_one(
             "system_config",
             {"user_id": user_id, "type": "push_config"},
         )
-        
+
         if not record or "config" not in record:
-            raise HTTPException(status_code=400, detail="推送配置未保存，请先保存配置")
-        
+            raise HTTPException(status_code=400, detail="推送配置未保存,请先保存配置")
+
         config = record["config"]
-        
+
         # 构造测试信号数据
         test_signal = {
             "date": datetime.now().strftime("%Y-%m-%d"),
@@ -551,15 +564,15 @@ async def test_push(
                 "has_lhb": False,
             }],
         }
-        
+
         from signal_pusher import SignalPusher
         pusher = SignalPusher(config)
         success = pusher.push(test_signal)
-        
+
         if success:
-            return {"success": True, "message": "测试消息已发送，请检查接收端"}
+            return {"success": True, "message": "测试消息已发送,请检查接收端"}
         else:
-            return {"success": False, "message": "部分渠道推送失败，请检查Webhook配置"}
+            return {"success": False, "message": "部分渠道推送失败,请检查Webhook配置"}
     except HTTPException:
         raise
     except Exception as e:
@@ -569,9 +582,9 @@ async def test_push(
 
 @router.get("/ws-config")
 async def get_websocket_config() -> Dict[str, Any]:
-    """获取 WebSocket 连接配置（前端用）
-    
-    前端调用此接口获取 WebSocket 的 host 和 port，
+    """获取 WebSocket 连接配置(前端用)
+
+    前端调用此接口获取 WebSocket 的 host 和 port,
     避免在前端硬编码 IP 地址。
     """
     from core.settings import settings
@@ -587,10 +600,10 @@ async def get_websocket_config() -> Dict[str, Any]:
 
 @router.get("/risk-status")
 async def get_risk_status() -> Dict[str, Any]:
-    """获取风控状态（实时，非配置）
-    
-    返回当前风控引擎的实时状态：是否触发止损/止盈、大盘过滤结果等。
-    与 /risk-config 不同，本接口返回运行时状态而非配置项。
+    """获取风控状态(实时,非配置)
+
+    返回当前风控引擎的实时状态:是否触发止损/止盈、大盘过滤结果等。
+    与 /risk-config 不同,本接口返回运行时状态而非配置项。
     """
     try:
         # 尝试从MongoDB获取最新风控状态
@@ -611,8 +624,8 @@ async def get_risk_status() -> Dict[str, Any]:
             }
     except Exception as e:
         logger.warning(f"获取风控状态失败: {e}")
-    
-    # 降级：返回默认空状态
+
+    # 降级:返回默认空状态
     return {
         "success": True,
         "data": {
@@ -621,7 +634,7 @@ async def get_risk_status() -> Dict[str, Any]:
             "ma60_filter": "unknown",
             "sector_concentration": {},
             "last_check": "",
-            "message": "风控引擎未启动，返回默认状态",
+            "message": "风控引擎未启动,返回默认状态",
         }
     }
 
@@ -673,13 +686,13 @@ async def save_log_config(
             {"$set": {"type": "log_config", "config": config}},
             upsert=True,
         )
-        
-        # 动态更新日志级别（立即生效）
+
+        # 动态更新日志级别(立即生效)
         log_level = config.get("log_level", "INFO")
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
-        
-        return {"success": True, "message": f"日志配置已保存，级别: {log_level}"}
+
+        return {"success": True, "message": f"日志配置已保存,级别: {log_level}"}
     except Exception as e:
         logger.error(f"保存日志配置失败: {e}")
         raise HTTPException(status_code=500, detail=f"保存日志配置失败: {str(e)}")
@@ -689,7 +702,7 @@ async def save_log_config(
 
 
 def get_git_commit() -> str:
-    """获取当前 git commit hash（短格式）"""
+    """获取当前 git commit hash(短格式)"""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -719,11 +732,11 @@ def get_git_branch() -> str:
 
 
 def get_build_time() -> str:
-    """获取构建时间（服务启动时间）"""
+    """获取构建时间(服务启动时间)"""
     return datetime.now().astimezone().isoformat()
 
 
-# 缓存启动时的版本信息（避免每次都调git）
+# 缓存启动时的版本信息(避免每次都调git)
 _GIT_COMMIT = get_git_commit()
 _GIT_BRANCH = get_git_branch()
 _BUILD_TIME = get_build_time()
@@ -763,7 +776,7 @@ async def _get_factor_detail(db, date_str: str, factors: list) -> dict:
 
 @router.get("/data-status")
 async def get_data_status() -> Dict[str, Any]:
-    """获取数据层状态：各集合记录数、因子覆盖率、最新数据日期"""
+    """获取数据层状态:各集合记录数、因子覆盖率、最新数据日期"""
     try:
         # 【v2.9.49】P2修复: 全部改用异步mongo_manager, 消除同步pymongo阻塞
         from core.managers import mongo_manager
@@ -793,7 +806,7 @@ async def get_data_status() -> Dict[str, Any]:
         # 每日因子覆盖率(全量, 单次聚合查询)
         daily_coverage = []
         # 因子组定义: 只包含实际存在且回测需要的因子
-        # 注意: technical_talib(MACD/RSI/BOLL/ATR等)需要talib库，回测时由factor_auto_compute自动补算
+        # 注意: technical_talib(MACD/RSI/BOLL/ATR等)需要talib库,回测时由factor_auto_compute自动补算
         # health_score只看 basic+technical_ma+volume+limit 4组(这些是lightweight_factor_fill能补的)
         factor_groups = {
             'basic': ['pct_chg', 'pre_close'],
@@ -935,7 +948,7 @@ async def get_data_status() -> Dict[str, Any]:
         # 健康评分 + 问题诊断
         diagnostics = []
         health_score = 0
-        
+
         # 数据新鲜度(提前计算, diagnostics要用)
         today_str = datetime.now().strftime('%Y%m%d')
         latest_daily_str = str(last_daily[0]['trade_date']) if last_daily else '0'
@@ -948,56 +961,56 @@ async def get_data_status() -> Dict[str, Any]:
                 days_old = 999
         else:
             days_old = 999
-        
+
         # 因子覆盖率得分(0-50分, 基于核心3组)
         if daily_coverage:
             latest = daily_coverage[-1]
             factor_score = min(50, latest['factor_rate'] / 2)
-            
+
             # 量价因子
             vol_rate = latest['groups'].get('volume', 0)
             if vol_rate < 50:
-                diagnostics.append({'level': 'red', 'message': f'量价因子仅{vol_rate}% — turnover_rate/volume_ratio缺失'})
+                diagnostics.append({'level': 'red', 'message': f'量价因子仅{vol_rate}% - turnover_rate/volume_ratio缺失'})
             elif vol_rate < 90:
-                diagnostics.append({'level': 'yellow', 'message': f'量价因子{vol_rate}% — 部分字段缺失(circ_mv/total_mv等)'})
-            
+                diagnostics.append({'level': 'yellow', 'message': f'量价因子{vol_rate}% - 部分字段缺失(circ_mv/total_mv等)'})
+
             # 涨跌停因子(独立提示,不影响主评分)
             limit_rate = latest['groups'].get('limit', 0)
             if limit_rate < 50:
-                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子{limit_rate}% — is_limit_up等字段缺失,影响首板/跌停策略(不影响半路追涨)'})
-            
+                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子{limit_rate}% - is_limit_up等字段缺失,影响首板/跌停策略(不影响半路追涨)'})
+
             # 技术MA因子(已可补算)
             tech_ma_rate = latest['groups'].get('technical_ma', 0)
             if tech_ma_rate < 50:
-                diagnostics.append({'level': 'red', 'message': f'MA均线因子仅{tech_ma_rate}% — ma5/ma10/ma20/ma60缺失'})
-            
+                diagnostics.append({'level': 'red', 'message': f'MA均线因子仅{tech_ma_rate}% - ma5/ma10/ma20/ma60缺失'})
+
             # 技术talib因子(回测时自动补算)
             tech_talib_rate = latest['groups'].get('technical_talib', 0)
             if tech_talib_rate < 50:
-                diagnostics.append({'level': 'yellow', 'message': f'TALib指标仅{tech_talib_rate}% — MACD/RSI/BOLL/ATR等回测时自动补算'})
-            
+                diagnostics.append({'level': 'yellow', 'message': f'TALib指标仅{tech_talib_rate}% - MACD/RSI/BOLL/ATR等回测时自动补算'})
+
             # 数据新鲜度(日线滞后天数)
             if days_old > 3:
-                diagnostics.append({'level': 'yellow', 'message': f'日线数据滞后{days_old}天 — 需运行eastmoney_daily_bar.py补全当日数据'})
-            
+                diagnostics.append({'level': 'yellow', 'message': f'日线数据滞后{days_old}天 - 需运行eastmoney_daily_bar.py补全当日数据'})
+
             # 每日股票数异常(稀疏天)
             if len(daily_coverage) >= 2:
                 totals = [c['total'] for c in daily_coverage]
                 median_total = sorted(totals)[len(totals)//2]
                 sparse_days = [c for c in daily_coverage if c['total'] < median_total * 0.7]
                 if sparse_days:
-                    diagnostics.append({'level': 'yellow', 'message': f'{len(sparse_days)}天股票数异常稀疏(<{int(median_total*0.7)}只) — 可能缺SH/BJ数据'})
-            
+                    diagnostics.append({'level': 'yellow', 'message': f'{len(sparse_days)}天股票数异常稀疏(<{int(median_total*0.7)}只) - 可能缺SH/BJ数据'})
+
             # daily_basic与stock_daily对齐
             sd_cnt = collections.get('stock_daily_ak_full', {}).get('count', 0)
             db_cnt = collections.get('daily_basic', {}).get('count', 0)
             if sd_cnt > 0 and db_cnt > sd_cnt * 1.1:
                 diff = db_cnt - sd_cnt
-                diagnostics.append({'level': 'yellow', 'message': f'daily_basic比stock_daily多{diff:,}条 — 可能有基金/ETF需清理, 或停牌股缺少日线'})
+                diagnostics.append({'level': 'yellow', 'message': f'daily_basic比stock_daily多{diff:,}条 - 可能有基金/ETF需清理, 或停牌股缺少日线'})
         else:
             factor_score = 0
             diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
-        
+
         # 数据新鲜度得分(0-30分)
         freshness_score = 0
         if days_old <= 1:
@@ -1006,14 +1019,14 @@ async def get_data_status() -> Dict[str, Any]:
             freshness_score = 20
         elif days_old <= 7:
             freshness_score = 10
-        
+
         # 数据源可用率得分(0-20分)
         source_score = 0
         ok_sources = sum(1 for s in data_sources if s['status'] == 'ok')
         source_score = min(20, ok_sources * 5)  # 4个ok=20分
-        
+
         health_score = int(factor_score + freshness_score + source_score)
-        
+
         # ====== 策略可用性 ======
         # 根据最新一天因子覆盖判断各策略能否运行
         strategy_availability = []
@@ -1070,7 +1083,7 @@ async def get_data_status() -> Dict[str, Any]:
                     bdays += 1
             lag_days = bdays
 
-        # === 必须做：日线+基础指标补全 ===
+        # === 必须做:日线+基础指标补全 ===
         if not is_weekend and latest_date > 0 and latest_date < today_int:
             if lag_days >= 2:
                 action_items.append({
@@ -1079,10 +1092,10 @@ async def get_data_status() -> Dict[str, Any]:
                     'api': 'POST /api/v1/system/sync-all',
                     'desc': f'日线滞后{lag_days}个工作日(最新={latest_daily_str}), 一键补全日线+PE/PB+因子',
                     'priority': 'high',
-                    'note': '需在交易时间(9:00-15:30)执行，非交易时间东方财富无当日数据',
+                    'note': '需在交易时间(9:00-15:30)执行,非交易时间东方财富无当日数据',
                 })
             else:
-                # 滞后1天：只显示一键补全，不重复列出3个
+                # 滞后1天:只显示一键补全,不重复列出3个
                 action_items.append({
                     'action': '一键补全',
                     'command': '',
@@ -1115,7 +1128,7 @@ async def get_data_status() -> Dict[str, Any]:
                 'note': '首次补全会下载较长时间',
             })
 
-        # === 建议做：指数日线 ===
+        # === 建议做:指数日线 ===
         index_latest = collections.get('index_daily', {}).get('date_range', {})
         index_end = index_latest.get('end') if index_latest else None
         if index_end and len(index_end) == 8 and int(index_end) < latest_date:
@@ -1128,7 +1141,7 @@ async def get_data_status() -> Dict[str, Any]:
                 'note': '指数数据用于大盘MA60过滤,回测必须',
             })
 
-        # === 可忽略：涨停池/跌停池(仅实盘用) ===
+        # === 可忽略:涨停池/跌停池(仅实盘用) ===
         limit_latest = collections.get('limit_list', {}).get('date_range', {})
         limit_end = limit_latest.get('end') if limit_latest else None
         if limit_end and len(limit_end) == 8 and int(limit_end) < latest_date:
@@ -1213,7 +1226,7 @@ async def get_data_status() -> Dict[str, Any]:
 
         # 跌停池数据
         if collections.get('limit_pool_down', {}).get('count', 0) < 10:
-            diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 — 跌停翘板策略数据不足'})
+            diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 - 跌停翘板策略数据不足'})
 
         return {
             "success": True,
@@ -1265,9 +1278,9 @@ def _get_frontend_version() -> Dict[str, str]:
 async def get_version() -> Dict[str, Any]:
     """
     获取服务版本信息
-    
-    返回当前代码的 git commit hash、分支名、构建时间等，
-    用于验证代码是否确实生效，以及版本一致性检查。
+
+    返回当前代码的 git commit hash、分支名、构建时间等,
+    用于验证代码是否确实生效,以及版本一致性检查。
     """
     return {
         "success": True,
@@ -1297,11 +1310,11 @@ def _run_sync_script(script_name: str, task_id: str):
     """后台线程运行数据同步脚本"""
     script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../scripts", script_name)
     script_path = os.path.normpath(script_path)
-    
+
     with _sync_lock:
         _sync_tasks[task_id]["status"] = "running"
         _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
-    
+
     try:
         result = subprocess.run(
             ["python3", "-u", script_path],
@@ -1317,7 +1330,7 @@ def _run_sync_script(script_name: str, task_id: str):
             status = "failed"  # 数据源连接失败
         else:
             status = "success"
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["status"] = status
             _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
@@ -1325,7 +1338,7 @@ def _run_sync_script(script_name: str, task_id: str):
             _sync_tasks[task_id]["stdout"] = result.stdout[-2000:] if result.stdout else ""
             _sync_tasks[task_id]["stderr"] = result.stderr[-2000:] if result.stderr else ""
             if no_data:
-                _sync_tasks[task_id]["message"] = "数据源连接失败，未拉到数据(可能IP被封或非交易日)"
+                _sync_tasks[task_id]["message"] = "数据源连接失败,未拉到数据(可能IP被封或非交易日)"
     except subprocess.TimeoutExpired:
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "timeout"
@@ -1342,28 +1355,28 @@ def _run_sync_script(script_name: str, task_id: str):
 async def sync_daily_bar() -> Dict[str, Any]:
     """
     补全今日日线数据(OHLCV)
-    
-    运行 eastmoney_daily_bar.py，从东方财富获取全市场日线数据写入MongoDB。
+
+    运行 eastmoney_daily_bar.py,从东方财富获取全市场日线数据写入MongoDB。
     约需3-5秒完成。
     """
     task_id = f"bar_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         # 检查是否有正在运行的任务
         running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "bar" in t.get("type", "")]
         if running:
-            return {"success": False, "message": "日线补全任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "日线补全任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "daily_bar", "status": "pending"}
-    
+
     t = threading.Thread(target=_run_sync_script, args=("eastmoney_daily_bar.py", task_id))
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "日线数据补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "日线数据补全已启动,请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
 
 
@@ -1371,27 +1384,27 @@ async def sync_daily_bar() -> Dict[str, Any]:
 async def sync_daily_basic() -> Dict[str, Any]:
     """
     补全今日PE/PB/流通市值等基本面数据
-    
-    运行 eastmoney_daily_basic.py，从东方财富获取全市场估值数据写入MongoDB。
+
+    运行 eastmoney_daily_basic.py,从东方财富获取全市场估值数据写入MongoDB。
     需先完成日线数据补全。约需2-3秒完成。
     """
     task_id = f"basic_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "basic" in t.get("type", "")]
         if running:
-            return {"success": False, "message": "PE/PB补全任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "PE/PB补全任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "daily_basic", "status": "pending"}
-    
+
     t = threading.Thread(target=_run_sync_script, args=("eastmoney_daily_basic.py", task_id))
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "PE/PB数据补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "PE/PB数据补全已启动,请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
 
 
@@ -1399,26 +1412,26 @@ async def sync_daily_basic() -> Dict[str, Any]:
 async def sync_factors() -> Dict[str, Any]:
     """
     补算缺失因子(intraday_max_rise_pct/is_limit_up/volume_increase等)
-    
-    运行 lightweight_factor_fill.py，补算回测所需策略因子。
+
+    运行 lightweight_factor_fill.py,补算回测所需策略因子。
     """
     task_id = f"factor_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "factor" in t.get("type", "")]
         if running:
-            return {"success": False, "message": "因子补算任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "因子补算任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "factors", "status": "pending"}
-    
+
     t = threading.Thread(target=_run_sync_script, args=("lightweight_factor_fill.py", task_id))
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "因子补算已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "因子补算已启动,请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
 
 
@@ -1426,65 +1439,65 @@ async def sync_factors() -> Dict[str, Any]:
 async def sync_index() -> Dict[str, Any]:
     """
     补全指数日线数据(上证/深证/创业板/沪深300)
-    
-    使用finance_history API获取指数数据，周末也可用。
+
+    使用finance_history API获取指数数据,周末也可用。
     """
     import requests as http_requests
-    
+
     task_id = f"idx_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "index" in t.get("type", "")]
         if running:
-            return {"success": False, "message": "指数补全任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "指数补全任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "index", "status": "pending"}
-    
+
     def _run_sync_index():
         from pymongo import MongoClient as PymongoClient
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "running"
             _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
-        
+
         results = []
         indices = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH"]
-        
+
         # 从MongoDB获取当前最新日期
         client = PymongoClient("mongodb://localhost:27017")
         db = client["stock_agent"]
         col = db["index_daily"]
-        
+
         # 查stock_daily的最新日期作为目标
         sd_latest = list(db["stock_daily_ak_full"].find({}, {"trade_date": 1}).sort("trade_date", -1).limit(1))
         target_date = sd_latest[0]["trade_date"] if sd_latest else None
-        
+
         total_inserted = 0
         for code in indices:
             # 查当前指数最新日期
             idx_latest = list(col.find({"ts_code": code}, {"trade_date": 1}).sort("trade_date", -1).limit(1))
             latest_date = idx_latest[0]["trade_date"] if idx_latest else None
-            
+
             if latest_date and target_date and latest_date >= target_date:
                 results.append({"step": code, "success": True, "message": f"已是最新({latest_date})"})
                 continue
-            
+
             # 计算start_date
             if latest_date:
                 start_str = str(latest_date + 1)  # 下一天
                 start_date_fmt = f"{start_str[:4]}-{start_str[4:6]}-{start_str[6:8]}"
             else:
                 start_date_fmt = "2024-05-06"
-            
+
             end_date_fmt = datetime.now().strftime("%Y-%m-%d")
-            
+
             try:
-                # 使用stock_basic工具获取指数数据（走OpenClaw内部路由，无需8111端口）
+                # 使用stock_basic工具获取指数数据(走OpenClaw内部路由,无需8111端口)
                 # 回退: 使用pymongo直接写已有数据+AKShare
                 try:
                     import akshare as ak
                     ak_df = ak.index_zh_a_hist(symbol=code.split('.')[0], period="daily",
-                                               start_date=start_date_fmt.replace('-',''), 
+                                               start_date=start_date_fmt.replace('-',''),
                                                end_date=end_date_fmt.replace('-',''))
                     if ak_df is not None and len(ak_df) > 0:
                         count = 0
@@ -1514,23 +1527,23 @@ async def sync_index() -> Dict[str, Any]:
                     results.append({"step": code, "success": False, "message": f"AKShare失败: {str(e)[:200]}"})
             except Exception as e:
                 results.append({"step": code, "success": False, "message": f"处理失败: {str(e)[:200]}"})
-        
+
         client.close()
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "success" if any(r["success"] for r in results) else "failed"
             _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
             _sync_tasks[task_id]["results"] = results
             _sync_tasks[task_id]["message"] = f"补入{total_inserted}条指数日线"
-    
+
     t = threading.Thread(target=_run_sync_index)
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "指数日线补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "指数日线补全已启动,请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
 
 
@@ -1538,37 +1551,37 @@ async def sync_index() -> Dict[str, Any]:
 async def sync_all() -> Dict[str, Any]:
     """
     一键补全全部数据(日线+PE/PB+因子)
-    
+
     按顺序执行: eastmoney_daily_bar → eastmoney_daily_basic → lightweight_factor_fill
     """
     task_id = f"all_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         running = [t for t in _sync_tasks.values() if t.get("status") == "running"]
         if running:
-            return {"success": False, "message": "已有数据补全任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "已有数据补全任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "all", "status": "pending", "steps": ["daily_bar", "daily_basic", "factors"]}
-    
+
     def _run_all():
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "running"
             _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
-        
+
         results = []
         scripts = [
             ("daily_bar", "eastmoney_daily_bar.py"),
             ("daily_basic", "eastmoney_daily_basic.py"),
             ("factors", "lightweight_factor_fill.py"),
         ]
-        
+
         for step_name, script_name in scripts:
             script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../scripts", script_name)
             script_path = os.path.normpath(script_path)
-            
+
             with _sync_lock:
                 _sync_tasks[task_id]["current_step"] = step_name
-            
+
             try:
                 r = subprocess.run(
                     ["python3", "-u", script_path],
@@ -1588,20 +1601,20 @@ async def sync_all() -> Dict[str, Any]:
                 })
             except Exception as e:
                 results.append({"step": step_name, "success": False, "message": str(e), "stderr": str(e)})
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "success" if all(r["success"] for r in results) else "partial"
             _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
             _sync_tasks[task_id]["results"] = results
-    
+
     t = threading.Thread(target=_run_all)
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "一键补全已启动(日线→PE/PB→因子)，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "一键补全已启动(日线→PE/PB→因子),请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
 
 
@@ -1610,10 +1623,10 @@ async def get_sync_status(task_id: str) -> Dict[str, Any]:
     """查询数据同步任务状态"""
     with _sync_lock:
         task = _sync_tasks.get(task_id)
-    
+
     if not task:
         return {"success": False, "message": f"任务 {task_id} 不存在"}
-    
+
     return {"success": True, "data": task}
 
 
@@ -1622,7 +1635,7 @@ async def list_sync_tasks() -> Dict[str, Any]:
     """列出所有数据同步任务"""
     with _sync_lock:
         tasks = dict(_sync_tasks)
-    
+
     # 只返回最近10个
     recent = sorted(tasks.items(), key=lambda x: x[0], reverse=True)[:10]
     return {"success": True, "data": dict(recent)}
@@ -1631,25 +1644,25 @@ async def list_sync_tasks() -> Dict[str, Any]:
 @router.get("/auto-fill-detect")
 async def auto_fill_detect() -> Dict[str, Any]:
     """
-    检测最近缺失的因子，返回缺失信息供前端展示。
-    
-    检测范围：最近30个交易日，找出缺因子的日期和字段。
+    检测最近缺失的因子,返回缺失信息供前端展示。
+
+    检测范围:最近30个交易日,找出缺因子的日期和字段。
     """
     try:
         if not mongo_manager._initialized:
             await mongo_manager.initialize()
         db = mongo_manager.db
         coll = db["stock_daily_ak_full"]
-        
+
         # 获取所有交易日
         all_dates = await coll.distinct("trade_date")
         if not all_dates:
             return {"success": True, "data": {"missing_dates": [], "missing_fields": [], "total_missing_days": 0, "latest_date": None}}
-        
+
         all_dates_sorted = sorted(all_dates, reverse=True)
         recent_dates = all_dates_sorted[:30]  # 最近30个交易日
         latest_date = all_dates_sorted[0]
-        
+
         # 关键因子字段列表
         key_factors = [
             "ma5", "ma10", "ma20", "ma60",
@@ -1659,15 +1672,15 @@ async def auto_fill_detect() -> Dict[str, Any]:
             "intraday_max_rise_pct", "intraday_open_rise_pct",
             "pullback_pct",
         ]
-        
+
         missing_dates = []
         missing_field_counts: Dict[str, int] = {}
-        
+
         for td in recent_dates:
             total = await coll.count_documents({"trade_date": td})
             if total == 0:
                 continue
-            
+
             # 检查各因子覆盖率
             date_missing = {"date": td, "total": total, "missing": []}
             for factor in key_factors:
@@ -1681,18 +1694,18 @@ async def auto_fill_detect() -> Dict[str, Any]:
                         "missing_count": missing_count,
                     })
                     missing_field_counts[factor] = missing_field_counts.get(factor, 0) + missing_count
-            
+
             if date_missing["missing"]:
                 missing_dates.append(date_missing)
-        
+
         # 按日期正序排列(最早的在前)
         missing_dates.sort(key=lambda x: x["date"])
-        
+
         missing_fields = sorted(
             [{"field": k, "total_missing": v} for k, v in missing_field_counts.items()],
             key=lambda x: x["total_missing"], reverse=True
         )
-        
+
         return {
             "success": True,
             "data": {
@@ -1713,39 +1726,39 @@ async def auto_fill_detect() -> Dict[str, Any]:
 async def auto_fill_trigger() -> Dict[str, Any]:
     """
     触发自动补全因子数据。
-    
-    按顺序执行：
-    1. lightweight_factor_fill.py — 补基础因子(turnover_rate/volume_ratio/circ_mv/ma5/is_limit_up等)
-    2. 如果需要技术指标(MACD/RSI等)，则运行factor_auto_compute
+
+    按顺序执行:
+    1. lightweight_factor_fill.py - 补基础因子(turnover_rate/volume_ratio/circ_mv/ma5/is_limit_up等)
+    2. 如果需要技术指标(MACD/RSI等),则运行factor_auto_compute
     """
     task_id = f"autofill_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
+
     with _sync_lock:
         running = [t for t in _sync_tasks.values() if t.get("status") == "running"]
         if running:
-            return {"success": False, "message": "已有数据补全任务正在运行中，请稍后再试"}
-        
+            return {"success": False, "message": "已有数据补全任务正在运行中,请稍后再试"}
+
         _sync_tasks[task_id] = {"type": "autofill", "status": "pending", "steps": ["detect", "basic_factors", "daily_bar", "daily_basic", "index_daily", "limit_pools", "derived_factors"]}
-    
+
     def _run_auto_fill():
         import asyncio
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "running"
             _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
             _sync_tasks[task_id]["current_step"] = "detect"
-        
+
         results = []
-        
+
         # Step 1: 先运行轻量因子补算(补基础因子)
         script_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "../../../scripts/lightweight_factor_fill.py"
         )
         script_path = os.path.normpath(script_path)
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "basic_factors"
-        
+
         try:
             r = subprocess.run(
                 ["python3", "-u", script_path],
@@ -1764,17 +1777,17 @@ async def auto_fill_trigger() -> Dict[str, Any]:
             })
         except Exception as e:
             results.append({"step": "basic_factors", "success": False, "message": str(e)})
-        
+
         # Step 2: 补东财日线数据(可能缺最近几天的OHLCV)
         bar_script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "../../../scripts/eastmoney_daily_bar.py"
         )
         bar_script = os.path.normpath(bar_script)
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "daily_bar"
-        
+
         try:
             r = subprocess.run(
                 ["python3", "-u", bar_script],
@@ -1789,17 +1802,17 @@ async def auto_fill_trigger() -> Dict[str, Any]:
             })
         except Exception as e:
             results.append({"step": "daily_bar", "success": False, "message": str(e)})
-        
+
         # Step 3: 补东财基础指标(PE/PB/流通市值)
         basic_script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "../../../scripts/eastmoney_daily_basic.py"
         )
         basic_script = os.path.normpath(basic_script)
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "daily_basic"
-        
+
         try:
             r = subprocess.run(
                 ["python3", "-u", basic_script],
@@ -1814,17 +1827,17 @@ async def auto_fill_trigger() -> Dict[str, Any]:
             })
         except Exception as e:
             results.append({"step": "daily_basic", "success": False, "message": str(e)})
-        
+
         # Step 4: 补指数日线(AKShare)
         index_script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "../../../scripts/fill_index_daily.py"
         )
         index_script = os.path.normpath(index_script)
-        
+
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "index_daily"
-        
+
         # 用sync-index API的逻辑(直接在线补)
         try:
             import requests as http_requests_sync
@@ -1856,11 +1869,11 @@ async def auto_fill_trigger() -> Dict[str, Any]:
                 results.append({"step": "index_daily", "success": False, "message": idx_json.get("message", "启动失败")})
         except Exception as e:
             results.append({"step": "index_daily", "success": False, "message": str(e)})
-        
+
         # Step 5: 补涨跌停池(从stock_daily_ak_full的is_limit_up/down反推)
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "limit_pools"
-        
+
         try:
             r = subprocess.run(
                 ["python3", "-u", "-c", """
@@ -1898,11 +1911,11 @@ for td in missing:
             })
         except Exception as e:
             results.append({"step": "limit_pools", "success": False, "message": str(e)})
-        
+
         # Step 6: 再跑一次轻量因子补算(确保新数据的因子也补上)
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "derived_factors"
-        
+
         try:
             r = subprocess.run(
                 ["python3", "-u", script_path],
@@ -1920,19 +1933,19 @@ for td in missing:
             })
         except Exception as e:
             results.append({"step": "derived_factors", "success": False, "message": str(e)})
-        
+
         with _sync_lock:
             all_success = all(r["success"] for r in results)
             _sync_tasks[task_id]["status"] = "success" if all_success else "partial"
             _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
             _sync_tasks[task_id]["results"] = results
-    
+
     t = threading.Thread(target=_run_auto_fill)
     t.daemon = True
     t.start()
-    
+
     return {
         "success": True,
         "task_id": task_id,
-        "message": "自动补全已启动(检测→日线→基础指标→因子)，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+        "message": "自动补全已启动(检测→日线→基础指标→因子),请通过 /api/v1/system/sync-status/{task_id} 查看进度",
     }
