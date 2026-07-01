@@ -75,11 +75,9 @@ export function useScanTraceMonitor() {
       if (!slotMap.has(slotKey)) slotMap.set(slotKey, [])
       slotMap.get(slotKey)!.push(s)
     }
-    // 按时间顺序排列(早盘→午休→下午盘→无时间)
-    const slots = [...slotMap.keys()].sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
-    return slots.map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[5]
-      const items = slotMap.get(sk) || []
+    // 遍历所有时段定义(包括无数据的), 按时间顺序
+    return SLOT_DEFS.map(def => {
+      const items = slotMap.get(def.key) || []
       // 30分钟子分组
       const halfHourMap = new Map<string, any[]>()
       for (const s of items) {
@@ -94,8 +92,8 @@ export function useScanTraceMonitor() {
         items: halfHourMap.get(hk) || [],
       }))
       return {
-        hour: sk,  // 兼容旧字段名
-        slot: sk,
+        hour: def.key,
+        slot: def.key,
         icon: def.icon,
         label: def.label,
         timeRange: def.timeRange,
@@ -103,7 +101,7 @@ export function useScanTraceMonitor() {
         isDebug: def.isDebug,
         items,
         subGroups,
-        collapsed: scanHourCollapse.value[sk] ?? true
+        collapsed: scanHourCollapse.value[def.key] ?? true
       }
     })
   })

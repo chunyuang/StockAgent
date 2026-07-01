@@ -75,30 +75,28 @@ const groupedTimeline = computed(() => {
     if (!slotMap.has(sk)) slotMap.set(sk, [])
     slotMap.get(sk)!.push(item)
   }
-  return [...slotMap.keys()]
-    .sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
-    .map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[5]
-      const items = slotMap.get(sk) || []
-      const buys = items.filter((t:any) => t.action === 'buy').length
-      const sells = items.filter((t:any) => t.action === 'sell').length
-      const blocked = items.filter((t:any) => t.action === 'blocked').length
-      // 30分钟子分组
-      const hhMap = new Map<string, any[]>()
-      for (const item of items) {
-        const hk = getHalfHourKey(item.time || '')
-        if (!hhMap.has(hk)) hhMap.set(hk, [])
-        hhMap.get(hk)!.push(item)
-      }
-      const subGroups = [...hhMap.keys()].sort().map(hk => ({
-        halfHour: hk,
-        items: hhMap.get(hk) || [],
-        buys: hhMap.get(hk)?.filter((t:any) => t.action === 'buy').length || 0,
-        sells: hhMap.get(hk)?.filter((t:any) => t.action === 'sell').length || 0,
-        blocked: hhMap.get(hk)?.filter((t:any) => t.action === 'blocked').length || 0,
-      }))
-      return { ...def, items, buys, sells, blocked, total: items.length, subGroups }
-    })
+  // 遍历所有时段(包括无数据的,显示0)
+  return SLOT_DEFS.map(def => {
+    const items = slotMap.get(def.key) || []
+    const buys = items.filter((t:any) => t.action === 'buy').length
+    const sells = items.filter((t:any) => t.action === 'sell').length
+    const blocked = items.filter((t:any) => t.action === 'blocked').length
+    // 30分钟子分组
+    const hhMap = new Map<string, any[]>()
+    for (const item of items) {
+      const hk = getHalfHourKey(item.time || '')
+      if (!hhMap.has(hk)) hhMap.set(hk, [])
+      hhMap.get(hk)!.push(item)
+    }
+    const subGroups = [...hhMap.keys()].sort().map(hk => ({
+      halfHour: hk,
+      items: hhMap.get(hk) || [],
+      buys: hhMap.get(hk)?.filter((t:any) => t.action === 'buy').length || 0,
+      sells: hhMap.get(hk)?.filter((t:any) => t.action === 'sell').length || 0,
+      blocked: hhMap.get(hk)?.filter((t:any) => t.action === 'blocked').length || 0,
+    }))
+    return { ...def, items, buys, sells, blocked, total: items.length, subGroups }
+  })
 })
 
 /** 获取中国时区的日期字符串 YYYYMMDD */
