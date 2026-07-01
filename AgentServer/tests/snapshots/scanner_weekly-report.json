@@ -57,6 +57,13 @@
       "buy_amount": "float",
       "sell_amount": "float",
       "strategies": {
+        "fix": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "float"
+        },
         "halfway_chase": {
           "trades": "int",
           "sell_count": "int",
@@ -69,11 +76,26 @@
           "sell_count": "int",
           "amount": "float",
           "wins": "int",
-          "pnl": "int"
+          "pnl": "float"
         }
       }
     },
     "20260630": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "float"
+        }
+      }
+    },
+    "20260701": {
       "buys": "int",
       "sells": "int",
       "buy_amount": "float",
@@ -103,7 +125,15 @@
       "sell_count": "int",
       "amount": "float",
       "wins": "int",
-      "pnl": "int",
+      "pnl": "float",
+      "win_rate": "float"
+    },
+    "fix": {
+      "trades": "int",
+      "sell_count": "int",
+      "amount": "float",
+      "wins": "int",
+      "pnl": "float",
       "win_rate": "float"
     }
   },
