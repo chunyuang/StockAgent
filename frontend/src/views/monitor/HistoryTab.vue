@@ -32,9 +32,9 @@ watch(() => activeTab?.value, (t) => {
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
-// 【v2.9.110】按交易时段分组 timeline (3组简化版)
+// 【v2.9.110】按交易时段分组 timeline (3组+30分钟子分组)
 const SLOT_DEFS = [
-  { key: 'morning',   label: '📈 早盘',   timeRange: '09:00-11:30', order: 0 },
+  { key: 'morning',   label: '📈 早盘',   timeRange: '09:30-11:30', order: 0 },
   { key: 'lunch',     label: '🍱 午休',   timeRange: '11:30-13:00', order: 1 },
   { key: 'afternoon', label: '📉 下午盘', timeRange: '13:00-15:00', order: 2 },
   { key: 'no_time',   label: '⚠️ 无时间', timeRange: '',            order: 3 },
@@ -53,6 +53,15 @@ function getTimeSlotKey(timeStr: string): string {
   return 'afternoon'
 }
 
+function getHalfHourKey(timeStr: string): string {
+  if (!timeStr || timeStr.length < 5) return 'other'
+  const parts = timeStr.split(':')
+  const hh = parseInt(parts[0])
+  const mm = parseInt(parts[1] || '0')
+  if (isNaN(hh) || isNaN(mm)) return 'other'
+  return `${String(hh).padStart(2,'0')}:${mm < 30 ? '00' : '30'}`
+}
+
 const groupedTimeline = computed(() => {
   const src = filteredTimeline.value
   if (!src.length) return []
@@ -65,12 +74,26 @@ const groupedTimeline = computed(() => {
   return [...slotMap.keys()]
     .sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
     .map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[7]
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[3]
       const items = slotMap.get(sk) || []
       const buys = items.filter((t:any) => t.action === 'buy').length
       const sells = items.filter((t:any) => t.action === 'sell').length
       const blocked = items.filter((t:any) => t.action === 'blocked').length
-      return { ...def, items, buys, sells, blocked, total: items.length }
+      // 30分钟子分组
+      const hhMap = new Map<string, any[]>()
+      for (const item of items) {
+        const hk = getHalfHourKey(item.time || '')
+        if (!hhMap.has(hk)) hhMap.set(hk, [])
+        hhMap.get(hk)!.push(item)
+      }
+      const subGroups = [...hhMap.keys()].sort().map(hk => ({
+        halfHour: hk,
+        items: hhMap.get(hk) || [],
+        buys: hhMap.get(hk)?.filter((t:any) => t.action === 'buy').length || 0,
+        sells: hhMap.get(hk)?.filter((t:any) => t.action === 'sell').length || 0,
+        blocked: hhMap.get(hk)?.filter((t:any) => t.action === 'blocked').length || 0,
+      }))
+      return { ...def, items, buys, sells, blocked, total: items.length, subGroups }
     })
 })
 
@@ -224,17 +247,25 @@ const closedStats = computed(() => {
                 <span v-if="group.sells" class="tl-group-sells">卖{{ group.sells }}</span>
                 <span v-if="group.blocked" class="tl-group-blocked">停{{ group.blocked }}</span>
               </div>
-              <div v-for="(item, i) in group.items" :key="group.key + '-' + i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
-                <span class="tl-time">{{ item.time }}</span>
-                <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
-                <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
-                <span class="tl-name">{{ item.stock_name }}</span>
-                <template v-if="item.action !== 'blocked'">
-                  <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
-                  <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
-                  <span v-if="item.action==='sell' && item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
-                </template>
-                <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
+              <div v-for="sg in group.subGroups" :key="group.key + '-' + sg.halfHour" class="tl-sub-group">
+                <div class="tl-sub-header">
+                  <span class="tl-sub-time">{{ sg.halfHour }}</span>
+                  <span v-if="sg.buys" class="tl-sub-buys">买{{ sg.buys }}</span>
+                  <span v-if="sg.sells" class="tl-sub-sells">卖{{ sg.sells }}</span>
+                  <span v-if="sg.blocked" class="tl-sub-blocked">停{{ sg.blocked }}</span>
+                </div>
+                <div v-for="(item, i) in sg.items" :key="group.key + '-' + sg.halfHour + '-' + i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
+                  <span class="tl-time">{{ item.time }}</span>
+                  <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
+                  <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
+                  <span class="tl-name">{{ item.stock_name }}</span>
+                  <template v-if="item.action !== 'blocked'">
+                    <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
+                    <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
+                    <span v-if="item.action==='sell' && item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
+                  </template>
+                  <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -328,6 +359,12 @@ const closedStats = computed(() => {
 .tl-group-buys { font-size: 10px; color: var(--stock-up); font-weight: 600; }
 .tl-group-sells { font-size: 10px; color: var(--stock-down); font-weight: 600; }
 .tl-group-blocked { font-size: 10px; color: var(--text-tertiary); }
+.tl-sub-group { margin-bottom: 2px; }
+.tl-sub-header { display: flex; align-items: center; gap: 4px; padding: 1px 6px 1px 12px; font-size: 10px; color: var(--text-tertiary); border-bottom: 1px dashed var(--border-light); }
+.tl-sub-time { font-family: 'JetBrains Mono', monospace; font-weight: 600; min-width: 36px; }
+.tl-sub-buys { font-size: 9px; color: var(--stock-up); }
+.tl-sub-sells { font-size: 9px; color: var(--stock-down); }
+.tl-sub-blocked { font-size: 9px; color: var(--text-tertiary); }
 
 /* 时间线列表 */
 .ht-tl-list { flex: 1; overflow-y: auto; min-height: 0; }

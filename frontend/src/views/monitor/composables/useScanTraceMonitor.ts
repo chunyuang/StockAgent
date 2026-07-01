@@ -32,9 +32,9 @@ export function useScanTraceMonitor() {
   // 【v2.9.95】全天执行摘要(buys/blocked/block_reasons)
   const executionSummary = ref<any>(null)
 
-  // 【v2.9.110】按交易时段分组(3组简化版)
+  // 【v2.9.110】按交易时段分组(3组+展开后30分钟子分组)
   const SLOT_DEFS = [
-    { key: 'morning',   label: '早盘',     icon: '📈', timeRange: '09:00-11:30', isTrading: true,  isDebug: false, order: 0 },
+    { key: 'morning',   label: '早盘',     icon: '📈', timeRange: '09:30-11:30', isTrading: true,  isDebug: false, order: 0 },
     { key: 'lunch',     label: '午休调试', icon: '🍱', timeRange: '11:30-13:00', isTrading: false, isDebug: true,  order: 1 },
     { key: 'afternoon', label: '下午盘',   icon: '📉', timeRange: '13:00-15:00', isTrading: true,  isDebug: false, order: 2 },
     { key: 'no_time',   label: '无时间',   icon: '⚠️', timeRange: '缺失scan_time', isTrading: false, isDebug: false, order: 3 },
@@ -52,6 +52,16 @@ export function useScanTraceMonitor() {
     return 'afternoon'
   }
 
+  // 30分钟子分组
+  function getHalfHourKey(scanTime: string): string {
+    if (!scanTime || scanTime.length <= 14) return 'other'
+    const hh = parseInt(scanTime.substring(11, 13))
+    const mm = parseInt(scanTime.substring(14, 16))
+    if (isNaN(hh) || isNaN(mm)) return 'other'
+    const half = mm < 30 ? '00' : '30'
+    return `${String(hh).padStart(2,'0')}:${half}`
+  }
+
   const scanHistoryByHour = computed(() => {
     if (!scanHistory.value.length) return []
     const slotMap = new Map<string, any[]>()
@@ -61,11 +71,24 @@ export function useScanTraceMonitor() {
       if (!slotMap.has(slotKey)) slotMap.set(slotKey, [])
       slotMap.get(slotKey)!.push(s)
     }
-    // 按交易时段顺序排列(盘前→早盘→...→盘后→无时间)
+    // 按时间顺序排列(早盘→午休→下午盘→无时间)
     const slots = [...slotMap.keys()].sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
     return slots.map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[7]
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[3]
       const items = slotMap.get(sk) || []
+      // 30分钟子分组
+      const halfHourMap = new Map<string, any[]>()
+      for (const s of items) {
+        const t = s.scan_time || s.time || ''
+        const hk = getHalfHourKey(t)
+        if (!halfHourMap.has(hk)) halfHourMap.set(hk, [])
+        halfHourMap.get(hk)!.push(s)
+      }
+      const halfHours = [...halfHourMap.keys()].sort()
+      const subGroups = halfHours.map(hk => ({
+        halfHour: hk,
+        items: halfHourMap.get(hk) || [],
+      }))
       return {
         hour: sk,  // 兼容旧字段名
         slot: sk,
@@ -75,6 +98,7 @@ export function useScanTraceMonitor() {
         isTrading: def.isTrading,
         isDebug: def.isDebug,
         items,
+        subGroups,
         collapsed: scanHourCollapse.value[sk] ?? true
       }
     })

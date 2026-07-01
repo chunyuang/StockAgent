@@ -380,14 +380,24 @@ onMounted(async () => {
               <span class="sc-hour-summary">{{ group.items.reduce((a:any,s:any) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a:any,s:any) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
               <span v-if="group.isDebug && !group.isTrading" class="sc-slot-debug-tag">非交易</span>
             </div>
-            <div v-show="!group.collapsed" class="scan-strip">
-              <div v-for="(s, i) in group.items" :key="group.slot + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">
-                <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
-                <span class="sc-kind" :class="scanKind(s)">{{ scanKindLabel(s) }}</span>
-                <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
-                <span class="sc-stats" :title="scanKindTitle(s)">
-                  <span v-if="s.summary?.total_stocks > 0" class="ss-stocks" :title="`本轮拉取行情股票数`">{{ s.summary.total_stocks }}只</span><span v-if="s.summary?.total_stocks > 0" class="ss-arr">▶</span><span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
-                </span>
+            <div v-show="!group.collapsed" class="scan-sub-groups">
+              <div v-for="sg in group.subGroups" :key="group.slot + '-' + sg.halfHour" class="sc-sub-group">
+                <div class="sc-sub-header">
+                  <span class="sc-sub-time">{{ sg.halfHour }}</span>
+                  <span class="sc-sub-count">{{ sg.items.length }}轮</span>
+                  <span class="sc-sub-types">{{ scanHourTypeSummary(sg.items) }}</span>
+                  <span class="sc-sub-summary">{{ sg.items.reduce((a:any,s:any) => a + (s.summary?.passed || 0), 0) }}通过 → <b :class="sg.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) > 0 ? 'has-buy' : ''">{{ sg.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ sg.items.reduce((a:any,s:any) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
+                </div>
+                <div class="scan-strip">
+                  <div v-for="(s, i) in sg.items" :key="group.slot + '-' + sg.halfHour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">
+                    <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
+                    <span class="sc-kind" :class="scanKind(s)">{{ scanKindLabel(s) }}</span>
+                    <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
+                    <span class="sc-stats" :title="scanKindTitle(s)">
+                      <span v-if="s.summary?.total_stocks > 0" class="ss-stocks" :title="`本轮拉取行情股票数`">{{ s.summary.total_stocks }}只</span><span v-if="s.summary?.total_stocks > 0" class="ss-arr">▶</span><span class="ss-all">{{ s.summary?.total_candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.exec?.bought || 0) > 0 ? 'has-buy' : ''">{{ s.exec?.bought || 0 }}</span><span v-if="(s.exec?.blocked || 0) > 0" class="ss-block">🚫{{ s.exec?.blocked }}</span>
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -587,7 +597,18 @@ onMounted(async () => {
 
 .sc-slot-debug-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; flex-shrink: 0; }
 
-.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 16px; }
+/* 30分钟子分组 */
+.scan-sub-groups { padding: 4px 0 0 12px; }
+.sc-sub-group { margin-bottom: 4px; }
+.sc-sub-header { display: flex; align-items: center; gap: 6px; padding: 2px 6px; font-size: 10px; color: var(--text-tertiary); border-bottom: 1px dashed var(--border-light); margin-bottom: 3px; }
+.sc-sub-time { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-secondary); min-width: 36px; }
+.sc-sub-count { color: var(--text-tertiary); }
+.sc-sub-types { color: var(--text-tertiary); font-size: 9px; background: var(--bg-muted); padding: 1px 5px; border-radius: 999px; }
+.sc-sub-summary { margin-left: auto; color: var(--text-tertiary); }
+.sc-sub-summary b { color: var(--text-tertiary); font-weight: 600; }
+.sc-sub-summary b.has-buy { color: #e6a23c; font-weight: 800; }
+
+.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 0 16px; }
 
 .scan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: all 0.15s; }
 
