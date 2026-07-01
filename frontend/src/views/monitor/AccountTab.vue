@@ -345,12 +345,12 @@ const posPie = computed(() => {
             </div>
             <!-- Row 2: Key numbers -->
             <div class="pos-metrics">
-              <div class="pos-m"><span class="pos-ml">成本</span><span>¥{{ p.cost_price?.toFixed(2) }}</span></div>
-              <div class="pos-m"><span class="pos-ml">现价</span><span>¥{{ p.current_price?.toFixed(2) }}</span></div>
-              <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price?.toFixed(2) || '-' }}</span></div>
+              <div class="pos-m"><span class="pos-ml">成本</span><span>¥{{ p.cost_price != null ? p.cost_price.toFixed(2) : '-' }}</span></div>
+              <div class="pos-m"><span class="pos-ml">现价</span><span>¥{{ p.current_price != null ? p.current_price.toFixed(2) : '-' }}</span></div>
+              <div class="pos-m"><span class="pos-ml">止损</span><span :class="p.stop_loss_status === 'broken' ? 'down' : 'muted'">¥{{ p.stop_loss_price != null ? p.stop_loss_price.toFixed(2) : '-' }}</span></div>
               <div class="pos-m"><span class="pos-ml">数量</span><span>{{ p.shares }}</span></div>
               <div class="pos-m"><span class="pos-ml">市值</span><span>¥{{ (p.market_value || 0).toLocaleString() }}</span></div>
-              <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ (totalAssets ?? 0) > 0 ? ((p.market_value || 0) / (totalAssets ?? 1) * 100).toFixed(1) : 0 }}%</span></div>
+              <div class="pos-m"><span class="pos-ml">仓位</span><span>{{ (totalAssets ?? 0) > 0 ? ((p.market_value || 0) / (totalAssets ?? 1) * 100).toFixed(1) : '0' }}%</span></div>
               <div class="pos-m" v-if="p.stop_loss_status === 'broken' && p.risk_monitor_desc"><span class="pos-ml">风控</span><span class="down" style="font-size:10px">⚠ {{ p.risk_monitor_desc }}</span></div>
             </div>
             <!-- Expand detail -->
@@ -364,8 +364,8 @@ const posPie = computed(() => {
                   <div class="pd-cell"><span class="pd-cl">持仓量</span><span>{{ detailData.summary?.holding_qty }}</span></div>
                   <div class="pd-cell"><span class="pd-cl">均价</span><span>¥{{ detailData.summary?.avg_cost != null ? Number(detailData.summary.avg_cost).toFixed(2) : '-' }}</span></div>
                   <div class="pd-cell"><span class="pd-cl">现价</span><span>¥{{ detailData.summary?.current_price != null ? Number(detailData.summary.current_price).toFixed(2) : '-' }}</span></div>
-                  <div class="pd-cell"><span class="pd-cl">浮盈亏</span><span :class="cls(detailData.summary?.holding_profit_pct || 0)">{{ (detailData.summary?.holding_profit_pct || 0).toFixed(1) }}%</span></div>
-                  <div class="pd-cell"><span class="pd-cl">浮盈亏额</span><span :class="cls(detailData.summary?.holding_profit_amount || 0)">¥{{ (detailData.summary?.holding_profit_amount || 0).toLocaleString() }}</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏</span><span :class="cls(detailData.summary?.holding_profit_pct ?? 0)">{{ (detailData.summary?.holding_profit_pct ?? 0).toFixed(1) }}%</span></div>
+                  <div class="pd-cell"><span class="pd-cl">浮盈亏额</span><span :class="cls(detailData.summary?.holding_profit_amount ?? 0)">¥{{ (detailData.summary?.holding_profit_amount ?? 0).toLocaleString() }}</span></div>
                   <div class="pd-cell"><span class="pd-cl">持仓天数</span><span>{{ detailData.summary?.hold_days }}天</span></div>
                   <div class="pd-cell"><span class="pd-cl">市值</span><span>¥{{ (detailData.summary?.market_value || 0).toLocaleString() }}</span></div>
                 </div>
