@@ -57,7 +57,7 @@ export function useReviewMonitor() {
     return buys.map((b: any) => ({
       status: 'open', ts_code: b.ts_code, stock_name: b.stock_name, strategy: b.strategy,
       buy_price: b.price, buy_time: b.time, quantity: b.quantity, amount: b.amount,
-      sell_price: null, sell_time: '', profit_pct: 0, profit_amount: 0,
+      sell_price: null, sell_time: '', profit_pct: null, profit_amount: null,
       sell_reason: b.reason || '今日买入，持仓未闭环', why_profit: '', why_loss: '',
     }))
   }

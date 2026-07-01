@@ -87,7 +87,7 @@ import { formatTradeDate } from '@/utils/scanner'
               <span class="candidate-code">{{ c.ts_code }}</span>
               <el-tag :type="getStrategyColor(c.strategy)" size="small">{{ c.strategy_name }}</el-tag>
               <span v-if="c.pct_chg" :class="c.pct_chg >= 0 ? 'up' : 'down'">{{ formatPct(c.pct_chg) }}</span>
-              <span class="price">¥{{ c.price?.toFixed(2) }}</span>
+              <span class="price">¥{{ c.price != null ? c.price.toFixed(2) : '-' }}</span>
             </div>
             <div class="candidate-layers">
               <span v-for="(lr, key) in c.layer_results" :key="key"

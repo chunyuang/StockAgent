@@ -67,7 +67,7 @@ const overviewChart = computed(() => {
         s += `<div>净值 <b>¥${values[idx].toLocaleString()}</b></div>`
         s += `<div>策略 <b style="color:${returns[idx]>=0?'#f56c6c':'#409eff'}">${fmtPct(returns[idx])}</b></div>`
         if (hasBm && bmReturns[idx] != null) s += `<div>沪深300 <b style="color:#e6a23c">${fmtPct(bmReturns[idx])}</b></div>`
-        s += `<div>回撤 <b style="color:#409eff">${drawdowns[idx].toFixed(2)}%</b></div>`
+        s += `<div>回撤 <b style="color:#409eff">${(drawdowns[idx]??0).toFixed(2)}%</b></div>`
         return s
       }
     },
@@ -206,7 +206,7 @@ const assetPie = computed(() => {
   const items = pos.map((p: any) => ({ value: Math.round(p.market_value||0), name: (p.stock_name||p.ts_code?.slice(0,6))+' '+(p.profit_pct||0).toFixed(1)+'%', itemStyle: { color: (p.profit_pct||0)>=0?'#f56c6c':'#409eff' } }))
   if (cash > 0) items.push({ value: Math.round(cash), name: '可用现金', itemStyle: { color: '#909399' } })
   return {
-    tooltip: { trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 }, formatter: (p: any) => `<b>${p.name}</b><br/>¥${p.value.toLocaleString()} (${p.percent.toFixed(1)}%)` },
+    tooltip: { trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 }, formatter: (p: any) => `<b>${p.name}</b><br/>¥${p.value.toLocaleString()} (${(p.percent??0).toFixed(1)}%)` },
     legend: { bottom: 0, textStyle: { fontSize: 10, color: '#999' }, itemWidth: 10, itemHeight: 8, type: 'scroll' },
     series: [{ type: 'pie', radius: ['30%','60%'], center: ['50%','42%'], label: { formatter: (p: any) => `${p.name.split(' ')[0]}\n¥${(p.value/10000).toFixed(1)}万`, fontSize: 9, color: '#ccc', lineHeight: 13 }, labelLine: { lineStyle: { color: '#555' } }, itemStyle: { borderColor: '#1a1a2e', borderWidth: 2 }, emphasis: { label: { fontSize: 11, fontWeight: 'bold' } }, data: items }]
   }
@@ -339,8 +339,8 @@ const metricGroups = computed(() => {
           <span class="ct-code">{{ t.ts_code?.slice(0,6) }}</span>
           <span class="ct-name">{{ t.stock_name }}</span>
           <span class="ct-strat">{{ t.strategy?.slice(0,4) }}</span>
-          <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price?.toFixed(2) }}</span>
-          <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price?.toFixed(2) }}</span>
+          <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price != null ? t.buy_price.toFixed(2) : '-' }}</span>
+          <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price != null ? t.sell_price.toFixed(2) : '-' }}</span>
           <span class="ct-qty">{{ t.qty }}</span>
           <span class="ct-hold">{{ t.hold_days!=null?t.hold_days+'天':'-' }}</span>
           <span :class="['ct-pnl', cls(t.profit_amount||0)]">{{ fmtPnl(t.profit_amount||0) }}</span>

@@ -71,8 +71,9 @@ export function useScannerMonitor() {
       // 买入价反推: buy.price > sell.decision_detail?.cost_price > 当前持仓cost_price > 0
       const buyPrice = buy?.price ?? sell.decision_detail?.cost_price ?? positions.value.find(p => p.ts_code === sell.ts_code)?.cost_price ?? 0
       // 盈亏: 优先用sell自带的profit_pct/profit_amount(后端已算好), 否则用买卖价差
-      const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
-      const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0)
+      // 【v2.9.111】买入订单不显示0%盈亏: 无买入价时profitPct=null
+      const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : null)
+      const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : null)
       result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: profitAmount, profit_pct: profitPct, buy_time: buy?.time || '', sell_time: sell.time || '' })
     }
     const covered = new Set(result.map(r => r.ts_code + r.strategy))

@@ -179,7 +179,8 @@ const historyClosedPositions = computed(() => {
       const buy = queue?.length ? queue.shift() : undefined
       const buyPrice = buy?.price ?? item?.decision_detail?.cost_price ?? 0
       const profitAmount = item.profit_amount ?? (buyPrice > 0 ? (item.price - buyPrice) * (item.shares || 0) : 0)
-      const profitPct = item.profit_pct ?? (buyPrice > 0 ? (item.price - buyPrice) / buyPrice * 100 : 0)
+      // 【v2.9.111】买入订单不显示0%盈亏: 无匹配买入(隔夜)时profitPct=null
+      const profitPct = item.profit_pct ?? (buyPrice > 0 ? (item.price - buyPrice) / buyPrice * 100 : null)
       const buyTimeStr = buy ? (dateLabel + ' ' + (buy.time || '')) : ('昨日 ' + (item.time || ''))
       const sellTimeStr = dateLabel + ' ' + (item.time || '')
       result.push({ 
@@ -294,8 +295,8 @@ const closedStats = computed(() => {
               <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct >= 0 ? 'win' : 'loss'" @click="openTradeDetail(cp.ts_code)">
                 <span class="cp-code">{{ cp.ts_code?.slice(0,6) }}</span>
                 <span class="cp-name">{{ cp.stock_name }}</span>
-                <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ (cp.profit_pct??0) >= 0 ? '+' : '' }}{{ Number(cp.profit_pct??0).toFixed(1) }}%</span>
-                <span class="cp-amt" :class="(cp.profit_amount??0) >= 0 ? 'up' : 'down'">¥{{ Number(cp.profit_amount??0).toFixed(0) }}</span>
+                <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ cp.profit_pct != null ? ((cp.profit_pct >= 0 ? '+' : '') + Number(cp.profit_pct).toFixed(1) + '%') : '持仓中' }}</span>
+                <span class="cp-amt" :class="(cp.profit_amount??0) >= 0 ? 'up' : 'down'">{{ cp.profit_amount != null ? ('¥' + Number(cp.profit_amount).toFixed(0)) : '-' }}</span>
                 <span class="cp-time" :class="{overnight: cp.is_overnight}">{{ cp.is_overnight ? '昨→今' : '今→今' }}</span>
               </div>
             </div>
@@ -310,7 +311,7 @@ const closedStats = computed(() => {
                 <span class="ord-dir" :class="o.side === 'buy' ? 'up' : 'down'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
                 <span class="ord-code">{{ o.ts_code?.slice(0,6) }}</span>
                 <span class="ord-name">{{ o.stock_name }}</span>
-                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price?.toFixed(2) }}</span>
+                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price != null ? o.filled_price.toFixed(2) : '-' }}</span>
                 <span class="ord-time">{{ String(o.create_time || '').slice(0,8) }}</span>
               </div>
             </div>
