@@ -25,7 +25,7 @@ export function useScanTraceMonitor() {
   const scanHistory = ref<any[]>([])
   const scanHistoryLoading = ref(false)
   // 默认生产模式；只有显式打开调试审计，才请求debug/off-session数据
-  const scanTraceDebugMode = ref(false)
+  const scanTraceDebugMode = ref(false)  // 生产模式, 但请求包含debug数据(标注区分)
 
   // 按交易时段分组+折叠
   const scanHourCollapse = ref<Record<string, boolean>>({})
@@ -89,7 +89,11 @@ export function useScanTraceMonitor() {
       const halfHours = [...halfHourMap.keys()].sort()
       const subGroups = halfHours.map(hk => ({
         halfHour: hk,
-        items: halfHourMap.get(hk) || [],
+        items: (halfHourMap.get(hk) || []).slice().sort((a:any,b:any) => {
+          const ta = a.scan_time || a.time || ''
+          const tb = b.scan_time || b.time || ''
+          return ta.localeCompare(tb)
+        }),
       }))
       return {
         hour: def.key,
@@ -160,7 +164,7 @@ export function useScanTraceMonitor() {
     scanHourCollapse.value = {}
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}&mode=${dataMode}`, { timeout: 15000 })
+      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}&mode=${dataMode}&include_debug=true`, { timeout: 15000 })
       const p = parseResponse(r)
       if (p.success && p.data?.length) {
         scanHistory.value = p.data
@@ -179,7 +183,7 @@ export function useScanTraceMonitor() {
     scanTraceFilter.value = 'passed'
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}`, { timeout: 10000 })
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}&include_debug=true`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success) scanTraceDetail.value = p.data
     } catch (e) { console.error('[useScanTraceMonitor]', e) }
@@ -196,7 +200,7 @@ export function useScanTraceMonitor() {
     scanTraceDetail.value = { ...scanTraceDetail.value, candidates: [], rejected_layer_stats: undefined }
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}`, { timeout: 10000 })
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}&include_debug=true`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success && p.data) {
         scanTraceDetail.value = { ...scanTraceDetail.value, candidates: p.data.candidates || [], _pagination: p.data._pagination, rejected_layer_stats: p.data.rejected_layer_stats }

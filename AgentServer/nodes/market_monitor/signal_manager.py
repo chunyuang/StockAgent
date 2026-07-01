@@ -267,7 +267,8 @@ class SignalManager:
                     "signal_count": len(added),
                     "signals": [{
                         "ts_code": s.ts_code,
-                        "strategy": s.strategy_name,
+                        "strategy": s.strategy,          # 英文ID(anomaly_surge等)，前端过滤用
+                        "strategy_name": s.strategy_name,  # 中文显示名
                         "pct_chg": round(s.pct_chg, 1) if s.pct_chg else 0,
                     } for s in added[:5]],
                 })
@@ -287,7 +288,8 @@ class SignalManager:
                 "signals": [{
                     "ts_code": s.ts_code,
                     "name": s.stock_name,
-                    "strategy": s.strategy_name,
+                    "strategy": s.strategy,            # 英文ID
+                    "strategy_name": s.strategy_name,  # 中文显示
                     "pct_chg": round(s.pct_chg, 1),
                     "reason": s.reason,
                 } for s in added[:10]],
@@ -894,7 +896,8 @@ class SignalManager:
             "action": action,
             "ts_code": ts_code,
             "stock_name": stock_name,
-            "strategy": strategy,
+            "strategy": getattr(sig, 'strategy', strategy) or strategy,  # 英文ID(前端过滤用)
+            "strategy_name": getattr(sig, 'strategy_name', strategy) or strategy,  # 中文显示名
             "reason": reason,
             "decision_detail": getattr(sig, "decision_detail", {}),
             "layer_trace": getattr(sig, "layer_trace", {}),

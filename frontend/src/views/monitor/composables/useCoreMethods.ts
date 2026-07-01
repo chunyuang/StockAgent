@@ -125,7 +125,7 @@ export function useCoreMethods(refs: CoreRefs) {
     if (fetchScannerRunning) return; fetchScannerRunning = true
     try {
       if (fetchScannerAbort) fetchScannerAbort.abort(); fetchScannerAbort = new AbortController()
-      const url = date ? `${scannerApi}/all?date=${date.replace(/-/g, '')}` : `${scannerApi}/all`
+      const url = date ? `${scannerApi}/all?date=${date.replace(/-/g, '')}&include_debug=true` : `${scannerApi}/all?include_debug=true`
       const r = await api.get(url, { signal: fetchScannerAbort.signal })
       const p = parseResponse(r)
       if (p.success) {

@@ -46,38 +46,112 @@ export function useViewHelpers(deps: {
   const currentDateCompact = computed(() => fmtCompactDate(deps.unified.currentDate.value))
   const enabledStrategyCount = computed(() => deps.strategies.value.filter((s: any) => s.enabled).length)
   const visibleSignals = computed(() => deps.filteredSignals.value)
-  const signalsByHour = computed(() => {
-    const groups: Record<string, any[]> = {}
-    for (const sig of visibleSignals.value as any[]) {
-      const t = String(sig.scan_time || '')
-      const hour = t && t.includes(':') ? t.slice(0, 2) : '无时间'
-      if (!groups[hour]) groups[hour] = []
-      groups[hour].push(sig)
+  // 【v2.9.110】信号按时段分组(盘前/早盘/午休/下午盘/盘后) + 30分钟子分组
+  const SIGNAL_SLOT_DEFS = [
+    { key: 'premarket',  label: '🔍 盘前竞价', timeRange: '09:00-09:30', order: 0 },
+    { key: 'morning',   label: '📈 早盘',     timeRange: '09:30-11:30', order: 1 },
+    { key: 'lunch',     label: '🍱 午休',     timeRange: '11:30-13:00', order: 2 },
+    { key: 'afternoon', label: '📉 下午盘',   timeRange: '13:00-15:00', order: 3 },
+    { key: 'postmarket',label: '🌙 盘后',     timeRange: '15:00+',     order: 4 },
+    { key: 'no_time',   label: '⚠️ 无时间',   timeRange: '',            order: 5 },
+  ]
+  function getSignalSlotKey(timeStr: string, createdAt?: number): string {
+    // 优先用 scan_time
+    if (timeStr && timeStr.length >= 5) {
+      const parts = timeStr.split(':')
+      const hh = parseInt(parts[0]), mm = parseInt(parts[1] || '0')
+      if (!isNaN(hh) && !isNaN(mm)) {
+        const m = hh * 60 + mm
+        if (m < 9 * 60 + 30) return 'premarket'
+        if (m < 11 * 60 + 30) return 'morning'
+        if (m < 13 * 60) return 'lunch'
+        if (m < 15 * 60) return 'afternoon'
+        return 'postmarket'
+      }
     }
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0])).map(([hour, sigs]) => ({ hour, signals: sigs, count: sigs.length }))
+    // fallback: 用 created_at 时间戳推算
+    if (createdAt && createdAt > 0) {
+      const d = new Date(createdAt * 1000)
+      const hh = d.getHours(), mm = d.getMinutes()
+      const m = hh * 60 + mm
+      if (m < 9 * 60 + 30) return 'premarket'
+      if (m < 11 * 60 + 30) return 'morning'
+      if (m < 13 * 60) return 'lunch'
+      if (m < 15 * 60) return 'afternoon'
+      return 'postmarket'
+    }
+    return 'no_time'
+  }
+  function getHalfHourKey(timeStr: string, createdAt?: number): string {
+    let hh: number | null = null, mm: number | null = null
+    if (timeStr && timeStr.length >= 5) {
+      const parts = timeStr.split(':')
+      hh = parseInt(parts[0]); mm = parseInt(parts[1] || '0')
+    } else if (createdAt && createdAt > 0) {
+      const d = new Date(createdAt * 1000)
+      hh = d.getHours(); mm = d.getMinutes()
+    }
+    if (hh === null || mm === null || isNaN(hh) || isNaN(mm)) return 'other'
+    return `${String(hh).padStart(2,'0')}:${(mm as number) < 30 ? '00' : '30'}`
+  }
+  const signalsByHour = computed(() => {
+    const sigs = visibleSignals.value as any[]
+    if (!sigs.length) return []
+    const slotMap = new Map<string, any[]>()
+    for (const sig of sigs) {
+      const sk = getSignalSlotKey(String(sig.scan_time || ''), sig.created_at)
+      if (!slotMap.has(sk)) slotMap.set(sk, [])
+      slotMap.get(sk)!.push(sig)
+    }
+    return SIGNAL_SLOT_DEFS.map(def => {
+      const items = slotMap.get(def.key) || []
+      // 30分钟子分组
+      const hhMap = new Map<string, any[]>()
+      for (const s of items) {
+        const hk = getHalfHourKey(String(s.scan_time || ''), s.created_at)
+        if (!hhMap.has(hk)) hhMap.set(hk, [])
+        hhMap.get(hk)!.push(s)
+      }
+      const subGroups = [...hhMap.keys()].sort().map(hk => ({
+        halfHour: hk,
+        signals: (hhMap.get(hk) || []).slice().sort((a:any,b:any) => String(a.scan_time||'').localeCompare(String(b.scan_time||''))),
+        count: (hhMap.get(hk) || []).length,
+      }))
+      return { hour: def.key, label: def.label, timeRange: def.timeRange, signals: items, count: items.length, subGroups }
+    }).filter(g => g.count > 0)
   })
   const signalHourCollapse = ref<Record<string, boolean>>({})
+  const signalSubCollapse = ref<Record<string, boolean>>({})
+  const signalSubFilter = ref<Record<string, string>>({})  // '' | 'executed' | 'skipped' | 'blocked'
   const toggleSignalHour = (h: string) => { signalHourCollapse.value[h] = !signalHourCollapse.value[h] }
+  const toggleSignalSubGroup = (k: string) => { signalSubCollapse.value[k] = !signalSubCollapse.value[k] }
+  const cycleSubFilter = (k: string) => {
+    const cur = signalSubFilter.value[k] || ''
+    const next: Record<string,string> = { '': 'executed', 'executed': 'skipped', 'skipped': 'blocked', 'blocked': '' }
+    signalSubFilter.value[k] = next[cur]
+  }
   const signalHourInitialized = ref(false)
   watch(signalsByHour, (groups) => {
     if (!signalHourInitialized.value && groups.length) {
-      const lastHour = groups[groups.length - 1].hour
-      for (const g of groups) signalHourCollapse.value[g.hour] = (g.hour !== lastHour)
+      // 默认全部折叠
+      for (const g of groups) signalHourCollapse.value[g.hour] = true
       signalHourInitialized.value = true
     }
   }, { immediate: true })
   const signalFilterOptions = computed(() => [
-    { k: 'all', l: '全部', title: '显示所有当前活跃信号' },
-    { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号' },
-    { k: 'first_limit_up', l: '首板打板', title: '首板涨停封板强的打板信号' },
-    { k: 'limit_up_open', l: '涨停开板', title: '涨停炸板/开板后的回封观察信号' },
-    { k: 'dragon_head', l: '龙头低吸', title: '连板龙头回调低吸信号' },
-    { k: 'limit_down_qiao', l: '跌停翘板', title: '跌停撬板反弹信号' },
-    { k: 'anomaly', l: '异动', title: '异动聚合：急速拉升、涨停炸板、强势涨停' },
+    { k: 'all', l: '全部', title: '显示所有当前活跃信号', color: '' },
+    { k: 'halfway_chase', l: '半路追涨', title: '盘中冲高2-7%+量能放大的追涨信号', color: '#e6a23c' },
+    { k: 'first_limit_up', l: '首板打板', title: '首板涨停封板强的打板信号', color: '#f56c6c' },
+    { k: 'limit_up_open', l: '涨停开板', title: '涨停炸板/开板后的回封观察信号', color: '#909399' },
+    { k: 'dragon_head', l: '龙头低吸', title: '连板龙头回调低吸信号', color: '#409eff' },
+    { k: 'limit_down_qiao', l: '跌停翘板', title: '跌停撬板反弹信号', color: '#67c23a' },
+    { k: 'anomaly_surge', l: '急速拉升', title: '5分钟急速拉升异动信号', color: '#e6a23c' },
+    { k: 'anomaly_broken', l: '涨停炸板', title: '涨停炸板异动信号', color: '#f56c6c' },
+    { k: 'anomaly_strong', l: '强势涨停', title: '强势涨停确认信号', color: '#9c27b0' },
   ])
   const signalFilterHelp = computed(() => {
     const base = '活跃信号：当前仍有效、可关注/可操作的实时信号；历史扫描结果请看「扫描追踪」，这里的数量不等于今日全部扫描通过数。'
-    const anomaly = '异动=急速拉升/涨停炸板/强势涨停。'
+    const anomaly = '异动拆分为急速拉升/涨停炸板/强势涨停。'
     if (!deps.filteredSignals.value.length) return `${base} 当前无活跃信号，可能是信号已过期、已成交、被拦截、被后续扫描覆盖，或已进入历史记录。${anomaly}`
     return `${base} 顶部按钮按买入策略筛选当前活跃信号。${anomaly}`
   })
@@ -141,7 +215,7 @@ export function useViewHelpers(deps: {
     activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
     leftPanelExpanded, expandedPositions, anyPositionExpanded,
     currentDateCompact, enabledStrategyCount, visibleSignals,
-    signalsByHour, signalHourCollapse, toggleSignalHour,
+    signalsByHour, signalHourCollapse, signalSubCollapse, signalSubFilter, toggleSignalHour, toggleSignalSubGroup, cycleSubFilter,
     signalFilterOptions, signalFilterHelp,
     toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
     displayStrategyName, formatBuyDateDisplay, positionActionLabel,

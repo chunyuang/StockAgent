@@ -89,7 +89,7 @@ export function useScannerMonitor() {
   const limitPoolTab = ref('limit_up')
   const nowMs = ref(Date.now())
   const signalFilter = ref('all')
-  const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value) })
+  const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_') || s.strategy_name?.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value || s.strategy_name === signalFilter.value) })
   const focusIndex = ref(-1)
   const manualTrade = reactive({ ts_code: '', stock_name: '', side: 'buy', quantity: 0, price: 0 })
   const manualQuote = ref<any>(null)

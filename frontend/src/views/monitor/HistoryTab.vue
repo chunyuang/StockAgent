@@ -88,13 +88,20 @@ const groupedTimeline = computed(() => {
       if (!hhMap.has(hk)) hhMap.set(hk, [])
       hhMap.get(hk)!.push(item)
     }
-    const subGroups = [...hhMap.keys()].sort().map(hk => ({
-      halfHour: hk,
-      items: hhMap.get(hk) || [],
-      buys: hhMap.get(hk)?.filter((t:any) => t.action === 'buy').length || 0,
-      sells: hhMap.get(hk)?.filter((t:any) => t.action === 'sell').length || 0,
-      blocked: hhMap.get(hk)?.filter((t:any) => t.action === 'blocked').length || 0,
-    }))
+    const subGroups = [...hhMap.keys()].sort().map(hk => {
+      const sgItems = (hhMap.get(hk) || []).slice().sort((a:any,b:any) => {
+        const ta = a.time || a.trade_time || ''
+        const tb = b.time || b.trade_time || ''
+        return ta.localeCompare(tb)
+      })
+      return {
+        halfHour: hk,
+        items: sgItems,
+        buys: sgItems.filter((t:any) => t.action === 'buy').length,
+        sells: sgItems.filter((t:any) => t.action === 'sell').length,
+        blocked: sgItems.filter((t:any) => t.action === 'blocked').length,
+      }
+    })
     return { ...def, items, buys, sells, blocked, total: items.length, subGroups }
   })
 })

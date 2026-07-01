@@ -102,7 +102,7 @@ const {
   activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
   leftPanelExpanded, expandedPositions, anyPositionExpanded,
   currentDateCompact, enabledStrategyCount, visibleSignals,
-  signalsByHour, signalHourCollapse, toggleSignalHour,
+  signalsByHour, signalHourCollapse, signalSubCollapse, signalSubFilter, toggleSignalHour, toggleSignalSubGroup, cycleSubFilter,
   signalFilterOptions, signalFilterHelp,
   toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
   displayStrategyName, formatBuyDateDisplay, positionActionLabel,
@@ -323,7 +323,7 @@ const {
 
       <!-- 右列: 信号+行情 -->
       <div class="mm-right signals-right">
-        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><ElTag v-for="f in signalFilterOptions" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" :title="f.title" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="st">🎯 {{ visibleSignals.some((s: any) => s._historical_signal) ? '历史信号' : '活跃信号' }} <ElTag v-if="visibleSignals.some((s: any) => s._historical_signal)" size="small" type="info" style="margin-left:4px">最近留存</ElTag> <div class="signal-filter-bar"><span v-for="f in signalFilterOptions" :key="f.k" class="sig-filter-tag cp" :class="{ active: signalFilter===f.k }" :style="f.color ? { '--strat-color': f.color } : {}" :title="f.title" @click="signalFilter=f.k">{{ f.l }}</span></div> <ElBadge :value="visibleSignals.length" :max="99" style="margin-left:4px" /></div>
         <div class="signal-help">{{ signalFilterHelp }}</div>
         <div class="sl">
           <div v-if="!signals.length && !visibleSignals.length" class="empty">暂无信号；交易时段扫描后会自动留存，非交易时间可回看最近历史信号</div>
@@ -331,13 +331,33 @@ const {
           <template v-for="g in signalsByHour" :key="g.hour">
             <div class="sig-hour-header cp" @click="toggleSignalHour(g.hour)">
               <span class="sig-hour-arrow">{{ signalHourCollapse[g.hour] ? '▶' : '▼' }}</span>
-              <span class="sig-hour-label">🕒 {{ g.hour === '无时间' ? '无扫描时间' : `${g.hour}:00 扫描` }}</span>
+              <span class="sig-hour-label">{{ g.label || (g.hour === '无时间' ? '无扫描时间' : `${g.hour}:00 扫描`) }} <span class="text-tertiary" style="font-size:11px">{{ g.timeRange || '' }}</span></span>
               <ElTag size="small" type="info" class="sig-hour-count">{{ g.count }}条</ElTag>
             </div>
             <div v-show="!signalHourCollapse[g.hour]" class="sig-hour-body">
-              <div v-for="sig in g.signals" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n扫描: ${sig.scan_time || '-'}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
-                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ displayStrategyName(sig.strategy, sig.strategy_name) }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.scan_time" class="scan-time">{{ sig.scan_time }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new' && !sig._historical_signal" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="toggleActiveSignalTrace(sig)" class="btn-xs" :title="activeSignalTraceKey === `${sig.ts_code || ''}:${sig.strategy || ''}` ? '收起这条信号的链路' : '查看这条信号的链路'">链路</ElButton>
-              </div>
+              <template v-for="sg in (g.subGroups || [])" :key="g.hour + '-' + sg.halfHour">
+                <div v-if="(g.subGroups || []).length > 1" class="sig-sub-header" @click="toggleSignalSubGroup(g.hour + '-' + sg.halfHour)">
+                  <span class="sig-sub-arrow cp">{{ signalSubCollapse[g.hour + '-' + sg.halfHour] ? '▶' : '▼' }}</span>
+                  <span class="sig-sub-time cp">{{ sg.halfHour }}</span>
+                  <span class="sig-sub-count">{{ sg.count }}条</span>
+                  <span v-if="sg.signals.filter((s:any)=>s.signal_status==='executed').length" class="sig-sub-buys cp" @click.stop="cycleSubFilter(g.hour + '-' + sg.halfHour)" :class="{ active: (signalSubFilter[g.hour + '-' + sg.halfHour]||'') === 'executed' }">买{{ sg.signals.filter((s:any)=>s.signal_status==='executed').length }}</span>
+                  <span v-if="sg.signals.filter((s:any)=>s.signal_status==='skipped').length" class="sig-sub-skip cp" @click.stop="cycleSubFilter(g.hour + '-' + sg.halfHour)" :class="{ active: (signalSubFilter[g.hour + '-' + sg.halfHour]||'') === 'skipped' }">跳{{ sg.signals.filter((s:any)=>s.signal_status==='skipped').length }}</span>
+                  <span v-if="sg.signals.filter((s:any)=>s.signal_status==='blocked').length" class="sig-sub-block cp" @click.stop="cycleSubFilter(g.hour + '-' + sg.halfHour)" :class="{ active: (signalSubFilter[g.hour + '-' + sg.halfHour]||'') === 'blocked' }">拦{{ sg.signals.filter((s:any)=>s.signal_status==='blocked').length }}</span>
+                  <span v-if="signalSubFilter[g.hour + '-' + sg.halfHour]" class="sig-sub-filter-clear cp" @click.stop="signalSubFilter[g.hour + '-' + sg.halfHour] = ''">✕</span>
+                </div>
+                <div v-show="(g.subGroups || []).length <= 1 || !signalSubCollapse[g.hour + '-' + sg.halfHour]" class="sig-sub-body">
+                <div v-for="sig in sg.signals.filter((s:any) => !(signalSubFilter[g.hour + '-' + sg.halfHour]) || s.signal_status === signalSubFilter[g.hour + '-' + sg.halfHour])" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :class="sig.signal_status" :style="{ '--strat-color': strategyMeta[sig.strategy]?.color || '#888' }" :title="`${sig.ts_code} ${sig.stock_name}\n扫描: ${sig.scan_time || '-'}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`" @click="sig.decision_detail && openTradeDetail(sig.ts_code)">
+                  <span class="sig-dot" :style="{ background: strategyMeta[sig.strategy]?.color || '#888' }" :title="displayStrategyName(sig.strategy, sig.strategy_name)"></span>
+                  <span class="sig-name" :title="sig.ts_code">{{ sig.stock_name }}</span>
+                  <span class="sig-pct" :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+                  <span v-if="sig.signal_status === 'executed'" class="sig-status executed">买</span>
+                  <span v-else-if="sig.signal_status === 'skipped'" class="sig-status skipped">跳</span>
+                  <span v-else-if="sig.signal_status === 'blocked'" class="sig-status blocked">拦</span>
+                  <span v-else-if="sig.signal_status === 'expired'" class="sig-status expired">过</span>
+                  <span v-if="sig.signal_status === 'new' && !sig._historical_signal && sigRemaining(sig) > 0" class="sig-expire" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span>
+                </div>
+                </div>
+              </template>
             </div>
           </template>
         </div>
@@ -636,7 +656,10 @@ const {
 
 /* 【v2.9.97h-v8】一级标题 - 加粗+下划线增强层级 */
 .st { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border-default); display: flex; align-items: center; gap: 4px; }
-.signal-filter-bar { display:inline-flex; flex-wrap:wrap; gap:2px; margin-left:6px; }
+.signal-filter-bar { display:inline-flex; flex-wrap:wrap; gap:3px; margin-left:6px; }
+.sig-filter-tag { font-size: 12px; padding: 2px 10px; border-radius: 10px; cursor: pointer; border: 1px solid var(--strat-color, var(--border-default)); color: var(--text-secondary); background: transparent; transition: all 0.12s; user-select: none; font-weight: 500; }
+.sig-filter-tag:hover { background: color-mix(in srgb, var(--strat-color, #888) 15%, transparent); }
+.sig-filter-tag.active { background: var(--strat-color, var(--el-color-primary)); color: #fff; border-color: var(--strat-color, var(--el-color-primary)); font-weight: 600; }
 .signal-help { margin: -4px 0 8px; padding: 5px 7px; border-radius: 6px; background: var(--bg-muted); color: var(--text-tertiary); font-size: 11px; line-height: 1.35; }
 
 .compact-st { justify-content: space-between; margin-bottom: 6px; white-space: nowrap; }
@@ -948,13 +971,25 @@ mm-tab-content {
 .ast-line { padding: 5px 8px; border-radius: 5px; background: var(--bg-muted); color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .ast-empty { padding: 10px; border-radius: 6px; background: var(--warning-bg, rgba(230,162,60,0.12)); color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 .mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
-/* 【v2.9.97h-v8】信号行紧凑布局，禁止wrap，按钮 hover 才出 */
-.sig-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin-bottom: 3px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); font-size: 12px; flex-wrap: nowrap; min-width: 0; overflow: hidden; transition: all 0.15s; }
-.sig-row:hover { border-color: var(--el-color-primary); background: var(--bg-hover); }
-.sig-row .el-button { padding: 1px 6px; font-size: 11px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
-.sig-row:hover .el-button { opacity: 1; }
-.sig-row .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60px; }
-.sig-row .pct { margin-left: auto; flex-shrink: 0; }
+/* 【v2.9.110】信号表格紧凑风格 */
+.sig-row { display: flex; align-items: center; gap: 3px; padding: 3px 5px; font-size: 12px; line-height: 1.4; border-radius: 3px; transition: background 0.1s; cursor: pointer; white-space: nowrap; overflow: hidden; border-left: 2px solid var(--strat-color, transparent); background: color-mix(in srgb, var(--strat-color, transparent) 8%, transparent); font-weight: 500; }
+.sig-row:hover { background: color-mix(in srgb, var(--strat-color, #888) 20%, transparent); }
+.sig-row.executed { background: color-mix(in srgb, var(--strat-color, #67c23a) 18%, transparent); border-left-width: 3px; font-weight: 700; }
+.sig-row.skipped { opacity: 0.85; }
+.sig-row.expired { opacity: 0.7; }
+.sig-row.blocked { opacity: 0.75; }
+.sig-row.new { background: color-mix(in srgb, var(--strat-color, #409eff) 14%, transparent); border-left-width: 3px; font-weight: 600; }
+.sig-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.sig-name { font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-pct { font-weight: 700; font-size: 12px; flex-shrink: 0; }
+.sig-status { font-size: 10px; padding: 0 3px; border-radius: 2px; font-weight: 700; flex-shrink: 0; }
+.sig-status.executed { color: var(--el-color-success); }
+.sig-status.skipped { color: var(--el-color-warning); }
+.sig-status.expired { color: var(--el-color-info); }
+.sig-status.blocked { color: var(--el-color-danger); }
+.sig-status.new { color: var(--el-color-primary); }
+.sig-expire { font-size: 10px; font-weight: 700; color: var(--el-color-info); flex-shrink: 0; }
+.sig-expire.urgent { color: var(--el-color-danger); }
 .risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
 .risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 .risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
@@ -972,7 +1007,12 @@ mm-tab-content {
 .sig-hour-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
 .sig-hour-label { flex: 1; }
 .sig-hour-count { font-size: 11px; }
-.sig-hour-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px; }
+.sig-hour-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px; }
+.sig-sub-header { display: flex; align-items: center; gap: 6px; padding: 2px 6px; margin: 2px 0 1px; font-size: 11px; color: var(--text-tertiary); cursor: pointer; user-select: none; grid-column: 1 / -1; }
+.sig-sub-body { display: grid; grid-template-columns: inherit; gap: inherit; grid-column: 1 / -1; }
+.sig-sub-header:hover { color: var(--text-secondary); }
+.sig-sub-time { font-family: var(--font-mono, monospace); font-weight: 600; }
+.sig-sub-count { font-size: 10px; opacity: 0.7; }
 .sig-row .scan-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
 
 /* 【v2.9.99-r1 恢复 v18】持仓买入日期 */
@@ -1048,4 +1088,11 @@ mm-tab-content {
 .mm .tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
 .mm .tab-btn-sm.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; }
 .mm .tab-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+.sig-sub-buys { color: var(--el-color-success); font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 3px; }
+.sig-sub-buys.active { background: var(--el-color-success); color: #fff; }
+.sig-sub-skip { color: var(--el-color-warning); font-size: 10px; font-weight: 600; padding: 0 4px; border-radius: 3px; }
+.sig-sub-skip.active { background: var(--el-color-warning); color: #fff; }
+.sig-sub-block { color: var(--el-color-danger); font-size: 10px; font-weight: 600; padding: 0 4px; border-radius: 3px; }
+.sig-sub-block.active { background: var(--el-color-danger); color: #fff; }
+.sig-sub-filter-clear { color: var(--text-tertiary); font-size: 10px; padding: 0 2px; }
 </style>
