@@ -32,12 +32,14 @@ export function useScanTraceMonitor() {
   // 【v2.9.95】全天执行摘要(buys/blocked/block_reasons)
   const executionSummary = ref<any>(null)
 
-  // 【v2.9.110】按交易时段分组(3组+展开后30分钟子分组)
+  // 【v2.9.110】按交易时段分组(7组,只显示有数据的)
   const SLOT_DEFS = [
-    { key: 'morning',   label: '早盘',     icon: '📈', timeRange: '09:30-11:30', isTrading: true,  isDebug: false, order: 0 },
-    { key: 'lunch',     label: '午休调试', icon: '🍱', timeRange: '11:30-13:00', isTrading: false, isDebug: true,  order: 1 },
-    { key: 'afternoon', label: '下午盘',   icon: '📉', timeRange: '13:00-15:00', isTrading: true,  isDebug: false, order: 2 },
-    { key: 'no_time',   label: '无时间',   icon: '⚠️', timeRange: '缺失scan_time', isTrading: false, isDebug: false, order: 3 },
+    { key: 'premarket',  label: '盘前竞价', icon: '🔍', timeRange: '09:00-09:30', isTrading: false, isDebug: false, order: 0 },
+    { key: 'morning',   label: '早盘',     icon: '📈', timeRange: '09:30-11:30', isTrading: true,  isDebug: false, order: 1 },
+    { key: 'lunch',     label: '午休调试', icon: '🍱', timeRange: '11:30-13:00', isTrading: false, isDebug: true,  order: 2 },
+    { key: 'afternoon', label: '下午盘',   icon: '📉', timeRange: '13:00-15:00', isTrading: true,  isDebug: false, order: 3 },
+    { key: 'postmarket',label: '盘后',     icon: '🌙', timeRange: '15:00+',     isTrading: false, isDebug: true,  order: 4 },
+    { key: 'no_time',   label: '无时间',   icon: '⚠️', timeRange: '缺失scan_time', isTrading: false, isDebug: false, order: 5 },
   ]
   const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
 
@@ -47,9 +49,11 @@ export function useScanTraceMonitor() {
     const mm = parseInt(scanTime.substring(14, 16))
     if (isNaN(hh) || isNaN(mm)) return 'no_time'
     const minutes = hh * 60 + mm
+    if (minutes < 9 * 60 + 30) return 'premarket'
     if (minutes < 11 * 60 + 30) return 'morning'
     if (minutes < 13 * 60) return 'lunch'
-    return 'afternoon'
+    if (minutes < 15 * 60) return 'afternoon'
+    return 'postmarket'
   }
 
   // 30分钟子分组
@@ -74,7 +78,7 @@ export function useScanTraceMonitor() {
     // 按时间顺序排列(早盘→午休→下午盘→无时间)
     const slots = [...slotMap.keys()].sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
     return slots.map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[3]
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[5]
       const items = slotMap.get(sk) || []
       // 30分钟子分组
       const halfHourMap = new Map<string, any[]>()

@@ -32,12 +32,14 @@ watch(() => activeTab?.value, (t) => {
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
-// 【v2.9.110】按交易时段分组 timeline (3组+30分钟子分组)
+// 【v2.9.110】按交易时段分组 timeline (5组+30分钟子分组)
 const SLOT_DEFS = [
-  { key: 'morning',   label: '📈 早盘',   timeRange: '09:30-11:30', order: 0 },
-  { key: 'lunch',     label: '🍱 午休',   timeRange: '11:30-13:00', order: 1 },
-  { key: 'afternoon', label: '📉 下午盘', timeRange: '13:00-15:00', order: 2 },
-  { key: 'no_time',   label: '⚠️ 无时间', timeRange: '',            order: 3 },
+  { key: 'premarket',  label: '🔍 盘前竞价', timeRange: '09:00-09:30', order: 0 },
+  { key: 'morning',   label: '📈 早盘',     timeRange: '09:30-11:30', order: 1 },
+  { key: 'lunch',     label: '🍱 午休',     timeRange: '11:30-13:00', order: 2 },
+  { key: 'afternoon', label: '📉 下午盘',   timeRange: '13:00-15:00', order: 3 },
+  { key: 'postmarket',label: '🌙 盘后',     timeRange: '15:00+',     order: 4 },
+  { key: 'no_time',   label: '⚠️ 无时间',   timeRange: '',            order: 5 },
 ]
 const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
 
@@ -48,9 +50,11 @@ function getTimeSlotKey(timeStr: string): string {
   const mm = parseInt(parts[1] || '0')
   if (isNaN(hh) || isNaN(mm)) return 'no_time'
   const minutes = hh * 60 + mm
+  if (minutes < 9 * 60 + 30) return 'premarket'
   if (minutes < 11 * 60 + 30) return 'morning'
   if (minutes < 13 * 60) return 'lunch'
-  return 'afternoon'
+  if (minutes < 15 * 60) return 'afternoon'
+  return 'postmarket'
 }
 
 function getHalfHourKey(timeStr: string): string {
@@ -74,7 +78,7 @@ const groupedTimeline = computed(() => {
   return [...slotMap.keys()]
     .sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
     .map(sk => {
-      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[3]
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[5]
       const items = slotMap.get(sk) || []
       const buys = items.filter((t:any) => t.action === 'buy').length
       const sells = items.filter((t:any) => t.action === 'sell').length
