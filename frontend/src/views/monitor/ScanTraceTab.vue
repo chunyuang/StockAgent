@@ -24,6 +24,9 @@ const {
   fetchScanTraceDates,
   // v2.9.95: 全天执行摘要
   executionSummary,
+  // v2.9.110: 竞价快照数据(从 premarket composable 复用)
+  premarketTimeline,
+  fetchPremarketData,
 } = m
 
 const showSummaryReasons = ref(false)
@@ -225,6 +228,42 @@ function emotionRiskState(rule: string): string {
   return ''
 }
 
+// 【v2.9.110】竞价阶段划分
+function getAuctionPhase(time: string): { key: string; label: string; color: string } {
+  if (!time) return { key: 'unknown', label: '未知', color: '#909399' }
+  const parts = time.split(':')
+  const h = Number(parts[0]), m = Number(parts[1] || '0')
+  const t = h * 60 + m
+  if (t < 9 * 60 + 15) return { key: 'pre', label: '开始前', color: '#909399' }
+  if (t < 9 * 60 + 20) return { key: 'free', label: '自由竞价', color: '#67c23a' }
+  if (t < 9 * 60 + 25) return { key: 'collect', label: '集合竞价', color: '#e6a23c' }
+  if (t < 9 * 60 + 30) return { key: 'final', label: '准备开盘', color: '#f56c6c' }
+  return { key: 'open', label: '盘中', color: '#409eff' }
+}
+
+const expandedSnaps = ref<Record<string, boolean>>({})
+function toggleSnap(id: string) { expandedSnaps.value[id] = !expandedSnaps.value[id] }
+
+const premarketPhaseGroups = computed(() => {
+  const tl = (premarketTimeline as any)?.value || []
+  if (!tl.length) return []
+  const phaseMap = new Map<string, any[]>()
+  for (const snap of tl) {
+    const phase = getAuctionPhase(snap.time || '')
+    if (!phaseMap.has(phase.key)) phaseMap.set(phase.key, [])
+    phaseMap.get(phase.key)!.push({ ...snap, _phase: phase })
+  }
+  const phaseOrder = ['pre', 'free', 'collect', 'final', 'open']
+  return phaseOrder
+    .filter(k => phaseMap.has(k))
+    .map(k => ({
+      key: k,
+      label: phaseMap.get(k)![0]._phase.label,
+      color: phaseMap.get(k)![0]._phase.color,
+      items: phaseMap.get(k) || [],
+    }))
+})
+
 function toggleScanDetail(s: any) {
   const idx = scanHistory.value.indexOf(s)
   if (selectedScanIdx.value === idx) {
@@ -280,10 +319,13 @@ const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
 onMounted(async () => {
   const dates = await fetchScanTraceDates()
   if (!scanTraceDate.value && dates?.length) {
-    // scan-dates返回降序(最新在前), 取第一个作为最新交易日
     const latestDate = dates[0]?.date || dates[0]
     scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
     fetchScanHistory()
+  }
+  // 【v2.9.110】盘前竞价数据可能还未加载,触发一次
+  if (premarketTimeline && !(premarketTimeline as any)?.value?.length) {
+    (fetchPremarketData as any)?.()?.catch?.(() => {})
   }
 })
 </script>
@@ -381,7 +423,35 @@ onMounted(async () => {
               <span v-if="group.isDebug && !group.isTrading" class="sc-slot-debug-tag">非交易</span>
             </div>
             <div v-show="!group.collapsed" class="scan-sub-groups">
-              <div v-for="sg in group.subGroups" :key="group.slot + '-' + sg.halfHour" class="sc-sub-group">
+              <!-- 盘前竞价: 显示竞价快照按阶段分组 -->
+              <template v-if="group.slot === 'premarket' && premarketPhaseGroups.length">
+                <div v-for="pg in premarketPhaseGroups" :key="pg.key" class="sc-sub-group">
+                  <div class="sc-sub-header">
+                    <span class="sc-phase-dot" :style="{ background: pg.color }"></span>
+                    <span class="sc-sub-time">{{ pg.label }}</span>
+                    <span class="sc-sub-count">{{ pg.items.length }}次</span>
+                    <span class="sc-sub-types">涨停{{ pg.items.reduce((a:any,s:any) => a + (s.market_snapshot?.limit_up_count || 0), 0) }} · 跌停{{ pg.items.reduce((a:any,s:any) => a + (s.market_snapshot?.limit_down_count || 0), 0) }}</span>
+                    <span class="sc-sub-summary">通过 <b :class="pg.items.reduce((a:any,s:any) => a + (s.display_funnel?.final_passed || s.passed || 0), 0) > 0 ? 'has-buy' : ''">{{ pg.items.reduce((a:any,s:any) => a + (s.display_funnel?.final_passed || s.passed || 0), 0) }}</b></span>
+                  </div>
+                  <div class="scan-strip">
+                    <div v-for="snap in pg.items" :key="snap.scan_id || snap.time" class="scan-chip premarket-chip" :class="{ 'has-buy': (snap.display_funnel?.final_passed || snap.passed || 0) > 0, 'is-invalid': !snap.market_snapshot?.total_stocks || snap.market_snapshot.total_stocks < 1000 }">
+                      <span class="sc-time">{{ snap.time || '--:--' }}</span>
+                      <span class="sc-kind" :style="{ background: pg.color + '22', color: pg.color }">{{ pg.label }}</span>
+                      <span class="sc-stats">
+                        <span class="ss-stocks">{{ snap.market_snapshot?.total_stocks || 0 }}只</span>
+                        <span class="ss-arr">▶</span>
+                        <span class="up ss-mini">{{ snap.market_snapshot?.up_count || 0 }}</span>/<span class="down ss-mini">{{ snap.market_snapshot?.down_count || 0 }}</span>
+                        <span class="ss-arr">▶</span>
+                        <span class="ss-pass">{{ snap.display_funnel?.final_passed || snap.passed || 0 }}</span>
+                      </span>
+                      <span v-if="snap.force_empty_confirm?.risk_level && snap.force_empty_confirm.risk_level !== 'L0'" class="ss-risk-tag" :style="{ color: snap.force_empty_confirm.risk_level >= 'L1' ? '#f56c6c' : '#e6a23c' }">{{ snap.force_empty_confirm.risk_level }}</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <!-- 其他时段: scan_traces 按30分钟分组 -->
+              <template v-else>
+                <div v-for="sg in group.subGroups" :key="group.slot + '-' + sg.halfHour" class="sc-sub-group">
                 <div class="sc-sub-header">
                   <span class="sc-sub-time">{{ sg.halfHour }}</span>
                   <span class="sc-sub-count">{{ sg.items.length }}轮</span>
@@ -399,6 +469,7 @@ onMounted(async () => {
                   </div>
                 </div>
               </div>
+              </template>
             </div>
           </div>
         </div>
@@ -596,6 +667,13 @@ onMounted(async () => {
 .sc-hour-header.has-buy .sc-hour-summary b { color: #e6a23c; font-weight: 800; }
 
 .sc-slot-debug-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; flex-shrink: 0; }
+
+/* 盘前竞价快照 */
+.premarket-chip { border-left: 3px solid #67c23a; }
+.premarket-chip.is-invalid { opacity: 0.5; border-left-color: #909399; }
+.sc-phase-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ss-mini { font-size: 10px; font-weight: 500; }
+.ss-risk-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 3px; background: rgba(245,108,108,0.12); }
 
 /* 30分钟子分组 */
 .scan-sub-groups { padding: 4px 0 0 12px; }
