@@ -1094,21 +1094,32 @@ class SimulatedBroker:
             
             if avg_cost <= 0:
                 logger.error(f"[BROKER] ❌ 无法找到{order.ts_code}的avg_cost, profit将=0")
-                # 仍然要收回资金并保存order(不能return跳过_sync_save!)
-                amount = fill_price * order.quantity - total_cost
-                self.account.available_cash += amount
             else:
                 # 用兜底avg_cost计算盈亏
                 profit = (fill_price - avg_cost) * order.quantity - total_cost
-                profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost > 0 and order.quantity > 0 else 0
+                profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost * order.quantity > 0 else 0
                 order.profit_pct = round(profit_pct, 2)
                 order.profit_amount = round(profit, 2)
                 order.avg_cost = avg_cost
                 self.account.total_profit += profit
                 self.account.today_profit += profit
-                amount = fill_price * order.quantity - total_cost
-                self.account.available_cash += amount
-            # 不要return! 让place_order继续执行_sync_save_order_and_position
+
+            # 收回资金(无论avg_cost是否找到)
+            amount = fill_price * order.quantity - total_cost
+            self.account.available_cash += amount
+            
+            # 从MongoDB删除已清仓的position
+            try:
+                if self._ensure_sync_mongo():
+                    self._sync_mongo_db["broker_positions"].delete_one(
+                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                    )
+                    logger.info(f"[BROKER] 已从MongoDB删除清仓position: {order.ts_code}")
+            except Exception as e:
+                logger.error(f"[BROKER] ❌ 删除position失败: {e}")
+            
+            # 必须return! 否则pos=None会在下方pos.avg_cost崩溃, 且盈亏/资金会双重计算
+            return
 
         # 计算本笔盈亏
         profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
