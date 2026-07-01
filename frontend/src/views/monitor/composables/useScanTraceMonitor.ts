@@ -27,42 +27,83 @@ export function useScanTraceMonitor() {
   // 默认生产模式；只有显式打开调试审计，才请求debug/off-session数据
   const scanTraceDebugMode = ref(false)
 
-  // 按小时分组+折叠
+  // 按交易时段分组+折叠
   const scanHourCollapse = ref<Record<string, boolean>>({})
   // 【v2.9.95】全天执行摘要(buys/blocked/block_reasons)
   const executionSummary = ref<any>(null)
 
+  // 【v2.9.110】按交易时段分组(替代纯小时分组)
+  const SLOT_DEFS = [
+    { key: 'premarket',  label: '盘前竞价', icon: '🔍', timeRange: '09:00-09:25', isTrading: false, isDebug: false, order: 0 },
+    { key: 'early',      label: '早盘',     icon: '📈', timeRange: '09:30-10:30', isTrading: true,  isDebug: false, order: 1 },
+    { key: 'midmorning', label: '上午盘',   icon: '📊', timeRange: '10:30-11:30', isTrading: true,  isDebug: false, order: 2 },
+    { key: 'lunch',      label: '午休',     icon: '🍱', timeRange: '11:30-13:00', isTrading: false, isDebug: true,  order: 3 },
+    { key: 'afternoon',  label: '下午盘',   icon: '📈', timeRange: '13:00-14:30', isTrading: true,  isDebug: false, order: 4 },
+    { key: 'closing',    label: '尾盘',     icon: '🔒', timeRange: '14:30-15:00', isTrading: true,  isDebug: false, order: 5 },
+    { key: 'postmarket', label: '盘后',     icon: '🌙', timeRange: '15:00+',     isTrading: false, isDebug: true,  order: 6 },
+    { key: 'no_time',    label: '无时间',   icon: '⚠️', timeRange: '缺失scan_time', isTrading: false, isDebug: false, order: 7 },
+  ]
+  const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
+
+  function getTimeSlotKey(scanTime: string): string {
+    if (!scanTime || scanTime.length <= 11) return 'no_time'
+    const hh = parseInt(scanTime.substring(11, 13))
+    const mm = parseInt(scanTime.substring(14, 16))
+    if (isNaN(hh) || isNaN(mm)) return 'no_time'
+    const minutes = hh * 60 + mm
+    if (minutes < 9 * 60 + 30) return 'premarket'
+    if (minutes < 10 * 60 + 30) return 'early'
+    if (minutes < 11 * 60 + 30) return 'midmorning'
+    if (minutes < 13 * 60) return 'lunch'
+    if (minutes < 14 * 60 + 30) return 'afternoon'
+    if (minutes < 15 * 60) return 'closing'
+    return 'postmarket'
+  }
+
   const scanHistoryByHour = computed(() => {
     if (!scanHistory.value.length) return []
-    const hourMap = new Map<string, any[]>()
+    const slotMap = new Map<string, any[]>()
     for (const s of scanHistory.value) {
       const t = s.scan_time || s.time || ''
-      const hour = t.length > 11 ? t.substring(11, 13) : '??'
-      if (!hourMap.has(hour)) hourMap.set(hour, [])
-      hourMap.get(hour)!.push(s)
+      const slotKey = getTimeSlotKey(t)
+      if (!slotMap.has(slotKey)) slotMap.set(slotKey, [])
+      slotMap.get(slotKey)!.push(s)
     }
-    // 降序排列: 最新时段在最上面；默认全部折叠，点击小时行后再展开
-    const hours = [...hourMap.keys()].sort((a, b) => b.localeCompare(a))
-    return hours.map(h => ({
-      hour: h,
-      items: hourMap.get(h) || [],
-      collapsed: scanHourCollapse.value[h] ?? true
-    }))
+    // 按交易时段顺序排列(盘前→早盘→...→盘后→无时间)
+    const slots = [...slotMap.keys()].sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
+    return slots.map(sk => {
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[7]
+      const items = slotMap.get(sk) || []
+      return {
+        hour: sk,  // 兼容旧字段名
+        slot: sk,
+        icon: def.icon,
+        label: def.label,
+        timeRange: def.timeRange,
+        isTrading: def.isTrading,
+        isDebug: def.isDebug,
+        items,
+        collapsed: scanHourCollapse.value[sk] ?? true
+      }
+    })
   })
+  // 别名
+  const scanHistoryBySlot = scanHistoryByHour
 
   function toggleScanHour(hour: string) {
-    // 从computed获取实际折叠状态
-    const group = scanHistoryByHour.value.find(g => g.hour === hour)
+    // hour 参数现在是 slot key (如 'premarket', 'early' 等)
+    const slotKey = hour
+    const group = scanHistoryByHour.value.find(g => g.slot === slotKey)
     const current = group?.collapsed ?? true
     const nextCollapsed = !current
-    scanHourCollapse.value = { ...scanHourCollapse.value, [hour]: nextCollapsed }
+    scanHourCollapse.value = { ...scanHourCollapse.value, [slotKey]: nextCollapsed }
 
-    // 收起某个小时组时，同步收起该小时内已展开的扫描详情
+    // 收起某个时段组时，同步收起该时段内已展开的扫描详情
     if (nextCollapsed && selectedScanIdx.value >= 0) {
       const selected = scanHistory.value[selectedScanIdx.value]
       const t = selected?.scan_time || selected?.time || ''
-      const selectedHour = t.length > 11 ? t.substring(11, 13) : '??'
-      if (selectedHour === hour) {
+      const selectedSlot = getTimeSlotKey(t)
+      if (selectedSlot === slotKey) {
         selectedScanIdx.value = -1
         scanTraceDetail.value = null
         scanTraceFilter.value = 'passed'
@@ -323,7 +364,8 @@ export function useScanTraceMonitor() {
     scanTraceDate, scanTraceFilter, scanTraceLoadingMore,
     selectedScanIdx, scanHistory, scanHistoryByHour, scanHistoryLoading,
     scanHourCollapse, scanTraceDebugMode, scanTraceHasData,
-    executionSummary,
+    executionSummary, scanHistoryBySlot,
+    getTimeSlotKey,
     layerDebugVisible, layerDebugData, layerDebugLoading,
     // 兼容
     scanTraceVisible, scanTraceData, scanTraceCode,

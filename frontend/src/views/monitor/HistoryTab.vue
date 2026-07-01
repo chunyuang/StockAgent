@@ -32,6 +32,56 @@ watch(() => activeTab?.value, (t) => {
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
+// 【v2.9.110】按交易时段分组 timeline
+const SLOT_DEFS = [
+  { key: 'premarket',  label: '🔍 盘前竞价', timeRange: '09:00-09:25', order: 0 },
+  { key: 'early',      label: '📈 早盘',     timeRange: '09:30-10:30', order: 1 },
+  { key: 'midmorning', label: '📊 上午盘',   timeRange: '10:30-11:30', order: 2 },
+  { key: 'lunch',      label: '🍱 午休',     timeRange: '11:30-13:00', order: 3 },
+  { key: 'afternoon',  label: '📈 下午盘',   timeRange: '13:00-14:30', order: 4 },
+  { key: 'closing',    label: '🔒 尾盘',     timeRange: '14:30-15:00', order: 5 },
+  { key: 'postmarket', label: '🌙 盘后',     timeRange: '15:00+',     order: 6 },
+  { key: 'no_time',    label: '⚠️ 无时间',   timeRange: '',            order: 7 },
+]
+const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
+
+function getTimeSlotKey(timeStr: string): string {
+  if (!timeStr || timeStr.length < 5) return 'no_time'
+  const parts = timeStr.split(':')
+  const hh = parseInt(parts[0])
+  const mm = parseInt(parts[1] || '0')
+  if (isNaN(hh) || isNaN(mm)) return 'no_time'
+  const minutes = hh * 60 + mm
+  if (minutes < 9 * 60 + 30) return 'premarket'
+  if (minutes < 10 * 60 + 30) return 'early'
+  if (minutes < 11 * 60 + 30) return 'midmorning'
+  if (minutes < 13 * 60) return 'lunch'
+  if (minutes < 14 * 60 + 30) return 'afternoon'
+  if (minutes < 15 * 60) return 'closing'
+  return 'postmarket'
+}
+
+const groupedTimeline = computed(() => {
+  const src = filteredTimeline.value
+  if (!src.length) return []
+  const slotMap = new Map<string, any[]>()
+  for (const item of src) {
+    const sk = getTimeSlotKey(item.time || '')
+    if (!slotMap.has(sk)) slotMap.set(sk, [])
+    slotMap.get(sk)!.push(item)
+  }
+  return [...slotMap.keys()]
+    .sort((a, b) => (SLOT_ORDER[a] ?? 99) - (SLOT_ORDER[b] ?? 99))
+    .map(sk => {
+      const def = SLOT_DEFS.find(d => d.key === sk) || SLOT_DEFS[7]
+      const items = slotMap.get(sk) || []
+      const buys = items.filter((t:any) => t.action === 'buy').length
+      const sells = items.filter((t:any) => t.action === 'sell').length
+      const blocked = items.filter((t:any) => t.action === 'blocked').length
+      return { ...def, items, buys, sells, blocked, total: items.length }
+    })
+})
+
 /** 获取中国时区的日期字符串 YYYYMMDD */
 function getChinaDateInt(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0'); return `${y}${m}${d}` }
 function getChinaDateStr(): string { const now = new Date(); const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0'); return `${y}-${m}-${d}` }
@@ -173,17 +223,27 @@ const closedStats = computed(() => {
           </div>
           <div v-if="!filteredTimeline.length" class="ht-empty">暂无记录</div>
           <div class="ht-tl-list">
-            <div v-for="(item, i) in filteredTimeline" :key="i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
-              <span class="tl-time">{{ item.time }}</span>
-              <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
-              <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
-              <span class="tl-name">{{ item.stock_name }}</span>
-              <template v-if="item.action !== 'blocked'">
-                <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
-                <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
-                <span v-if="item.action==='sell' && item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
-              </template>
-              <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
+            <div v-for="group in groupedTimeline" :key="group.key" class="tl-group">
+              <div class="tl-group-header">
+                <span class="tl-group-label">{{ group.label }}</span>
+                <span class="tl-group-range">{{ group.timeRange }}</span>
+                <span class="tl-group-count">{{ group.total }}条</span>
+                <span v-if="group.buys" class="tl-group-buys">买{{ group.buys }}</span>
+                <span v-if="group.sells" class="tl-group-sells">卖{{ group.sells }}</span>
+                <span v-if="group.blocked" class="tl-group-blocked">停{{ group.blocked }}</span>
+              </div>
+              <div v-for="(item, i) in group.items" :key="group.key + '-' + i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
+                <span class="tl-time">{{ item.time }}</span>
+                <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
+                <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
+                <span class="tl-name">{{ item.stock_name }}</span>
+                <template v-if="item.action !== 'blocked'">
+                  <span class="tl-strat">{{ strategyCN(item.strategy) }}</span>
+                  <span class="tl-qty">{{ item.shares }}@¥{{ item.price?.toFixed(2) || '-' }}</span>
+                  <span v-if="item.action==='sell' && item.profit_pct != null" class="tl-pct" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ Number(item.profit_pct).toFixed(1) }}%</span>
+                </template>
+                <span v-else class="tl-reason">{{ item.reason?.slice(0,20) }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -266,6 +326,16 @@ const closedStats = computed(() => {
 .ht-filter { display: flex; gap: 2px; margin-left: auto; }
 .ht-filter button { font-size: 10px; padding: 1px 6px; border: 1px solid var(--border-default); border-radius: 3px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
 .ht-filter button.active { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
+
+/* 时间线分组 */
+.tl-group { margin-bottom: 4px; }
+.tl-group-header { display: flex; align-items: center; gap: 6px; padding: 3px 6px; font-size: 11px; font-weight: 600; color: var(--text-primary); background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); margin-bottom: 2px; }
+.tl-group-label { flex-shrink: 0; }
+.tl-group-range { font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
+.tl-group-count { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
+.tl-group-buys { font-size: 10px; color: var(--stock-up); font-weight: 600; }
+.tl-group-sells { font-size: 10px; color: var(--stock-down); font-weight: 600; }
+.tl-group-blocked { font-size: 10px; color: var(--text-tertiary); }
 
 /* 时间线列表 */
 .ht-tl-list { flex: 1; overflow-y: auto; min-height: 0; }

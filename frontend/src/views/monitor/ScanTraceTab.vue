@@ -236,6 +236,41 @@ function toggleScanDetail(s: any) {
   fetchScanTrace(s.scan_id || '')
 }
 
+// 【v2.9.110】缩短淘汰原因，用于 tag 显示
+function shortRejectionReason(reason: string): string {
+  if (!reason) return ''
+  const r = String(reason)
+  // 换手不足
+  let m = r.match(/换手(?:率)?([\d.]+)%.{0,5}([\d.]+)%/)
+  if (m) return `换手${m[1]}%<${m[2]}%`
+  // 流通市值
+  m = r.match(/流通市值([\d.]+)亿.{0,5}([\d.]+)亿/)
+  if (m) return `市值${m[1]}亿`
+  if (r.includes('流通市值')) return '市值不符'
+  // 流动性
+  m = r.match(/流动性不足.*?<([\d.]+)万/)
+  if (m) return `流动性<${m[1]}万`
+  // 回调
+  m = r.match(/回调([\d.]+)%.{0,5}([\d.]+)%/)
+  if (m) return `回调${m[1]}%`
+  // 集中度
+  if (r.includes('集中度')) return '行业集中度'
+  // 已有持仓
+  if (r.includes('已有持仓') || r.includes('已持仓')) return '已有持仓'
+  // 持仓已满
+  if (r.includes('持仓已满') || r.includes('最大持仓')) return '仓位已满'
+  // 资金不足
+  if (r.includes('资金不足') || r.includes('现金不足')) return '资金不足'
+  // 非交易时间
+  if (r.includes('非交易时间')) return '非交易时间'
+  // 重复信号
+  if (r.includes('重复')) return '重复信号'
+  // 涨停不可买
+  if (r.includes('涨停')) return '涨停不可买'
+  // 截取前16个字
+  return r.length > 16 ? r.substring(0, 16) + '…' : r
+}
+
 // scanTraceCode accessed from inject, used in template via {{ scanTraceCode }}
 // @ts-expect-error vue-tsc TS6133 false positive — used in template
 const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
@@ -275,7 +310,7 @@ onMounted(async () => {
       <div v-else>
         <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
         <div class="scan-readme">
-          <span><b>小时行</b>：汇总该小时所有扫描，显示“扫描次数 / 通过候选 / 实际成交 / 执行拦截”。</span>
+          <span><b>时段行</b>：按交易阶段分组（盘前竞价/早盘/上午盘/午休/下午盘/尾盘/盘后），显示“扫描轮次 / 通过候选 / 实际成交 / 执行拦截”。</span>
           <span><b>单次扫描</b>：分为“全市场主扫”和“异动快扫”。一万多条是策略展开记录，不等于股票数；几十条通常是盘中异动候选池快扫。🚫 表示通过筛选后又被仓位、资金、熔断等执行规则挡住。</span>
           <span><b>查看明细</b>：点某个时间 chip 后，下方会展开扫描漏斗和候选追踪。</span>
         </div>
@@ -335,15 +370,18 @@ onMounted(async () => {
         </div>
         <div class="scan-hours">
           <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
-            <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) > 0 }" @click="toggleScanHour(group.hour)">
+            <div class="sc-hour-header" :class="{ 'has-buy': group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) > 0, 'is-debug-slot': group.isDebug && !group.isTrading }" @click="toggleScanHour(group.slot)">
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
-              <span class="sc-hour-label">{{ group.hour }}:00</span>
+              <span class="sc-slot-icon">{{ group.icon }}</span>
+              <span class="sc-hour-label">{{ group.label }}</span>
+              <span class="sc-slot-range">{{ group.timeRange }}</span>
               <span class="sc-hour-count">{{ group.items.length }}轮</span>
               <span class="sc-hour-types">{{ scanHourTypeSummary(group.items) }}</span>
               <span class="sc-hour-summary">{{ group.items.reduce((a:any,s:any) => a + (s.summary?.passed || 0), 0) }}通过 → <b>{{ group.items.reduce((a:any,s:any) => a + (s.exec?.bought || 0), 0) }}成交</b> · {{ group.items.reduce((a:any,s:any) => a + (s.exec?.blocked || 0), 0) }}拦截</span>
+              <span v-if="group.isDebug && !group.isTrading" class="sc-slot-debug-tag">非交易</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
-              <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">
+              <div v-for="(s, i) in group.items" :key="group.slot + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug, 'has-buy': (s.exec?.bought || 0) > 0, full: scanKind(s) === 'full', quick: scanKind(s) === 'quick' }" @click="toggleScanDetail(s)">
                 <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
                 <span class="sc-kind" :class="scanKind(s)">{{ scanKindLabel(s) }}</span>
                 <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
@@ -355,14 +393,18 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+      <!-- 扫描漏斗 -->
       <div v-if="scanTraceDetail?.summary" class="scan-funnel">
         <div class="funnel-readme">
           <b>扫描漏斗读法</b>
-          <span>每一行代表一层规则：左侧是层名，中间是“进入该层 → 通过该层”，右侧“淘汰N”表示这一层挡掉的候选。最后的“成交/执行拦截”是通过筛选后是否真正买入。</span>
+          <span>每一行代表一层规则：左侧是层名，中间数字是“进入该层 → 通过该层”，右侧“淘汰N”表示这层挡掉的候选。进度条宽度=通过率，一眼看出哪层是窄门。</span>
         </div>
         <template v-for="(layerData, layerName) in scanTraceDetail.summary" :key="layerName">
           <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && String(layerName) !== 'total_stocks' && String(layerName) !== 'scan_type' && layerData && typeof layerData === 'object'" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
             <span class="fn-tag">{{ layerLabel(layerName) }}</span>
+            <div class="fn-bar-track" :title="`${layerData.input || 0}→${layerData.output || 0} (淘汰${layerData.rejected || 0})`">
+              <div class="fn-bar-pass" :style="{ width: ((layerData.input || 0) > 0 ? ((layerData.output || 0) / (layerData.input || 1) * 100) : 0) + '%' }"></div>
+            </div>
             <span class="fn-flow">{{ (layerData.input || 0) === 0 && (layerData.output || 0) === 0 && !layerData.rejected ? '—' : (layerData.input || 0) + '→' + (layerData.output || 0) }}</span>
             <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
             <span class="fn-desc">{{ scanTraceDetail.layer_details?.[layerName] || layerDesc(layerName, layerData) || '' }}</span>
@@ -399,7 +441,7 @@ onMounted(async () => {
           <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
           <div class="et-wrap">
             <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-item" :class="[sig.final_status === 'passed' ? 'et-pass' : 'et-fail', sig.execution_status ? 'et-' + sig.execution_status : '']">
-              <!-- 【v2.9.95c】两行布局: 上行=股票信息, 下行=执行状态 -->
+              <!-- 行1: 策略+股票+涨幅+价格 -->
               <div class="et-row1">
                 <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid et-strategy" effect="dark">{{ strategyCN(sig.strategy) }}</ElTag>
                 <span class="et-code">{{ sig.ts_code }}</span>
@@ -407,21 +449,26 @@ onMounted(async () => {
                 <span class="et-pct" :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(2) }}%</span>
                 <span v-if="sig.price" class="et-price">¥{{ Number(sig.price).toFixed(2) }}</span>
               </div>
+              <!-- 行2: 执行状态(三区布局优化) -->
               <div class="et-row2">
                 <span v-if="sig.execution_status === 'bought'" class="et-exec et-bought">
-                  <span class="et-icon">✅</span><span class="et-text">已成交 · {{ sig.execution_desc || '买入成功' }}</span>
+                  <span class="et-icon">✅</span><span class="et-text">{{ sig.execution_desc || '买入成功' }}</span>
                 </span>
                 <span v-else-if="sig.execution_status === 'blocked'" class="et-exec et-blocked">
-                  <span class="et-icon">🚫</span><span class="et-text">未成交 · {{ sig.execution_desc || '被拦截' }}</span>
+                  <span class="et-icon">🚫</span><span class="et-text">{{ sig.execution_desc || '被拦截' }}</span>
                 </span>
                 <span v-else-if="sig.execution_status === 'pending'" class="et-exec et-pending">
-                  <span class="et-icon">⏳</span><span class="et-text">未触发 · {{ sig.execution_desc || '通过筛选但未买入' }}</span>
+                  <span class="et-icon">⏳</span><span class="et-text">{{ sig.execution_desc || '通过筛选但未买入' }}</span>
                 </span>
                 <span v-else-if="sig.final_status === 'passed'" class="et-exec et-pending">
                   <span class="et-icon">✅</span><span class="et-text">通过筛选</span>
                 </span>
                 <span v-else class="et-exec et-rejected">
-                  <span class="et-icon">❌</span><span class="et-text">被淘汰于第{{ String(sig.rejection_layer || '?').replace(/^L/, 'L') }}层 · {{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}<span v-if="sig.rejection_reason"> · {{ sig.rejection_reason }}</span></span>
+                  <span class="et-icon">❌</span>
+                  <span class="et-text">L{{ String(sig.rejection_layer || '?').replace(/^L/, '') }} {{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}</span>
+                  <span v-if="sig.rejection_reason" class="et-rej-tags">
+                    <span class="et-rej-tag">{{ shortRejectionReason(sig.rejection_reason) }}</span>
+                  </span>
                 </span>
               </div>
             </div>
@@ -520,20 +567,25 @@ onMounted(async () => {
 .sc-hour-group { margin-bottom: 2px; }
 
 .sc-hour-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
-
 .sc-hour-header:hover { background: var(--bg-hover); }
 .sc-hour-header.has-buy { background: rgba(230, 162, 60, 0.16); border-color: rgba(230, 162, 60, 0.75); box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.12) inset; }
 .sc-hour-header.has-buy:hover { background: rgba(230, 162, 60, 0.24); border-color: #e6a23c; }
+.sc-hour-header.is-debug-slot { opacity: 0.7; border-style: dashed; }
 
 .sc-hour-toggle { font-size: 9px; color: var(--text-tertiary); }
+.sc-slot-icon { font-size: 13px; flex-shrink: 0; }
 
 .sc-hour-label { font-weight: 600; color: var(--text-primary); }
+
+.sc-slot-range { font-size: 10px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
 
 .sc-hour-count { color: var(--text-tertiary); font-size: 10px; }
 .sc-hour-types { color: var(--text-secondary); font-size: 10px; background: var(--bg-muted); padding: 1px 6px; border-radius: 999px; }
 
 .sc-hour-summary { color: var(--el-color-primary); font-size: 10px; margin-left: auto; }
 .sc-hour-header.has-buy .sc-hour-summary b { color: #e6a23c; font-weight: 800; }
+
+.sc-slot-debug-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; flex-shrink: 0; }
 
 .scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 16px; }
 
@@ -690,7 +742,14 @@ onMounted(async () => {
 .es-rule-detail-item em { color: var(--text-tertiary); font-style: normal; font-size: 10px; line-height: 1.45; }
 .ss-block { color: #e6a23c; font-size: 10px; font-weight: 600; margin-left: 2px; }
 .et-exec { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; flex-shrink: 0; font-weight: 500; }
-/* 老样式保留作为 fallback (.et-bought/.et-blocked/.et-pending 类名在有些地方还被调用) */
+/* 漏斗进度条 */
+.fn-bar-track { flex: 0 0 80px; height: 14px; background: var(--bg-muted); border-radius: 3px; overflow: hidden; }
+.fn-bar-pass { height: 100%; background: linear-gradient(90deg, rgba(64,158,255,0.3), rgba(64,158,255,0.55)); border-radius: 3px; transition: width 0.3s; }
+.fn-row.fn-filter .fn-bar-pass { background: linear-gradient(90deg, rgba(245,108,108,0.2), rgba(245,108,108,0.45)); }
+
+/* 淘汰原因 tag */
+.et-rej-tags { display: inline-flex; gap: 3px; margin-left: 4px; }
+.et-rej-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(245,108,108,0.1); color: #f56c6c; font-weight: 500; white-space: nowrap; }
 
 .scan-chip.debug { border-style: dashed; opacity: 0.85; }
 
