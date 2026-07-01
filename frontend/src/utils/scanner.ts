@@ -20,9 +20,11 @@ export const strategyCN = (s: string | number): string => {
   const key = String(s)
   // 优先查英文ID映射
   if (strategyMeta[key]?.cn) return strategyMeta[key].cn
-  // 兼容中文输入(旧timeline存的是strategy_name)
-  const cnMap: Record<string, string> = { '急速拉升': '急速拉升', '强势涨停': '强势涨停', '涨停开板': '涨停炸板', '涨停炸板': '涨停炸板' }
-  return cnMap[key] ?? key
+  // 兼容中文输入(旧timeline存的是strategy_name): 在strategyMeta的cn字段里反向查找
+  for (const [, v] of Object.entries(strategyMeta)) {
+    if (v.cn === key) return v.cn
+  }
+  return key
 }
 export const strategyColor = (s: string) => strategyMeta[s]?.color || '#909399'
 export const strategyIcon = (s: string) => strategyMeta[s]?.icon || '📊'

@@ -1094,22 +1094,21 @@ class SimulatedBroker:
             
             if avg_cost <= 0:
                 logger.error(f"[BROKER] ❌ 无法找到{order.ts_code}的avg_cost, profit将=0")
-                # 仍然要收回资金
+                # 仍然要收回资金并保存order(不能return跳过_sync_save!)
                 amount = fill_price * order.quantity - total_cost
                 self.account.available_cash += amount
-                return
-            
-            # 用兜底avg_cost计算盈亏
-            profit = (fill_price - avg_cost) * order.quantity - total_cost
-            profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost > 0 and order.quantity > 0 else 0
-            order.profit_pct = round(profit_pct, 2)
-            order.profit_amount = round(profit, 2)
-            order.avg_cost = avg_cost
-            self.account.total_profit += profit
-            self.account.today_profit += profit
-            amount = fill_price * order.quantity - total_cost
-            self.account.available_cash += amount
-            return
+            else:
+                # 用兜底avg_cost计算盈亏
+                profit = (fill_price - avg_cost) * order.quantity - total_cost
+                profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost > 0 and order.quantity > 0 else 0
+                order.profit_pct = round(profit_pct, 2)
+                order.profit_amount = round(profit, 2)
+                order.avg_cost = avg_cost
+                self.account.total_profit += profit
+                self.account.today_profit += profit
+                amount = fill_price * order.quantity - total_cost
+                self.account.available_cash += amount
+            # 不要return! 让place_order继续执行_sync_save_order_and_position
 
         # 计算本笔盈亏
         profit = (fill_price - pos.avg_cost) * order.quantity - total_cost

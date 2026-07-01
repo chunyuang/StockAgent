@@ -86,7 +86,7 @@ async def get_daily_report(date: str = None, mode: str = "production", include_d
                 strategy_summary[key]["loss_count"] += 1
         
         _buy_idx_gdr = {}  # 【v2.9.103】默认空, try块内可能被赋值
-    # 从时间线统计已平仓策略表现
+        # 从时间线统计已平仓策略表现
         # 【v2.9.99-r6】scanner._timeline 的 profit_pct/amount 也是空 (broker 时序问题),
         # 改从 broker_orders 查 + fallback
         try:

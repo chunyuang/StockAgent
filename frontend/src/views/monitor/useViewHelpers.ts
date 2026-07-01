@@ -72,7 +72,10 @@ export function useViewHelpers(deps: {
     // fallback: 用 created_at 时间戳推算
     if (createdAt && createdAt > 0) {
       const d = new Date(createdAt * 1000)
-      const hh = d.getHours(), mm = d.getMinutes()
+      // 用北京时间(UTC+8)判断时段
+      const utcMs = d.getTime() + d.getTimezoneOffset() * 60000
+      const cn = new Date(utcMs + 8 * 3600000)
+      const hh = cn.getHours(), mm = cn.getMinutes()
       const m = hh * 60 + mm
       if (m < 9 * 60 + 30) return 'premarket'
       if (m < 11 * 60 + 30) return 'morning'
@@ -89,7 +92,9 @@ export function useViewHelpers(deps: {
       hh = parseInt(parts[0]); mm = parseInt(parts[1] || '0')
     } else if (createdAt && createdAt > 0) {
       const d = new Date(createdAt * 1000)
-      hh = d.getHours(); mm = d.getMinutes()
+      const utcMs2 = d.getTime() + d.getTimezoneOffset() * 60000
+      const cn2 = new Date(utcMs2 + 8 * 3600000)
+      hh = cn2.getHours(); mm = cn2.getMinutes()
     }
     if (hh === null || mm === null || isNaN(hh) || isNaN(mm)) return 'other'
     return `${String(hh).padStart(2,'0')}:${(mm as number) < 30 ? '00' : '30'}`
