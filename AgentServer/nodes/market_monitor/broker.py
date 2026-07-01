@@ -744,6 +744,15 @@ class SimulatedBroker:
         current_price: float,
     ) -> Tuple[bool, str, int]:
         """买入检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】"""
+        # 【v2.9.110】尾盘禁止新开仓(与MarketPhase.is_open_allowed对齐)
+        try:
+            from nodes.market_monitor.market_phase import MarketPhase
+            if not MarketPhase.is_open_allowed():
+                phase = MarketPhase.classify()
+                return False, f"尾盘({phase})禁止新开仓", 0
+        except Exception:
+            pass  # MarketPhase不可用时不过度阻断
+
         lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
 
         # 【v2.9.92w】涨停可下单但成交不确定(与回测hit_probability对齐，与实盘一致)

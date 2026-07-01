@@ -321,9 +321,11 @@ class SignalManager:
         if self.dry_run:
             self._handle_dry_run(signals)
             return
-        # 【v2.9.96】交易时间闸锁: 只能在交易时段下单(MORNING/AFTERNOON/LATE_TRADING)
-        # 事故案例 6/16 9:28: 手动 scan_once(force=True) 穿越了交易时段检查,
-        # 生成了10笔未开盘时的"实际交易". 这里是下单环节的最后一道防线!
+        # 【v2.9.96→v2.9.110修复】交易时间闸锁:
+        # - 连续竞价时段才允许下单(MORNING/AFTERNOON/LATE_TRADING)
+        # - 尾盘(LATE_TRADING)允许卖出但不允许新开仓(buy信号)
+        #   之前: LATE_TRADING允许buy→尾盘追涨风险
+        #   修复: buy信号额外检查is_open_allowed()
         try:
             from nodes.market_monitor.market_phase import MarketPhase
             phase = MarketPhase.classify()
@@ -344,6 +346,27 @@ class SignalManager:
                         logger.debug(f"[GUARD] signal_manager: {_e}")
                 logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
                 return
+            # 【v2.9.110】尾盘禁止新开仓: 过滤buy信号,保留sell信号
+            if phase == MarketPhase.LATE_TRADING:
+                buy_signals = [s for s in signals if s.signal_type == "buy"]
+                if buy_signals:
+                    for sig in buy_signals:
+                        sig.signal_status = "blocked"
+                        sig.layer_trace = sig.layer_trace or {}
+                        sig.layer_trace["execution"] = {
+                            "mode": "late_trading_no_buy",
+                            "reason": "尾盘(14:30-15:00)禁止新开仓, 仅允许卖出",
+                            "phase": phase,
+                        }
+                        try:
+                            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                                sig.strategy_name, "尾盘禁止新开仓", sig)
+                        except Exception as _e:
+                            logger.debug(f"[GUARD] signal_manager: {_e}")
+                    logger.warning(f"[EXEC] 尾盘禁止新开仓, 过滤{len(buy_signals)}个buy信号")
+                    signals = [s for s in signals if s.signal_type != "buy"]
+                    if not signals:
+                        return
         except Exception as _e:
             logger.debug(f"[EXEC] 交易时间闸锁检查异常仅记录: {_e}")
         for sig in signals:

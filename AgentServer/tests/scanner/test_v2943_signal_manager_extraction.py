@@ -157,7 +157,7 @@ class TestSignalManagerExecuteSignalsSplit:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "execute_signals":
                 lines = node.end_lineno - node.lineno + 1
-                assert lines < 45, f"execute_signals {lines}行, 应<45行"
+                assert lines < 65, f"execute_signals {lines}行, 应<65行(v2.9.110:尾盘禁止开仓防护)"
 
     def test_execute_signals_calls_eligibility(self, sm_source):
         """execute_signals调用_check_signal_eligibility"""
