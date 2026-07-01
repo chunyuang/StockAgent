@@ -32,16 +32,12 @@ watch(() => activeTab?.value, (t) => {
 
 const tlFilter = ref<'all'|'trade'|'blocked'>('trade')
 
-// 【v2.9.110】按交易时段分组 timeline
+// 【v2.9.110】按交易时段分组 timeline (3组简化版)
 const SLOT_DEFS = [
-  { key: 'premarket',  label: '🔍 盘前竞价', timeRange: '09:00-09:25', order: 0 },
-  { key: 'early',      label: '📈 早盘',     timeRange: '09:30-10:30', order: 1 },
-  { key: 'midmorning', label: '📊 上午盘',   timeRange: '10:30-11:30', order: 2 },
-  { key: 'lunch',      label: '🍱 午休',     timeRange: '11:30-13:00', order: 3 },
-  { key: 'afternoon',  label: '📈 下午盘',   timeRange: '13:00-14:30', order: 4 },
-  { key: 'closing',    label: '🔒 尾盘',     timeRange: '14:30-15:00', order: 5 },
-  { key: 'postmarket', label: '🌙 盘后',     timeRange: '15:00+',     order: 6 },
-  { key: 'no_time',    label: '⚠️ 无时间',   timeRange: '',            order: 7 },
+  { key: 'morning',   label: '📈 早盘',   timeRange: '09:00-11:30', order: 0 },
+  { key: 'lunch',     label: '🍱 午休',   timeRange: '11:30-13:00', order: 1 },
+  { key: 'afternoon', label: '📉 下午盘', timeRange: '13:00-15:00', order: 2 },
+  { key: 'no_time',   label: '⚠️ 无时间', timeRange: '',            order: 3 },
 ]
 const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
 
@@ -52,13 +48,9 @@ function getTimeSlotKey(timeStr: string): string {
   const mm = parseInt(parts[1] || '0')
   if (isNaN(hh) || isNaN(mm)) return 'no_time'
   const minutes = hh * 60 + mm
-  if (minutes < 9 * 60 + 30) return 'premarket'
-  if (minutes < 10 * 60 + 30) return 'early'
-  if (minutes < 11 * 60 + 30) return 'midmorning'
+  if (minutes < 11 * 60 + 30) return 'morning'
   if (minutes < 13 * 60) return 'lunch'
-  if (minutes < 14 * 60 + 30) return 'afternoon'
-  if (minutes < 15 * 60) return 'closing'
-  return 'postmarket'
+  return 'afternoon'
 }
 
 const groupedTimeline = computed(() => {
