@@ -1069,6 +1069,46 @@ class SimulatedBroker:
         """执行卖出"""
         pos = self.positions.get(order.ts_code)
         if not pos:
+            # 【v2.9.109修复】position不在内存时,从MongoDB同步查avg_cost
+            logger.warning(f"[BROKER] ⚠️ 卖出{order.ts_code}时position不在内存, 从MongoDB兜底")
+            avg_cost = 0
+            try:
+                if self._ensure_sync_mongo():
+                    pos_doc = self._sync_mongo_db["broker_positions"].find_one(
+                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                    )
+                    if pos_doc:
+                        avg_cost = pos_doc.get("avg_cost", 0)
+                    else:
+                        # 最后兜底: 从broker_orders查最近一笔买入
+                        buy_doc = self._sync_mongo_db["broker_orders"].find_one(
+                            {"account_id": self.account.account_id, "ts_code": order.ts_code,
+                             "side": "buy", "status": "filled"},
+                            sort=[("trade_date", -1)]
+                        )
+                        if buy_doc:
+                            avg_cost = buy_doc.get("filled_price", 0)
+                            logger.warning(f"[BROKER] ⚠️ 从orders兜底 avg_cost={avg_cost} for {order.ts_code}")
+            except Exception as e:
+                logger.error(f"[BROKER] ❌ 兜底查avg_cost失败: {e}")
+            
+            if avg_cost <= 0:
+                logger.error(f"[BROKER] ❌ 无法找到{order.ts_code}的avg_cost, profit将=0")
+                # 仍然要收回资金
+                amount = fill_price * order.quantity - total_cost
+                self.account.available_cash += amount
+                return
+            
+            # 用兜底avg_cost计算盈亏
+            profit = (fill_price - avg_cost) * order.quantity - total_cost
+            profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost > 0 and order.quantity > 0 else 0
+            order.profit_pct = round(profit_pct, 2)
+            order.profit_amount = round(profit, 2)
+            order.avg_cost = avg_cost
+            self.account.total_profit += profit
+            self.account.today_profit += profit
+            amount = fill_price * order.quantity - total_cost
+            self.account.available_cash += amount
             return
 
         # 计算本笔盈亏
