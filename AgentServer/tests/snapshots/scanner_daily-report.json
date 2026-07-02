@@ -21,11 +21,11 @@
         "closed_win_rate": "int",
         "stop_loss_count": "int",
         "take_profit_count": "int",
-        "avg_win_pct": "int",
-        "avg_loss_pct": "int",
-        "profit_loss_ratio": "int",
-        "max_win_pct": "int",
-        "max_loss_pct": "int"
+        "avg_win_pct": "float",
+        "avg_loss_pct": "float",
+        "profit_loss_ratio": "float",
+        "max_win_pct": "float",
+        "max_loss_pct": "float"
       }
     },
     "top_profit": [

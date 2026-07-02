@@ -60,7 +60,15 @@
     "start_date": "str",
     "end_date": "str",
     "drifts": [
-      "<empty_list>"
+      {
+        "level": "str",
+        "strategy": "str",
+        "param_type": "str",
+        "key": "str",
+        "old": "int",
+        "new": "int",
+        "severity": "str"
+      }
     ],
     "drift_count": "int",
     "high_severity": "int"

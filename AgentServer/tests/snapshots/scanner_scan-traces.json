@@ -90,21 +90,8 @@
           }
         ]
       },
-      "l9_results": {
-        "002106": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "301328": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        }
+      "layer_details": {
+        "L1_force_empty": "str"
       },
       "scan_id": "str",
       "exec": {

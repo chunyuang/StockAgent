@@ -31,13 +31,15 @@
     "max_single_pct": "int",
     "top_industry_concentration": "float",
     "industry_exposure": {
+      "造纸": "float",
       "旅游景点": "float",
-      "机械基件": "float",
-      "半导体": "float",
-      "装修装饰": "float",
-      "IT设备": "float",
-      "元器件": "float",
-      "纺织": "float"
+      "饲料": "float",
+      "家居用品": "float",
+      "农业综合": "float",
+      "医疗保健": "float",
+      "纺织": "float",
+      "建筑工程": "float",
+      "化学制药": "float"
     },
     "position_count": "int",
     "risk_summary": {
