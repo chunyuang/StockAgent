@@ -1936,7 +1936,7 @@ class PortfolioBacktester:
             del stock_to_strategy[k]
 
         selected_strategies = config.get("selected_strategies", [])
-        selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
+        selected_strategy_names = [s.get("name", s.get("id", "未知策略")) for s in selected_strategies] if selected_strategies else []
 
         # 【修复#7:统一调用策略条件构建方法,消除重复定义】
         strategy_configs = {}

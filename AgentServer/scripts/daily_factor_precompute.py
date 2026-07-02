@@ -152,7 +152,8 @@ def precompute_factors(trade_date: int):
             # pullback_days: 连续回调天数
             pb_days = 0
             for j in range(len(group) - 1, max(len(group) - 10, -1), -1):
-                pb_val = (float(group.iloc[j]['close']) - float(group.iloc[j-max(0,j-len(group)+10):j+1]['high'].max())) / float(group.iloc[j-max(0,j-len(group)+10):j+1]['high'].max()) if len(group) > 0 else 0
+                window_high = float(group.iloc[j-max(0,j-len(group)+10):j+1]['high'].max())
+                pb_val = (float(group.iloc[j]['close']) - window_high) / window_high if window_high > 0 else 0
                 if pb_val < -0.01:
                     pb_days += 1
                 else:

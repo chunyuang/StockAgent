@@ -100,7 +100,15 @@ export function useViewHelpers(deps: {
     return `${String(hh).padStart(2,'0')}:${(mm as number) < 30 ? '00' : '30'}`
   }
   const signalsByHour = computed(() => {
-    const sigs = visibleSignals.value as any[]
+    const rawSigs = visibleSignals.value as any[]
+    // 去重: 同一 (ts_code, strategy) 只保留一条(最新)
+    const seen = new Set<string>()
+    const sigs = rawSigs.filter(s => {
+      const k = `${s.ts_code}|${s.strategy}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
     if (!sigs.length) return []
     const slotMap = new Map<string, any[]>()
     for (const sig of sigs) {

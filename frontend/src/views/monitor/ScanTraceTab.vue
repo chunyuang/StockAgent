@@ -275,6 +275,42 @@ function toggleScanDetail(s: any) {
   fetchScanTrace(s.scan_id || '')
 }
 
+// 【v2.9.110】盘前竞价汇总：漏斗 + 持仓风险（取最后一条快照）
+const premarketSummary = computed(() => {
+  const tl = (premarketTimeline as any)?.value || []
+  if (!tl.length) return null
+  const last = tl[tl.length - 1]
+  const fec = last?.force_empty_confirm || {}
+  const pos = fec.position_risk || {}
+  const funnel = last?.funnel || {}
+  return {
+    riskLevel: fec.risk_level || 'L0',
+    riskScore: fec.risk_score || 0,
+    riskReason: fec.reason || '',
+    funnel: {
+      totalScanned: funnel.total_scanned || 0,
+      strategyCandidates: funnel.strategy_candidates || 0,
+      afterPipeline: funnel.after_pipeline || 0,
+    },
+    positionRisk: {
+      count: pos.count || 0,
+      redCount: pos.red_count || 0,
+      weakCount: pos.weak_count || 0,
+      avgPctChg: pos.avg_pct_chg || 0,
+      weakCodes: pos.weak_codes || [],
+      items: (pos.items || []).map((it: any) => ({
+        ts_code: it.ts_code,
+        stock_name: it.stock_name,
+        strategy: it.strategy,
+        profit_pct: it.profit_pct,
+        auction_pct_chg: it.auction_pct_chg,
+        weak: it.weak,
+        near_limit_down: it.near_limit_down,
+      })),
+    },
+  }
+})
+
 // 【v2.9.110】缩短淘汰原因，用于 tag 显示
 function shortRejectionReason(reason: string): string {
   if (!reason) return ''
@@ -445,6 +481,43 @@ onMounted(async () => {
                         <span class="ss-pass">{{ snap.display_funnel?.final_passed || snap.passed || 0 }}</span>
                       </span>
                       <span v-if="snap.force_empty_confirm?.risk_level && snap.force_empty_confirm.risk_level !== 'L0'" class="ss-risk-tag" :style="{ color: snap.force_empty_confirm.risk_level >= 'L1' ? '#f56c6c' : '#e6a23c' }">{{ snap.force_empty_confirm.risk_level }}</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- 盘前竞价汇总：筛选漏斗 + 持仓风险 -->
+                <div v-if="premarketSummary" class="pm-summary-panel">
+                  <!-- 筛选漏斗 -->
+                  <div class="pm-funnel">
+                    <span class="pm-funnel-title">📊 筛选漏斗</span>
+                    <span class="pm-funnel-step">全市场 <b>{{ premarketSummary.funnel.totalScanned }}</b></span>
+                    <span class="pm-funnel-arrow">▶</span>
+                    <span class="pm-funnel-step">策略候选 <b :class="premarketSummary.funnel.strategyCandidates > 0 ? 'has-buy' : ''">{{ premarketSummary.funnel.strategyCandidates }}</b></span>
+                    <span class="pm-funnel-arrow">▶</span>
+                    <span class="pm-funnel-step">通过管线 <b :class="premarketSummary.funnel.afterPipeline > 0 ? 'has-buy' : ''">{{ premarketSummary.funnel.afterPipeline }}</b></span>
+                    <span v-if="premarketSummary.funnel.afterPipeline === 0" class="pm-funnel-empty">无候选股通过</span>
+                  </div>
+                  <!-- 持仓风险 -->
+                  <div v-if="premarketSummary.positionRisk.count > 0" class="pm-pos-risk">
+                    <span class="pm-pos-title">⚠️ 持仓风险</span>
+                    <span class="pm-pos-stat">持仓 <b>{{ premarketSummary.positionRisk.count }}</b></span>
+                    <span v-if="premarketSummary.positionRisk.redCount > 0" class="pm-pos-stat red">红区 <b>{{ premarketSummary.positionRisk.redCount }}</b></span>
+                    <span v-if="premarketSummary.positionRisk.weakCount > 0" class="pm-pos-stat weak">弱势 <b>{{ premarketSummary.positionRisk.weakCount }}</b></span>
+                    <span class="pm-pos-stat">竞价均涨 <b :class="premarketSummary.positionRisk.avgPctChg < 0 ? 'down' : 'up'">{{ premarketSummary.positionRisk.avgPctChg > 0 ? '+' : '' }}{{ premarketSummary.positionRisk.avgPctChg.toFixed(2) }}%</b></span>
+                    <span v-if="premarketSummary.riskLevel !== 'L0'" class="pm-risk-tag" :class="premarketSummary.riskLevel >= 'L1' ? 'red' : 'orange'">{{ premarketSummary.riskLevel }} · {{ premarketSummary.riskReason }}</span>
+                    <!-- 弱势股明细 -->
+                    <div v-if="premarketSummary.positionRisk.items.some((it:any) => it.weak)" class="pm-weak-list">
+                      <span v-for="it in premarketSummary.positionRisk.items.filter((it:any) => it.weak)" :key="it.ts_code" class="pm-weak-item">
+                        {{ it.stock_name }} <span class="pm-weak-pct" :class="it.profit_pct < 0 ? 'down' : 'up'">{{ it.profit_pct > 0 ? '+' : '' }}{{ it.profit_pct?.toFixed(2) }}%</span>
+                        <span class="pm-weak-auct">竞价{{ it.auction_pct_chg > 0 ? '+' : '' }}{{ it.auction_pct_chg?.toFixed(2) }}%</span>
+                      </span>
+                    </div>
+                    <!-- 全部持仓竞价表现 -->
+                    <div class="pm-pos-list">
+                      <span v-for="it in premarketSummary.positionRisk.items" :key="it.ts_code" class="pm-pos-item" :class="{ weak: it.weak, red: it.profit_pct < -5 }">
+                        <span class="pm-pos-name">{{ it.stock_name }}</span>
+                        <span class="pm-pos-pct" :class="it.profit_pct < 0 ? 'down' : 'up'">{{ it.profit_pct > 0 ? '+' : '' }}{{ it.profit_pct?.toFixed(2) }}%</span>
+                        <span class="pm-pos-auct" :class="it.auction_pct_chg < 0 ? 'down' : 'up'">竞{{ it.auction_pct_chg > 0 ? '+' : '' }}{{ it.auction_pct_chg?.toFixed(2) }}%</span>
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -674,6 +747,132 @@ onMounted(async () => {
 .sc-phase-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .ss-mini { font-size: 10px; font-weight: 500; }
 .ss-risk-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 3px; background: rgba(245,108,108,0.12); }
+/* 盘前竞价汇总面板 */
+.pm-summary-panel { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; background: rgba(64,158,255,0.04); border: 1px solid rgba(64,158,255,0.12); display: flex; flex-direction: column; gap: 6px; }
+.pm-funnel { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; }
+.pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
+.pm-funnel-step { padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.04); font-size: 11px; }
+.pm-funnel-step b { font-weight: 700; }
+.pm-funnel-step b.has-buy { color: #67c23a; }
+.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
+.pm-funnel-empty { font-size: 11px; color: var(--el-color-info); margin-left: 4px; }
+.pm-pos-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.pm-pos-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
+.pm-pos-stat { padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.04); font-size: 11px; }
+.pm-pos-stat.red { background: rgba(245,108,108,0.1); color: #f56c6c; }
+.pm-pos-stat.weak { background: rgba(230,162,60,0.1); color: #e6a23c; }
+.pm-risk-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
+.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
+.pm-weak-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.pm-weak-item { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(245,108,108,0.08); border: 1px solid rgba(245,108,108,0.2); display: inline-flex; align-items: center; gap: 3px; }
+.pm-weak-pct { font-weight: 700; }
+.pm-weak-auct { font-size: 10px; color: var(--text-tertiary); }
+.pm-pos-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(0,0,0,0.06); }
+.pm-pos-item { font-size: 11px; padding: 2px 5px; border-radius: 3px; background: rgba(0,0,0,0.03); display: inline-flex; align-items: center; gap: 3px; }
+.pm-pos-item.weak { background: rgba(245,108,108,0.08); }
+.pm-pos-item.red { background: rgba(245,108,108,0.12); }
+.pm-pos-name { font-weight: 600; }
+.pm-pos-pct { font-weight: 700; font-size: 10px; }
+.pm-pos-auct { font-size: 9px; color: var(--text-tertiary); }
+.up { color: #f56c6c; }
+.down { color: #67c23a; }
+/* 盘前竞价汇总面板 */
+.pm-summary-panel { margin: 6px 0 4px 8px; padding: 6px 8px; border-radius: 7px; background: rgba(64,158,255,0.04); border: 1px solid rgba(64,158,255,0.12); display: flex; flex-direction: column; gap: 4px; }
+.pm-funnel { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; }
+.pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
+.pm-funnel-step { color: var(--text-secondary); }
+.pm-funnel-step b { color: var(--text-primary); font-weight: 700; }
+.pm-funnel-step b.has-buy { color: #67c23a; }
+.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
+.pm-funnel-empty { color: #909399; font-size: 10px; margin-left: 4px; }
+.pm-pos-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.pm-pos-title { font-weight: 700; color: var(--text-primary); margin-right: 2px; }
+.pm-pos-stat { color: var(--text-secondary); }
+.pm-pos-stat b { font-weight: 700; }
+.pm-pos-stat.red b { color: #f56c6c; }
+.pm-pos-stat.weak b { color: #e6a23c; }
+.pm-risk-tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
+.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
+.pm-weak-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.pm-weak-item { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(230,162,60,0.1); color: #e6a23c; display: inline-flex; gap: 3px; align-items: center; }
+.pm-weak-pct { font-weight: 700; }
+.pm-weak-auct { font-size: 9px; opacity: 0.8; }
+.pm-pos-list { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
+.pm-pos-item { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(64,158,255,0.06); display: inline-flex; gap: 3px; align-items: center; }
+.pm-pos-item.weak { background: rgba(230,162,60,0.1); }
+.pm-pos-item.red { background: rgba(245,108,108,0.1); }
+.pm-pos-name { color: var(--text-primary); font-weight: 600; }
+.pm-pos-pct { font-weight: 700; }
+.pm-pos-auct { font-size: 9px; opacity: 0.7; }
+/* 盘前竞价汇总面板 */
+.pm-summary-panel { margin: 6px 0 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.pm-funnel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-radius: 7px; background: rgba(64,158,255,0.05); border: 1px solid rgba(64,158,255,0.12); font-size: 11px; }
+.pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
+.pm-funnel-step { color: var(--text-secondary); }
+.pm-funnel-step b { color: var(--text-primary); font-weight: 700; }
+.pm-funnel-step b.has-buy { color: #f56c6c; }
+.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
+.pm-funnel-empty { color: var(--el-color-info); font-size: 10px; margin-left: 4px; }
+.pm-pos-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-radius: 7px; background: rgba(230,162,60,0.04); border: 1px solid rgba(230,162,60,0.1); font-size: 11px; }
+.pm-pos-title { font-weight: 700; color: #e6a23c; margin-right: 4px; }
+.pm-pos-stat { color: var(--text-secondary); }
+.pm-pos-stat b { font-weight: 700; }
+.pm-pos-stat.red b { color: #f56c6c; }
+.pm-pos-stat.weak b { color: #e6a23c; }
+.pm-pos-stat .up, .pm-pos-stat .down { font-weight: 700; }
+.pm-risk-tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
+.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
+.pm-weak-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.pm-weak-item { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(245,108,108,0.08); color: var(--text-primary); }
+.pm-weak-pct { font-weight: 700; margin-left: 2px; }
+.pm-weak-pct.up { color: #f56c6c; }
+.pm-weak-pct.down { color: #67c23a; }
+.pm-weak-auct { color: var(--text-tertiary); margin-left: 2px; font-size: 9px; }
+.pm-pos-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(128,128,128,0.15); }
+.pm-pos-item { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(128,128,128,0.06); display: inline-flex; align-items: center; gap: 3px; }
+.pm-pos-item.weak { background: rgba(245,108,108,0.08); }
+.pm-pos-item.red { background: rgba(245,108,108,0.12); }
+.pm-pos-name { font-weight: 600; }
+.pm-pos-pct { font-weight: 700; font-size: 9px; }
+.pm-pos-pct.up { color: #f56c6c; }
+.pm-pos-pct.down { color: #67c23a; }
+.pm-pos-auct { font-size: 9px; color: var(--text-tertiary); }
+.pm-pos-auct.up { color: #f56c6c; }
+.pm-pos-auct.down { color: #67c23a; }
+/* 盘前竞价汇总面板 */
+.pm-summary-panel { margin: 6px 0 10px 0; padding: 8px 10px; border-radius: 8px; background: rgba(64,158,255,0.04); border: 1px solid rgba(64,158,255,0.12); display: flex; flex-direction: column; gap: 6px; }
+.pm-funnel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.pm-funnel-title { font-weight: 700; color: var(--text-secondary); margin-right: 4px; }
+.pm-funnel-step { font-size: 11px; color: var(--text-secondary); }
+.pm-funnel-step b { color: var(--text-primary); font-weight: 700; }
+.pm-funnel-step b.has-buy { color: #67c23a; }
+.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
+.pm-funnel-empty { font-size: 10px; color: #909399; margin-left: 4px; }
+.pm-pos-risk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; }
+.pm-pos-title { font-weight: 700; color: var(--text-secondary); margin-right: 2px; }
+.pm-pos-stat { font-size: 11px; color: var(--text-secondary); }
+.pm-pos-stat b { font-weight: 700; }
+.pm-pos-stat.red b { color: #f56c6c; }
+.pm-pos-stat.weak b { color: #e6a23c; }
+.pm-risk-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
+.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
+.pm-weak-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.pm-weak-item { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.2); display: inline-flex; gap: 3px; align-items: center; }
+.pm-weak-pct { font-weight: 700; }
+.pm-weak-auct { font-size: 9px; opacity: 0.7; }
+.pm-pos-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+.pm-pos-item { font-size: 10px; padding: 2px 5px; border-radius: 3px; background: rgba(144,147,153,0.08); display: inline-flex; gap: 3px; align-items: center; }
+.pm-pos-item.weak { background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.15); }
+.pm-pos-item.red { background: rgba(245,108,108,0.08); border: 1px solid rgba(245,108,108,0.12); }
+.pm-pos-name { font-weight: 600; color: var(--text-primary); }
+.pm-pos-pct { font-weight: 700; font-size: 9px; }
+.pm-pos-auct { font-size: 9px; opacity: 0.65; }
+.up { color: #f56c6c; }
+.down { color: #67c23a; }
 
 /* 30分钟子分组 */
 .scan-sub-groups { padding: 4px 0 0 12px; }

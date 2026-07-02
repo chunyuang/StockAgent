@@ -93,8 +93,9 @@ def compute_strategy_factors(td):
         ops = []
         for ts_code, data in stock_data.items():
             data.sort()
-            if len(data) >= ma_n:
-                ma_val = sum(d[1] for d in data[-ma_n:]) / ma_n
+            close_vals = [d[1] for d in data[-ma_n:] if d[1] is not None and d[1] != 0]
+            if len(close_vals) >= ma_n * 0.8:  # 至少80%有值
+                ma_val = sum(close_vals) / len(close_vals)
                 ops.append(UpdateOne({'ts_code': ts_code, 'trade_date': td}, {'$set': {ma_key: round(ma_val, 4)}}))
         
         if ops:
@@ -106,10 +107,10 @@ def compute_strategy_factors(td):
     ops = []
     for doc in cursor:
         update = {}
-        pct = doc.get('pct_chg', 0)
-        close = doc.get('close', 0)
-        pre_close = doc.get('pre_close', 0)
-        open_price = doc.get('open', 0)
+        pct = doc.get('pct_chg') or 0
+        close = doc.get('close') or 0
+        pre_close = doc.get('pre_close') or 0
+        open_price = doc.get('open') or 0
         
         # 涨停: pct_chg >= 9.9% (考虑四舍五入)
         is_limit_up = 1 if pct >= 9.9 else 0
@@ -164,11 +165,11 @@ def compute_technical_factors(td):
         if len(df) < 30:
             continue
         
-        close_arr = df['close'].values.astype(float)
-        high_arr = df['high'].values.astype(float)
-        low_arr = df['low'].values.astype(float)
-        open_arr = df['open'].values.astype(float)
-        vol_arr = df['vol'].values.astype(float)
+        close_arr = df['close'].fillna(0).values.astype(float)
+        high_arr = df['high'].fillna(0).values.astype(float)
+        low_arr = df['low'].fillna(0).values.astype(float)
+        open_arr = df['open'].fillna(0).values.astype(float)
+        vol_arr = df['vol'].fillna(0).values.astype(float)
         
         update = {}
         try:

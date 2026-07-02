@@ -90,7 +90,16 @@ export function useScannerMonitor() {
   const limitPoolTab = ref('limit_up')
   const nowMs = ref(Date.now())
   const signalFilter = ref('all')
-  const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_') || s.strategy_name?.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value || s.strategy_name === signalFilter.value) })
+  const filteredSignals = computed(() => {
+    const base = signalFilter.value === 'all' ? signals.value : signalFilter.value === 'anomaly' ? signals.value.filter(s => s.strategy.startsWith('anomaly_') || s.strategy_name?.startsWith('anomaly_')) : signals.value.filter(s => s.strategy === signalFilter.value || s.strategy_name === signalFilter.value)
+    // 【v2.9.110】去重: 同一 (ts_code, strategy) 只保留最后一条(最新扫描)
+    const seen = new Map<string, any>()
+    for (const s of base) {
+      const k = `${s.ts_code}|${s.strategy}`
+      seen.set(k, s)
+    }
+    return [...seen.values()]
+  })
   const focusIndex = ref(-1)
   const manualTrade = reactive({ ts_code: '', stock_name: '', side: 'buy', quantity: 0, price: 0 })
   const manualQuote = ref<any>(null)
