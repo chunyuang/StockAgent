@@ -755,9 +755,30 @@ class PortfolioBacktester:
         Returns:
             set: 该策略选出的候选股票集合
         """
+        # 【V100修复:统一strategy_name为中文名,兼容API传入英文ID(如first_limit_up)】
+        # 根因: _build_strategy_filter_conditions和本函数的if/elif用中文名匹配
+        # 但API请求的selected_strategies只有id字段,导致strategy_name="first_limit_up"
+        # 中文匹配失败→返回空条件→候选=全量→回测0笔first_limit_up交易
+        _sn2id = self._strategy_name_to_id
+        _id2cn = {sid: cfg.get('name', sid) for sid, cfg in STRATEGY_CONFIGS.items()}
+        # 如果strategy_name是英文ID,转中文名; 如果已经是中文,不变
+        if strategy_name in _id2cn:
+            strategy_name = _id2cn[strategy_name]
+        elif strategy_name in _sn2id:
+            # strategy_name是中文名,不变
+            pass
+        
         # 跳过未选中的策略
         if strategy_name not in all_selected_strategies:
-            return set()
+            # 英文ID可能在all_selected_strategies中
+            matched = False
+            for s in all_selected_strategies:
+                s_name = s if isinstance(s, str) else s.get('name', s.get('id', ''))
+                if s_name == strategy_name or _sn2id.get(s_name) == _sn2id.get(strategy_name) or s_name == _sn2id.get(strategy_name, ''):
+                    matched = True
+                    break
+            if not matched:
+                return set()
 
         await self.log(f"")
         await self.log(f"   ┌───────────────────────────────────────────────────────")
@@ -1936,13 +1957,19 @@ class PortfolioBacktester:
             del stock_to_strategy[k]
 
         selected_strategies = config.get("selected_strategies", [])
-        selected_strategy_names = [s.get("name", s.get("id", "未知策略")) for s in selected_strategies] if selected_strategies else []
+        # 【V100修复:统一selected_strategy_names为中文名】
+        _id2cn = {sid: cfg.get('name', sid) for sid, cfg in STRATEGY_CONFIGS.items()}
+        selected_strategy_names = [_id2cn.get(s.get("id", s.get("name", "")), s.get("name", s.get("id", "未知策略"))) for s in selected_strategies] if selected_strategies else []
 
         # 【修复#7:统一调用策略条件构建方法,消除重复定义】
         strategy_configs = {}
         # 遍历所有传入的策略配置,动态构建筛选条件
         for s in selected_strategies:
             strategy_name = s.get("name", s.get("id", "未知策略"))
+            # 【V100修复:统一strategy_name为中文名,确保strategy_configs的key与筛选函数匹配】
+            _id2cn = {sid: cfg.get('name', sid) for sid, cfg in STRATEGY_CONFIGS.items()}
+            if strategy_name in _id2cn:
+                strategy_name = _id2cn[strategy_name]  # first_limit_up → 首板打板
             # 🔧 统一merge默认值: 用户参数优先, 缺失从STRATEGY_CONFIGS取
             strategy_id = s.get("id", "")
             params = merge_strategy_params(strategy_id, s.get("params", {}))
@@ -3874,6 +3901,11 @@ class PortfolioBacktester:
                 converted_params[k] = float(v)
             else:
                 converted_params[k] = v
+
+        # 【V100修复:统一strategy_name为中文名,兼容API传入英文ID】
+        _id2cn = {sid: cfg.get('name', sid) for sid, cfg in STRATEGY_CONFIGS.items()}
+        if strategy_name in _id2cn:
+            strategy_name = _id2cn[strategy_name]
 
         # 【P1-9修复:从STRATEGY_CONFIGS读取默认值,不再硬编码】
         strategy_id = self._strategy_name_to_id.get(strategy_name, "")
