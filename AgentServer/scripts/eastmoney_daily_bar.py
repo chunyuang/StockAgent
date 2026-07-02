@@ -181,6 +181,28 @@ def write_daily_bar(trade_date=None):
         )
     
     if updates:
+        # 【数据完整性校验】写入前检查关键字段单位是否正确
+        sample = updates[0]  # 取第一条检查
+        doc = sample._doc if hasattr(sample, '_doc') else {}
+        # UpdateOne的filter/update结构
+        if hasattr(sample, '_doc') and '$set' in sample._doc:
+            check = sample._doc['$set']
+        elif isinstance(doc, dict) and '$set' in doc:
+            check = doc['$set']
+        else:
+            check = {}
+        
+        tr = check.get('turnover_rate', 0)
+        if tr and tr > 100:
+            print(f"⚠️ 警告: turnover_rate={tr}% >100%! 可能被×100了, 跳过写入!")
+            print(f"  标准单位: 百分数(如5.31表示5.31%), 不是531")
+            return
+        
+        circ = check.get('circ_mv', 0)
+        if circ and circ < 1 and circ > 0:
+            print(f"⚠️ 警告: circ_mv={circ}万元 <1万! 可能是亿元单位, 跳过写入!")
+            return
+        
         t1 = time.time()
         result = db.stock_daily_ak_full.bulk_write(updates, ordered=False)
         print(f"写入 {result.upserted_count + result.modified_count} 条, 耗时 {time.time()-t1:.1f}s")

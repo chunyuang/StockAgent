@@ -170,6 +170,17 @@ def write_to_daily_basic(trade_date=None):
     
     # 批量写入
     if updates:
+        # 【数据完整性校验】写入前检查turnover_rate单位
+        sample = updates[0]
+        if hasattr(sample, '_doc') and '$set' in sample._doc:
+            check = sample._doc['$set']
+        else:
+            check = {}
+        tr = check.get('turnover_rate', 0)
+        if tr and tr > 100:
+            print(f"⚠️ 警告: turnover_rate={tr}% >100%! 可能被×100了, 跳过写入!")
+            return
+        
         t1 = time.time()
         result = db.daily_basic.bulk_write(updates, ordered=False)
         write_time = time.time() - t1
