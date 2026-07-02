@@ -75,7 +75,8 @@ const riskScore = computed(() => {
   const n = globalRisk.value?.risk_summary?.normal ?? 0
   const t = c + w + n
   if (t === 0) return 0
-  // 【v2.9.106】加权评分: critical=80, warning=45, normal=10, 然后按持仓数归一化到0-100
+  // 【v2.9.112】加权评分: critical=80, warning=45, normal=10, 归一化到0-100
+  // 15维度: D1(25)+D2(15)+D3(15)+D4(10)+D5(10)+D6(5)+D7(5)+D8(5)+D9(5)+D10(3)+D11(2)+D12(2)+D13(2)+D14(2)+D15(2)=108, cap=100
   return safeNum(Math.round((c * 80 + w * 45 + n * 10) / t))
 })
 

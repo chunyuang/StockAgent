@@ -67,7 +67,7 @@ const overviewChart = computed(() => {
         s += `<div>净值 <b>¥${values[idx].toLocaleString()}</b></div>`
         s += `<div>策略 <b style="color:${returns[idx]>=0?'#f56c6c':'#409eff'}">${fmtPct(returns[idx])}</b></div>`
         if (hasBm && bmReturns[idx] != null) s += `<div>沪深300 <b style="color:#e6a23c">${fmtPct(bmReturns[idx])}</b></div>`
-        s += `<div>回撤 <b style="color:#409eff">${(drawdowns[idx]??0).toFixed(2)}%</b></div>`
+        s += `<div>回撤 <b style="color:#409eff">${Number(drawdowns[idx]??0).toFixed(2)}%</b></div>`
         return s
       }
     },
@@ -109,7 +109,7 @@ const dailyPnlChart = computed(() => {
       formatter: (params: any[]) => {
         const idx = params[0]?.dataIndex ?? 0; const x = d[idx]; if (!x) return ''
         const v = x.profit || 0; const r = dailyRet[idx]
-        return `<b>${x.date}</b><br/>盈亏 <b style="color:${v>=0?'#f56c6c':'#409eff'}">${fmtPnl(v)}</b><br/>日收益 <b>${r>=0?'+':''}${r.toFixed(3)}%</b><br/><span style="color:#aaa;font-size:11px">买${x.buys||0}笔 卖${x.sells||0}笔</span>`
+        return `<b>${x.date}</b><br/>盈亏 <b style="color:${v>=0?'#f56c6c':'#409eff'}">${fmtPnl(v)}</b><br/>日收益 <b>${r>=0?'+':''}${Number(r||0).toFixed(3)}%</b><br/><span style="color:#aaa;font-size:11px">买${x.buys||0}笔 卖${x.sells||0}笔</span>`
       }
     },
     legend: { data: ['盈亏¥', '日收益%'], top: 2, right: 8, textStyle: { fontSize: 10, color: '#999' }, itemWidth: 14, itemHeight: 7 },
@@ -203,12 +203,12 @@ const assetPie = computed(() => {
   const pos = positions.value
   const cash = kpiData.value?.account?.available_cash || 0
   if (!pos.length && !cash) return null
-  const items = pos.map((p: any) => ({ value: Math.round(p.market_value||0), name: (p.stock_name||p.ts_code?.slice(0,6))+' '+(p.profit_pct||0).toFixed(1)+'%', itemStyle: { color: (p.profit_pct||0)>=0?'#f56c6c':'#409eff' } }))
+  const items = pos.map((p: any) => ({ value: Math.round(p.market_value||0), name: (p.stock_name||p.ts_code?.slice(0,6))+' '+Number(p.profit_pct||0).toFixed(1)+'%', itemStyle: { color: Number(p.profit_pct||0)>=0?'#f56c6c':'#409eff' } }))
   if (cash > 0) items.push({ value: Math.round(cash), name: '可用现金', itemStyle: { color: '#909399' } })
   return {
-    tooltip: { trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 }, formatter: (p: any) => `<b>${p.name}</b><br/>¥${p.value.toLocaleString()} (${(p.percent??0).toFixed(1)}%)` },
+    tooltip: { trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 }, formatter: (p: any) => `<b>${p.name}</b><br/>¥${p.value.toLocaleString()} (${Number((p.percent ?? 0) || 0).toFixed(1)}%)` },
     legend: { bottom: 0, textStyle: { fontSize: 10, color: '#999' }, itemWidth: 10, itemHeight: 8, type: 'scroll' },
-    series: [{ type: 'pie', radius: ['30%','60%'], center: ['50%','42%'], label: { formatter: (p: any) => `${p.name.split(' ')[0]}\n¥${(p.value/10000).toFixed(1)}万`, fontSize: 9, color: '#ccc', lineHeight: 13 }, labelLine: { lineStyle: { color: '#555' } }, itemStyle: { borderColor: '#1a1a2e', borderWidth: 2 }, emphasis: { label: { fontSize: 11, fontWeight: 'bold' } }, data: items }]
+    series: [{ type: 'pie', radius: ['30%','60%'], center: ['50%','42%'], label: { formatter: (p: any) => `${p.name.split(' ')[0]}\n¥${Number(p.value/10000||0).toFixed(1)}万`, fontSize: 9, color: '#ccc', lineHeight: 13 }, labelLine: { lineStyle: { color: '#555' } }, itemStyle: { borderColor: '#1a1a2e', borderWidth: 2 }, emphasis: { label: { fontSize: 11, fontWeight: 'bold' } }, data: items }]
   }
 })
 
@@ -223,16 +223,16 @@ const metricGroups = computed(() => {
       { name: '期望值', value: fmtPnl(k.expectancy||0), desc: '每笔期望盈亏' },
     ]},
     { title: '⚠️ 风险指标', items: [
-      { name: '最大回撤', value: '-'+(k.max_drawdown||0).toFixed(2)+'%', desc: '历史最大' },
-      { name: '夏普比率', value: (k.sharpe_ratio||0).toFixed(2), desc: '风险调整收益(>1优)', cls: (k.sharpe_ratio||0)>=1?'up':'down' },
-      { name: '索提诺比率', value: (k.sortino_ratio||0).toFixed(2), desc: '仅下行风险(>1优)', cls: (k.sortino_ratio||0)>=1?'up':'down' },
-      { name: '卡尔马比率', value: (k.calmar_ratio||0).toFixed(2), desc: '收益/最大回撤(>3优)', cls: (k.calmar_ratio||0)>=3?'up':'down' },
+      { name: '最大回撤', value: '-'+Number(k.max_drawdown||0).toFixed(2)+'%', desc: '历史最大' },
+      { name: '夏普比率', value: Number(k.sharpe_ratio||0).toFixed(2), desc: '风险调整收益(>1优)', cls: Number(k.sharpe_ratio||0)>=1?'up':'down' },
+      { name: '索提诺比率', value: Number(k.sortino_ratio||0).toFixed(2), desc: '仅下行风险(>1优)', cls: Number(k.sortino_ratio||0)>=1?'up':'down' },
+      { name: '卡尔马比率', value: Number(k.calmar_ratio||0).toFixed(2), desc: '收益/最大回撤(>3优)', cls: Number(k.calmar_ratio||0)>=3?'up':'down' },
     ]},
     { title: '⚡ 效率指标', items: [
-      { name: '盈亏因子', value: (k.profit_factor||0).toFixed(2), desc: '总盈利/总亏损(>1优)', cls: (k.profit_factor||0)>=1?'up':'down' },
-      { name: '胜率', value: (k.win_rate||0).toFixed(1)+'%', desc: `${k.win_count||0}胜/${k.loss_count||0}负` },
-      { name: '盈亏比', value: (k.profit_loss_ratio||0).toFixed(2), desc: '平均盈利/平均亏损', cls: (k.profit_loss_ratio||0)>=1?'up':'down' },
-      { name: '均盈/均亏', value: `${(k.avg_win_pct||0).toFixed(2)}%/${(k.avg_loss_pct||0).toFixed(2)}%`, desc: '单笔平均' },
+      { name: '盈亏因子', value: Number(k.profit_factor||0).toFixed(2), desc: '总盈利/总亏损(>1优)', cls: Number(k.profit_factor||0)>=1?'up':'down' },
+      { name: '胜率', value: Number(k.win_rate||0).toFixed(1)+'%', desc: `${k.win_count||0}胜/${k.loss_count||0}负` },
+      { name: '盈亏比', value: Number(k.profit_loss_ratio||0).toFixed(2), desc: '平均盈利/平均亏损', cls: Number(k.profit_loss_ratio||0)>=1?'up':'down' },
+      { name: '均盈/均亏', value: `${Number(k.avg_win_pct||0).toFixed(2)}%/${Number(k.avg_loss_pct||0).toFixed(2)}%`, desc: '单笔平均' },
       { name: '连赢/连亏', value: `${k.max_consec_win||0}/${k.max_consec_loss||0}`, desc: '最大连续' },
       { name: '总交易', value: String(k.total_trades||0), desc: '笔' },
     ]},
