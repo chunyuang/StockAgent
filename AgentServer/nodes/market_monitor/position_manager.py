@@ -270,13 +270,41 @@ class PositionManager:
         if pos.profit_pct <= stop_loss_pct:
             if today_open and today_open > 0 and today_open < stop_loss_price:
                 # 跳空止损: 今日开盘价低于止损价
-                gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
-                sell_reason = (
-                    f"跳空止损·开{today_open:.2f}<止损{stop_loss_price:.2f} "
-                    f"成本{pos.avg_cost:.2f} 跳空{gap_pct:+.1f}% "
-                    f"浮亏{pos.profit_pct:+.1f}%"
+                # 【观察期优化】开盘跳空≠趋势反转,给30分钟观察
+                # 数据证据: 12笔跳空止损平均亏-5.7%远超3%止损线
+                # 但部分跳空是洗盘,30分钟后可能回升
+                from datetime import datetime as _dt
+                now = _dt.now()
+                # 9:30-10:00为观察期, 跳空止损延迟到10:00执行
+                in_observation = (
+                    now.hour == 9 and now.minute >= 30 or
+                    now.hour == 10 and now.minute == 0
                 )
-                sell_price = today_open
+                if in_observation:
+                    # 观察期内: 如果当前价已回到止损线以上, 取消止损
+                    current_price = pos.current_price
+                    if current_price >= stop_loss_price:
+                        # 价格已回升, 不止损
+                        pass
+                    else:
+                        # 仍在止损线以下, 但观察期未结束, 暂不止损
+                        # 记录日志但不触发卖出
+                        gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+                        logger.info(
+                            f"[GAP-OBSERVE] {pos.ts_code} 跳空观察中 "
+                            f"开{today_open:.2f}<止损{stop_loss_price:.2f} "
+                            f"现{current_price:.2f} 等待10:00后执行"
+                        )
+                        sell_reason = None  # 暂不止损
+                else:
+                    # 观察期结束或非早盘: 正常执行跳空止损
+                    gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+                    sell_reason = (
+                        f"跳空止损·开{today_open:.2f}<止损{stop_loss_price:.2f} "
+                        f"成本{pos.avg_cost:.2f} 跳空{gap_pct:+.1f}% "
+                        f"浮亏{pos.profit_pct:+.1f}%"
+                    )
+                    sell_price = today_open
             else:
                 # 普通止损
                 qty = getattr(pos, 'total_qty', 0) or getattr(pos, 'shares', 0) or 0

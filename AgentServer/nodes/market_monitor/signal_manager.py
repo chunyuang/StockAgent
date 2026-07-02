@@ -612,23 +612,25 @@ class SignalManager:
             logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
             return False, "liquidity_filter"
         
-        # A8: 涨停票不追(涨幅≥9.5%→次日跳空止损风险极高)
-        # 数据证据: 6/24实盘买6只涨停票,次日12笔跳空止损占亏损60%
+        # A8: 跳空止损给观察期(开盘跳空≠趋势反转,给30分钟观察)
+        # 数据证据: 12笔跳空止损中0笔是涨停票, 全是非涨停票
+        # 跳空止损平均亏-5.7%远超3%止损线, 因为开盘直接跌破止损价
+        # 修复: 不禁止追涨停(涨停票15盈2亏净赚¥41K), 而是优化跳空止损逻辑
+        # (跳空止损观察期在broker.py的_check_stop_loss中实现)
+        # 此处仅做涨幅>15%的极端票过滤(远离3-7%策略区间)
         pct_chg = getattr(sig, 'pct_chg', 0) or 0
         ts_code = getattr(sig, 'ts_code', '') or ''
-        # 涨停阈值: 主板9.5%, 创业板/科创板19.5%, ST 4.8%
         code_prefix = ts_code[:3] if ts_code else ''
         if code_prefix in ('300', '301', '688'):
-            limit_threshold = 19.5
+            extreme_threshold = 18.0  # 创业板/科创板>18%太极端
         elif code_prefix in ('4', '8', '920'):
-            limit_threshold = 29.5
+            extreme_threshold = 28.0
         else:
-            stock_name = getattr(sig, 'stock_name', '')
-            limit_threshold = 4.8 if stock_name and ('ST' in stock_name or '*ST' in stock_name) else 9.5
-        if pct_chg >= limit_threshold:
+            extreme_threshold = 9.0  # 主板>9%接近涨停但未封板,风险可控
+        if pct_chg >= extreme_threshold:
             reason = (
-                f"涨停不追·涨{pct_chg:+.1f}%≥{limit_threshold:.1f}%阈值 "
-                f"(次日跳空止损风险高)"
+                f"极端涨幅·涨{pct_chg:+.1f}%≥{extreme_threshold:.0f}%阈值 "
+                f"(远离策略区间,不追)"
             )
             sig.signal_status = "blocked"
             sig.layer_trace = sig.layer_trace or {}
@@ -636,7 +638,7 @@ class SignalManager:
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 name, reason, sig)
             logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
-            return False, "limit_up_no_chase"
+            return False, "extreme_rise_no_chase"
 
         # A9: 盘中量比时间衰减(早盘量比虚高)
         # 10:00只交易30分钟,量比被放大;14:00交易4小时,量比更真实
