@@ -100,9 +100,9 @@ STRATEGY_CONFIGS = {
             "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
             "opening_pct_max": 5.0,                      # 竞价涨幅上限%(优化C:从7%→5%,排除高开>5%的追高风险)
             "min_volume_ratio": 1.5,                     # 量比≥1.5(保持1.5,2.0过严导致信号暴降)
-            "min_turnover_rate": 8,                      # 换手率≥8%(优化A:从5→8,过滤低质量涨停,首板胜率47.4%是最大拖累)
-            "max_turnover_rate": 15,                     # 换手率≤15%
-            "min_circulation_market_cap": 50,            # 最小流通市值50亿(保持50,80过严)
+            "min_turnover_rate": 3,                       # 换手率≥3%(V100:从8→3,涨停票T-1换手率3-8%占多数,8%过滤掉70%)
+            "max_turnover_rate": 50,                     # 换手率≤50%(V100:从15→50,涨停票换手率天然偏高,15%过滤掉93%的涨停票)
+            "min_circulation_market_cap": 10,            # 最小流通市值10亿(V100:从50→10,涨停票流通市值天然偏小,50亿过滤掉99%涨停票)
             "max_circulation_market_cap": 500,           # 最大流通市值(亿)
             "hit_probability_yizi": 0.0,                # 一字板成交概率0%(不可能买入)
             "hit_probability_fast": 0.20,                 # 秒板(开盘>8%)成交概率20%(V37:恢复20%,V36上调25%未带来显著改善且可能导致过多低质量成交)

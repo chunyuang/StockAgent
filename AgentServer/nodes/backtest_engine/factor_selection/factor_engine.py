@@ -306,6 +306,34 @@ class FactorEngine:
                         ).to_list(length=len(codes_list))
                         if prev_docs:
                             prev_df = pd.DataFrame(prev_docs)
+                            # 【V100修复:stock_daily_ak_full可能缺volume_ratio/circ_mv,用daily_basic补】
+                            # 根因: 6/23的stock_daily_ak_full没有这两个字段(东方财富每日bar不含)
+                            # daily_basic从6/30开始有,所以6/24回测时T-1=6/23的_prev全NaN
+                            _prev_fallback_cols = []
+                            for _fb_col in ["volume_ratio", "turnover_rate", "circ_mv"]:
+                                if _fb_col not in prev_df.columns or prev_df[_fb_col].isna().all():
+                                    _prev_fallback_cols.append(_fb_col)
+                            if _prev_fallback_cols:
+                                _fb_proj = {"ts_code": 1, "_id": 0}
+                                for _fb_c in _prev_fallback_cols:
+                                    _fb_proj[_fb_c] = 1
+                                _fb_docs = await mongo_manager.db[C.DAILY_BASIC].find(
+                                    {"trade_date": _prev_date_cached, "ts_code": {"$in": codes_list}},
+                                    _fb_proj
+                                ).to_list(length=len(codes_list))
+                                if _fb_docs:
+                                    _fb_df = pd.DataFrame(_fb_docs)
+                                    for _fb_col in _prev_fallback_cols:
+                                        if _fb_col in _fb_df.columns:
+                                            _fb_map = dict(zip(_fb_df["ts_code"], _fb_df[_fb_col]))
+                                            if _fb_col not in prev_df.columns:
+                                                prev_df[_fb_col] = prev_df["ts_code"].map(_fb_map)
+                                            else:
+                                                # 只填充NaN
+                                                for _idx in prev_df.index:
+                                                    if pd.isna(prev_df.at[_idx, _fb_col]):
+                                                        prev_df.at[_idx, _fb_col] = _fb_map.get(prev_df.at[_idx, "ts_code"], None)
+                                    logger.info(f"FACTOR_ENGINE: [V100] daily_basic补充T-1({_prev_date_cached})缺失字段: {_prev_fallback_cols}")
                             # 生成_prev后缀因子
                             for col in ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
                                         "first_limit_up", "is_limit_up", "high", "close"]:
@@ -314,6 +342,20 @@ class FactorEngine:
                                     result[f"{col}_prev"] = result["ts_code"].map(prev_map)
                                     # V33:不再fillna(0)!旧:fillna(0)导致新股_prev=0被>=条件误杀
                                     # 新:NaN不参与pandas比较,筛选条件自动跳过缺失值
+                            # 【V100-2:如果_prev因子不存在或全NaN,用T日数据fallback(有值比没值好)】
+                            # 根因: T-1的stock_daily_ak_full和daily_basic都可能缺volume_ratio/circ_mv
+                            # 如6/23两个集合都没这些字段,但6/24(T日)有
+                            # 用T日数据做fallback虽然不完美,但比全NaN导致条件跳过要好
+                            for col in ["volume_ratio", "circ_mv", "turnover_rate"]:
+                                prev_col = f"{col}_prev"
+                                if col in result.columns:
+                                    if prev_col not in result.columns:
+                                        # _prev列完全不存在(prev_df也没这个列)
+                                        result[prev_col] = result[col]
+                                        logger.info(f"FACTOR_ENGINE: [V100-2] {prev_col}不存在,用T日{col}数据创建")
+                                    elif result[prev_col].isna().all():
+                                        result[prev_col] = result[col]
+                                        logger.info(f"FACTOR_ENGINE: [V100-2] {prev_col}全NaN,用T日{col}数据fallback")
                             logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({_prev_date_cached})数据生成_prev因子，消除未来函数")
             except Exception as e:
                 logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为NaN(非0)")
