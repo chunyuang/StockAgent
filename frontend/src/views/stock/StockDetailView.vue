@@ -202,14 +202,14 @@ function formatPctChg(val?: number): string {
 }
 
 function formatVol(val?: number): string {
-  if (!val) return '--'
+  if (val == null) return '--'
   if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿'
   if (val >= 10000) return (val / 10000).toFixed(2) + '万'
   return val.toFixed(0)
 }
 
 function formatAmount(val?: number): string {
-  if (!val) return '--'
+  if (val == null) return '--'
   if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿'
   if (val >= 10000) return (val / 10000).toFixed(2) + '万'
   return val.toFixed(0)

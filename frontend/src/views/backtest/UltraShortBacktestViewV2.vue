@@ -448,6 +448,7 @@ const submitBacktest = async () => {
         }
       } catch (e) {
         // API失败，使用当前页面地址
+        console.warn('[UltraShort] Failed to get WS config from API:', e)
       }
     }
     if (!wsHost) {
