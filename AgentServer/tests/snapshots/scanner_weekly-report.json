@@ -2,7 +2,7 @@
   "period": "str",
   "account": {
     "total_assets": "float",
-    "total_profit": "int",
+    "total_profit": "float",
     "available_cash": "float"
   },
   "daily_stats": {
