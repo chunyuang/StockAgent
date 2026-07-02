@@ -502,21 +502,21 @@ onMounted(async () => {
                     <span class="pm-pos-stat">持仓 <b>{{ premarketSummary.positionRisk.count }}</b></span>
                     <span v-if="premarketSummary.positionRisk.redCount > 0" class="pm-pos-stat red">红区 <b>{{ premarketSummary.positionRisk.redCount }}</b></span>
                     <span v-if="premarketSummary.positionRisk.weakCount > 0" class="pm-pos-stat weak">弱势 <b>{{ premarketSummary.positionRisk.weakCount }}</b></span>
-                    <span class="pm-pos-stat">竞价均涨 <b :class="premarketSummary.positionRisk.avgPctChg < 0 ? 'down' : 'up'">{{ premarketSummary.positionRisk.avgPctChg > 0 ? '+' : '' }}{{ premarketSummary.positionRisk.avgPctChg.toFixed(2) }}%</b></span>
+                    <span class="pm-pos-stat">竞价均涨 <b :class="(premarketSummary.positionRisk.avgPctChg || 0) < 0 ? 'down' : 'up'">{{ (premarketSummary.positionRisk.avgPctChg || 0) > 0 ? '+' : '' }}{{ (premarketSummary.positionRisk.avgPctChg || 0).toFixed(2) }}%</b></span>
                     <span v-if="premarketSummary.riskLevel !== 'L0'" class="pm-risk-tag" :class="premarketSummary.riskLevel >= 'L1' ? 'red' : 'orange'">{{ premarketSummary.riskLevel }} · {{ premarketSummary.riskReason }}</span>
                     <!-- 弱势股明细 -->
                     <div v-if="premarketSummary.positionRisk.items.some((it:any) => it.weak)" class="pm-weak-list">
                       <span v-for="it in premarketSummary.positionRisk.items.filter((it:any) => it.weak)" :key="it.ts_code" class="pm-weak-item">
-                        {{ it.stock_name }} <span class="pm-weak-pct" :class="it.profit_pct < 0 ? 'down' : 'up'">{{ it.profit_pct > 0 ? '+' : '' }}{{ it.profit_pct?.toFixed(2) }}%</span>
-                        <span class="pm-weak-auct">竞价{{ it.auction_pct_chg > 0 ? '+' : '' }}{{ it.auction_pct_chg?.toFixed(2) }}%</span>
+                        {{ it.stock_name }} <span class="pm-weak-pct" :class="(it.profit_pct || 0) < 0 ? 'down' : 'up'">{{ (it.profit_pct || 0) > 0 ? '+' : '' }}{{ (it.profit_pct || 0).toFixed(2) }}%</span>
+                        <span class="pm-weak-auct">竞价{{ (it.auction_pct_chg || 0) > 0 ? '+' : '' }}{{ (it.auction_pct_chg || 0).toFixed(2) }}%</span>
                       </span>
                     </div>
                     <!-- 全部持仓竞价表现 -->
                     <div class="pm-pos-list">
                       <span v-for="it in premarketSummary.positionRisk.items" :key="it.ts_code" class="pm-pos-item" :class="{ weak: it.weak, red: it.profit_pct < -5 }">
                         <span class="pm-pos-name">{{ it.stock_name }}</span>
-                        <span class="pm-pos-pct" :class="it.profit_pct < 0 ? 'down' : 'up'">{{ it.profit_pct > 0 ? '+' : '' }}{{ it.profit_pct?.toFixed(2) }}%</span>
-                        <span class="pm-pos-auct" :class="it.auction_pct_chg < 0 ? 'down' : 'up'">竞{{ it.auction_pct_chg > 0 ? '+' : '' }}{{ it.auction_pct_chg?.toFixed(2) }}%</span>
+                        <span class="pm-pos-pct" :class="(it.profit_pct || 0) < 0 ? 'down' : 'up'">{{ (it.profit_pct || 0) > 0 ? '+' : '' }}{{ (it.profit_pct || 0).toFixed(2) }}%</span>
+                        <span class="pm-pos-auct" :class="(it.auction_pct_chg || 0) < 0 ? 'down' : 'up'">竞{{ (it.auction_pct_chg || 0) > 0 ? '+' : '' }}{{ (it.auction_pct_chg || 0).toFixed(2) }}%</span>
                       </span>
                     </div>
                   </div>
