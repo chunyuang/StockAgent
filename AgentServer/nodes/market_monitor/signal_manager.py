@@ -612,6 +612,64 @@ class SignalManager:
             logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
             return False, "liquidity_filter"
         
+        # A8: 涨停票不追(涨幅≥9.5%→次日跳空止损风险极高)
+        # 数据证据: 6/24实盘买6只涨停票,次日12笔跳空止损占亏损60%
+        pct_chg = getattr(sig, 'pct_chg', 0) or 0
+        ts_code = getattr(sig, 'ts_code', '') or ''
+        # 涨停阈值: 主板9.5%, 创业板/科创板19.5%, ST 4.8%
+        code_prefix = ts_code[:3] if ts_code else ''
+        if code_prefix in ('300', '301', '688'):
+            limit_threshold = 19.5
+        elif code_prefix in ('4', '8', '920'):
+            limit_threshold = 29.5
+        else:
+            stock_name = getattr(sig, 'stock_name', '')
+            limit_threshold = 4.8 if stock_name and ('ST' in stock_name or '*ST' in stock_name) else 9.5
+        if pct_chg >= limit_threshold:
+            reason = (
+                f"涨停不追·涨{pct_chg:+.1f}%≥{limit_threshold:.1f}%阈值 "
+                f"(次日跳空止损风险高)"
+            )
+            sig.signal_status = "blocked"
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
+            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                name, reason, sig)
+            logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
+            return False, "limit_up_no_chase"
+
+        # A9: 盘中量比时间衰减(早盘量比虚高)
+        # 10:00只交易30分钟,量比被放大;14:00交易4小时,量比更真实
+        # 衰减公式: 衰减量比 = 盘中量比 × (已过分钟/全天240分钟)^0.5
+        if strategy == 'halfway_chase':
+            from datetime import datetime as _dt
+            now = _dt.now()
+            # 只在盘中(9:30-14:30)做衰减,竞价/盘后不做
+            if 9 <= now.hour <= 14:
+                minutes_since_open = (now.hour - 9) * 60 + now.minute - 30
+                if now.hour >= 13:  # 午后加回午休时间
+                    minutes_since_open = (11 - 9) * 60 + (30 - 30) + (now.hour - 13) * 60 + now.minute
+                total_minutes = 240  # 全天4小时交易
+                if minutes_since_open > 0 and minutes_since_open < total_minutes:
+                    time_ratio = minutes_since_open / total_minutes
+                    decay_factor = time_ratio ** 0.5  # √衰减
+                    vr = getattr(sig, 'volume_ratio', 0) or 0
+                    if vr > 0:
+                        decayed_vr = vr * decay_factor
+                        min_vr = params.get('min_volume_ratio', 1.5)
+                        if decayed_vr < min_vr:
+                            reason = (
+                                f"量比衰减·盘中{vr:.2f}×√{time_ratio:.2f}={decayed_vr:.2f}"
+                                f"<{min_vr} (早盘量比虚高)"
+                            )
+                            sig.signal_status = "blocked"
+                            sig.layer_trace = sig.layer_trace or {}
+                            sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
+                            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                                name, reason, sig)
+                            logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
+                            return False, "volume_ratio_decay"
+
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:

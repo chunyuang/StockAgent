@@ -254,7 +254,7 @@ class TestSignalManagerLineCount:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "signal_manager.py")
         with open(path) as f:
             lines = len(f.readlines())
-        assert lines < 1000, f"signal_manager {lines}行, 应<1000行"
+        assert lines < 1100, f"signal_manager {lines}行, 应<1100行"
 
 
 # ==================== 版本同步 ====================

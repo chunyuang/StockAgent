@@ -4688,6 +4688,9 @@ class PortfolioBacktester:
         # 如果遍历局部target_shares,这些股会被重新买入→震荡bug
         # 【V62-P0修复:执行max_total_position限制,防止单日过度集中(3/28同日6只暴跌根因)】
         max_total_pos = self._risk_config.get('max_total_position', GLOBAL_RISK.get('max_total_position', 0.7))
+        # 【持仓数量上限:与实盘MAX_POSITIONS=10对齐,回测之前无此限制导致选股差异】
+        max_holdings_count = self._risk_config.get('max_holdings_count', 10)
+        current_holdings_count = len([code for code, shares in holdings.items() if shares > 0])
         current_holdings_value = sum(holdings.get(code, 0) * prices.get(code, {}).get('close', 0)
                                     for code in holdings if code in prices and prices.get(code, {}).get('close', 0) > 0)
         current_total_equity = cash + current_holdings_value
@@ -4700,6 +4703,10 @@ class PortfolioBacktester:
 
             if delta <= 0:
                 continue  # 不需要买入
+
+            # 【持仓数量上限:与实盘MAX_POSITIONS=10对齐】
+            if current_shares <= 0 and current_holdings_count >= max_holdings_count:
+                continue  # 已达持仓数量上限,不再新开仓
 
             # 【方案2:日频数据推算盘中触发价】
             # 不同策略的买入时机不同,用日频OHLC推算合理买入价
@@ -4755,6 +4762,9 @@ class PortfolioBacktester:
 
             # 更新持仓
             holdings[ts_code] = current_shares + delta
+            # 【持仓数量计数:新开仓时+1】
+            if current_shares <= 0:
+                current_holdings_count += 1
             # 【P0-1修复(V12):cost_basis应记录含滑点的实际成交价buy_price_adj】
             # 旧bug: 记录的是模拟价price(如半路追涨open*1.021),不含滑点
             # 导致止损/止盈基于不含滑点的价格计算,触发阈值偏差
