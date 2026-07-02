@@ -29,8 +29,16 @@ router = APIRouter(prefix="/scanner", tags=["扫描追踪/盘前/行情/风控"]
 async def get_realtime_quote(ts_code: str):
     """获取单只股票实时行情(用于手动下单自动填充)
     
-    优先从scanner缓存获取, 缓存未命中则从东方财富/必盈获取
+    v2.9.99优化: 非交易时间直接走MongoDB回退,避免创建EastmoneyAdapter(3s+)
+    交易时间内优先scanner缓存→broker缓存→东财→必盈→MongoDB
     """
+    from datetime import time as _time
+    now = datetime.now()
+    _is_trading_hours = (
+        _time(9, 15) <= now.time() <= _time(11, 35) or
+        _time(12, 55) <= now.time() <= _time(15, 5)
+    ) and now.weekday() < 5
+    
     scanner = await _get_scanner()
     
     # 1. 从scanner缓存获取
@@ -65,59 +73,63 @@ async def get_realtime_quote(ts_code: str):
                 },
             })
     
-    # 3. 从东方财富获取(直接使用适配器)
-    try:
-        from src.data_sources.eastmoney_adapter import EastmoneyAdapter
-        em = EastmoneyAdapter()
-        await em.initialize()
-        quotes = await em.get_realtime_quotes_batch([ts_code])
-        if quotes and ts_code in quotes:
-            rt = quotes[ts_code]
-            price = getattr(rt, 'price', 0) or (rt.get('price', 0) if isinstance(rt, dict) else 0)
-            name = getattr(rt, 'name', '') or (rt.get('name', '') if isinstance(rt, dict) else '')
-            pct = getattr(rt, 'pct_chg', 0) or (rt.get('pct_chg', 0) if isinstance(rt, dict) else 0)
-            vol_ratio = getattr(rt, 'volume_ratio', 0) or (rt.get('volume_ratio', 0) if isinstance(rt, dict) else 0)
-            turnover = getattr(rt, 'turnover_rate', 0) or (rt.get('turnover_rate', 0) if isinstance(rt, dict) else 0)
-            if price and price > 0:
-                return _sanitize({
-                    "success": True,
-                    "data": {
-                        "ts_code": ts_code,
-                        "name": name,
-                        "price": price,
-                        "pct_chg": pct,
-                        "volume_ratio": vol_ratio,
-                        "turnover_rate": turnover,
-                        "source": "eastmoney",
-                    },
-                })
-    except Exception as e:
-        logger.warning(f"[QUOTE] 东方财富获取失败: {e}")
-    
-    # 4. 从必盈获取(直接使用适配器)
-    try:
-        from src.data_sources.biying_adapter import BiyingAdapter
-        biying = BiyingAdapter()
-        await biying.initialize()
-        dm = ts_code.split(".")[0]
-        quote = await biying.get_realtime_quote(dm)
-        if quote:
-            price = float(getattr(quote, 'price', 0) or (quote.get('price', 0) if isinstance(quote, dict) else 0))
-            name = getattr(quote, 'name', '') or (quote.get('name', '') if isinstance(quote, dict) else '')
-            pct = float(getattr(quote, 'pct_chg', 0) or (quote.get('pct_chg', 0) if isinstance(quote, dict) else 0))
-            if price > 0:
-                return _sanitize({
-                    "success": True,
-                    "data": {
-                        "ts_code": ts_code,
-                        "name": name,
-                        "price": price,
-                        "pct_chg": pct,
-                        "source": "biying",
-                    },
-                })
-    except Exception as e:
-        logger.warning(f"[QUOTE] 必盈获取失败: {e}")
+    # 【v2.9.99】非交易时间: 跳过东财/必盈(收盘数据无意义且慢), 直接走MongoDB
+    if not _is_trading_hours:
+        logger.info(f"[QUOTE] 非交易时间,跳过东财/必盈,直接MongoDB回退: {ts_code}")
+    else:
+        # 3. 从东方财富获取(直接使用适配器)
+        try:
+            from src.data_sources.eastmoney_adapter import EastmoneyAdapter
+            em = EastmoneyAdapter()
+            await em.initialize()
+            quotes = await em.get_realtime_quotes_batch([ts_code])
+            if quotes and ts_code in quotes:
+                rt = quotes[ts_code]
+                price = getattr(rt, 'price', 0) or (rt.get('price', 0) if isinstance(rt, dict) else 0)
+                name = getattr(rt, 'name', '') or (rt.get('name', '') if isinstance(rt, dict) else '')
+                pct = getattr(rt, 'pct_chg', 0) or (rt.get('pct_chg', 0) if isinstance(rt, dict) else 0)
+                vol_ratio = getattr(rt, 'volume_ratio', 0) or (rt.get('volume_ratio', 0) if isinstance(rt, dict) else 0)
+                turnover = getattr(rt, 'turnover_rate', 0) or (rt.get('turnover_rate', 0) if isinstance(rt, dict) else 0)
+                if price and price > 0:
+                    return _sanitize({
+                        "success": True,
+                        "data": {
+                            "ts_code": ts_code,
+                            "name": name,
+                            "price": price,
+                            "pct_chg": pct,
+                            "volume_ratio": vol_ratio,
+                            "turnover_rate": turnover,
+                            "source": "eastmoney",
+                        },
+                    })
+        except Exception as e:
+            logger.warning(f"[QUOTE] 东方财富获取失败: {e}")
+        
+        # 4. 从必盈获取(直接使用适配器)
+        try:
+            from src.data_sources.biying_adapter import BiyingAdapter
+            biying = BiyingAdapter()
+            await biying.initialize()
+            dm = ts_code.split(".")[0]
+            quote = await biying.get_realtime_quote(dm)
+            if quote:
+                price = float(getattr(quote, 'price', 0) or (quote.get('price', 0) if isinstance(quote, dict) else 0))
+                name = getattr(quote, 'name', '') or (quote.get('name', '') if isinstance(quote, dict) else '')
+                pct = float(getattr(quote, 'pct_chg', 0) or (quote.get('pct_chg', 0) if isinstance(quote, dict) else 0))
+                if price > 0:
+                    return _sanitize({
+                        "success": True,
+                        "data": {
+                            "ts_code": ts_code,
+                            "name": name,
+                            "price": price,
+                            "pct_chg": pct,
+                            "source": "biying",
+                        },
+                    })
+        except Exception as e:
+            logger.warning(f"[QUOTE] 必盈获取失败: {e}")
     
     # 【v2.9.88修复】指数行情专用查询（指数不在全市场股票缓存中）
     # 指数ts_code特征: 000001.SH/399001.SZ/399006.SZ 等
@@ -1081,13 +1093,16 @@ async def get_system_health_detail():
         alerts = []
         try:
             from core.managers import mongo_manager
-            # 【v2.9.82修复】查询条件兼容: 有level字段的用level过滤，
-            # 无level字段的用action/event_type中的critical/warning关键词匹配
+            # 【v2.9.99修复】过滤7天前的旧告警,避免StaleQuoteCache等残留
+            _cutoff_ts = time.time() - 7 * 86400  # 7天前
             alerts_cursor = mongo_manager.db["audit_log"].find(
-                {"$or": [
-                    {"level": {"$in": ["warning", "critical"]}},
-                    {"action": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
-                    {"event_type": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
+                {"$and": [
+                    {"timestamp": {"$gte": _cutoff_ts}},
+                    {"$or": [
+                        {"level": {"$in": ["warning", "critical"]}},
+                        {"action": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
+                        {"event_type": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
+                    ]},
                 ]},
                 {"_id": 0}
             ).sort("timestamp", -1).limit(10)

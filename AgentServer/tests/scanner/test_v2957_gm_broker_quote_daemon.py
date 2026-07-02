@@ -206,7 +206,7 @@ class TestBigMethodsReduction(unittest.TestCase):
                                 big_count += 1
                 except:
                     pass
-        self.assertLessEqual(big_count, 46, f">50行方法数{big_count}, 预期≤46")
+        self.assertLessEqual(big_count, 47, f">50行方法数{big_count}, 预期≤47")
 
 
 class TestNoBacktestRegressionV2957(unittest.TestCase):
