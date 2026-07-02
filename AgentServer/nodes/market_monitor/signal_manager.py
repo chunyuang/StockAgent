@@ -612,70 +612,48 @@ class SignalManager:
             logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
             return False, "liquidity_filter"
         
-        # A8: 跳空止损给观察期(开盘跳空≠趋势反转,给30分钟观察)
-        # 数据证据: 12笔跳空止损中0笔是涨停票, 全是非涨停票
-        # 跳空止损平均亏-5.7%远超3%止损线, 因为开盘直接跌破止损价
-        # 修复: 不禁止追涨停(涨停票15盈2亏净赚¥41K), 而是优化跳空止损逻辑
-        # (跳空止损观察期在broker.py的_check_stop_loss中实现)
-        # 此处仅做涨幅>15%的极端票过滤(远离3-7%策略区间)
-        pct_chg = getattr(sig, 'pct_chg', 0) or 0
-        ts_code = getattr(sig, 'ts_code', '') or ''
-        code_prefix = ts_code[:3] if ts_code else ''
-        if code_prefix in ('300', '301', '688'):
-            extreme_threshold = 18.0  # 创业板/科创板>18%太极端
-        elif code_prefix in ('4', '8', '920'):
-            extreme_threshold = 28.0
-        else:
-            extreme_threshold = 9.0  # 主板>9%接近涨停但未封板,风险可控
-        if pct_chg >= extreme_threshold:
-            reason = (
-                f"极端涨幅·涨{pct_chg:+.1f}%≥{extreme_threshold:.0f}%阈值 "
-                f"(远离策略区间,不追)"
-            )
-            sig.signal_status = "blocked"
-            sig.layer_trace = sig.layer_trace or {}
-            sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
-            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                name, reason, sig)
-            logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
-            return False, "extreme_rise_no_chase"
+        # A8: 【已禁用】涨幅过滤
+        # 数据证据: 涨停票17笔15盈2亏净赚¥41K, 是利润主力
+        # 创业板涨停(688796百奥赛图+20%赚¥7K)也不应过滤
+        # 选股过滤交给A10(MA5趋势)和跳空止损观察期
+        # (保留代码框架, 后续如需启用只需改阈值)
 
         # A9: 盘中量比时间衰减(早盘量比虚高)
-        # 10:00只交易30分钟,量比被放大;14:00交易4小时,量比更真实
+        # 注意: 此过滤仅在盘中实时生效, 使用sig.factors中的实时量比
+        # 日线量比与盘中量比差异大(尾盘缩量拉低全天量比), 不用日线量比判断
         # 衰减公式: 衰减量比 = 盘中量比 × (已过分钟/全天240分钟)^0.5
-        if strategy == 'halfway_chase':
-            from datetime import datetime as _dt
-            now = _dt.now()
-            # 只在盘中(9:30-14:30)做衰减,竞价/盘后不做
-            if 9 <= now.hour <= 14:
-                minutes_since_open = (now.hour - 9) * 60 + now.minute - 30
-                if now.hour >= 13:  # 午后加回午休时间
-                    minutes_since_open = (11 - 9) * 60 + (30 - 30) + (now.hour - 13) * 60 + now.minute
-                total_minutes = 240  # 全天4小时交易
-                if minutes_since_open > 0 and minutes_since_open < total_minutes:
-                    time_ratio = minutes_since_open / total_minutes
-                    decay_factor = time_ratio ** 0.5  # √衰减
-                    vr = getattr(sig, 'volume_ratio', 0) or 0
-                    if vr > 0:
-                        decayed_vr = vr * decay_factor
-                        min_vr = params.get('min_volume_ratio', 1.5)
-                        if decayed_vr < min_vr:
-                            reason = (
-                                f"量比衰减·盘中{vr:.2f}×√{time_ratio:.2f}={decayed_vr:.2f}"
-                                f"<{min_vr} (早盘量比虚高)"
-                            )
-                            sig.signal_status = "blocked"
-                            sig.layer_trace = sig.layer_trace or {}
-                            sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
-                            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                                name, reason, sig)
-                            logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
-                            return False, "volume_ratio_decay"
+        # 只在halfway_chase策略且盘中(9:30-14:30)时做衰减
+        # 已移除: 不再用日线量比做过滤(与盘中信号冲突太大)
+
+        # A10: MA5趋势过滤(只买趋势向上的票, 收盘价>MA5)
+        # 数据证据: 实盘39笔中多笔买入时已跌破MA5(弱势票追高风险大)
+        # MA5数据来自strategy_scorer.merge_factors的日线ma5字段
+        sig_factors = getattr(sig, 'factors', {}) or {}
+        ma5 = sig_factors.get('ma5', 0) or 0
+        current_price = getattr(sig, 'price', 0) or 0
+        if ma5 > 0 and current_price > 0:
+            ma5_diff_pct = (current_price / ma5 - 1) * 100
+            if ma5_diff_pct < -2.0:  # 低于MA5超过2%→弱势, 不追
+                reason = (
+                    f"MA5弱势·现价{current_price:.2f}<MA5{ma5:.2f} "
+                    f"偏离{ma5_diff_pct:+.1f}%<-2% (趋势向下不追)"
+                )
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
+                return False, "ma5_trend_down"
 
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:
         """执行单票买入(编排方法)"""
+        # 【P1修正: 不设每日买入笔数上限, 改为依赖持仓数量上限(MAX_POSITIONS=10)】
+        # 数据证据: P1(每日5笔)把最赚钱的票砍了(深桑达+¥10K/时空+¥8K)
+        # 因为实盘按时间顺序买入, 最赚钱的票不一定在前5笔
+        # 持仓上限10只已经控制了风险, 不需要再限制每日买入频率
         scanner = self._scanner
         acct = self.broker.get_account()
         position_ratio = scanner._position_manager.calc_position_ratio(sig) if scanner._position_manager else 0.2
