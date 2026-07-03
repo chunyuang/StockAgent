@@ -253,6 +253,77 @@ class PositionManager:
         
         return None, pos.current_price, False
     
+    def _check_gap_stop_with_tiered_observation(
+        self, ts_code: str, avg_cost: float, today_open: float,
+        stop_loss_price: float, current_price: float,
+    ) -> str:
+        """【v2.9.112】分级跳空止损观察期
+
+        数据证据(14笔历史跳空止损):
+        - 微跳(<3%): 4笔中3笔收盘回到止损线上 → 观察期有效
+        - 中跳(3-5%): 8笔混合 → 短观察期
+        - 大跳(>5%): 6笔全部全天下跌 → 立即止损
+
+        Returns:
+            "execute"  — 立即执行跳空止损
+            "observe"  — 观察期内,暂不止损
+            "cancel"   — 价格已回升,取消止损
+        """
+        from datetime import datetime as _dt
+        now = _dt.now()
+
+        # 跳空幅度: 相对买入价
+        gap_pct = abs((today_open - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
+
+        # 分级阈值
+        TIER_LARGE = 5.0    # >5% 立即止损
+        TIER_MEDIUM = 3.0   # 3-5% 短观察(10分钟)
+        # <3% 长观察(30分钟)
+
+        if gap_pct >= TIER_LARGE:
+            # 大跳: 立即止损, 不观察
+            return "execute"
+
+        # 中跳/微跳: 判断观察期
+        if gap_pct >= TIER_MEDIUM:
+            # 中跳: 9:30-9:40 观察10分钟
+            in_observation = (
+                (now.hour == 9 and now.minute >= 30 and now.minute < 40)
+            )
+        else:
+            # 微跳: 9:30-10:00 观察30分钟
+            in_observation = (
+                (now.hour == 9 and now.minute >= 30) or
+                (now.hour == 10 and now.minute == 0)
+            )
+
+        if in_observation:
+            if current_price >= stop_loss_price:
+                logger.info(
+                    f"[GAP-OBSERVE] {ts_code} 跳空{gap_pct:+.1f}% "
+                    f"现价{current_price:.2f}>=止损{stop_loss_price:.2f} → 取消止损"
+                )
+                return "cancel"
+            else:
+                tier_label = "中跳" if gap_pct >= TIER_MEDIUM else "微跳"
+                end_time = "9:40" if gap_pct >= TIER_MEDIUM else "10:00"
+                logger.info(
+                    f"[GAP-OBSERVE] {ts_code} {tier_label}观察中 "
+                    f"开{today_open:.2f}<止损{stop_loss_price:.2f} "
+                    f"现{current_price:.2f} 等待{end_time}后执行"
+                )
+                return "observe"
+
+        # 观察期结束: 检查是否回升
+        if current_price >= stop_loss_price:
+            logger.info(
+                f"[GAP-OBSERVE] {ts_code} 观察期结束 "
+                f"现价{current_price:.2f}>=止损{stop_loss_price:.2f} → 取消止损"
+            )
+            return "cancel"
+
+        return "execute"
+
     def _check_regular_stop_profit(self, pos, risk: Dict, realtime_data: Dict,
                                     stop_loss_pct: float, take_profit_pct: float,
                                     stop_loss_price: float) -> Tuple:
@@ -270,34 +341,17 @@ class PositionManager:
         if pos.profit_pct <= stop_loss_pct:
             if today_open and today_open > 0 and today_open < stop_loss_price:
                 # 跳空止损: 今日开盘价低于止损价
-                # 【观察期优化】开盘跳空≠趋势反转,给30分钟观察
-                # 数据证据: 12笔跳空止损平均亏-5.7%远超3%止损线
-                # 但部分跳空是洗盘,30分钟后可能回升
-                from datetime import datetime as _dt
-                now = _dt.now()
-                # 9:30-10:00为观察期, 跳空止损延迟到10:00执行
-                in_observation = (
-                    now.hour == 9 and now.minute >= 30 or
-                    now.hour == 10 and now.minute == 0
+                # 【v2.9.112】分级观察期(微跳30min/中跳10min/大跳立即)
+                action = self._check_gap_stop_with_tiered_observation(
+                    pos.ts_code, pos.avg_cost, today_open,
+                    stop_loss_price, pos.current_price,
                 )
-                if in_observation:
-                    # 观察期内: 如果当前价已回到止损线以上, 取消止损
-                    current_price = pos.current_price
-                    if current_price >= stop_loss_price:
-                        # 价格已回升, 不止损
-                        pass
-                    else:
-                        # 仍在止损线以下, 但观察期未结束, 暂不止损
-                        # 记录日志但不触发卖出
-                        gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
-                        logger.info(
-                            f"[GAP-OBSERVE] {pos.ts_code} 跳空观察中 "
-                            f"开{today_open:.2f}<止损{stop_loss_price:.2f} "
-                            f"现{current_price:.2f} 等待10:00后执行"
-                        )
-                        sell_reason = None  # 暂不止损
+                if action == "observe":
+                    sell_reason = None  # 观察期内暂不止损
+                elif action == "cancel":
+                    sell_reason = None  # 价格回升,取消止损
                 else:
-                    # 观察期结束或非早盘: 正常执行跳空止损
+                    # 立即执行或观察期结束: 正常跳空止损
                     gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
                     sell_reason = (
                         f"跳空止损·开{today_open:.2f}<止损{stop_loss_price:.2f} "
@@ -551,30 +605,16 @@ class PositionManager:
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
             today_open = rt.get("open", 0)
             if today_open > 0 and today_open < stop_loss_price:
-                # 【v2.9.111】跳空止损30分钟观察期(与_check_regular_stop_profit对齐)
-                # 9:30-10:00观察期: 跳空可能回升, 延迟到10:00后执行
-                from datetime import datetime as _dt
-                now = _dt.now()
-                in_observation = (
-                    now.hour == 9 and now.minute >= 30 or
-                    now.hour == 10 and now.minute == 0
+                # 【v2.9.112】分级跳空止损观察期(统一调用)
+                action = self._check_gap_stop_with_tiered_observation(
+                    pos.ts_code, pos.avg_cost, today_open,
+                    stop_loss_price, current_price,
                 )
-                if in_observation:
-                    current_price = pos.current_price
-                    if current_price >= stop_loss_price:
-                        # 价格已回升到止损线以上, 不止损
-                        return None
-                    else:
-                        # 仍在止损线以下, 观察期未结束, 暂不止损
-                        gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
-                        logger.info(
-                            f"[GAP-OBSERVE] {pos.ts_code} 跳空观察中 "
-                            f"开{today_open:.2f}<止损{stop_loss_price:.2f} "
-                            f"现{current_price:.2f} 等待10:00后执行"
-                        )
-                        return None  # 暂不止损
+                if action == "observe":
+                    return None  # 观察期内暂不止损
+                elif action == "cancel":
+                    return None  # 价格回升,取消止损
                 else:
-                    # 观察期结束或非早盘: 正常执行跳空止损
                     return (pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open, risk)
             else:
                 return (pos, f"止损 {check_profit_pct:.1f}%", current_price, risk)

@@ -104,7 +104,16 @@ export function useScannerMonitor() {
   const manualTrade = reactive({ ts_code: '', stock_name: '', side: 'buy', quantity: 0, price: 0 })
   const manualQuote = ref<any>(null)
   const posSort = ref('profit')
-  const sortedPositions = computed(() => { const p = [...positions.value]; if (posSort.value === 'profit') return p.sort((a, b) => b.profit_pct - a.profit_pct); if (posSort.value === 'risk') return p.sort((a, b) => (a.distance_to_stop ?? 0) - (b.distance_to_stop ?? 0)); return p })
+  const sortedPositions = computed(() => {
+    const p = [...positions.value]
+    switch (posSort.value) {
+      case 'profit':   return p.sort((a, b) => (b.profit_pct || 0) - (a.profit_pct || 0))
+      case 'cost':     return p.sort((a, b) => (b.market_value || 0) - (a.market_value || 0))
+      case 'strategy': return p.sort((a, b) => (a.strategy || '').localeCompare(b.strategy || '') || (b.profit_pct || 0) - (a.profit_pct || 0))
+      case 'time':     return p.sort((a, b) => (b.buy_time || b.created_at || '').localeCompare(a.buy_time || a.created_at || ''))
+      default:         return p
+    }
+  })
   const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, nowMs.value)
   const confirmVisible = ref(false)
   const confirmLoading = ref(false)
