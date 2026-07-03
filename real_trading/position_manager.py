@@ -166,7 +166,7 @@ class Position:
         Returns:
             float: 收益率（%），正数盈利，负数亏损
         """
-        return (current_price - self.buy_price) / self.buy_price * 100
+        return (current_price - self.buy_price) / self.buy_price * 100 if self.buy_price and self.buy_price > 0 else 0.0
 
 class PositionManager:
     """持仓管理器
@@ -262,7 +262,11 @@ class PositionManager:
         """
         if not buy_price:
             # 默认买入价为收盘价上浮1%
-            buy_price = signal["close"] * 1.01
+            close_price = signal.get("close") or 0
+            if not close_price or not isinstance(close_price, (int, float)):
+                logger.warning(f"⚠️ signal close价格异常({signal.get('close')}), 跳过建仓")
+                return False
+            buy_price = close_price * 1.01
         if not shares:
             # 默认买100股的整数倍，1万元
             shares = int(10000 / buy_price / 100) * 100
@@ -328,7 +332,7 @@ class PositionManager:
         
         sell_amount = sell_price * pos.shares
         profit = sell_amount - pos.total_cost
-        profit_pct = (sell_price - pos.buy_price) / pos.buy_price * 100
+        profit_pct = (sell_price - pos.buy_price) / pos.buy_price * 100 if pos.buy_price and pos.buy_price > 0 else 0.0
         hold_days = pos.hold_days(sell_date)
         
         # 记录交易历史

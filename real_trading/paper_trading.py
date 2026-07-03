@@ -401,7 +401,8 @@ class PaperTradingEngine:
                 pos_manager_partial._save_positions()
             # 记录部分卖出交易
             profit = net_income - (target_pos["total_cost"] / total_shares * actual_sell_shares)
-            profit_pct = (actual_sell_price - target_pos["buy_price"]) / target_pos["buy_price"] * 100
+            bp = target_pos.get("buy_price") or 0
+            profit_pct = (actual_sell_price - bp) / bp * 100 if bp > 0 else 0.0
             trade_record = {
                 "ts_code": ts_code,
                 "name": target_pos["name"],
@@ -592,16 +593,16 @@ class PaperTradingEngine:
                 logger.debug("_update_account_performance: async loop running, fallback to buy_price")
             else:
                 positions = loop.run_until_complete(pos_manager.get_positions_with_prices())
-                market_value = sum(pos["shares"] * pos.get("current_price", pos["buy_price"]) for pos in positions)
+                market_value = sum((pos.get("shares") or 0) * (pos.get("current_price") or pos.get("buy_price") or 0) for pos in positions)
         except Exception as e:
             logger.warning(f"获取持仓实时价格失败, fallback到成本价: {e}")
             positions = pos_manager.get_positions()
-            market_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)
+            market_value = sum((pos.get("shares") or 0) * (pos.get("buy_price") or 0) for pos in positions)
         
         # 计算总权益
         total_equity = account.current_balance + market_value
         account.total_profit = total_equity - account.initial_balance
-        account.total_profit_pct = (total_equity / account.initial_balance - 1) * 100
+        account.total_profit_pct = (total_equity / account.initial_balance - 1) * 100 if account.initial_balance and account.initial_balance > 0 else 0.0
         
         # 计算最大回撤
         analyzer = PerformanceAnalyzer(f"paper_trade_history_{account_id}.json")
