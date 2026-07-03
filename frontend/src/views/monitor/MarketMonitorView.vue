@@ -292,15 +292,15 @@ const {
             </span>
           </div>
           <div v-show="!closedTradesCollapsed" class="closed-trades-body">
-            <div v-for="t in todayClosedTrades" :key="t.ts_code + t.sell_time" class="closed-trade-row" :class="t.profit_pct >= 0 ? 'row-up' : 'row-down'">
+            <div v-for="t in todayClosedTrades" :key="t.ts_code + t.sell_time" class="closed-trade-row" :class="t.profit_pct != null && t.profit_pct >= 0 ? 'row-up' : 'row-down'">
               <div class="ct-line1">
                 <span class="ct-name">{{ t.stock_name }}</span>
                 <span class="ct-code">{{ t.ts_code }}</span>
-                <span :class="t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
-                  {{ t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
+                <span :class="t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
+                  {{ t.profit_pct != null && t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
                 </span>
-                <span :class="t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
-                  {{ t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
+                <span :class="t.profit_amount != null && t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
+                  {{ t.profit_amount != null && t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
                 </span>
               </div>
               <div class="ct-line2">
@@ -488,7 +488,7 @@ const {
 
     <!-- 审查弹窗 -->
     <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px">
-      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
+      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
       <div v-else class="empty">暂无交易记录</div>
     </ElDialog>
     

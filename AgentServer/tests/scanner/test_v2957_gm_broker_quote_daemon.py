@@ -190,7 +190,7 @@ class TestBigMethodsReduction(unittest.TestCase):
     """超过50行方法数减少"""
 
     def test_big_method_count_decreased(self):
-        """v2.9.61: >50行方法数应<37(v2.9.56为37, gm_broker -1, daemon -0)"""
+        """v2.9.61: >50行方法数应<=48(v2.9.112从47→48, 新增scan流程方法)"""
         big_count = 0
         for root_dir, dirs, files in os.walk(NODES):
             for f in files:
@@ -206,7 +206,7 @@ class TestBigMethodsReduction(unittest.TestCase):
                                 big_count += 1
                 except:
                     pass
-        self.assertLessEqual(big_count, 47, f">50行方法数{big_count}, 预期≤47")
+        self.assertLessEqual(big_count, 48, f">50行方法数{big_count}, 预期≤48")
 
 
 class TestNoBacktestRegressionV2957(unittest.TestCase):

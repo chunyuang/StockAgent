@@ -76,8 +76,9 @@ const riskScore = computed(() => {
   const t = c + w + n
   if (t === 0) return 0
   // 【v2.9.112】加权评分: critical=80, warning=45, normal=10, 归一化到0-100
-  // 15维度: D1(25)+D2(15)+D3(15)+D4(10)+D5(10)+D6(5)+D7(5)+D8(5)+D9(5)+D10(3)+D11(2)+D12(2)+D13(2)+D14(2)+D15(2)=108, cap=100
-  return safeNum(Math.round((c * 80 + w * 45 + n * 10) / t))
+  // 15维度权重: D1(25)+D2(15)+D3(15)+D4(10)+D5(10)+D6(5)+D7(5)+D8(5)+D9(5)+D10(3)+D11(2)+D12(2)+D13(2)+D14(2)+D15(2)=108, cap=100
+  const raw = (c * 80 + w * 45 + n * 10) / t
+  return safeNum(Math.min(Math.round(raw / 80 * 100), 100))
 })
 
 let timer: number
@@ -107,11 +108,11 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-stats">
         <div class="rm-stat">
           <span class="rm-label">仓位</span>
-          <span class="rm-val">{{ safeNum(globalRisk?.position_ratio) }}%</span>
+          <span class="rm-val">{{ globalRisk?.position_ratio != null && Number.isFinite(Number(globalRisk?.position_ratio)) ? Number(globalRisk?.position_ratio).toFixed(1) + '%' : '-' }}</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">现金</span>
-          <span class="rm-val">{{ safeNum(globalRisk?.cash_ratio) }}%</span>
+          <span class="rm-val">{{ globalRisk?.cash_ratio != null && Number.isFinite(Number(globalRisk?.cash_ratio)) ? Number(globalRisk?.cash_ratio).toFixed(1) + '%' : '-' }}</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">集中度</span>
@@ -147,15 +148,15 @@ onUnmounted(() => clearInterval(timer))
           <span class="rm-sname">{{ p.stock_name }}</span>
           <span class="rm-ind-tag">{{ p.industry }}</span>
         </div>
-        <div class="rm-cell" :class="(p.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (p.profit_pct || 0) >= 0 ? '+' : '' }}{{ (Number(p.profit_pct) || 0).toFixed(1) }}%</div>
+        <div class="rm-cell" :class="p.profit_pct != null && p.profit_pct >= 0 ? 'up' : 'down'">{{ p.profit_pct != null ? ((p.profit_pct >= 0 ? '+' : '') + Number(p.profit_pct).toFixed(1) + '%') : '-' }}</div>
         <div class="rm-cell">
           <span class="rm-bar-wrap">
-            <span class="rm-bar" :style="{ width: Math.max(0, Math.min((p.dist_stop_loss || 0) / 10 * 100, 100)) + '%', background: slColor(p.dist_stop_loss || 0) }"></span>
+            <span class="rm-bar" :style="{ width: Math.max(0, Math.min((p.dist_stop_loss ?? 0) / 10 * 100, 100)) + '%', background: slColor(p.dist_stop_loss ?? 0) }"></span>
           </span>
-          <span class="rm-bar-val" :style="{ color: slColor(p.dist_stop_loss || 0) }">{{ (Number(p.dist_stop_loss) || 0).toFixed(1) }}%</span>
+          <span class="rm-bar-val" :style="{ color: slColor(p.dist_stop_loss ?? 0) }">{{ p.dist_stop_loss != null && Number.isFinite(Number(p.dist_stop_loss)) ? Number(p.dist_stop_loss).toFixed(1) + '%' : '-' }}</span>
         </div>
-        <div class="rm-cell">{{ (Number(p.dist_take_profit) || 0).toFixed(1) }}%</div>
-        <div class="rm-cell">{{ (Number(p.position_pct) || 0).toFixed(1) }}%</div>
+        <div class="rm-cell">{{ p.dist_take_profit != null && Number.isFinite(Number(p.dist_take_profit)) ? Number(p.dist_take_profit).toFixed(1) + '%' : '-' }}</div>
+        <div class="rm-cell">{{ p.position_pct != null && Number.isFinite(Number(p.position_pct)) ? Number(p.position_pct).toFixed(1) + '%' : '-' }}</div>
         <div class="rm-cell">
           <span class="rm-score" :style="{ background: riskBg(p.risk_score || 0), color: riskColor(p.risk_score || 0) }">{{ p.risk_score ?? '-' }}</span>
         </div>

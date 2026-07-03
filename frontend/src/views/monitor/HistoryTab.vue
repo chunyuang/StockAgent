@@ -208,7 +208,7 @@ const closedStats = computed(() => {
   const items = displayClosedPositions.value
   if (!items.length) return null
   const totalProfit = items.reduce((s: number, c: any) => s + (c.profit_amount || 0), 0)
-  const wins = items.filter((c: any) => c.profit_pct >= 0).length
+  const wins = items.filter((c: any) => c.profit_pct != null && c.profit_pct >= 0).length
   return { count: items.length, totalProfit, winRate: items.length > 0 ? (wins / items.length * 100).toFixed(0) : '0', wins }
 })
 </script>
@@ -292,7 +292,7 @@ const closedStats = computed(() => {
             </div>
             <div v-if="!displayClosedPositions.length" class="ht-empty-sm">暂无</div>
             <div class="ht-cp-list">
-              <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct >= 0 ? 'win' : 'loss'" @click="openTradeDetail(cp.ts_code)">
+              <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct != null ? (cp.profit_pct >= 0 ? 'win' : 'loss') : ''" @click="openTradeDetail(cp.ts_code)">
                 <span class="cp-code">{{ cp.ts_code?.slice(0,6) }}</span>
                 <span class="cp-name">{{ cp.stock_name }}</span>
                 <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ cp.profit_pct != null ? ((cp.profit_pct >= 0 ? '+' : '') + Number(cp.profit_pct).toFixed(1) + '%') : '持仓中' }}</span>
