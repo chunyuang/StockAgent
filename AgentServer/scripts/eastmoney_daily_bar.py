@@ -199,9 +199,15 @@ def write_daily_bar(trade_date=None):
             return
         
         circ = check.get('circ_mv', 0)
-        if circ and circ < 1 and circ > 0:
-            print(f"⚠️ 警告: circ_mv={circ}万元 <1万! 可能是亿元单位, 跳过写入!")
-            return
+        if circ and circ > 0:
+            # 用大盘股做参照: 工商银行流通市值约1.9万亿=190000000万元
+            # 如果circ_mv<10000(=1亿万元), 大概率是亿元或百万元单位
+            # 但小盘股确实可能<1亿, 所以用600519.SH(茅台)做参照
+            # 茅台流通市值约1.5万亿=150000000万元, 如果circ_mv<1e6且是主板票, 异常
+            # 简单规则: circ_mv<100(万元=100万)肯定是错的
+            if circ < 100:
+                print(f"⚠️ 警告: circ_mv={circ}万元 <100万! 单位明显错误, 跳过写入!")
+                return
         
         t1 = time.time()
         result = db.stock_daily_ak_full.bulk_write(updates, ordered=False)

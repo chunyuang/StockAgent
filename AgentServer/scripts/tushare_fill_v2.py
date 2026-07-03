@@ -47,6 +47,10 @@ def fill_basic_bulk(td_int):
             v = row.get(f)
             if pd.notna(v):
                 update[f] = float(v)
+        # Tushare circ_mv/total_mv单位是万元, daily_basic集合标准是亿元, ÷10000
+        for k in ['circ_mv', 'total_mv']:
+            if k in update and update[k] > 0:
+                update[k] = update[k] / 10000
         if update:
             ops.append(UpdateOne(
                 {'ts_code': row['ts_code'], 'trade_date': td_int},

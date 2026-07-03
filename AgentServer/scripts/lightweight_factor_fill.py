@@ -34,12 +34,18 @@ async def fill_simple_factors(trade_dates: list[int]):
             basic_map[doc['ts_code']] = doc
         
         # Step 2: 批量更新stock_daily_ak_full
+        # 注意: daily_basic的circ_mv/total_mv单位是亿元, stock_daily_ak_full标准是万元
+        # 需要×10000转换
         ops = []
         for ts_code, basic in basic_map.items():
             update = {}
-            for k in ['turnover_rate', 'volume_ratio', 'circ_mv', 'total_mv']:
+            for k in ['turnover_rate', 'volume_ratio']:
                 if k in basic and basic[k] is not None:
                     update[k] = basic[k]
+            # circ_mv/total_mv: 亿元→万元(×10000)
+            for k in ['circ_mv', 'total_mv']:
+                if k in basic and basic[k] is not None and basic[k] > 0:
+                    update[k] = basic[k] * 10000
             if update:
                 ops.append(UpdateOne(
                     {'ts_code': ts_code, 'trade_date': td},
