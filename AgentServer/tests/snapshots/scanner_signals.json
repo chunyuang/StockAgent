@@ -1,7 +1,202 @@
 {
   "success": "bool",
   "data": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "signal_type": "str",
+      "price": "float",
+      "pct_chg": "float",
+      "volume_ratio": "float",
+      "turnover_rate": "float",
+      "is_limit_up": "bool",
+      "limit_up_count": "int",
+      "confidence": "float",
+      "reason": "str",
+      "scan_time": "str",
+      "factors": {
+        "pct_chg": "float",
+        "volume_ratio": "float",
+        "turnover_rate": "float",
+        "circ_mv": "float",
+        "ma5": "float",
+        "rsi_6": "float",
+        "is_limit_up": "int",
+        "limit_up_count": "int",
+        "open": "float",
+        "high": "float",
+        "low": "float",
+        "close": "float",
+        "pre_close": "float",
+        "opening_pct_chg": "float",
+        "pullback_pct": "int",
+        "first_limit_up": "int",
+        "limit_up_yesterday": "int",
+        "limit_down_yesterday": "int",
+        "macd": "float",
+        "boll_upper": "float",
+        "atr": "float"
+      },
+      "signal_status": "str",
+      "created_at": "float",
+      "expire_remaining": "int",
+      "key_factors": {
+        "circ_mv": "str",
+        "volume_ratio": "str",
+        "turnover_rate": "str"
+      },
+      "decision_detail": {
+        "filter_pipeline": {
+          "layers_applied": {
+            "L1_force_empty": "bool",
+            "L2_special_period": "bool",
+            "L3_sentiment": "bool",
+            "L4_premarket": "bool",
+            "L5_auction": "bool",
+            "L6_strategy": "bool",
+            "L7_ranking": "bool",
+            "L8_position": "bool"
+          },
+          "layer_details": {
+            "L1_force_empty": "str",
+            "L2_special_period": "str",
+            "L3_sentiment": "str",
+            "L3_sentiment_data": {
+              "score": "float",
+              "period": "str",
+              "position_ratio": "float",
+              "l3_drop_count": "int",
+              "formula": "str",
+              "limit_up": "int",
+              "limit_down": "int",
+              "up_down_ratio": "float",
+              "momentum": "float",
+              "broken": "int",
+              "broken_rate": "float",
+              "today_premium": "float"
+            },
+            "L4_premarket": "str",
+            "L5_auction": "str",
+            "L6_strategy": "str",
+            "L7_ranking": "str",
+            "L8_position": "str"
+          },
+          "position_ratio": "float",
+          "action": "str"
+        },
+        "signal_reason": "str",
+        "strategy": "str",
+        "strategy_name": "str",
+        "price": "float",
+        "pct_chg": "float",
+        "volume_ratio": "float",
+        "turnover_rate": "float",
+        "factors": {
+          "pct_chg": "float",
+          "volume_ratio": "float",
+          "turnover_rate": "float",
+          "circ_mv": "float",
+          "ma5": "float",
+          "rsi_6": "float",
+          "is_limit_up": "int",
+          "limit_up_count": "int",
+          "open": "float",
+          "high": "float",
+          "low": "float",
+          "close": "float",
+          "pre_close": "float",
+          "opening_pct_chg": "float",
+          "pullback_pct": "int",
+          "first_limit_up": "int",
+          "limit_up_yesterday": "int",
+          "limit_down_yesterday": "int",
+          "macd": "float",
+          "boll_upper": "float",
+          "atr": "float"
+        },
+        "scan_time": "str"
+      },
+      "layer_trace": {
+        "L6_strategy": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L1_force_empty": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L2_special_period": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L3_sentiment": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L3_sentiment_data": {
+          "detail": {
+            "score": "float",
+            "period": "str",
+            "position_ratio": "float",
+            "l3_drop_count": "int",
+            "formula": "str",
+            "limit_up": "int",
+            "limit_down": "int",
+            "up_down_ratio": "float",
+            "momentum": "float",
+            "broken": "int",
+            "broken_rate": "float",
+            "today_premium": "float"
+          },
+          "applied": "bool"
+        },
+        "L4_premarket": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L5_auction": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L7_ranking": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "L8_position": {
+          "detail": "str",
+          "applied": "bool"
+        },
+        "candidate_trace": {
+          "L1_force_empty": {
+            "passed": "bool"
+          },
+          "L2_special_period": {
+            "passed": "bool"
+          },
+          "L3_sentiment": {
+            "passed": "bool"
+          },
+          "L4_premarket": {
+            "passed": "bool"
+          },
+          "L5_auction": {
+            "passed": "bool"
+          },
+          "L6_strategy": {
+            "passed": "bool"
+          },
+          "L7_ranking": {
+            "passed": "bool"
+          },
+          "L9_execute": {
+            "passed": "bool",
+            "reason": "str"
+          }
+        }
+      }
+    }
   ],
   "historical": "bool"
 }

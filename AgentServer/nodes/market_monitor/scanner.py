@@ -1202,6 +1202,80 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             return score, "L1", reasons, "warn"
         return score, "L0", reasons, "none"
 
+    def _collect_premarket_metrics(self, realtime_data: Dict) -> Tuple[Dict, List[str]]:
+        """收集竞价期间市场指标并检测异常【v2.9.75提取】"""
+        pcts = []
+        for v in realtime_data.values():
+            if isinstance(v, dict):
+                try:
+                    pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
+                except Exception as _e:
+                    logger.debug(f"[GUARD] scanner: {_e}")
+        total = len(pcts)
+        up_count = sum(1 for p in pcts if p > 0)
+        down_count = sum(1 for p in pcts if p < 0)
+        limit_up = sum(1 for p in pcts if p >= 9.9)
+        limit_down = sum(1 for p in pcts if p <= -9.9)
+        avg_pct = round(sum(pcts) / total, 2) if total else 0
+        metrics = {
+            "total_stocks": total, "up_count": up_count, "down_count": down_count,
+            "limit_up_count": limit_up, "limit_down_count": limit_down, "avg_pct_chg": avg_pct,
+        }
+        anomalies = []
+        if total < 3000:
+            anomalies.append(f"样本数不足({total})")
+        state = self._premarket_force_empty_state
+        last_total = state.get("last_total_stocks")
+        last_up = state.get("last_limit_up")
+        last_down = state.get("last_limit_down")
+        if last_total and total and abs(total - last_total) / max(last_total, 1) > 0.25:
+            anomalies.append(f"样本数跳变({last_total}→{total})")
+        if last_up is not None and abs(limit_up - last_up) >= 30:
+            anomalies.append(f"涨停数跳变({last_up}→{limit_up})")
+        if last_down is not None and abs(limit_down - last_down) >= 20:
+            anomalies.append(f"跌停数跳变({last_down}→{limit_down})")
+        state.update({"last_total_stocks": total, "last_limit_up": limit_up, "last_limit_down": limit_down})
+        return metrics, anomalies
+
+    def _update_premarket_history_and_state(
+        self, state: Dict, ct: str, metrics: Dict, valid: bool,
+        anomalies: List, score, level, reasons, action, position_risk
+    ) -> None:
+        """更新竞价风控历史记录和状态摘要【v2.9.75提取】"""
+        item = {
+            "time": ct, **metrics, "valid": valid, "anomalies": anomalies,
+            "risk_score": score, "risk_level": level, "action": action,
+            "triggered": action in ("force_empty", "reduce_position"), "reasons": reasons[:6],
+            "position_risk": position_risk,
+        }
+        state.setdefault("history", []).append(item)
+        state["history"] = state.get("history", [])[-30:]
+        state.update({
+            "risk_score": score, "risk_level": level, "action": action,
+            "reasons": reasons[:8], "reason": "；".join(reasons[:4]),
+            "market_snapshot": metrics, "position_risk": position_risk,
+            "data_quality": "ok" if valid else "bad",
+        })
+
+    def _check_premarket_multi_round_confirm(self, state: Dict, ct: str, valid: bool, level: str) -> None:
+        """竞价风控多轮确认: 09:20-09:25累计确认+09:25-09:30最终确认【v2.9.75提取】"""
+        if "09:20:00" <= ct < "09:30:00" and valid and level in ("L2", "L3"):
+            state["confirm_count"] = int(state.get("confirm_count", 0)) + 1
+            if "09:25:00" <= ct < "09:30:00":
+                state["final_confirm_count"] = int(state.get("final_confirm_count", 0)) + 1
+            if state.get("confirm_count", 0) >= 2 and state.get("final_confirm_count", 0) >= 1:
+                state["pending"] = True
+                state["pending_action"] = "force_empty" if level == "L3" else "reduce_position"
+                cap = 0.0 if level == "L3" else 0.3
+                self._cooldown_info = {
+                    "trigger_date": datetime.now().strftime("%Y%m%d"),
+                    "cooldown_days": 1 if level == "L2" else 2,
+                    "position_cap": cap,
+                    "reason": f"竞价风险{level}: {state.get('reason')}",
+                    "risk_level": level,
+                    "block_new_buys": True,
+                }
+
     def _update_premarket_force_empty_state(self, result, realtime_data: Dict = None) -> None:
         """竞价风控状态机: 数据质量层+多轮确认层+风险分级层+执行层。
 
@@ -1214,36 +1288,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 return
             state = self._premarket_force_empty_state
             realtime_data = realtime_data or {}
-            pcts = []
-            for v in realtime_data.values():
-                if isinstance(v, dict):
-                    try:
-                        pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
-                    except Exception as _e:
-                        logger.debug(f"[GUARD] scanner: {_e}")
-            total = len(pcts)
-            up_count = sum(1 for p in pcts if p > 0)
-            down_count = sum(1 for p in pcts if p < 0)
-            limit_up = sum(1 for p in pcts if p >= 9.9)
-            limit_down = sum(1 for p in pcts if p <= -9.9)
-            avg_pct = round(sum(pcts) / total, 2) if total else 0
-            metrics = {
-                "total_stocks": total, "up_count": up_count, "down_count": down_count,
-                "limit_up_count": limit_up, "limit_down_count": limit_down, "avg_pct_chg": avg_pct,
-            }
-            anomalies = []
-            if total < 3000:
-                anomalies.append(f"样本数不足({total})")
-            last_total = state.get("last_total_stocks")
-            last_up = state.get("last_limit_up")
-            last_down = state.get("last_limit_down")
-            if last_total and total and abs(total - last_total) / max(last_total, 1) > 0.25:
-                anomalies.append(f"样本数跳变({last_total}→{total})")
-            if last_up is not None and abs(limit_up - last_up) >= 30:
-                anomalies.append(f"涨停数跳变({last_up}→{limit_up})")
-            if last_down is not None and abs(limit_down - last_down) >= 20:
-                anomalies.append(f"跌停数跳变({last_down}→{limit_down})")
-            state.update({"last_total_stocks": total, "last_limit_up": limit_up, "last_limit_down": limit_down})
+            metrics, anomalies = self._collect_premarket_metrics(realtime_data)
+            total = metrics["total_stocks"]
             state["scan_count"] = int(state.get("scan_count", 0)) + 1
             valid = total >= 3000 and not anomalies
             if valid:
@@ -1256,37 +1302,9 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
 
             position_risk = self._build_premarket_position_risk(realtime_data)
             score, level, reasons, action = self._score_premarket_risk(metrics, result, position_risk, valid=valid)
-            item = {
-                "time": ct, **metrics, "valid": valid, "anomalies": anomalies,
-                "risk_score": score, "risk_level": level, "action": action,
-                "triggered": action in ("force_empty", "reduce_position"), "reasons": reasons[:6],
-                "position_risk": position_risk,
-            }
-            state.setdefault("history", []).append(item)
-            state["history"] = state.get("history", [])[-30:]
-            state.update({
-                "risk_score": score, "risk_level": level, "action": action,
-                "reasons": reasons[:8], "reason": "；".join(reasons[:4]),
-                "market_snapshot": metrics, "position_risk": position_risk,
-                "data_quality": "ok" if valid else "bad",
-            })
-
-            if "09:20:00" <= ct < "09:30:00" and valid and level in ("L2", "L3"):
-                state["confirm_count"] = int(state.get("confirm_count", 0)) + 1
-                if "09:25:00" <= ct < "09:30:00":
-                    state["final_confirm_count"] = int(state.get("final_confirm_count", 0)) + 1
-                if state.get("confirm_count", 0) >= 2 and state.get("final_confirm_count", 0) >= 1:
-                    state["pending"] = True
-                    state["pending_action"] = "force_empty" if level == "L3" else "reduce_position"
-                    cap = 0.0 if level == "L3" else 0.3
-                    self._cooldown_info = {
-                        "trigger_date": datetime.now().strftime("%Y%m%d"),
-                        "cooldown_days": 1 if level == "L2" else 2,
-                        "position_cap": cap,
-                        "reason": f"竞价风险{level}: {state.get('reason')}",
-                        "risk_level": level,
-                        "block_new_buys": True,
-                    }
+            self._update_premarket_history_and_state(
+                state, ct, metrics, valid, anomalies, score, level, reasons, action, position_risk)
+            self._check_premarket_multi_round_confirm(state, ct, valid, level)
             if state.get("pending"):
                 logger.warning(
                     f"[FILTER] 竞价风险待执行: level={state.get('risk_level')} score={state.get('risk_score')} "

@@ -28,17 +28,7 @@
     "disk_pct": "float"
   },
   "alerts": [
-    {
-      "event_type": "str",
-      "trade_date": "str",
-      "account_id": "str",
-      "data": {
-        "error": "str",
-        "error_type": "str"
-      },
-      "timestamp": "float",
-      "time_str": "str"
-    }
+    "<empty_list>"
   ],
   "health_score": "int"
 }

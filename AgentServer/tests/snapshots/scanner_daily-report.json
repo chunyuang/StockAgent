@@ -13,7 +13,7 @@
     "strategy_summary": {
       "halfway_chase": {
         "count": "int",
-        "market_value": "int",
+        "market_value": "float",
         "total_profit": "float",
         "win_count": "int",
         "loss_count": "int",
@@ -32,14 +32,14 @@
       {
         "ts_code": "str",
         "name": "str",
-        "pct": "int"
+        "pct": "float"
       }
     ],
     "top_loss": [
       {
         "ts_code": "str",
         "name": "str",
-        "pct": "int"
+        "pct": "float"
       }
     ]
   },
@@ -48,7 +48,7 @@
     "sell": "int",
     "total_amount": "int"
   },
-  "win_rate": "int",
+  "win_rate": "float",
   "stop_loss_count": "int",
   "take_profit_count": "int",
   "risk": {
