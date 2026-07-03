@@ -41,8 +41,10 @@ def safe_float(v, default=None):
         return default
 
 def fetch_all():
-    """从东方财富push2拉全市场数据，失败时回退AKShare"""
+    """从东方财富push2拉全市场数据，失败时回退push2delay→AKShare spot"""
     all_data = []
+    
+    # === 方案1: 东方财富push2 (盘中实时, 盘后不可用) ===
     try:
         for pn in range(1, 60):
             url = 'https://push2.eastmoney.com/api/qt/clist/get'
@@ -61,14 +63,36 @@ def fetch_all():
         if all_data:
             return all_data
     except Exception as e:
-        print(f"push2 API失败({e}), 尝试AKShare回退...")
+        print(f"push2 API失败({e}), 尝试push2delay回退...")
     
-    # 回退: AKShare stock_zh_a_spot_em (非push2数据源)
+    # === 方案2: 东方财富push2delay (盘后可用, 15秒延迟, 有量比) ===
+    try:
+        for pn in range(1, 60):
+            url = 'https://push2delay.eastmoney.com/api/qt/clist/get'
+            params = {
+                'pn': pn, 'pz': 200, 'po': 1, 'np': 1,
+                'fltt': 2, 'invt': 2, 'fid': 'f3',
+                'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048',
+                'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f115'
+            }
+            r = requests.get(url, params=params, timeout=10,
+                             headers={"Referer": "https://quote.eastmoney.com/"})
+            d = r.json()
+            diff = d.get('data', {}).get('diff', [])
+            if not diff:
+                break
+            all_data.extend(diff)
+        if all_data:
+            print(f"push2delay回退: 获取{len(all_data)}只")
+            return all_data
+    except Exception as e:
+        print(f"push2delay也失败({e}), 尝试AKShare回退...")
+    
+    # === 方案3: AKShare stock_zh_a_spot (盘后可用, 无PE/PB但有OHLCV) ===
     try:
         import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        print(f"AKShare回退: 获取{len(df)}只")
-        # 转换为push2兼容格式
+        df = ak.stock_zh_a_spot()
+        print(f"AKShare spot回退: 获取{len(df)}只")
         for _, row in df.iterrows():
             all_data.append({
                 'f12': str(row.get('代码', '')),
@@ -76,16 +100,14 @@ def fetch_all():
                 'f2': row.get('最新价'),
                 'f3': row.get('涨跌幅'),
                 'f4': row.get('涨跌额'),
-                'f5': row.get('成交量'),  # 手
-                'f6': row.get('成交额'),
-                'f7': row.get('振幅'),
+                'f5': row.get('成交量'),  # 股
+                'f6': row.get('成交额'),  # 元
                 'f8': row.get('换手率'),
                 'f10': row.get('量比'),
                 'f15': row.get('最高'),
                 'f16': row.get('最低'),
                 'f17': row.get('今开'),
                 'f18': row.get('昨收'),
-                'f21': row.get('流通市值'),
             })
         return all_data
     except Exception as e2:
@@ -129,7 +151,17 @@ def write_daily_bar(trade_date=None):
         volume_ratio = safe_float(item.get('f10'))  # 量比
         circ_mv = safe_float(item.get('f21'))       # 流通市值(元)
         
-        # 成交量: 手 → 股
+        # AKShare spot返回的vol是股, push2返回的是手
+        # 统一: push2delay和push2返回手, AKShare spot返回股
+        # 通过判断来源决定转换
+        # push2/push2delay的f5已经是手, AKShare spot的f5是股需要÷100
+        # 简单处理: 如果vol>1e8可能是股(大成交量), ÷100转手
+        # 更可靠: AKShare spot无f7(振幅)和f9(PE), 用这个判断
+        is_akshare = 'f7' not in item and 'f9' not in item
+        if is_akshare:
+            vol_hand = vol_hand / 100  # 股→手
+        
+        # 成交量: 手 → 股 (MongoDB标准单位)
         vol = int(vol_hand * 100) if vol_hand else 0
         
         # 流通市值: 元 → 万元 (stock_daily_ak_full的单位)
