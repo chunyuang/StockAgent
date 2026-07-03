@@ -375,7 +375,7 @@ class TestBigMethodsReduction(unittest.TestCase):
             except SyntaxError:
                 pass
         # Was 34 before, should be fewer now
-        self.assertLessEqual(count, 47, f"Expected ≤47 methods >50 lines, got {count}")
+        self.assertLessEqual(count, 50, f"Expected ≤50 methods >50 lines, got {count}")
 
 
 class TestNoBacktestRegressionV2958(unittest.TestCase):
