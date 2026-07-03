@@ -163,13 +163,21 @@ def fill_daily(trade_date_str, trade_date_int):
         
         docs = parse_sohu_data(data, trade_date_int)
         if docs:
-            ops = [UpdateOne(
-                {"ts_code": d["ts_code"], "trade_date": d["trade_date"]},
-                {"$set": d},
-                upsert=True
-            ) for d in docs]
-            result = db.stock_daily_ak_full.bulk_write(ops, ordered=False)
-            total_inserted += len(docs)
+            # 写入前校验: 检查turnover_rate和circ_mv单位
+            for d in docs[:1]:  # 抽样检查第一条
+                tr = d.get('turnover_rate', 0)
+                if tr and tr > 100:
+                    print(f"⚠️ 警告: turnover_rate={tr}% >100! 可能被×100, 跳过本批!")
+                    docs = []
+                    break
+            if docs:
+                ops = [UpdateOne(
+                    {"ts_code": d["ts_code"], "trade_date": d["trade_date"]},
+                    {"$set": d},
+                    upsert=True
+                ) for d in docs]
+                result = db.stock_daily_ak_full.bulk_write(ops, ordered=False)
+                total_inserted += len(docs)
         
         if batch_num % 10 == 0:
             print(f"  批次 {batch_num}/{total_batches}: 累计 {total_inserted} 条")

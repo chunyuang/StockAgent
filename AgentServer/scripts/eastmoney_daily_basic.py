@@ -181,6 +181,16 @@ def write_to_daily_basic(trade_date=None):
             print(f"⚠️ 警告: turnover_rate={tr}% >100%! 可能被×100了, 跳过写入!")
             return
         
+        # circ_mv校验: daily_basic标准=亿元, 如果>10000亿或<0.001亿则异常
+        circ = check.get('circ_mv', 0)
+        if circ and circ > 0:
+            if circ > 100000:  # >10万亿
+                print(f"⚠️ 警告: circ_mv={circ}亿元 >10万亿! 可能是万元(需÷10000), 跳过写入!")
+                return
+            if circ < 0.001:
+                print(f"⚠️ 警告: circ_mv={circ}亿元 <0.001亿! 可能是万元未÷10000, 跳过写入!")
+                return
+        
         t1 = time.time()
         result = db.daily_basic.bulk_write(updates, ordered=False)
         write_time = time.time() - t1
