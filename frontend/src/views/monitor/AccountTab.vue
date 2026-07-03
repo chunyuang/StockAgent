@@ -156,7 +156,7 @@ const equityCurve = computed(() => {
         const v = values[idx]; const r = returns[idx]
         return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>` +
           `<div>总资产 <b style="color:#fff">¥${v.toLocaleString()}</b></div>` +
-          `<div>收益率 <b style="color:${r>=0?'#f56c6c':'#409eff'}">${r>=0?'+':''}${r.toFixed(2)}%</b></div>` +
+          `<div>收益率 <b style="color:${(r??0)>=0?'#f56c6c':'#409eff'}">${(r??0)>=0?'+':''}${(r??0).toFixed(2)}%</b></div>` +
           `<div style="color:#aaa;font-size:11px;margin-top:2px">当日 ${fmtPnl(d.profit||0)} · 买${d.buys||0}笔 卖${d.sells||0}笔</div>`
       }
     },
@@ -221,7 +221,7 @@ const posPie = computed(() => {
   return {
     tooltip: {
       trigger: 'item', backgroundColor: 'rgba(20,20,20,0.95)', borderColor: '#555', textStyle: { color: '#eee', fontSize: 12 },
-      formatter: (p: any) => `<b>${p.name}</b><br/>金额 ¥${p.value.toLocaleString()}<br/>占比 ${p.percent.toFixed(1)}%`
+      formatter: (p: any) => `<b>${p.name}</b><br/>金额 ¥${p.value.toLocaleString()}<br/>占比 ${(p.percent ?? 0).toFixed(1)}%`
     },
     legend: { bottom: 0, textStyle: { fontSize: 11, color: '#999' }, itemWidth: 10, itemHeight: 8 },
     series: [{

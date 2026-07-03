@@ -67,7 +67,7 @@ async function fetchAnalysis() {
 }
 
 function formatMoney(v: number): string {
-  if (v == null) return '-'
+  if (v == null || !isFinite(v)) return '-'
   const abs = Math.abs(v)
   if (abs >= 10000) return (v / 10000).toFixed(1) + '万'
   return v.toFixed(0)

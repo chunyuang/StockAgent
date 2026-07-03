@@ -180,7 +180,7 @@ function formatLayer(key) {
 function formatPct(v) {
   if (v === null || v === undefined) return '-'
   if (typeof v !== 'number' || isNaN(v)) return '-'
-  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+  return v != null && isFinite(v) ? (v >= 0 ? '+' : '') + v.toFixed(1) + '%' : '-'
 }
 
 function getStrategyColor(strategy) {
