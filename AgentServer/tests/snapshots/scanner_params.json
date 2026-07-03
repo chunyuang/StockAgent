@@ -2,6 +2,7 @@
   "halfway_chase": {
     "strategy_id": "str",
     "name": "str",
+    "enabled": "bool",
     "riskParams": {
       "stop_loss_pct": "float",
       "take_profit_pct": "float",
@@ -51,11 +52,25 @@
       }
     },
     "source": "str",
-    "imported_at": "str"
+    "imported_at": "str",
+    "params": {
+      "min_rise_pct": "float",
+      "max_rise_pct": "float",
+      "min_volume_ratio": "float",
+      "max_volume_ratio": "float",
+      "min_close_rise_pct": "float",
+      "max_open_rise_pct": "float",
+      "allow_after_10am": "bool",
+      "next_day_open_sell_pct": "float",
+      "pullback_mid_fallback_pct": "float",
+      "pullback_high_threshold": "float",
+      "pullback_profit_lock_threshold": "float"
+    }
   },
   "first_limit_up": {
     "strategy_id": "str",
     "name": "str",
+    "enabled": "bool",
     "riskParams": {
       "stop_loss_pct": "float",
       "take_profit_pct": "float",
@@ -104,11 +119,26 @@
       }
     },
     "source": "str",
-    "imported_at": "str"
+    "imported_at": "str",
+    "params": {
+      "opening_pct_min": "float",
+      "opening_pct_max": "float",
+      "min_volume_ratio": "float",
+      "min_turnover_rate": "int",
+      "max_turnover_rate": "int",
+      "min_circulation_market_cap": "int",
+      "max_circulation_market_cap": "int",
+      "hit_probability_yizi": "float",
+      "hit_probability_fast": "float",
+      "hit_probability_normal": "float",
+      "hit_probability_slow": "float",
+      "next_day_open_sell_pct": "float"
+    }
   },
   "limit_up_open": {
     "strategy_id": "str",
     "name": "str",
+    "enabled": "bool",
     "riskParams": {
       "stop_loss_pct": "float",
       "take_profit_pct": "float",
@@ -156,11 +186,22 @@
       }
     },
     "source": "str",
-    "imported_at": "str"
+    "imported_at": "str",
+    "params": {
+      "min_consecutive_limit": "int",
+      "max_consecutive_limit": "int",
+      "max_open_duration": "int",
+      "min_seal_after_open": "int",
+      "min_turnover_rate": "float",
+      "opening_pct_min": "float",
+      "opening_pct_max": "float",
+      "min_volume_ratio": "float"
+    }
   },
   "dragon_head": {
     "strategy_id": "str",
     "name": "str",
+    "enabled": "bool",
     "riskParams": {
       "stop_loss_pct": "float",
       "take_profit_pct": "float",
@@ -210,11 +251,27 @@
       }
     },
     "source": "str",
-    "imported_at": "str"
+    "imported_at": "str",
+    "params": {
+      "min_consecutive_limit": "int",
+      "min_circulation_market_cap": "int",
+      "min_correction_pct": "float",
+      "max_correction_pct": "float",
+      "correction_days_min": "int",
+      "correction_days_max": "int",
+      "support_level": "str",
+      "min_volume_ratio": "float",
+      "max_volume_ratio": "float",
+      "next_day_open_sell_pct": "float",
+      "pullback_mid_fallback_pct": "float",
+      "pullback_profit_lock_threshold": "float",
+      "pullback_high_threshold": "float"
+    }
   },
   "limit_down_qiao": {
     "strategy_id": "str",
     "name": "str",
+    "enabled": "bool",
     "riskParams": {
       "stop_loss_pct": "float",
       "take_profit_pct": "float",
@@ -263,6 +320,18 @@
       }
     },
     "source": "str",
-    "imported_at": "str"
+    "imported_at": "str",
+    "params": {
+      "min_consecutive_limit": "int",
+      "min_turnover_rate": "int",
+      "min_qiao_amount": "int",
+      "min_rise_after_qiao": "float",
+      "min_circulation_market_cap": "int",
+      "require_high_sentiment": "bool",
+      "next_day_open_sell_pct": "float",
+      "pullback_mid_fallback_pct": "float",
+      "pullback_high_threshold": "float",
+      "pullback_profit_lock_threshold": "float"
+    }
   }
 }

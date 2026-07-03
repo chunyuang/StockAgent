@@ -80,13 +80,9 @@ def check_limit_list_fields(db):
     else:
         print(f"  ✅ limit字段: {has_limit}/{len(sample)}条有值")
     
-    # Check is_limit_down
-    has_limit_down = sum(1 for d in sample if "is_limit_down" in d)
-    if has_limit_down == 0:
-        issues.append(f"limit_list: 缺少is_limit_down字段")
-        print(f"  ⚠️  缺少is_limit_down字段")
-    else:
-        print(f"  ✅ is_limit_down: {has_limit_down}条有值")
+    # Note: is_limit_down is NOT required in limit_list since v2.9.108.
+    # The 'limit' field (U/D) is the primary classifier.
+    # is_limit_up/is_limit_down belong to stock_daily_ak_full, not limit_list.
     
     return issues
 

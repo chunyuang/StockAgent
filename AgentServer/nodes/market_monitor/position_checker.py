@@ -1,5 +1,5 @@
 """
-PositionChecker — 持仓检查与卖出执行引擎
+PositionChecker - 持仓检查与卖出执行引擎
 
 从MarketScanner拆分出来(Phase3.1)。
 负责:
@@ -38,10 +38,10 @@ logger = logging.getLogger("position_checker")
 @dataclass
 class CompareAlignmentStats:
     """compare模式对齐度统计【v2.9.69新增, v2.9.70持久化+通知】
-    
+
     累积compare模式运行结果, 量化legacy与checker的对齐程度。
     当对齐度>=95%时, 可安全切换到checker模式。
-    
+
     v2.9.70增强:
     - 持久化到MongoDB(scanner_alignment_stats集合)
     - switch_ready变更时发射事件通知
@@ -81,7 +81,7 @@ class CompareAlignmentStats:
 
     def record(self, only_legacy: set, only_checker: set, both: set) -> bool:
         """记录一次compare结果
-        
+
         Returns:
             True if switch_ready状态发生变更(从未就绪→就绪)
         """
@@ -102,7 +102,7 @@ class CompareAlignmentStats:
             self.max_consecutive_agree = max(self.max_consecutive_agree, self.consecutive_agree)
         else:
             self.consecutive_agree = 0
-        
+
         # 检查switch_ready状态变更【v2.9.70】
         became_ready = not was_ready and self.switch_ready
         if became_ready:
@@ -131,10 +131,10 @@ class CompareAlignmentStats:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CompareAlignmentStats':
         """从字典恢复统计【v2.9.70:重启恢复】
-        
+
         Args:
             data: to_dict()序列化的字典
-            
+
         Returns:
             恢复后的CompareAlignmentStats实例
         """
@@ -158,13 +158,13 @@ class CompareAlignmentStats:
 class PositionChecker:
     """
     持仓检查与卖出执行引擎
-    
+
     用法:
         checker = PositionChecker(scanner)
         await checker.check_positions(realtime_data, trade_date)
         await checker.check_positions_quick(trade_date)
     """
-    
+
     def __init__(self, scanner):
         """
         Args:
@@ -175,17 +175,17 @@ class PositionChecker:
         self._backtester = None   # 缓存PortfolioBacktester实例
         self._alignment_stats = CompareAlignmentStats()  # 灰度对齐统计【v2.9.69】
         self._restore_alignment_stats()  # 重启恢复【v2.9.70】
-    
+
     # ==================== 属性代理 ====================
-    
+
     @property
     def broker(self) -> Any:
         return self._scanner._broker
-    
+
     @property
     def config(self) -> Dict:
         return self._scanner.config
-    
+
     @property
     def sell_logic_mode(self) -> str:
         return self._scanner.SELL_LOGIC_MODE
@@ -194,38 +194,38 @@ class PositionChecker:
     def alignment_stats(self) -> CompareAlignmentStats:
         """灰度对齐统计【v2.9.69】"""
         return self._alignment_stats
-    
+
     @property
     def dry_run(self) -> bool:
         return self._scanner._dry_run
-    
+
     @property
     def realtime_cache(self) -> Dict:
         """读取实时行情缓存(直接引用,仅用于内部加锁场景)"""
         return self._scanner._realtime_cache or {}
-    
+
     @property
     def trailing_stops(self) -> Dict:
         """读取追踪止损状态(直接引用,仅用于内部加锁场景)"""
         return self._scanner._trailing_stops
-    
+
     @property
     def position_risk_levels(self) -> Dict:
         return self._scanner._position_risk_levels
-    
+
     @property
     def state_lock(self) -> threading.Lock:
         """共享状态锁(保护trailing_stops/pending_sells/position_risk_levels)"""
         return self._scanner._state_lock
-    
+
     @property
     def data_router(self) -> Any:
         return self._scanner._data_router
-    
+
     @property
     def execution_stats(self) -> Dict:
         return self._scanner._execution_stats
-    
+
     def _get_sell_checker(self) -> Optional[Any]:
         """获取缓存的SellSignalChecker实例(懒初始化)"""
         if self._sell_checker is not None:
@@ -243,7 +243,7 @@ class PositionChecker:
         except ImportError:
             logger.warning("[CHECKER] SellSignalChecker不可用")
             return None
-    
+
     def _get_backtester(self) -> Optional[Any]:
         """获取缓存的PortfolioBacktester实例(懒初始化,避免每个持仓重复创建)"""
         if self._backtester is not None:
@@ -255,7 +255,7 @@ class PositionChecker:
         except ImportError:
             logger.warning("[CHECKER] PortfolioBacktester不可用")
             return None
-    
+
     def _calc_trade_days_held(self, buy_date, trade_date) -> Optional[int]:
         """计算持仓交易日天数(缓存Backtester实例)"""
         bt = self._get_backtester()
@@ -265,9 +265,9 @@ class PositionChecker:
             return bt._calc_trade_days_held(int(buy_date), int(trade_date))
         except (ValueError, TypeError):
             return None
-    
+
     # ==================== 主入口 ====================
-    
+
     async def check_positions(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """止损止盈+超时强卖检查(灰度开关路由)"""
         mode = self.sell_logic_mode
@@ -277,21 +277,21 @@ class PositionChecker:
             return await self._check_positions_compare(realtime_data, trade_date)
         else:
             return await self._check_positions_legacy(realtime_data, trade_date)
-    
+
     async def check_positions_quick(self, trade_date: str) -> List[Tuple]:
         """持仓快速检查(30秒级, 用东方财富全市场缓存)"""
         scanner = self._scanner
-        
+
         if not self.broker:
             return
         positions = self.broker.get_positions()
         if not positions:
             return
-        
+
         # 风控熔断检查
         if not await scanner._check_circuit_breaker():
             return
-        
+
         # 东方财富: 从缓存获取持仓股价格
         pos_codes = [pos.ts_code for pos in positions]
         if self.data_router:
@@ -308,7 +308,7 @@ class PositionChecker:
                     import time as _time
                     scanner._last_realtime_update_ts = _time.time()
                 logger.debug(f"[QUICK] 东方财富更新: {len(prices)}/{len(pos_codes)}只持仓价")
-        
+
         # 回退: 用全量扫描缓存
         for pos in positions:
             if pos.ts_code not in self.realtime_cache:
@@ -319,21 +319,21 @@ class PositionChecker:
                     ts_code=pos.ts_code, price=cached["price"],
                     pre_close=cached.get("pre_close", 0),
                 )
-        
+
         # 止损止盈检查
         to_sell = scanner._check_stop_loss_take_profit(
             self.broker.get_positions(), self.realtime_cache
         )
-        
+
         # 执行卖出
         await self._execute_sell_list(to_sell, trade_date, source="quick")
-    
+
     # ==================== Legacy模式 ====================
-    
+
     async def _check_positions_legacy(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """原Scanner内嵌卖出逻辑(不变)"""
         scanner = self._scanner
-        
+
         to_sell = scanner._check_stop_loss_take_profit(
             self.broker.get_positions(), realtime_data
         )
@@ -379,9 +379,9 @@ class PositionChecker:
         # 执行卖出
         await self._execute_sell_list(to_sell, trade_date, source="legacy")
         await self._post_sell_state_cleanup(to_sell)
-    
+
     # ==================== Checker模式 ====================
-    
+
     async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """checker卖出逻辑(复用回测SellSignalChecker)【v2.9.38:用_run_checker_on_positions消除重复】"""
         checker = self._get_sell_checker()
@@ -402,13 +402,13 @@ class PositionChecker:
 
         await self._execute_sell_list(to_sell, trade_date, source="checker")
         await self._post_sell_state_cleanup(to_sell)
-    
+
     # ==================== Compare模式 ====================
-    
+
     async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38+v2.9.70重构】"""
         scanner = self._scanner
-        
+
         # 并行运行legacy+checker
         legacy_sell, checker_results, legacy_codes, checker_codes = \
             self._run_compare_both(realtime_data, trade_date)
@@ -418,7 +418,7 @@ class PositionChecker:
         only_checker = checker_codes - legacy_codes
         both = legacy_codes & checker_codes
         await self._handle_compare_stats(only_legacy, only_checker, both)
-        
+
         # 差异通知+持久化
         if only_legacy or only_checker:
             await self._handle_compare_diff(
@@ -428,10 +428,10 @@ class PositionChecker:
 
         # 只执行legacy逻辑
         await self._check_positions_legacy(realtime_data, trade_date)
-    
+
     def _run_compare_both(self, realtime_data: Dict[str, Dict], trade_date: str) -> Tuple:
         """compare模式: 并行运行legacy+checker, 返回结果集合【v2.9.70提取】
-        
+
         Returns:
             (legacy_sell, checker_results, legacy_codes, checker_codes)
         """
@@ -452,17 +452,17 @@ class PositionChecker:
                 checker_codes = {pos.ts_code for pos, _, _, _, _ in checker_results}
             except Exception as e:
                 logger.debug(f"[COMPARE] checker执行异常: {e}")
-        
+
         return legacy_sell, checker_results, legacy_codes, checker_codes
-    
+
     async def _handle_compare_stats(self, only_legacy: set, only_checker: set, both: set) -> None:
         """对齐统计记录+持久化+switch_ready通知【v2.9.70提取】"""
         became_ready = self._alignment_stats.record(only_legacy, only_checker, both)
-        
+
         # 每10次check或状态变更时持久化
         if self._alignment_stats.total_checks % 10 == 0 or became_ready:
             await self._persist_alignment_stats()
-        
+
         if became_ready:
             logger.info(f"[COMPARE] 🔔 灰度切换就绪! 对齐率={self._alignment_stats.alignment_rate:.1%} "
                          f"连续一致={self._alignment_stats.consecutive_agree} "
@@ -476,7 +476,7 @@ class PositionChecker:
                 })
             except Exception as _e:
                 logger.debug(f"[COMPARE] switch_ready事件发送失败: {_e}")
-    
+
     async def _handle_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,
                                      realtime_data: Dict[str, Dict]) -> None:
@@ -499,27 +499,27 @@ class PositionChecker:
             trade_date, only_legacy, only_checker, both,
             legacy_sell, checker_results, realtime_data,
         )
-    
+
     # ==================== Checker公共逻辑【v2.9.38提取】 ====================
-    
+
     def _run_checker_on_positions(self, checker, positions, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """遍历持仓, 运行SellSignalChecker, 返回5元组列表[(pos, reason, price, risk, priority)]
-        
+
         消除checker/compare模式的重复遍历逻辑。
         checker模式使用完整5元组(含priority排序), compare模式只取ts_code。
-        
+
         Args:
             checker: SellSignalChecker实例
             positions: 持仓列表
             realtime_data: 实时行情字典
             trade_date: 交易日期
-            
+
         Returns:
             List of (pos, reason, sell_price, risk, priority) tuples
         """
         scanner = self._scanner
         results = []
-        
+
         for pos in positions:
             if pos.available_qty <= 0:
                 continue
@@ -549,21 +549,21 @@ class PositionChecker:
                 priority = result.get('priority', 0)
                 risk = scanner._get_strategy_risk(pos.strategy)
                 results.append((pos, reason, sell_price, risk, priority))
-        
+
         return results
-    
+
     async def _post_sell_state_cleanup(self, to_sell: List[Tuple]) -> None:
         """卖出后状态清理(线程安全) + 强制持久化【v2.9.38:从3处重复逻辑提取】"""
         if not to_sell:
             return
         scanner = self._scanner
-        
+
         # 线程安全清理trailing_stops/position_risk_levels
         with self.state_lock:
             for pos, reason, _, _ in to_sell:
                 self.trailing_stops.pop(pos.ts_code, None)
                 self.position_risk_levels.pop(pos.ts_code, None)
-        
+
         # 强制持久化
         # 【v2.9.92s】replay/dry_run模式不应覆盖MongoDB实盘数据
         is_virtual = getattr(self._scanner, '_trade_mode', '') in ('replay', 'dry_run') if hasattr(self, '_scanner') else False
@@ -576,10 +576,10 @@ class PositionChecker:
                 await scanner._save_runtime_snapshot(force=True)
             except Exception as _e:
                 logger.debug(f"[CLEANUP] 运行时快照保存失败: {_e}")
-    
+
     async def _persist_alignment_stats(self) -> None:
         """对齐统计持久化到MongoDB【v2.9.70新增】
-        
+
         存入scanner_alignment_stats集合(单文档,按last_check_time更新)。
         重启时通过_restore_alignment_stats恢复, 避免统计数据丢失。
         """
@@ -594,10 +594,10 @@ class PositionChecker:
                 )
         except Exception as _e:
             logger.debug(f"[COMPARE] 对齐统计持久化失败: {_e}")
-    
+
     def _restore_alignment_stats(self) -> None:
         """从MongoDB恢复对齐统计【v2.9.70新增】
-        
+
         启动时调用, 恢复上次运行的统计数据。
         如果无历史数据或恢复失败, 使用默认空统计。
         """
@@ -612,20 +612,20 @@ class PositionChecker:
                                 f"连续一致={self._alignment_stats.consecutive_agree}")
         except Exception as _e:
             logger.debug(f"[COMPARE] 对齐统计恢复失败(使用默认): {_e}")
-    
+
     async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,
                                      realtime_data: Dict[str, Dict]) -> None:
-        """compare差异持久化 — 委托给RuntimePersistence【v2.9.45提取,v2.9.51:getattr清理】"""
+        """compare差异持久化 - 委托给RuntimePersistence【v2.9.45提取,v2.9.51:getattr清理】"""
         rp = self._scanner._runtime_persistence
         if rp:
             await rp.persist_compare_diff(
                 trade_date, only_legacy, only_checker, both,
                 legacy_sell, checker_results, realtime_data,
             )
-    
+
     # ==================== 卖出执行 ====================
-    
+
     async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy") -> List[Tuple]:
         """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法, v2.9.72:trace_id】"""
         import uuid
@@ -637,10 +637,7 @@ class PositionChecker:
         if not MarketPhase.is_continuous_auction():
             blocked = len(to_sell)
             if blocked > 0:
-                logger.warning(
-                    f"[{source.upper()}] 非连续竞价时段({MarketPhase.classify()})跳过{blocked}笔卖出: "
-                    f"{', '.join(p.ts_code for p, _, _, _ in to_sell[:5])}{'...' if blocked > 5 else ''}"
-                )
+                self._log_non_trading_skip(source, blocked, to_sell)
             return to_sell  # 返回未执行的列表
 
         for pos, reason, force_price, risk in to_sell:
@@ -750,7 +747,7 @@ class PositionChecker:
 
     async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str, *, trace_id: str = "") -> None:
         """卖出后处理: 委托RuntimePersistence.post_sell_cleanup【v2.9.45重构, v2.9.72:trace_id】
-        
+
         之前: 内联构建timeline+统计+EventBus(63行)
         现在: 统一委托, 与emergency_liquidate/execute_sell_list对齐
         """
@@ -787,9 +784,9 @@ class PositionChecker:
             else:
                 scanner._stats["take_profits"] += 1
             scanner._record_trade_result(sell_profit_pct / 100.0)
-    
+
     # ==================== 追踪止损 ====================
-    
+
     def update_trailing_stops(self, positions, realtime_data: Dict[str, Dict]) -> None:
         """更新追踪止损(盈利保护)
 
@@ -826,7 +823,7 @@ class PositionChecker:
                         state["stop_price"] = round(new_stop, 2)
                         logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}")
                 self.trailing_stops[pos.ts_code] = state
-    
+
     def get_effective_stop_price(self, pos, risk: Dict) -> float:
         """获取有效止损价(追踪止损 > 固定止损)"""
         scanner = self._scanner
@@ -835,28 +832,28 @@ class PositionChecker:
         if trailing and trailing.get("stop_price", 0) > 0:
             return trailing["stop_price"]
         return scanner._calc_stop_loss_price(pos, risk)
-    
+
     # ==================== 智能检查频率 ====================
-    
+
     def get_smart_check_interval(self, positions) -> float:
         """根据持仓状态动态调整检查间隔(秒)"""
         if not positions:
             return 60.0
-        
+
         # 有持仓且接近止损→1秒
         # 有持仓且盈利→5秒
         # 有持仓且涨停→10秒
         # 空仓→30秒
         scanner = self._scanner
         min_interval = 60.0
-        
+
         for pos in positions:
             if pos.available_qty <= 0:
                 continue
             risk = scanner._get_strategy_risk(pos.strategy)
             sl_pct = risk.get("stop_loss_pct", 0.03)
             profit_pct = pos.profit_pct / 100 if pos.profit_pct else 0
-            
+
             # 接近止损→1秒
             if profit_pct < -sl_pct * 0.5:
                 min_interval = min(min_interval, 1.0)
@@ -866,11 +863,27 @@ class PositionChecker:
             # 亏损但未接近止损→3秒
             else:
                 min_interval = min(min_interval, 3.0)
-        
+
         return min_interval
-    
+
     # ==================== 辅助方法 ====================
-    
+
+    def _log_non_trading_skip(self, source: str, blocked: int, to_sell: list) -> None:
+        """【v2.9.112】非交易时段卖出跳过日志: 5分钟节流+降级debug, 避免周末686条warning刷屏"""
+        phase = MarketPhase.classify()
+        cache_key = f"_ntl_{source}"
+        if not hasattr(self, cache_key):
+            setattr(self, cache_key, {"n": 0, "ts": 0.0})
+        lc = getattr(self, cache_key)
+        lc["n"] += blocked
+        now = time.time()
+        codes = ', '.join(p.ts_code for p, _, _, _ in to_sell[:5])
+        if lc["n"] == blocked or now - lc["ts"] >= 300:
+            logger.warning(f"[{source.upper()}] 非连续竞价({phase})跳过{blocked}笔(累计{lc['n']}): {codes}")
+            lc["ts"] = now
+        else:
+            logger.debug(f"[{source.upper()}] 非连续竞价({phase})跳过{blocked}笔(累计{lc['n']})")
+
     def _is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停(不可卖)【v2.9.83:新增ST股±5%跌停阈值】"""
         rt = self.realtime_cache.get(ts_code, {})
