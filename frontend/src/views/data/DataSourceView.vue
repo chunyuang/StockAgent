@@ -4,6 +4,7 @@
  * 纯展示页面，不修改任何运行时逻辑
  */
 import { ref, computed, onMounted } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import {
   ElCard,
   ElTable,
@@ -603,8 +604,46 @@ const levelColorMap: Record<string, string> = {
   '✅': '#22c55e',
 }
 
+// ==================== 交易归档 ====================
+const archiveDates = ref<number[]>([])
+const archiveSelectedDate = ref<number>(0)
+const archiveData = ref<any>(null)
+const archiveLoading = ref(false)
+const archiveTab = ref('summary')
+
+async function loadArchiveDates() {
+  try {
+    const res = await api.get('/trading-archive/dates')
+    archiveDates.value = res.data?.dates || []
+    if (archiveDates.value.length > 0 && !archiveSelectedDate.value) {
+      archiveSelectedDate.value = archiveDates.value[0]
+    }
+  } catch (e) {
+    console.warn('加载归档日期失败', e)
+  }
+}
+
+async function loadArchiveDay(date: number) {
+  archiveLoading.value = true
+  archiveData.value = null
+  try {
+    const res = await api.get(`/trading-archive/day/${date}`)
+    archiveData.value = res.data
+  } catch (e) {
+    console.warn('加载归档数据失败', e)
+  } finally {
+    archiveLoading.value = false
+  }
+}
+
+function onArchiveDateChange(date: number) {
+  archiveSelectedDate.value = date
+  loadArchiveDay(date)
+}
+
 onMounted(() => {
   fetchDbStats()
+  loadArchiveDates()
 })
 </script>
 
@@ -940,6 +979,165 @@ onMounted(() => {
           <ElTableColumn prop="script" label="脚本" min-width="180" />
           <ElTableColumn prop="checks" label="检查项" min-width="300" />
         </ElTable>
+      </div>
+    </ElCollapseItem>
+
+    <!-- 交易归档 -->
+    <ElCollapseItem name="trading-archive">
+      <template #title>
+        <div class="section-title collapsible-title">
+          <span class="section-icon">📦</span>
+          <span>交易归档</span>
+          <span class="collapse-summary">
+            <ElTag size="small" type="info">{{ archiveDates.length }}天</ElTag>
+            <span v-if="archiveSelectedDate" class="summary-detail">当前: {{ archiveSelectedDate }}</span>
+          </span>
+        </div>
+      </template>
+
+      <p class="factor-intro">
+        查看每日交易归档：摘要/资金/持仓/成交/委托/日志。参考
+        <a href="https://www.myquant.cn/docs2/tools/%E4%BA%A4%E6%98%93%E5%BD%92%E6%A1%A3.html" target="_blank" style="color:var(--el-color-primary)">掘金量化交易归档</a>。
+      </p>
+
+      <!-- 日期选择 -->
+      <div class="archive-date-bar">
+        <span class="archive-label">选择日期:</span>
+        <ElSelect v-model="archiveSelectedDate" placeholder="选择交易日" size="small" style="width:160px" @change="onArchiveDateChange">
+          <ElOption v-for="d in archiveDates" :key="d" :label="String(d)" :value="d" />
+        </ElSelect>
+        <ElButton size="small" type="primary" :loading="archiveLoading" @click="loadArchiveDay(archiveSelectedDate)" :disabled="!archiveSelectedDate">加载</ElButton>
+      </div>
+
+      <div v-if="archiveLoading" class="archive-loading">
+        <ElIcon class="is-loading"><Loading /></ElIcon> 加载中...
+      </div>
+
+      <div v-else-if="archiveData" class="archive-content">
+        <ElTabs v-model="archiveTab" type="border-card">
+          <!-- 摘要 -->
+          <ElTabPane label="📋 摘要" name="summary">
+            <div class="summary-grid">
+              <div class="summary-card">
+                <div class="sc-title">委托统计</div>
+                <div class="sc-row"><span>总委托</span><b>{{ archiveData.summary.total_orders }}</b></div>
+                <div class="sc-row"><span>买入</span><b>{{ archiveData.summary.buy_orders }}</b></div>
+                <div class="sc-row"><span>卖出</span><b>{{ archiveData.summary.sell_orders }}</b></div>
+                <div class="sc-row"><span>已成交</span><b class="text-success">{{ archiveData.summary.filled_orders }}</b></div>
+                <div class="sc-row"><span>已取消</span><b class="text-muted">{{ archiveData.summary.cancelled_orders }}</b></div>
+              </div>
+              <div class="summary-card">
+                <div class="sc-title">成交统计</div>
+                <div class="sc-row"><span>成交笔数</span><b>{{ archiveData.summary.total_trades }}</b></div>
+                <div class="sc-row"><span>买入金额</span><b>{{ (archiveData.summary.total_buy_amount / 10000).toFixed(1) }}万</b></div>
+                <div class="sc-row"><span>卖出金额</span><b>{{ (archiveData.summary.total_sell_amount / 10000).toFixed(1) }}万</b></div>
+                <div class="sc-row"><span>已实现盈亏</span><b :class="archiveData.summary.realized_pnl >= 0 ? 'text-success' : 'text-danger'">{{ (archiveData.summary.realized_pnl / 10000).toFixed(2) }}万</b></div>
+              </div>
+              <div class="summary-card">
+                <div class="sc-title">资金概况</div>
+                <div class="sc-row"><span>总资产</span><b>{{ (archiveData.summary.total_assets / 10000).toFixed(1) }}万</b></div>
+                <div class="sc-row"><span>可用资金</span><b>{{ (archiveData.summary.available_cash / 10000).toFixed(1) }}万</b></div>
+                <div class="sc-row"><span>持仓市值</span><b>{{ (archiveData.summary.position_value / 10000).toFixed(1) }}万</b></div>
+                <div class="sc-row"><span>持仓数</span><b>{{ archiveData.summary.position_count }}只</b></div>
+              </div>
+            </div>
+          </ElTabPane>
+
+          <!-- 资金 -->
+          <ElTabPane label="💰 资金" name="capital">
+            <ElDescriptions :column="2" border size="small" v-if="archiveData.capital">
+              <ElDescriptionsItem label="可用资金">{{ (archiveData.capital.available_cash / 10000).toFixed(1) }}万</ElDescriptionsItem>
+              <ElDescriptionsItem label="总资产">{{ (archiveData.capital.total_assets / 10000).toFixed(1) }}万</ElDescriptionsItem>
+              <ElDescriptionsItem label="持仓市值">{{ (archiveData.capital.market_value / 10000).toFixed(1) }}万</ElDescriptionsItem>
+              <ElDescriptionsItem label="总盈亏"><span :class="archiveData.capital.total_profit >= 0 ? 'text-success' : 'text-danger'">{{ (archiveData.capital.total_profit / 10000).toFixed(2) }}万</span></ElDescriptionsItem>
+              <ElDescriptionsItem label="已实现盈亏">{{ (archiveData.capital.realized_pnl / 10000).toFixed(2) }}万</ElDescriptionsItem>
+            </ElDescriptions>
+          </ElTabPane>
+
+          <!-- 持仓 -->
+          <ElTabPane label="📊 持仓" name="positions">
+            <ElTable :data="archiveData.positions" size="small" stripe>
+              <ElTableColumn prop="ts_code" label="代码" width="110" />
+              <ElTableColumn prop="stock_name" label="名称" width="80" />
+              <ElTableColumn prop="quantity" label="数量" width="80" align="right" />
+              <ElTableColumn prop="avg_cost" label="成本" width="80" align="right" :formatter="(r: any) => r.avg_cost?.toFixed(2)" />
+              <ElTableColumn prop="current_price" label="现价" width="80" align="right" :formatter="(r: any) => r.current_price?.toFixed(2)" />
+              <ElTableColumn prop="market_value" label="市值" width="100" align="right" :formatter="(r: any) => (r.market_value / 10000).toFixed(1) + '万'" />
+              <ElTableColumn prop="profit_pct" label="盈亏%" width="80" align="right">
+                <template #default="{ row }">
+                  <span :class="row.profit_pct >= 0 ? 'text-success' : 'text-danger'">{{ row.profit_pct?.toFixed(2) }}%</span>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="strategy" label="策略" min-width="100" />
+            </ElTable>
+          </ElTabPane>
+
+          <!-- 成交 -->
+          <ElTabPane label="✅ 成交" name="trades">
+            <ElTable :data="archiveData.trades" size="small" stripe>
+              <ElTableColumn prop="fill_time" label="时间" width="160" />
+              <ElTableColumn prop="ts_code" label="代码" width="110" />
+              <ElTableColumn prop="stock_name" label="名称" width="80" />
+              <ElTableColumn prop="side" label="方向" width="60" align="center">
+                <template #default="{ row }">
+                  <ElTag size="small" :type="row.side === 'buy' ? 'danger' : 'success'" effect="plain">{{ row.side === 'buy' ? '买' : '卖' }}</ElTag>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="filled_qty" label="数量" width="80" align="right" />
+              <ElTableColumn prop="filled_price" label="价格" width="80" align="right" :formatter="(r: any) => r.filled_price?.toFixed(2)" />
+              <ElTableColumn prop="filled_amount" label="金额" width="100" align="right" :formatter="(r: any) => (r.filled_amount / 10000).toFixed(1) + '万'" />
+              <ElTableColumn prop="profit_amount" label="盈亏" width="100" align="right">
+                <template #default="{ row }">
+                  <span v-if="row.side === 'sell'" :class="row.profit_amount >= 0 ? 'text-success' : 'text-danger'">{{ (row.profit_amount / 10000).toFixed(2) }}万</span>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="strategy" label="策略" min-width="100" />
+            </ElTable>
+          </ElTabPane>
+
+          <!-- 委托 -->
+          <ElTabPane label="📝 委托" name="orders">
+            <ElTable :data="archiveData.orders" size="small" stripe>
+              <ElTableColumn prop="create_time" label="时间" width="160" />
+              <ElTableColumn prop="ts_code" label="代码" width="110" />
+              <ElTableColumn prop="stock_name" label="名称" width="80" />
+              <ElTableColumn prop="side" label="方向" width="60" align="center">
+                <template #default="{ row }">
+                  <ElTag size="small" :type="row.side === 'buy' ? 'danger' : 'success'" effect="plain">{{ row.side === 'buy' ? '买' : '卖' }}</ElTag>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="quantity" label="委托量" width="80" align="right" />
+              <ElTableColumn prop="filled_qty" label="成交量" width="80" align="right" />
+              <ElTableColumn prop="filled_price" label="成交价" width="80" align="right" :formatter="(r: any) => r.filled_price?.toFixed(2)" />
+              <ElTableColumn prop="status" label="状态" width="80" align="center">
+                <template #default="{ row }">
+                  <ElTag size="small" :type="row.status === 'filled' ? 'success' : row.status === 'cancelled' ? 'info' : 'warning'">{{ row.status }}</ElTag>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="reason" label="原因" min-width="120" show-overflow-tooltip />
+              <ElTableColumn prop="strategy" label="策略" min-width="100" />
+            </ElTable>
+          </ElTabPane>
+
+          <!-- 日志 -->
+          <ElTabPane label="📋 日志" name="logs">
+            <ElTable :data="archiveData.logs" size="small" stripe>
+              <ElTableColumn prop="timestamp" label="时间" width="180" />
+              <ElTableColumn prop="type" label="类型" width="80" align="center">
+                <template #default="{ row }">
+                  <ElTag size="small" :type="row.type === 'buy' || row.type === 'signal' ? 'success' : row.type === 'sell' || row.type === 'risk' ? 'danger' : 'warning'" effect="plain">{{ row.type }}</ElTag>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="message" label="内容" min-width="300" show-overflow-tooltip />
+            </ElTable>
+            <div v-if="archiveData.logs.length === 0" class="archive-empty">该日无日志记录</div>
+          </ElTabPane>
+        </ElTabs>
+      </div>
+
+      <div v-else class="archive-empty">
+        请选择交易日并点击"加载"查看归档数据
       </div>
     </ElCollapseItem>
 
@@ -1739,4 +1937,59 @@ onMounted(() => {
   font-weight: 600;
   margin: 0 0 8px 0;
 }
+
+/* 交易归档 */
+.archive-date-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.archive-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.archive-loading {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-tertiary);
+}
+.archive-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-quaternary);
+}
+.archive-content {
+  margin-top: 8px;
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .summary-grid { grid-template-columns: 1fr; }
+}
+.summary-card {
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.sc-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--el-color-primary);
+}
+.sc-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.sc-row b {
+  font-family: 'Menlo', monospace;
+}
+.text-success { color: var(--el-color-success); }
+.text-danger { color: var(--el-color-danger); }
 </style>
