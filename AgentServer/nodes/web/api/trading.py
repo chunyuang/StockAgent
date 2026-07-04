@@ -75,6 +75,9 @@ class Position(BaseModel):
     strategy: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    market_value: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
 
 class TradeRecord(BaseModel):
     """交易记录"""
@@ -186,17 +189,17 @@ async def get_sim_accounts(
             
             account = SimAccount(
                 account_id=record["account_id"],
-                name=record["name"],
-                user_id=record["user_id"],
-                initial_cash=record["initial_cash"],
+                name=record.get("name", "默认账户"),
+                user_id=record.get("user_id", ""),
+                initial_cash=record.get("initial_cash", 1000000),
                 available_cash=record["available_cash"],
                 total_assets=total_assets,
                 total_profit_pct=total_profit_pct,
                 total_profit=total_profit,
                 position_value=total_position_value,
                 position_ratio=position_ratio,
-                created_at=record["created_at"],
-                updated_at=record["updated_at"],
+                created_at=record.get("created_at", datetime.now(timezone.utc)),
+                updated_at=record.get("updated_at", datetime.now(timezone.utc)),
                 is_active=record.get("is_active", True)
             )
             accounts.append(account)
@@ -318,7 +321,7 @@ async def get_positions(
             profit = (current_price - avg_cost) * quantity if current_price and avg_cost else 0
             profit_pct = (current_price - avg_cost) / avg_cost if avg_cost > 0 and current_price else 0
             pos = Position(
-                position_id=record.get("position_id", ""),
+                position_id=record.get("position_id", str(record.get("_id", ""))),
                 account_id=record["account_id"],
                 ts_code=record["ts_code"],
                 stock_name=record.get("stock_name", ""),
@@ -328,11 +331,14 @@ async def get_positions(
                 current_price=current_price,
                 profit=profit,
                 profit_pct=profit_pct,
-                first_buy_date=record.get("first_buy_date"),
+                first_buy_date=record.get("first_buy_date") or record.get("buy_date"),
                 hold_days=record.get("hold_days", 0),
                 strategy=record.get("strategy"),
-                created_at=record["created_at"],
-                updated_at=record["updated_at"]
+                created_at=record.get("created_at") or record.get("buy_date") or datetime.now(timezone.utc),
+                updated_at=record.get("updated_at") or record.get("restored_at") or datetime.now(timezone.utc),
+                market_value=record.get("market_value"),
+                stop_loss_price=record.get("stop_loss_price"),
+                take_profit_price=record.get("take_profit_price"),
             )
             positions.append(pos)
         
