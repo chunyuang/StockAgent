@@ -140,6 +140,66 @@ const dataSources = [
   },
 ]
 
+/** 全量集合分类与审查规则 */
+const allCollectionCategories = [
+  {
+    category: '行情数据',
+    icon: '📈',
+    description: '数据源采补的原始行情与因子数据',
+    collections: [
+      { name: 'stock_daily_ak_full', desc: 'A股日线行情+46+因子', keyField: 'trade_date', freshness: '1天' },
+      { name: 'daily_basic', desc: 'PE/PB/换手率/市值等基础指标', keyField: 'trade_date', freshness: '1天' },
+      { name: 'limit_list', desc: '涨跌停池(涨停/跌停/炸板)', keyField: 'trade_date', freshness: '1天' },
+      { name: 'sentiment_scores', desc: '市场情绪评分(涨停数/炸板率等)', keyField: 'trade_date', freshness: '1天' },
+    ],
+  },
+  {
+    category: '交易数据',
+    icon: '💰',
+    description: '实盘交易产生的订单/持仓/账户数据',
+    collections: [
+      { name: 'broker_orders', desc: '买卖订单(filled/pending/cancelled)', keyField: 'created_at', freshness: '实时' },
+      { name: 'broker_positions', desc: '当前持仓(市值/成本/盈亏)', keyField: 'ts_code', freshness: '实时' },
+      { name: 'broker_accounts', desc: '账户资产(现金/市值/总资产)', keyField: '-', freshness: '实时' },
+      { name: 'equity_curve', desc: '资金曲线(每日资产快照)', keyField: 'date', freshness: '1天' },
+    ],
+  },
+  {
+    category: '持久化/状态',
+    icon: '⚙️',
+    description: 'scanner运行时状态持久化',
+    collections: [
+      { name: 'scanner_runtime_snapshot', desc: 'scanner运行时快照(持仓/现金)', keyField: 'trade_date', freshness: '实时' },
+      { name: 'risk_decisions', desc: '风控决策记录(止损/止盈)', keyField: 'timestamp', freshness: '实时' },
+      { name: 'scan_traces', desc: '扫描记录(信号漏斗)', keyField: 'created_at', freshness: '实时' },
+      { name: 'performance_snapshots', desc: '绩效快照(胜率/夏普等)', keyField: 'timestamp', freshness: '1天' },
+      { name: 'premarket_snapshots', desc: '盘前快照(竞价/持仓盈亏)', keyField: 'trade_date', freshness: '1天' },
+    ],
+  },
+  {
+    category: '计算/展示',
+    icon: '🖥️',
+    description: '衍生计算与展示层数据',
+    collections: [
+      { name: 'scanner_timeline', desc: '信号时间线(signal/skip/circuit)', keyField: 'trade_date', freshness: '实时' },
+      { name: 'scanner_signals', desc: '交易信号池', keyField: 'trade_date', freshness: '实时' },
+      { name: 'sentiment_live_log', desc: '盘中情绪日志', keyField: 'timestamp', freshness: '实时' },
+      { name: 'limit_pool_down', desc: '跌停池', keyField: 'trade_date', freshness: '1天' },
+      { name: 'limit_pool_up', desc: '涨停池', keyField: 'trade_date', freshness: '1天' },
+      { name: 'index_daily', desc: '指数日线(上证/深证/创业板)', keyField: 'trade_date', freshness: '1天' },
+      { name: 'audit_log', desc: '审计日志', keyField: 'timestamp', freshness: '实时' },
+    ],
+  },
+]
+
+/** 审查规则说明 */
+const auditRules = [
+  { dimension: '因子影响审查', schedule: '工作日16:00', script: 'factor_impact_audit.py', checks: '因子计算/值域/策略一致性/派生因子/空壳防护/跨集合/漏斗/炸板率' },
+  { dimension: '交易数据审查', schedule: '工作日16:10', script: 'trading_data_audit.py', checks: 'positions.mv/账户等式/equity单调/risk_decisions/sell avg_cost/cash偏差' },
+  { dimension: '使用侧一致性审查', schedule: '周一20:00', script: '内嵌6维度', checks: 'circ_mv单位/PE-PB/策略参数vs代码/broken/first_limit_up/回测引擎' },
+  { dimension: '数据单位验证', schedule: '工作日16:40', script: 'validate_data_units.py', checks: '字段单位/参照票市值/跨集合一致性' },
+]
+
 /** MongoDB集合字段单位标准 */
 const collectionStandards = [
   {
@@ -459,6 +519,38 @@ const recentCoverage = computed(() => {
   }))
 })
 
+/** 全量集合状态(按4大类分组) */
+const allCollectionsStatus = computed(() => {
+  const cols = dataStatus.value?.collections || {}
+  return allCollectionCategories.map(cat => ({
+    ...cat,
+    collections: cat.collections.map(c => {
+      const info = cols[c.name] as any || {}
+      return {
+        ...c,
+        count: info.count || 0,
+        dateRange: info.date_range || null,
+        error: info.error || null,
+        category: cat.category,
+      }
+    })
+  }))
+})
+
+/** 全量集合总览统计 */
+const allCollectionsSummary = computed(() => {
+  const cols = dataStatus.value?.collections || {}
+  let totalCollections = 0
+  let okCollections = 0
+  for (const cat of allCollectionCategories) {
+    for (const c of cat.collections) {
+      totalCollections++
+      const info = cols[c.name] as any || {}
+      if (info.count > 0) okCollections++
+    }
+  }
+  return { total: totalCollections, ok: okCollections }
+})
 /** 健康评分 */
 const healthScore = computed(() => dataStatus.value?.health_score ?? '-')
 const healthBreakdown = computed(() => dataStatus.value?.health_breakdown || {})
@@ -770,6 +862,87 @@ onMounted(() => {
 
     <!-- 其余区块用折叠包裹 -->
     <ElCollapse v-model="mainCollapse" class="main-collapse">
+
+    <!-- 全量数据状态 -->
+    <ElCollapseItem name="all-collections">
+      <template #title>
+        <div class="section-title collapsible-title">
+          <span class="section-icon">🗄️</span>
+          <span>全量数据状态</span>
+          <span class="collapse-summary">
+            <ElTag size="small" type="info">{{ allCollectionsSummary.total }}集合</ElTag>
+            <ElTag size="small" :type="allCollectionsSummary.ok === allCollectionsSummary.total ? 'success' : 'warning'">{{ allCollectionsSummary.ok }}/{{ allCollectionsSummary.total }}有数据</ElTag>
+            <span class="summary-detail">4大类: 行情4 + 交易4 + 状态5 + 展示7</span>
+          </span>
+        </div>
+      </template>
+
+      <p class="factor-intro">
+        系统共 <strong>{{ allCollectionsSummary.total }}个集合</strong>，按4大类分组。
+        审查定时任务4个：因子影响(日16:00) + 交易数据(日16:10) + 使用侧一致性(周一20:00) + 数据单位验证(日16:40)。
+      </p>
+
+      <!-- 按类别展示 -->
+      <div v-for="cat in allCollectionsStatus" :key="cat.category" class="collection-category">
+        <div class="cat-header-row">
+          <span class="cat-icon-lg">{{ cat.icon }}</span>
+          <span class="cat-name-lg">{{ cat.category }}</span>
+          <ElTag size="small" type="info">{{ cat.collections.length }}集合</ElTag>
+          <span class="cat-desc">{{ cat.description }}</span>
+        </div>
+        <ElTable :data="cat.collections" size="small" stripe class="cat-table">
+          <ElTableColumn label="集合" min-width="200">
+            <template #default="{ row }">
+              <span class="col-name">{{ row.name }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="说明" min-width="180">
+            <template #default="{ row }">
+              <span>{{ row.desc }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="条数" width="100" align="right">
+            <template #default="{ row }">
+              <span :class="{ 'text-muted': row.count === 0 }">{{ row.count > 0 ? row.count.toLocaleString() : '0' }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="最新日期" width="120" align="center">
+            <template #default="{ row }">
+              <span v-if="row.dateRange" class="date-range-end">{{ row.dateRange.end }}</span>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="日期字段" width="100" align="center">
+            <template #default="{ row }">
+              <span class="text-muted">{{ row.keyField }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="预期更新" width="80" align="center">
+            <template #default="{ row }">
+              <ElTag size="small" :type="row.freshness === '实时' ? 'success' : 'info'" effect="plain">{{ row.freshness }}</ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="状态" width="80" align="center">
+            <template #default="{ row }">
+              <span v-if="row.error">❌</span>
+              <span v-else-if="row.count === 0">🟡</span>
+              <span v-else>✅</span>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+
+      <!-- 审查定时任务 -->
+      <div class="audit-rules-section">
+        <h4 class="sub-section-title">🔍 审查定时任务</h4>
+        <ElTable :data="auditRules" size="small" stripe>
+          <ElTableColumn prop="dimension" label="审查维度" min-width="160" />
+          <ElTableColumn prop="schedule" label="调度" width="140" align="center" />
+          <ElTableColumn prop="script" label="脚本" min-width="180" />
+          <ElTableColumn prop="checks" label="检查项" min-width="300" />
+        </ElTable>
+      </div>
+    </ElCollapseItem>
 
     <!-- 因子体系 -->
     <ElCollapseItem name="factors">
@@ -1518,5 +1691,53 @@ onMounted(() => {
     color: #f59e0b;
     line-height: 1.5;
   }
+}
+
+/* 全量数据状态 */
+.collection-category {
+  margin-bottom: 16px;
+}
+.cat-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 4px 0;
+}
+.cat-icon-lg {
+  font-size: 20px;
+}
+.cat-name-lg {
+  font-size: 15px;
+  font-weight: 600;
+}
+.cat-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.cat-table {
+  margin-bottom: 4px;
+}
+.col-name {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+.date-range-end {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 12px;
+}
+.text-muted {
+  color: var(--text-quaternary);
+}
+.audit-rules-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+.sub-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
 }
 </style>

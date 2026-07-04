@@ -784,24 +784,45 @@ async def get_data_status() -> Dict[str, Any]:
 
         # 集合记录数 + 日期范围
         collections = {}
-        for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
-            try:
-                cnt = await mongo_manager.count_documents(name, {})
-                # 日期范围(只对有trade_date字段的集合查询)
-                date_range = None
-                if cnt > 0:
-                    try:
-                        first_cursor = db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1)
-                        last_cursor = db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
-                        first_list = await first_cursor.to_list(length=1)
-                        last_list = await last_cursor.to_list(length=1)
-                        if first_list and last_list and 'trade_date' in first_list[0] and 'trade_date' in last_list[0]:
-                            date_range = {'start': str(first_list[0]['trade_date']), 'end': str(last_list[0]['trade_date'])}
-                    except Exception:
-                        pass  # backtest_tasks等集合没有trade_date字段
-                collections[name] = {'count': cnt, 'date_range': date_range}
-            except Exception as e:
-                collections[name] = {'count': 0, 'date_range': None, 'error': str(e)}
+        # 全量集合按4大类分组
+        all_collections_config = {
+            '行情数据': ['stock_daily_ak_full', 'daily_basic', 'limit_list', 'sentiment_scores'],
+            '交易数据': ['broker_orders', 'broker_positions', 'broker_accounts', 'equity_curve'],
+            '持久化/状态': ['scanner_runtime_snapshot', 'risk_decisions', 'scan_traces', 'performance_snapshots', 'premarket_snapshots'],
+            '计算/展示': ['scanner_timeline', 'scanner_signals', 'sentiment_live_log', 'limit_pool_down', 'limit_pool_up', 'index_daily', 'audit_log'],
+        }
+        for name in list(all_collections_config.keys()):
+            for col_name in all_collections_config[name]:
+                try:
+                    cnt = await mongo_manager.count_documents(col_name, {})
+                    # 日期范围(智能推断字段)
+                    date_range = None
+                    date_field = None
+                    if cnt > 0:
+                        # 先试探一条看有哪些日期字段
+                        sample_cursor = db[col_name].find({}, {'_id': 0}).limit(1)
+                        sample_list = await sample_cursor.to_list(length=1)
+                        if sample_list:
+                            sample = sample_list[0]
+                            for df in ['trade_date', 'date', 'timestamp', 'created_at']:
+                                if df in sample:
+                                    date_field = df
+                                    break
+                        if date_field:
+                            try:
+                                first_cursor = db[col_name].find({}, {date_field: 1}).sort(date_field, 1).limit(1)
+                                last_cursor = db[col_name].find({}, {date_field: 1}).sort(date_field, -1).limit(1)
+                                first_list = await first_cursor.to_list(length=1)
+                                last_list = await last_cursor.to_list(length=1)
+                                if first_list and last_list and date_field in first_list[0] and date_field in last_list[0]:
+                                    start_val = str(first_list[0][date_field])[:10]
+                                    end_val = str(last_list[0][date_field])[:10]
+                                    date_range = {'start': start_val, 'end': end_val}
+                            except Exception:
+                                pass
+                    collections[col_name] = {'count': cnt, 'date_range': date_range, 'category': name}
+                except Exception as e:
+                    collections[col_name] = {'count': 0, 'date_range': None, 'error': str(e), 'category': name}
 
         # 每日因子覆盖率(全量, 单次聚合查询)
         daily_coverage = []
