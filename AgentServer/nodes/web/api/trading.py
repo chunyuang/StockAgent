@@ -177,7 +177,7 @@ async def get_sim_accounts(
             for pos in positions:
                 # 优先使用已结算的current_price，否则用avg_cost估算
                 price = pos.get("current_price") or pos.get("avg_cost", 0)
-                total_position_value += pos.get("quantity", 0) * price
+                total_position_value += (pos.get("qty") or pos.get("total_qty") or pos.get("quantity") or 0) * price
             
             total_assets = record["available_cash"] + total_position_value
             total_profit = total_assets - record["initial_cash"]
@@ -288,7 +288,7 @@ async def get_positions(
         
         records = await mongo_manager.find_many(
             C.POSITIONS,
-            {"account_id": account_id, "quantity": {"$gt": 0}},
+            {"account_id": account_id, "total_qty": {"$gt": 0}},
             sort=[("created_at", -1)]
         )
         
@@ -314,16 +314,16 @@ async def get_positions(
             ts_code = record["ts_code"]
             avg_cost = record["avg_cost"]
             current_price = price_map.get(ts_code, avg_cost)
-            quantity = record["quantity"]
+            quantity = record.get("total_qty") or record.get("qty") or record.get("quantity", 0)
             profit = (current_price - avg_cost) * quantity if current_price and avg_cost else 0
             profit_pct = (current_price - avg_cost) / avg_cost if avg_cost > 0 and current_price else 0
             pos = Position(
-                position_id=record["position_id"],
+                position_id=record.get("position_id", ""),
                 account_id=record["account_id"],
                 ts_code=record["ts_code"],
-                stock_name=record["stock_name"],
-                quantity=record["quantity"],
-                available_quantity=record["available_quantity"],
+                stock_name=record.get("stock_name", ""),
+                quantity=quantity,
+                available_quantity=record.get("available_qty") or record.get("available_quantity", 0),
                 avg_cost=record["avg_cost"],
                 current_price=current_price,
                 profit=profit,
