@@ -149,6 +149,76 @@ def process_dt_df(df, trade_date):
     return docs
 
 
+def supplement_bj_from_ak_full(db, start=None, end=None):
+    """从ak_full的is_limit_up=1补充北交所/科创板涨停到limit_list
+    
+    必盈API不覆盖北交所(920xxx/8xxxxx/4xxxxx)，导致limit_list缺这些股票。
+    从ak_full的pct_chg+is_limit_up反向补充。
+    """
+    # 确定日期范围
+    pipeline = [{"$match": {"is_limit_up": 1, "ts_code": {"$regex": "^(920|8|4)"}}},
+                {"$group": {"_id": "$trade_date"}},
+                {"$sort": {"_id": -1}}]
+    dates = [d["_id"] for d in db.stock_daily_ak_full.aggregate(pipeline)]
+    
+    if start:
+        dates = [d for d in dates if d >= int(start)]
+    if end:
+        dates = [d for d in dates if d <= int(end)]
+    
+    total_added = 0
+    for td in sorted(dates):
+        # 找ak_full中涨停但limit_list中没有的
+        lu_codes = set(d["ts_code"] for d in db.stock_daily_ak_full.find(
+            {"trade_date": td, "is_limit_up": 1, "ts_code": {"$regex": "^(920|8|4)"}},
+            {"ts_code": 1, "_id": 0}
+        ))
+        ll_codes = set(d["ts_code"] for d in db.limit_list.find(
+            {"trade_date": td, "limit": "U", "ts_code": {"$regex": "^(920|8|4)"}},
+            {"ts_code": 1, "_id": 0}
+        ))
+        missing_codes = lu_codes - ll_codes
+        if not missing_codes:
+            continue
+        
+        docs = []
+        for code in sorted(missing_codes):
+            doc = db.stock_daily_ak_full.find_one(
+                {"ts_code": code, "trade_date": td},
+                {"pct_chg": 1, "close": 1, "open": 1, "pre_close": 1, "_id": 0}
+            )
+            if not doc:
+                continue
+            docs.append({
+                "trade_date": td,
+                "ts_code": code,
+                "name": "",
+                "limit": "U",
+                "close": doc.get("close", 0),
+                "amp": doc.get("pct_chg", 0),
+                "fc_ratio": 0,
+                "first_time": "",
+                "last_time": "",
+                "open_times": 0,
+                "limit_times": 1,
+                "seal_amount": 0,
+                "sector": "北交所" if not code.startswith("688") else "科创板",
+                "data_source": "ak_full_supplement",
+            })
+        
+        if docs:
+            try:
+                db.limit_list.insert_many(docs, ordered=False)
+                total_added += len(docs)
+                print(f"  {td}: 补充{len(docs)}只北交所涨停")
+            except Exception as e:
+                # 可能重复插入，跳过
+                pass
+    
+    print(f"\n✅ 北交所涨停补充完成: 共{total_added}条")
+    return total_added
+
+
 def main():
     parser = argparse.ArgumentParser(description='补全limit_list涨跌停数据')
     parser.add_argument('--start', help='起始日期 20251009')
@@ -212,6 +282,10 @@ def main():
     print(f"\n✅ 完成! 涨停{total_zt}条 跌停{total_dt}条")
     if failed:
         print(f"⚠️ 失败{len(failed)}天: {failed}")
+    
+    # 补充北交所涨停(必盈API不覆盖)
+    print(f"\n=== 补充北交所涨停(ak_full→limit_list) ===")
+    supplement_bj_from_ak_full(db, args.start, args.end)
 
 
 if __name__ == "__main__":

@@ -639,7 +639,15 @@ async def main():
     await compute_pullback(trade_dates)
     
     print("\n=== Step 7: Compute technical indicators (MACD/RSI/BOLL/ATR/FearGreed/Momentum/Vol) ===")
-    await compute_technical_indicators(trade_dates)
+    # 【v2.9.110】分批执行避免OOM: 每次3天, 间隔GC
+    import gc
+    batch_size = 3
+    for i in range(0, len(trade_dates), batch_size):
+        batch = trade_dates[i:i+batch_size]
+        await compute_technical_indicators(batch)
+        gc.collect()
+        if i + batch_size < len(trade_dates):
+            print(f"  [batch {i//batch_size+1}/{(len(trade_dates)+batch_size-1)//batch_size}] 已完成{len(batch)}天, GC后继续...")
     
     # Verify
     print("\n=== Verification ===")

@@ -371,6 +371,20 @@ const loading = ref(false)
 const dbStats = ref<any>({})
 const dataStatus = ref<any>({})
 
+/** 折叠状态 */
+const expandedSections = ref<Record<string, boolean>>({
+  pipeline: true,
+  status: true,
+})
+const mainCollapse = ref<string[]>([])  // 默认全部折叠
+
+/** 数据采补状态子区块折叠 */
+const statusSubCollapse = ref<string[]>(['collections', 'coverage'])
+
+const toggleSection = (key: string) => {
+  expandedSections.value[key] = !expandedSections.value[key]
+}
+
 const fetchDbStats = async () => {
   loading.value = true
   try {
@@ -515,14 +529,16 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 采补链路 -->
+    <!-- 采补链路 (默认展开) -->
     <ElCard class="section-card" shadow="never">
       <template #header>
-        <div class="section-title">
+        <div class="section-title" @click="toggleSection('pipeline')" style="cursor: pointer">
           <span class="section-icon">🔄</span>
           <span>每日采补链路</span>
+          <span class="toggle-hint">{{ expandedSections.pipeline ? '▼' : '▶' }}</span>
         </div>
       </template>
+      <div v-show="expandedSections.pipeline" class="section-body">
       <div class="pipeline-flow">
         <div v-for="(step, idx) in pipelineSteps" :key="idx" class="pipeline-step">
           <div class="step-time">{{ step.time }}</div>
@@ -534,18 +550,22 @@ onMounted(() => {
           <div v-if="idx < pipelineSteps.length - 1" class="step-arrow">→</div>
         </div>
       </div>
+      </div><!-- /section-body -->
     </ElCard>
 
-    <!-- 数据采补状态 -->
+    <!-- 数据采补状态 (默认展开) -->
     <ElCard class="section-card" shadow="never">
       <template #header>
-        <div class="section-title">
+        <div class="section-title" @click="toggleSection('status')" style="cursor: pointer">
           <span class="section-icon">📊</span>
           <span>数据采补状态</span>
           <ElTag v-if="healthScore !== '-'" :type="(healthScore as number) >= 80 ? 'success' : (healthScore as number) >= 50 ? 'warning' : 'danger'" size="small" style="margin-left: 8px">健康分: {{ healthScore }}</ElTag>
           <span v-if="loading" style="margin-left: 8px; font-size: 12px; color: var(--text-tertiary)">加载中...</span>
+          <span class="toggle-hint">{{ expandedSections.status ? '▼' : '▶' }}</span>
         </div>
       </template>
+
+      <div v-show="expandedSections.status" class="section-body">
 
       <!-- 诊断信息 -->
       <div v-if="diagnostics.length > 0" class="diagnostics-bar">
@@ -555,7 +575,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 健康分拆解 -->
+      <!-- 健康分拆解(始终可见) -->
       <div v-if="healthBreakdown.freshness_max" class="health-bar">
         <div class="health-item">
           <span class="health-label">数据新鲜度</span>
@@ -574,9 +594,14 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 集合状态 -->
-      <div class="collection-status" v-if="collectionHealth.length > 0">
-        <div class="sub-title">关键集合状态</div>
+      <!-- 集合+覆盖+对齐+策略 二级折叠 -->
+      <ElCollapse v-model="statusSubCollapse" class="status-sub-collapse">
+
+      <!-- 集合状态(默认展开) -->
+      <ElCollapseItem name="collections" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">关键集合状态</span>
+        </template>
         <ElTable :data="collectionHealth" size="small" stripe>
           <ElTableColumn prop="name" label="集合" min-width="180">
             <template #default="{ row }">
@@ -595,11 +620,13 @@ onMounted(() => {
             </template>
           </ElTableColumn>
         </ElTable>
-      </div>
+      </ElCollapseItem>
 
-      <!-- 最近5天因子覆盖率 -->
-      <div class="coverage-section" v-if="recentCoverage.length > 0">
-        <div class="sub-title">最近因子覆盖率</div>
+      <!-- 因子覆盖率 -->
+      <ElCollapseItem name="coverage" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">最近因子覆盖率</span>
+        </template>
         <ElTable :data="recentCoverage" size="small" stripe>
           <ElTableColumn prop="date" label="日期" width="120" />
           <ElTableColumn prop="total" label="记录数" width="100" />
@@ -634,21 +661,25 @@ onMounted(() => {
             </template>
           </ElTableColumn>
         </ElTable>
-      </div>
+      </ElCollapseItem>
 
       <!-- 建议操作 -->
-      <div v-if="actionItems.length > 0" class="action-items">
-        <div class="sub-title">建议操作</div>
+      <ElCollapseItem v-if="actionItems.length > 0" name="actions" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">建议操作 ({{ actionItems.length }})</span>
+        </template>
         <div v-for="(item, i) in actionItems" :key="i" class="action-item">
           <span class="action-level">{{ item.priority === 'high' ? '🔴' : item.priority === 'medium' ? '🟡' : '🟢' }}</span>
           <span>{{ item.action }}: {{ item.desc }}</span>
           <span v-if="item.command" class="mono-text action-cmd">{{ item.command }}</span>
         </div>
-      </div>
+      </ElCollapseItem>
 
       <!-- 数据对齐 -->
-      <div v-if="dataAlignment" class="alignment-section">
-        <div class="sub-title">数据对齐 ({{ dataAlignment.date }})</div>
+      <ElCollapseItem v-if="dataAlignment" name="alignment" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">数据对齐 ({{ dataAlignment.date }})</span>
+        </template>
         <div class="alignment-grid">
           <div class="align-item">
             <span class="align-label">ak_full</span>
@@ -665,11 +696,13 @@ onMounted(() => {
             <ElTag v-else type="success" size="small">完全一致</ElTag>
           </div>
         </div>
-      </div>
+      </ElCollapseItem>
 
       <!-- 策略可用性 -->
-      <div v-if="strategyAvailability.length > 0" class="strategy-avail-section">
-        <div class="sub-title">策略因子可用性</div>
+      <ElCollapseItem v-if="strategyAvailability.length > 0" name="strategy" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">策略因子可用性</span>
+        </template>
         <ElTable :data="strategyAvailability" size="small" stripe>
           <ElTableColumn prop="name" label="策略" width="120" />
           <ElTableColumn label="因子就绪" min-width="200">
@@ -688,21 +721,29 @@ onMounted(() => {
             </template>
           </ElTableColumn>
         </ElTable>
-      </div>
+      </ElCollapseItem>
 
       <!-- 推荐回测区间 -->
-      <div v-if="recommendedRanges.length > 0" class="ranges-section">
-        <div class="sub-title">推荐回测区间 (因子覆盖>70%)</div>
+      <ElCollapseItem v-if="recommendedRanges.length > 0" name="ranges" class="sub-collapse-item">
+        <template #title>
+          <span class="sub-title" style="margin:0">推荐回测区间</span>
+        </template>
         <div v-for="(r, i) in recommendedRanges" :key="i" class="range-item">
           <span class="mono-text">{{ r.start }} ~ {{ r.end }}</span>
           <ElTag size="small" type="info">{{ r.factor_rate }}</ElTag>
         </div>
-      </div>
+      </ElCollapseItem>
+
+      </ElCollapse><!-- /statusSubCollapse -->
+      </div><!-- /section-body -->
     </ElCard>
 
+    <!-- 其余区块用折叠包裹 -->
+    <ElCollapse v-model="mainCollapse" class="main-collapse">
+
     <!-- 因子体系 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="factors">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">🧮</span>
           <span>因子体系</span>
@@ -756,11 +797,11 @@ onMounted(() => {
           </ElTable>
         </ElCollapseItem>
       </ElCollapse>
-    </ElCard>
+    </ElCollapseItem>
 
     <!-- 因子计算脚本 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="scripts">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">🔧</span>
           <span>因子计算脚本</span>
@@ -787,11 +828,11 @@ onMounted(() => {
           </div>
         </ElCollapseItem>
       </ElCollapse>
-    </ElCard>
+    </ElCollapseItem>
 
     <!-- 数据源列表 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="sources">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">📡</span>
           <span>数据源配置</span>
@@ -829,11 +870,11 @@ onMounted(() => {
           </div>
         </ElCollapseItem>
       </ElCollapse>
-    </ElCard>
+    </ElCollapseItem>
 
     <!-- MongoDB字段单位标准 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="standards">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">📏</span>
           <span>MongoDB字段单位标准</span>
@@ -877,11 +918,11 @@ onMounted(() => {
           </ElTable>
         </ElCollapseItem>
       </ElCollapse>
-    </ElCard>
+    </ElCollapseItem>
 
     <!-- 历史bug记录 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="bugs">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">🐛</span>
           <span>历史单位bug记录</span>
@@ -895,11 +936,11 @@ onMounted(() => {
         <ElTableColumn prop="rootCause" label="根因" min-width="200" />
         <ElTableColumn prop="fix" label="修复" min-width="160" />
       </ElTable>
-    </ElCard>
+    </ElCollapseItem>
 
     <!-- 已知未修问题 -->
-    <ElCard class="section-card" shadow="never">
-      <template #header>
+    <ElCollapseItem name="issues">
+      <template #title>
         <div class="section-title">
           <span class="section-icon">⚠️</span>
           <span>已知未修问题</span>
@@ -916,7 +957,9 @@ onMounted(() => {
         <ElTableColumn prop="issue" label="问题" min-width="300" />
         <ElTableColumn prop="impact" label="影响" min-width="250" />
       </ElTable>
-    </ElCard>
+    </ElCollapseItem>
+
+    </ElCollapse><!-- /main-collapse -->
   </div>
 </template>
 
@@ -1047,6 +1090,67 @@ onMounted(() => {
   gap: 8px;
   padding: 3px 0;
   font-size: 13px;
+}
+
+.toggle-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s;
+}
+
+.main-collapse {
+  border: none;
+  margin-bottom: 20px;
+
+  :deep(.el-collapse-item__header) {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    padding: 14px 20px;
+    margin-bottom: 8px;
+    height: auto;
+    line-height: 1.5;
+  }
+
+  :deep(.el-collapse-item__wrap) {
+    border: none;
+    border-radius: 0 0 12px 12px;
+    margin-top: -8px;
+    margin-bottom: 8px;
+  }
+
+  :deep(.el-collapse-item__content) {
+    padding: 12px 20px 20px;
+  }
+}
+
+.status-sub-collapse {
+  border: none;
+  margin-bottom: 8px;
+
+  :deep(.el-collapse-item__header) {
+    background: var(--bg-muted);
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 4px;
+    height: auto;
+    line-height: 1.5;
+    border: none;
+    font-size: 13px;
+  }
+
+  :deep(.el-collapse-item__wrap) {
+    border: none;
+  }
+
+  :deep(.el-collapse-item__content) {
+    padding: 8px 0;
+  }
+}
+
+.section-body {
+  // 无额外样式，仅做v-show容器
 }
 
 .section-card {
