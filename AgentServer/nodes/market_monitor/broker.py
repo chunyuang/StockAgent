@@ -260,7 +260,7 @@ class SimulatedBroker:
                     "frozen_cash": self.account.frozen_cash,
                     "market_value": self.account.market_value,
                     "today_profit": self.account.today_profit,
-                    "total_profit": self.account.total_profit,
+                    "total_profit": self.account.total_assets - self._initial_cash,
                     "updated_at": datetime.now().isoformat(),
                 }},
                 upsert=True,
@@ -320,7 +320,7 @@ class SimulatedBroker:
             "frozen_cash": self.account.frozen_cash,
             "market_value": self.account.market_value,
             "today_profit": self.account.today_profit,
-            "total_profit": self.account.total_profit,
+            "total_profit": self.account.total_assets - self._initial_cash,
             "updated_at": datetime.now().isoformat(),
         }
 
@@ -481,9 +481,7 @@ class SimulatedBroker:
         self.account.available_cash = correct_cash
         self.account.market_value = market_value
         self.account.total_assets = correct_total
-        self.account.total_profit = market_value - sum(
-            p.avg_cost * p.total_qty for p in self.positions.values()
-        )  # 未实现盈亏
+        self.account.total_profit = self.account.total_assets - self._initial_cash  # 总盈亏(已实现+未实现)
 
         logger.warning(
             f"[BROKER] ⚠️ 账户一致性修复: 现金{old_cash:.0f}→{correct_cash:.0f} "
@@ -502,7 +500,7 @@ class SimulatedBroker:
             self.account.frozen_cash = account_doc.get("frozen_cash", 0)
             self.account.market_value = account_doc.get("market_value", 0)
             self.account.today_profit = account_doc.get("today_profit", 0)
-            self.account.total_profit = account_doc.get("total_profit", 0)
+            self.account.total_profit = self.account.total_assets - self._initial_cash  # 总是从资产重算
             logger.info(f"[BROKER] 账户恢复: 资产{self.account.total_assets:.0f} 现金{self.account.available_cash:.0f}")
 
     async def _restore_positions_from_mongo(self) -> None:
@@ -1120,7 +1118,7 @@ class SimulatedBroker:
                 order.profit_pct = round(profit_pct, 2)
                 order.profit_amount = round(profit, 2)
                 order.avg_cost = avg_cost
-                self.account.total_profit += profit
+                # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
                 self.account.today_profit += profit
 
             # 收回资金(无论avg_cost是否找到)
@@ -1150,7 +1148,7 @@ class SimulatedBroker:
         order.profit_amount = round(profit_amount, 2)
         # 【v2.9.98f】记录avg_cost到order, 供MongoDB和analysis查询使用
         order.avg_cost = pos.avg_cost
-        self.account.total_profit += profit
+        # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
         self.account.today_profit += profit  # 【v2.9.88修复】今日盈亏需同步累加
 
         # 收回资金
@@ -1204,9 +1202,7 @@ class SimulatedBroker:
         self.account.available_cash = correct_cash
         self.account.market_value = market_value
         self.account.total_assets = correct_cash + market_value
-        self.account.total_profit = market_value - sum(
-            p.avg_cost * p.total_qty for p in self.positions.values()
-        )  # 未实现盈亏
+        self.account.total_profit = self.account.total_assets - self._initial_cash  # 总盈亏(已实现+未实现)
 
     def _calc_cash_from_mongo_orders(self) -> tuple:
         """【v2.9.108】从MongoDB查全量filled orders推算buy_cost和sell_income

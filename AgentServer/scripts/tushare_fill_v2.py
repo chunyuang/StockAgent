@@ -51,6 +51,13 @@ def fill_basic_bulk(td_int):
         for k in ['circ_mv', 'total_mv']:
             if k in update and update[k] > 0:
                 update[k] = update[k] / 10000
+                # 验证: 亿元单位下, circ_mv不应>10万亿(100000亿)
+                if update[k] > 100000:
+                    print(f'  ⚠️ {row["ts_code"]} {k}={update[k]:.0f}亿 >10万亿! 跳过')
+                    del update[k]
+        # 跳过close=None/0的记录
+        if 'close' not in update or update.get('close', 0) <= 0:
+            continue
         if update:
             ops.append(UpdateOne(
                 {'ts_code': row['ts_code'], 'trade_date': td_int},
@@ -94,9 +101,13 @@ def fill_daily_bulk(td_int):
             if pd.notna(v):
                 update[f] = float(v)
         if pd.notna(row.get('vol')):
-            update['vol'] = float(row['vol']) * 100  # 手→股
+            update['vol'] = float(row['vol'])  # Tushare vol=手, MongoDB标准=手, 不需转换
         if pd.notna(row.get('amount')):
-            update['amount'] = float(row['amount']) * 1000  # 千元→元
+            update['amount'] = float(row['amount']) * 10  # 千元→百元(MongoDB标准)
+        
+        # 跳过close=None/0的记录(停牌/退市)
+        if 'close' not in update or update.get('close', 0) <= 0:
+            continue
         
         if update:
             ops.append(UpdateOne(

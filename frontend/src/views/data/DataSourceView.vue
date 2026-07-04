@@ -185,7 +185,6 @@ const allCollectionCategories = [
       { name: 'scanner_signals', desc: '交易信号池', keyField: 'trade_date', freshness: '实时' },
       { name: 'sentiment_live_log', desc: '盘中情绪日志', keyField: 'timestamp', freshness: '实时' },
       { name: 'limit_pool_down', desc: '跌停池', keyField: 'trade_date', freshness: '1天' },
-      { name: 'limit_pool_up', desc: '涨停池', keyField: 'trade_date', freshness: '1天' },
       { name: 'index_daily', desc: '指数日线(上证/深证/创业板)', keyField: 'trade_date', freshness: '1天' },
       { name: 'audit_log', desc: '审计日志', keyField: 'timestamp', freshness: '实时' },
     ],
@@ -872,7 +871,7 @@ onMounted(() => {
           <span class="collapse-summary">
             <ElTag size="small" type="info">{{ allCollectionsSummary.total }}集合</ElTag>
             <ElTag size="small" :type="allCollectionsSummary.ok === allCollectionsSummary.total ? 'success' : 'warning'">{{ allCollectionsSummary.ok }}/{{ allCollectionsSummary.total }}有数据</ElTag>
-            <span class="summary-detail">4大类: 行情4 + 交易4 + 状态5 + 展示7</span>
+            <span class="summary-detail">4大类: 行情4 + 交易4 + 状态5 + 展示6</span>
           </span>
         </div>
       </template>
