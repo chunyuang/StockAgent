@@ -3,7 +3,7 @@
  * 数据获取页面 - 展示所有数据源配置、获取逻辑和注意事项
  * 纯展示页面，不修改任何运行时逻辑
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   ElCard,
   ElTable,
@@ -369,13 +369,20 @@ const knownIssues = [
 
 const loading = ref(false)
 const dbStats = ref<any>({})
+const dataStatus = ref<any>({})
 
 const fetchDbStats = async () => {
   loading.value = true
   try {
-    const result = await api.get<ApiResponse>('/admin/db/stats')
-    if (result.success && result.data) {
-      dbStats.value = result.data
+    const [statsResult, statusResult] = await Promise.allSettled([
+      api.get<ApiResponse>('/admin/db/stats'),
+      api.get<ApiResponse>('/system/data-status'),
+    ])
+    if (statsResult.status === 'fulfilled' && statsResult.value.success && statsResult.value.data) {
+      dbStats.value = statsResult.value.data
+    }
+    if (statusResult.status === 'fulfilled' && statusResult.value.success && statusResult.value.data) {
+      dataStatus.value = statusResult.value.data
     }
   } catch (e) {
     // 静默失败，页面仍可用
@@ -383,6 +390,68 @@ const fetchDbStats = async () => {
     loading.value = false
   }
 }
+
+/** 采补状态汇总计算 */
+const collectionHealth = computed(() => {
+  const cols = dataStatus.value?.collections || {}
+  const results: { name: string; count: number; dateEnd: string; status: 'ok' | 'warn' | 'error'; statusText: string }[] = []
+  const today = new Date()
+  const yesterday = new Date(today.getTime() - 86400000)
+  const todayStr = today.toISOString().slice(0, 10).replace(/-/g, '')
+  const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '')
+  const fridayStr = new Date(today.getTime() - (today.getDay() + 2) % 7 * 86400000).toISOString().slice(0, 10).replace(/-/g, '')
+  const expectedLatest = today.getDay() === 0 || today.getDay() === 6 ? fridayStr : yesterdayStr
+
+  for (const [name, info] of Object.entries(cols)) {
+    const col = info as any
+    const count = col.count || 0
+    const dateEnd = col.date_range?.end || 'N/A'
+    let status: 'ok' | 'warn' | 'error' = 'ok'
+    let statusText = '✅ 正常'
+
+    if (count === 0) {
+      status = 'error'
+      statusText = '❌ 无数据'
+    } else {
+      const expected: Record<string, number> = {
+        stock_daily_ak_full: 4000, daily_basic: 4000, limit_list: 50, index_daily: 1,
+      }
+      const minCount = expected[name]
+      if (minCount && count > 0) {
+        // 看最新日期是否是最近交易日
+        const endNum = parseInt(dateEnd)
+        const expectedNum = parseInt(expectedLatest)
+        if (endNum < expectedNum - 3) {
+          status = 'warn'
+          statusText = `⚠️ 数据滞后(${dateEnd})`
+        }
+      }
+    }
+
+    results.push({ name, count, dateEnd, status, statusText })
+  }
+  return results
+})
+
+/** 因子覆盖率(最近5天) */
+const recentCoverage = computed(() => {
+  const coverage = dataStatus.value?.daily_coverage || []
+  if (!coverage.length) return []
+  return coverage.slice(-5).map((c: any) => ({
+    date: c.date,
+    total: c.total,
+    rate: c.factor_rate,
+    groups: c.groups || {},
+  }))
+})
+
+/** 健康评分 */
+const healthScore = computed(() => dataStatus.value?.health_score ?? '-')
+const healthBreakdown = computed(() => dataStatus.value?.health_breakdown || {})
+
+/** 诊断信息 */
+const diagnostics = computed(() => dataStatus.value?.diagnostics || [])
+const actionItems = computed(() => dataStatus.value?.action_items || [])
 
 // ==================== 样式辅助 ====================
 
@@ -454,6 +523,116 @@ onMounted(() => {
             <div class="step-detail">{{ step.detail }}</div>
           </div>
           <div v-if="idx < pipelineSteps.length - 1" class="step-arrow">→</div>
+        </div>
+      </div>
+    </ElCard>
+
+    <!-- 数据采补状态 -->
+    <ElCard class="section-card" shadow="never">
+      <template #header>
+        <div class="section-title">
+          <span class="section-icon">📊</span>
+          <span>数据采补状态</span>
+          <ElTag v-if="healthScore !== '-'" :type="(healthScore as number) >= 80 ? 'success' : (healthScore as number) >= 50 ? 'warning' : 'danger'" size="small" style="margin-left: 8px">健康分: {{ healthScore }}</ElTag>
+          <span v-if="loading" style="margin-left: 8px; font-size: 12px; color: var(--text-tertiary)">加载中...</span>
+        </div>
+      </template>
+
+      <!-- 诊断信息 -->
+      <div v-if="diagnostics.length > 0" class="diagnostics-bar">
+        <div v-for="(d, i) in diagnostics" :key="i" class="diag-item" :class="d.level">
+          <span class="diag-level">{{ d.level === 'red' ? '🔴' : d.level === 'yellow' ? '🟡' : '🟢' }}</span>
+          <span>{{ d.message }}</span>
+        </div>
+      </div>
+
+      <!-- 健康分拆解 -->
+      <div v-if="healthBreakdown.freshness_max" class="health-bar">
+        <div class="health-item">
+          <span class="health-label">数据新鲜度</span>
+          <ElProgress :percentage="Math.round((healthBreakdown.freshness_score / healthBreakdown.freshness_max) * 100)" :stroke-width="10" :color="'#3b82f6'" style="flex: 1" />
+          <span class="health-val">{{ healthBreakdown.freshness_score }}/{{ healthBreakdown.freshness_max }}</span>
+        </div>
+        <div class="health-item">
+          <span class="health-label">因子覆盖率</span>
+          <ElProgress :percentage="healthBreakdown.factor_max > 0 ? Math.round((healthBreakdown.factor_score / healthBreakdown.factor_max) * 100) : 0" :stroke-width="10" :color="'#f59e0b'" style="flex: 1" />
+          <span class="health-val">{{ healthBreakdown.factor_score }}/{{ healthBreakdown.factor_max }}</span>
+        </div>
+        <div class="health-item">
+          <span class="health-label">数据源可用</span>
+          <ElProgress :percentage="healthBreakdown.source_max > 0 ? Math.round((healthBreakdown.source_score / healthBreakdown.source_max) * 100) : 0" :stroke-width="10" :color="'#10b981'" style="flex: 1" />
+          <span class="health-val">{{ healthBreakdown.source_score }}/{{ healthBreakdown.source_max }}</span>
+        </div>
+      </div>
+
+      <!-- 集合状态 -->
+      <div class="collection-status" v-if="collectionHealth.length > 0">
+        <div class="sub-title">关键集合状态</div>
+        <ElTable :data="collectionHealth" size="small" stripe>
+          <ElTableColumn prop="name" label="集合" min-width="180">
+            <template #default="{ row }">
+              <span class="mono-text">{{ row.name }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="count" label="记录数" width="120">
+            <template #default="{ row }">
+              {{ row.count?.toLocaleString() }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="dateEnd" label="最新日期" width="120" />
+          <ElTableColumn label="状态" width="180">
+            <template #default="{ row }">
+              <ElTag :type="row.status === 'ok' ? 'success' : row.status === 'warn' ? 'warning' : 'danger'" size="small">{{ row.statusText }}</ElTag>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+
+      <!-- 最近5天因子覆盖率 -->
+      <div class="coverage-section" v-if="recentCoverage.length > 0">
+        <div class="sub-title">最近因子覆盖率</div>
+        <ElTable :data="recentCoverage" size="small" stripe>
+          <ElTableColumn prop="date" label="日期" width="120" />
+          <ElTableColumn prop="total" label="记录数" width="100" />
+          <ElTableColumn label="核心覆盖率" width="140">
+            <template #default="{ row }">
+              <ElProgress :percentage="row.rate" :stroke-width="8" :color="row.rate >= 80 ? '#10b981' : row.rate >= 50 ? '#f59e0b' : '#ef4444'" />
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="基础" width="80">
+            <template #default="{ row }">
+              <span :class="row.groups?.basic >= 80 ? 'cov-ok' : 'cov-bad'">{{ row.groups?.basic ?? '-' }}%</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="均线" width="80">
+            <template #default="{ row }">
+              <span :class="row.groups?.technical_ma >= 80 ? 'cov-ok' : 'cov-bad'">{{ row.groups?.technical_ma ?? '-' }}%</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="量价" width="80">
+            <template #default="{ row }">
+              <span :class="row.groups?.volume >= 80 ? 'cov-ok' : 'cov-bad'">{{ row.groups?.volume ?? '-' }}%</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="技术" width="80">
+            <template #default="{ row }">
+              <span :class="row.groups?.technical_talib >= 80 ? 'cov-ok' : 'cov-bad'">{{ row.groups?.technical_talib ?? '-' }}%</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="涨跌停" width="80">
+            <template #default="{ row }">
+              <span :class="row.groups?.limit >= 80 ? 'cov-ok' : 'cov-bad'">{{ row.groups?.limit ?? '-' }}%</span>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+
+      <!-- 建议操作 -->
+      <div v-if="actionItems.length > 0" class="action-items">
+        <div class="sub-title">建议操作</div>
+        <div v-for="(item, i) in actionItems" :key="i" class="action-item">
+          <span class="action-level">{{ item.level === 'red' ? '🔴' : item.level === 'yellow' ? '🟡' : '🟢' }}</span>
+          <span>{{ item.message }}</span>
         </div>
       </div>
     </ElCard>
@@ -704,6 +883,67 @@ onMounted(() => {
     font-size: 12px;
     color: var(--text-tertiary);
     font-family: monospace;
+  }
+}
+
+// 数据采补状态
+.diagnostics-bar {
+  margin-bottom: 16px;
+  .diag-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    font-size: 13px;
+    &.red { background: rgba(239, 68, 68, 0.08); color: #dc2626; }
+    &.yellow { background: rgba(245, 158, 11, 0.08); color: #d97706; }
+    &.green { background: rgba(16, 185, 129, 0.08); color: #059669; }
+    .diag-level { font-size: 14px; }
+  }
+}
+
+.health-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-muted);
+  border-radius: 8px;
+}
+
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  .health-label { font-size: 13px; min-width: 80px; color: var(--text-secondary); }
+  .health-val { font-size: 12px; color: var(--text-tertiary); font-family: monospace; min-width: 40px; text-align: right; }
+}
+
+.collection-status, .coverage-section, .action-items {
+  margin-bottom: 16px;
+}
+
+.sub-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.cov-ok { color: #10b981; font-weight: 600; }
+.cov-bad { color: #ef4444; font-weight: 600; }
+
+.action-items {
+  .action-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    .action-level { font-size: 14px; }
   }
 }
 
