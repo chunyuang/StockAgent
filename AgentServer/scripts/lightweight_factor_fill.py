@@ -412,7 +412,7 @@ async def compute_pullback(trade_dates: list[int]):
             max_high = max(recent_highs)
             current_close = records[-1][1]  # 当天收盘价
             
-            if max_high > 0 and current_close > 0:
+            if max_high > 0 and current_close is not None and current_close > 0:
                 pullback_pct = (current_close - max_high) / max_high * 100
                 ops.append(UpdateOne(
                     {'ts_code': ts_code, 'trade_date': td},
@@ -572,7 +572,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
     recent_dates = all_dates_sorted[:lookback_days]
     
     # 关键因子：任一缺失率>10%则该日期需补
-    # TALib指标(macd/rsi/boll/atr/fear_greed_index)由回测引擎自动补算，不作为缺失判断标准
+    # 包含技术指标(MACD/RSI/BOLL/ATR/fear_greed_index) - 现由lightweight_factor_fill补算
     key_factors = [
         'ma5', 'ma10', 'ma20', 'ma60',
         'turnover_rate', 'volume_ratio', 'circ_mv',
@@ -580,6 +580,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
         'opening_pct_chg', 'open_above_limit',
         'intraday_max_rise_pct', 'intraday_open_rise_pct',
         'limit_up_count',
+        'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
     ]
     
     trade_dates = []
@@ -637,8 +638,8 @@ async def main():
     print("\n=== Step 6: Compute pullback_pct ===")
     await compute_pullback(trade_dates)
     
-    print("\n=== Step 7: Compute technical indicators (MACD/RSI/BOLL/ATR) ===")
-    print("  Skipped: TALib indicators are computed by the backtest engine at runtime")
+    print("\n=== Step 7: Compute technical indicators (MACD/RSI/BOLL/ATR/FearGreed/Momentum/Vol) ===")
+    await compute_technical_indicators(trade_dates)
     
     # Verify
     print("\n=== Verification ===")

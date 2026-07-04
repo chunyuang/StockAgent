@@ -125,7 +125,12 @@ def write_to_daily_basic(trade_date=None):
     db = MongoClient(MONGO_URI)[DB_NAME]
     
     if trade_date is None:
-        trade_date = int(datetime.now().strftime("%Y%m%d"))
+        from datetime import date as _date
+        today = _date.today()
+        if today.weekday() >= 5:  # 周六=5, 周日=6
+            print(f"[SKIP] 今天是{today.strftime('%A')}，非交易日，跳过")
+            return 0
+        trade_date = int(today.strftime("%Y%m%d"))
     
     t0 = time.time()
     all_data = fetch_all()

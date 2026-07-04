@@ -81,8 +81,8 @@ def fetch_batch(qq_codes):
                     'open': open_price,
                     'high': high,
                     'low': low,
-                    'vol': int(vol * 100) if vol else 0,  # 手→股
-                    'amount': amount_wan * 10000 if amount_wan else 0,  # 万→元
+                    'vol': int(vol) if vol else 0,  # 手, MongoDB标准也是手, 直接存
+                    'amount': amount_wan * 100 if amount_wan else 0,  # 万元→百元(×100)
                     'turnover_rate': turnover,
                     'pct_chg': round((price / pre_close - 1) * 100, 2) if pre_close and pre_close > 0 else None,
                 }

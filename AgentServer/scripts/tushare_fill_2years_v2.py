@@ -65,10 +65,24 @@ def fill_daily_basic(dates):
         ops = []
         for _, row in df.iterrows():
             update = {}
-            for f in ['turnover_rate','turnover_rate_f','volume_ratio','pe_ttm','pe','pb','ps','ps_ttm','total_mv','circ_mv','close']:
+            for f in ['turnover_rate','turnover_rate_f','volume_ratio','pe_ttm','pe','pb','ps','ps_ttm','close']:
                 v = row.get(f)
                 if pd.notna(v):
                     update[f] = float(v)
+            # turnover_rate: Tushare返回小数→×100→百分数
+            if 'turnover_rate' in update and update['turnover_rate'] > 0 and update['turnover_rate'] < 1:
+                update['turnover_rate'] = update['turnover_rate'] * 100
+            if 'turnover_rate_f' in update and update['turnover_rate_f'] > 0 and update['turnover_rate_f'] < 1:
+                update['turnover_rate_f'] = update['turnover_rate_f'] * 100
+            # circ_mv/total_mv: Tushare返回万元→daily_basic标准亿元→÷10000
+            for k in ['circ_mv', 'total_mv']:
+                v = row.get(k)
+                if pd.notna(v):
+                    update[k] = float(v) / 10000
+            # close: 元→直接存
+            v = row.get('close')
+            if pd.notna(v):
+                update['close'] = float(v)
             if update:
                 ops.append(UpdateOne(
                     {'ts_code': row['ts_code'], 'trade_date': td_int},
@@ -133,10 +147,12 @@ def fill_stock_daily(dates):
                 v = row.get(f)
                 if pd.notna(v):
                     update[f] = float(v)
+            # vol: Tushare daily返回手, MongoDB标准也是手, 直接存
             if pd.notna(row.get('vol')):
-                update['vol'] = float(row['vol']) * 100
+                update['vol'] = float(row['vol'])
+            # amount: Tushare daily返回千元, MongoDB标准是百元, ×10
             if pd.notna(row.get('amount')):
-                update['amount'] = float(row['amount']) * 1000
+                update['amount'] = float(row['amount']) * 10
             
             if update:
                 ops.append(UpdateOne(

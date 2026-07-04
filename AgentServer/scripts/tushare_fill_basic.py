@@ -27,10 +27,24 @@ def fill_basic_for_date(td_str):
     updated = 0
     for _, row in df.iterrows():
         fields = {}
-        for f in ['turnover_rate','turnover_rate_f','volume_ratio','pe_ttm','pe','pb','ps','ps_ttm','total_mv','circ_mv','close']:
+        for f in ['turnover_rate','turnover_rate_f','volume_ratio','pe_ttm','pe','pb','ps','ps_ttm','close']:
             v = row.get(f)
             if pd.notna(v):
                 fields[f] = float(v)
+        # turnover_rate: Tushare返回小数(0.0531)→需×100→百分数(5.31)
+        if 'turnover_rate' in fields and fields['turnover_rate'] > 0 and fields['turnover_rate'] < 1:
+            fields['turnover_rate'] = fields['turnover_rate'] * 100
+        if 'turnover_rate_f' in fields and fields['turnover_rate_f'] > 0 and fields['turnover_rate_f'] < 1:
+            fields['turnover_rate_f'] = fields['turnover_rate_f'] * 100
+        # circ_mv/total_mv: Tushare返回万元, daily_basic标准=亿元, ÷10000
+        for k in ['circ_mv', 'total_mv']:
+            v = row.get(k)
+            if pd.notna(v):
+                fields[k] = float(v) / 10000
+        # close: 元, 直接存
+        v = row.get('close')
+        if pd.notna(v):
+            fields['close'] = float(v)
         
         if not fields:
             continue

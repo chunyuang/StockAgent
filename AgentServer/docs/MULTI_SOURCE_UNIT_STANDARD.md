@@ -73,17 +73,17 @@
 | 6 | — | tushare_fill_v2写入daily_basic时circ_mv未÷10000 | 每次Tushare补采 | Tushare返回万元,daily_basic标准亿元 | ÷10000 |
 | 7 | — | lightweight_factor_fill同步circ_mv未×10000 | 每次同步 | daily_basic=亿元,ak_full=万元 | ×10000 |
 
-### 未修的潜在问题
+### 已全部修复 ✅ (2026-07-04)
 
-| # | 脚本 | 问题 | 风险 |
+| # | 脚本 | 原问题 | 修复 |
 |---|------|------|------|
-| P1 | tushare_fill_daily.py | vol: 手×100→股(应为手), amount: 千元×1000→元(应为百元) | Tushare补采的vol/amount单位错 |
+| P1 | tushare_fill_daily.py | vol: 手×100→股, amount: 千元×1000→元 | vol直接存(手), amount×10→百元 |
 | P2 | tushare_fill_2years_v2.py | 同P1 | 同上 |
-| P3 | tencent_daily_bar.py | vol: 手×100→股(应为手), amount: 万元×10000→元(应为百元) | 腾讯数据vol/amount单位错 |
-| P4 | fill_old_segment_em.py | vol: 手×100→股(应为手), amount: 元(应为百元) | 历史段数据单位错 |
-| P5 | fill_missing_daily_ak.py | vol: 股(未÷100→手), amount: 元(未÷100→百元) | AKShare补采单位错 |
-| P6 | tushare_fill_basic.py | circ_mv未÷10000(写入daily_basic) | 同bug#6 |
-| P7 | tushare_fill_2years_v2.py | daily_basic部分circ_mv未÷10000 | 同bug#6 |
+| P3 | tencent_daily_bar.py | vol: 手×100→股, amount: 万元×10000→元 | vol直接存(手), amount×100→百元 |
+| P4 | fill_old_segment_em.py | vol: 手×100→股, amount: 元 | vol直接存(手), amount÷100→百元 |
+| P5 | fill_missing_daily_ak.py | vol: 股(未÷100), amount: 元(未÷100) | vol÷100→手, amount÷100→百元 |
+| P6 | tushare_fill_basic.py | circ_mv未÷10000(写入daily_basic) | circ_mv÷10000→亿元 |
+| P7 | tushare_fill_2years_v2.py | daily_basic部分circ_mv未÷10000 | circ_mv/total_mv÷10000→亿元 |
 
 ---
 

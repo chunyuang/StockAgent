@@ -91,8 +91,8 @@ def parse_kline(kline_str, ts_code):
         close = float(parts[2])
         high = float(parts[3])
         low = float(parts[4])
-        vol = float(parts[5])     # 手 → 需要×100
-        amount = float(parts[6])  # 元
+        vol = float(parts[5])     # 手, MongoDB标准也是手
+        amount = float(parts[6])  # 元, MongoDB标准是百元, 需÷100
         amplitude = float(parts[7])  # 振幅%
         pct_chg = float(parts[8])    # 涨跌幅%
         chg = float(parts[9])        # 涨跌额
@@ -111,8 +111,8 @@ def parse_kline(kline_str, ts_code):
             "low": low,
             "close": close,
             "pre_close": pre_close,
-            "vol": vol * 100,        # 手→股
-            "amount": amount,        # 元
+            "vol": vol,                  # 手, 直接存
+            "amount": round(amount / 100, 2) if amount else 0,  # 元→百元(÷100)
             "pct_chg": pct_chg,
             "turnover_rate": turnover,
             "amplitude": amplitude,

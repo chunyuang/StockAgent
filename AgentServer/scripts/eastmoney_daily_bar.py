@@ -118,7 +118,13 @@ def write_daily_bar(trade_date=None):
     db = MongoClient(MONGO_URI)[DB_NAME]
     
     if trade_date is None:
-        trade_date = int(datetime.now().strftime("%Y%m%d"))
+        # 非交易日不写入(避免周末用周五数据伪造周六记录)
+        from datetime import date as _date
+        today = _date.today()
+        if today.weekday() >= 5:  # 周六=5, 周日=6
+            print(f"[SKIP] 今天是{today.strftime('%A')}，非交易日，跳过")
+            return 0
+        trade_date = int(today.strftime("%Y%m%d"))
     
     t0 = time.time()
     all_data = fetch_all()

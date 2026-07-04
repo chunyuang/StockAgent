@@ -113,9 +113,10 @@ def main():
                 if trade_date not in INCOMPLETE_DATES:
                     continue
                 
-                # vol: AKShare返回的volume单位是股
-                vol = int(float(row['volume'])) if row['volume'] else 0
-                amount = float(row['amount']) if row['amount'] else 0
+                # vol: AKShare返回的volume单位是股, MongoDB标准是手, ÷100
+                vol = int(float(row['volume']) / 100) if row['volume'] else 0
+                # amount: AKShare返回的amount单位是元, MongoDB标准是百元, ÷100
+                amount = float(row['amount']) / 100 if row['amount'] else 0
                 
                 doc = {
                     "ts_code": ts_code,

@@ -32,12 +32,12 @@ def fill_daily_for_date(td_str):
             if pd.notna(v):
                 fields[f] = float(v)
         
-        # vol: 手→股
+        # vol: Tushare daily返回手, MongoDB标准也是手, 直接存
         if pd.notna(row.get('vol')):
-            fields['vol'] = float(row['vol']) * 100
-        # amount: 千元→元
+            fields['vol'] = float(row['vol'])
+        # amount: Tushare daily返回千元, MongoDB标准是百元, ×10
         if pd.notna(row.get('amount')):
-            fields['amount'] = float(row['amount']) * 1000
+            fields['amount'] = float(row['amount']) * 10
         
         if not fields:
             continue
