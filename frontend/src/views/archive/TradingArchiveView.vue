@@ -36,7 +36,7 @@ const activeTab = ref('summary')
 async function fetchDates() {
   try {
     const res = await api.get('/trading-archive/dates')
-    dates.value = res.data?.dates || []
+    dates.value = res?.dates || []
     if (dates.value.length > 0 && !selectedDate.value) {
       selectedDate.value = dates.value[0]
       fetchDay(selectedDate.value)
@@ -52,7 +52,7 @@ async function fetchDay(date: number) {
   accountData.value = null
   try {
     const res = await api.get(`/trading-archive/day/${date}`)
-    accountData.value = res.data
+    accountData.value = res
   } catch (e) {
     console.warn('加载归档数据失败', e)
   } finally {
