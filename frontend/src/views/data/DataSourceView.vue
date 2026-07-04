@@ -3,7 +3,7 @@
  * 数据获取页面 - 展示所有数据源配置、获取逻辑和注意事项
  * 纯展示页面，不修改任何运行时逻辑
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import {
   ElCard,
   ElTable,
@@ -212,6 +212,10 @@ const factorCategories = [
     factors: [
       { name: 'momentum_1d/5d/10d/20d', source: '计算', compute: 'N日收益率: close[T]/close[T-N]-1', script: 'lightweight_factor_fill.py → compute_technical_indicators()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
       { name: '波动率_5d/10d/20d', source: '计算', compute: 'N日收益率标准差', script: 'lightweight_factor_fill.py → compute_technical_indicators()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
+      { name: '波动率_60d(volatility_60d)', source: '计算', compute: '60日收益率标准差(回测时factor_engine动态计算)', script: 'factor_engine.py (回测时计算)', collection: '(不持久化, 回测实时算)', schedule: '回测时实时计算' },
+      { name: '领涨股(leading_stock)', source: '计算', compute: '近期涨幅排序, 涨幅越大分数越高', script: '回测时factor_engine动态计算', collection: '(不持久化, 回测实时算)', schedule: '回测时实时计算' },
+      { name: '龙虎榜净买入(lhb_buy_in)', source: '外部获取', compute: '龙虎榜净买入金额(千万), Tushare获取', script: '回测时从外部获取', collection: '(不持久化, 回测实时获取)', schedule: '回测时实时获取' },
+      { name: '一月反转(one_month_reversal)', source: '计算', compute: '一个月收益反转, 上月跌越多本月得分越高', script: '回测时factor_engine动态计算', collection: '(不持久化, 回测实时算)', schedule: '回测时实时计算' },
       { name: '情绪评分(sentiment_score)', source: '计算', compute: '基于涨跌停/炸板率/连板数等7维情绪模型', script: 'daily_factor_precompute.py → _compute_factors_for_stock()', collection: 'stock_daily_ak_full', schedule: '盘后因子预计算' },
       { name: '龙头股(market_leader)', source: '计算', compute: '板块内涨幅排序Top1', script: 'daily_factor_precompute.py → _compute_factors_for_stock()', collection: 'stock_daily_ak_full', schedule: '盘后因子预计算' },
       { name: '热门板块(hot_sector)', source: '计算', compute: '当日板块涨幅Top3内个股', script: 'daily_factor_precompute.py → _compute_factors_for_stock()', collection: 'stock_daily_ak_full', schedule: '盘后因子预计算' },
@@ -241,6 +245,10 @@ const factorCategories = [
       { name: 'limit_up_yesterday / limit_down_yesterday', source: '计算', compute: 'T-1日是否涨/跌停', script: 'lightweight_factor_fill.py → compute_limit_flags()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
       { name: 'open_above_limit / open_below_limit', source: '计算', compute: '开盘价与昨日涨/跌停价比较', script: 'lightweight_factor_fill.py → compute_opening_and_intraday()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
       { name: 'limit_up_open_amount/count/time/duration', source: '外部获取', compute: '涨停开板金额/次数/时间/时长(必盈API)', script: 'fill_limit_list.py → limit_list集合', collection: 'limit_list → 合入stock_daily_ak_full', schedule: '盘后涨停池补采' },
+      { name: 'limit_up_amount', source: '外部获取', compute: '涨停封单金额(万元), 必盈API', script: 'fill_limit_list.py → limit_list集合', collection: 'limit_list → 合入stock_daily_ak_full', schedule: '盘后涨停池补采' },
+      { name: 'open_above_limit_down', source: '计算', compute: '开盘价 > 昨日跌停价(1=是)', script: 'lightweight_factor_fill.py → compute_opening_and_intraday()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
+      { name: 'limit_down_open_amount', source: '外部获取', compute: '跌停被打开时的成交金额(万元)', script: 'fill_limit_list.py', collection: 'limit_list → 合入stock_daily_ak_full', schedule: '盘后涨停池补采' },
+      { name: 'rise_after_limit_down', source: '计算', compute: '跌停被打开后到收盘的涨幅(%)', script: 'lightweight_factor_fill.py → compute_opening_and_intraday()', collection: 'stock_daily_ak_full', schedule: '盘后因子补算' },
     ],
   },
   {
@@ -271,7 +279,8 @@ const factorCategories = [
     factors: [
       { name: 'ROE / ROA', source: '外部获取', compute: 'Tushare fina_indicator', script: 'fina_indicator collector (tushare_adapter.py)', collection: 'fina_indicator', schedule: '每月1号(季报披露后更新)' },
       { name: '毛利率(gross_margin)', source: '外部获取', compute: 'Tushare fina_indicator', script: 'fina_indicator collector', collection: 'fina_indicator', schedule: '每月1号' },
-      { name: '营收/利润增长率', source: '外部获取', compute: 'Tushare fina_indicator', script: 'fina_indicator collector', collection: 'fina_indicator', schedule: '每月1号' },
+      { name: '营收增长率(revenue_growth)', source: '外部获取', compute: 'Tushare fina_indicator: 营业收入同比增长率', script: 'fina_indicator collector', collection: 'fina_indicator', schedule: '每月1号' },
+      { name: '利润增长率(profit_growth)', source: '外部获取', compute: 'Tushare fina_indicator: 净利润同比增长率', script: 'fina_indicator collector', collection: 'fina_indicator', schedule: '每月1号' },
     ],
   },
   {
@@ -421,7 +430,11 @@ onMounted(() => {
     <!-- 页面标题 -->
     <div class="page-header">
       <h2>数据获取</h2>
-      <p class="subtitle">所有数据源配置、单位标准和采补链路</p>
+      <p class="subtitle">所有数据源配置、因子体系、单位标准和采补链路</p>
+      <div v-if="dbStats.collections" class="db-stats-bar">
+        <span>📦 MongoDB: {{ dbStats.total_documents?.toLocaleString() }} 文档 / {{ dbStats.collections?.length }} 集合</span>
+        <span v-if="dbStats.mongodb_version"> | v{{ dbStats.mongodb_version }}</span>
+      </div>
     </div>
 
     <!-- 采补链路 -->
@@ -451,7 +464,7 @@ onMounted(() => {
         <div class="section-title">
           <span class="section-icon">🧮</span>
           <span>因子体系</span>
-          <ElTag size="small" type="success" style="margin-left: 8px">53个因子</ElTag>
+          <ElTag size="small" type="success" style="margin-left: 8px">46+因子</ElTag>
           <ElTag size="small" type="info" style="margin-left: 4px">8大类</ElTag>
         </div>
       </template>
@@ -684,6 +697,13 @@ onMounted(() => {
     margin: 0;
     font-size: 13px;
     color: var(--text-secondary);
+  }
+
+  .db-stats-bar {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-family: monospace;
   }
 }
 
