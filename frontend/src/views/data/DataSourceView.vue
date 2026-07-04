@@ -453,6 +453,15 @@ const healthBreakdown = computed(() => dataStatus.value?.health_breakdown || {})
 const diagnostics = computed(() => dataStatus.value?.diagnostics || [])
 const actionItems = computed(() => dataStatus.value?.action_items || [])
 
+/** 数据对齐状态 */
+const dataAlignment = computed(() => dataStatus.value?.data_alignment || null)
+
+/** 策略可用性 */
+const strategyAvailability = computed(() => dataStatus.value?.strategy_availability || [])
+
+/** 推荐回测区间 */
+const recommendedRanges = computed(() => dataStatus.value?.recommended_ranges || [])
+
 // ==================== 样式辅助 ====================
 
 const statusMap: Record<string, { type: '' | 'success' | 'warning' | 'danger' | 'info', label: string }> = {
@@ -631,8 +640,62 @@ onMounted(() => {
       <div v-if="actionItems.length > 0" class="action-items">
         <div class="sub-title">建议操作</div>
         <div v-for="(item, i) in actionItems" :key="i" class="action-item">
-          <span class="action-level">{{ item.level === 'red' ? '🔴' : item.level === 'yellow' ? '🟡' : '🟢' }}</span>
-          <span>{{ item.message }}</span>
+          <span class="action-level">{{ item.priority === 'high' ? '🔴' : item.priority === 'medium' ? '🟡' : '🟢' }}</span>
+          <span>{{ item.action }}: {{ item.desc }}</span>
+          <span v-if="item.command" class="mono-text action-cmd">{{ item.command }}</span>
+        </div>
+      </div>
+
+      <!-- 数据对齐 -->
+      <div v-if="dataAlignment" class="alignment-section">
+        <div class="sub-title">数据对齐 ({{ dataAlignment.date }})</div>
+        <div class="alignment-grid">
+          <div class="align-item">
+            <span class="align-label">ak_full</span>
+            <span class="align-val">{{ dataAlignment.stock_daily_count?.toLocaleString() }}</span>
+          </div>
+          <div class="align-item">
+            <span class="align-label">daily_basic</span>
+            <span class="align-val">{{ dataAlignment.daily_basic_count?.toLocaleString() }}</span>
+          </div>
+          <div class="align-item">
+            <span class="align-label">交集</span>
+            <span class="align-val">{{ dataAlignment.common?.toLocaleString() }}</span>
+            <ElTag v-if="dataAlignment.only_in_basic > 0 || dataAlignment.only_in_daily > 0" type="warning" size="small">差异: basic独有{{ dataAlignment.only_in_basic }} daily独有{{ dataAlignment.only_in_daily }}</ElTag>
+            <ElTag v-else type="success" size="small">完全一致</ElTag>
+          </div>
+        </div>
+      </div>
+
+      <!-- 策略可用性 -->
+      <div v-if="strategyAvailability.length > 0" class="strategy-avail-section">
+        <div class="sub-title">策略因子可用性</div>
+        <ElTable :data="strategyAvailability" size="small" stripe>
+          <ElTableColumn prop="name" label="策略" width="120" />
+          <ElTableColumn label="因子就绪" min-width="200">
+            <template #default="{ row }">
+              <span v-for="f in row.factors" :key="f" class="factor-chip">{{ f }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="覆盖率" width="120">
+            <template #default="{ row }">
+              <ElProgress :percentage="row.coverage" :stroke-width="8" :color="row.coverage >= 90 ? '#10b981' : row.coverage >= 70 ? '#f59e0b' : '#ef4444'" />
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="状态" width="80">
+            <template #default="{ row }">
+              <ElTag :type="row.available ? 'success' : 'danger'" size="small">{{ row.available ? '可用' : '不可用' }}</ElTag>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+
+      <!-- 推荐回测区间 -->
+      <div v-if="recommendedRanges.length > 0" class="ranges-section">
+        <div class="sub-title">推荐回测区间 (因子覆盖>70%)</div>
+        <div v-for="(r, i) in recommendedRanges" :key="i" class="range-item">
+          <span class="mono-text">{{ r.start }} ~ {{ r.end }}</span>
+          <ElTag size="small" type="info">{{ r.factor_rate }}</ElTag>
         </div>
       </div>
     </ElCard>
@@ -944,7 +1007,46 @@ onMounted(() => {
     padding: 4px 0;
     font-size: 13px;
     .action-level { font-size: 14px; }
+    .action-cmd { font-size: 11px; color: var(--text-tertiary); background: var(--bg-muted); padding: 2px 6px; border-radius: 3px; }
   }
+}
+
+.alignment-section, .strategy-avail-section, .ranges-section {
+  margin-bottom: 16px;
+}
+
+.alignment-grid {
+  display: flex;
+  gap: 16px;
+  padding: 8px 12px;
+  background: var(--bg-muted);
+  border-radius: 6px;
+}
+
+.align-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  .align-label { font-size: 12px; color: var(--text-secondary); }
+  .align-val { font-size: 14px; font-weight: 600; font-family: monospace; }
+}
+
+.factor-chip {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  margin: 1px 2px;
+  border-radius: 3px;
+  background: var(--bg-muted);
+  font-family: monospace;
+}
+
+.range-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
 }
 
 .section-card {

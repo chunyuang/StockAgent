@@ -713,6 +713,8 @@ class EmotionCycleManager:
             "position_ratio": _get_position_ratio(period_cn),
             "limit_up": int(_num("limit_up", 0)),
             "limit_down": int(_num("limit_down", 0)),
+            "zu": int(_num("limit_up", 0)),   # 【v2.9.110】兼容旧字段名
+            "zd": int(_num("limit_down", 0)),  # 【v2.9.110】兼容旧字段名
             "max_continue": int(_num("max_continue", 1) or 1),
             "up_count": int(_num("up_count", 0)),
             "down_count": int(_num("down_count", 0)),
@@ -906,6 +908,7 @@ class EmotionCycleManager:
                 "trade_date": td_int, "score": score, "period": period,
                 "position_ratio": _get_position_ratio(period),
                 "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
+                "zu": lu, "zd": ld,  # 【v2.9.110】兼容旧字段名
                 "up_count": up_count, "down_count": down_count,
                 "up_down_ratio": round(up_down_ratio, 3), "zt_premium": round(zt_premium, 1),
                 "data_source": data_source, "missing_data": missing_data,
