@@ -201,6 +201,14 @@ async def compute_limit_flags(trade_dates: list[int]):
         async for doc in prev_down_cursor:
             prev_limit_down.add(doc['ts_code'])
         
+        # 【v2.9.110】获取当天的is_limit_up, 用于计算first_limit_up
+        cur_limit_up = set()
+        async for doc in db['stock_daily_ak_full'].find(
+            {'trade_date': td, 'is_limit_up': 1},
+            {'ts_code': 1, '_id': 0}
+        ):
+            cur_limit_up.add(doc['ts_code'])
+        
         # 更新当天数据
         ops = []
         cursor = db['stock_daily_ak_full'].find({'trade_date': td}, {'ts_code': 1, '_id': 0})
@@ -209,7 +217,7 @@ async def compute_limit_flags(trade_dates: list[int]):
             update = {
                 'limit_up_yesterday': 1 if ts_code in prev_limit_up else 0,
                 'limit_down_yesterday': 1 if ts_code in prev_limit_down else 0,
-                'first_limit_up': 0,  # 需要盘中数据，日线模式填0
+                'first_limit_up': 1 if (ts_code in cur_limit_up and ts_code not in prev_limit_up) else 0,
                 'hot_sector': 0,
                 'market_leader': None,
                 'sentiment_score': 0.5,  # 市场级，回测引擎会覆盖
