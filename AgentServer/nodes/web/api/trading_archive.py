@@ -3,20 +3,21 @@
 按日期+账户查看: 摘要/资金/持仓/成交/委托/日志
 """
 import logging
-from datetime import datetime, timezone
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from typing import List
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from core.constants import C
 from core.managers import mongo_manager
-
-# 集合名常量(不在C中定义的)
-COL_ORDERS = "broker_orders"
-COL_ACCOUNTS = "broker_accounts"
 
 router = APIRouter(prefix="/trading-archive", tags=["TradingArchive"])
 logger = logging.getLogger("api.trading_archive")
+
+# 集合名 — 使用MongoDB中的实际集合名，不依赖C常量(避免名字不一致)
+COL_ORDERS = "broker_orders"
+COL_POSITIONS = "broker_positions"
+COL_ACCOUNTS = "broker_accounts"
+COL_EQUITY = "equity_curve"
+COL_TIMELINE = "scanner_timeline"
 
 # ==================== 响应模型 ====================
 
@@ -37,7 +38,6 @@ class ArchiveDaySummary(BaseModel):
     position_value: float = 0
     available_cash: float = 0
     total_assets: float = 0
-    anomaly_count: int = 0
 
 class ArchiveCapital(BaseModel):
     """资金快照"""
@@ -117,7 +117,6 @@ class TradingArchiveIndex(BaseModel):
 @router.get("/dates", response_model=TradingArchiveIndex)
 async def get_archive_dates(account_id: str = Query(default="default")):
     """获取有交易归档的日期列表"""
-    # 从broker_orders聚合
     pipeline = [
         {"$match": {"account_id": account_id, "status": "filled"}},
         {"$group": {"_id": "$trade_date"}},
@@ -129,8 +128,7 @@ async def get_archive_dates(account_id: str = Query(default="default")):
         if doc["_id"]:
             trade_dates.append(int(doc["_id"]))
 
-    # 也从equity_curve获取
-    ec_cursor = mongo_manager.db["equity_curve"].find({}, {"date": 1, "_id": 0}).sort("date", -1)
+    ec_cursor = mongo_manager.db[COL_EQUITY].find({}, {"date": 1, "_id": 0}).sort("date", -1)
     ec_dates = set()
     async for doc in ec_cursor:
         d = doc.get("date")
@@ -151,7 +149,6 @@ async def get_archive_day(
     account_id: str = Query(default="default"),
 ):
     """获取某日的完整交易归档"""
-    db = mongo_manager.db
 
     # 1. 委托/成交
     all_orders = await mongo_manager.find_many(
@@ -168,9 +165,9 @@ async def get_archive_day(
     total_sell_amount = sum(o.get("filled_amount", 0) or 0 for o in filled_orders if o.get("side") == "sell")
     realized_pnl = sum(o.get("profit_amount", 0) or 0 for o in filled_orders if o.get("side") == "sell")
 
-    # 2. 资金
+    # 2. 资金 — 优先从equity_curve(历史快照)取，fallback到broker_accounts(当前)
     capital = ArchiveCapital(trade_date=trade_date)
-    ec = await mongo_manager.find_one("equity_curve", {"date": trade_date})
+    ec = await mongo_manager.find_one(COL_EQUITY, {"date": trade_date})
     if ec:
         capital = ArchiveCapital(
             trade_date=trade_date,
@@ -191,9 +188,9 @@ async def get_archive_day(
                 total_profit=acc.get("total_profit", 0) or 0,
             )
 
-    # 3. 持仓
+    # 3. 持仓 — 查broker_positions(不是C.POSITIONS="positions")
     raw_positions = await mongo_manager.find_many(
-        C.POSITIONS,
+        COL_POSITIONS,
         {"account_id": account_id, "total_qty": {"$gt": 0}},
     )
     positions = []
@@ -211,7 +208,7 @@ async def get_archive_day(
             strategy=p.get("strategy", ""),
         ))
 
-    # 4. 成交记录
+    # 4. 成交记录(已成交的orders)
     trades = []
     for o in filled_orders:
         trades.append(ArchiveTrade(
@@ -229,7 +226,7 @@ async def get_archive_day(
             trade_date=int(o.get("trade_date", 0) or 0),
         ))
 
-    # 5. 委托记录
+    # 5. 委托记录(所有orders)
     orders = []
     for o in all_orders:
         orders.append(ArchiveOrder(
@@ -249,9 +246,9 @@ async def get_archive_day(
             trade_date=int(o.get("trade_date", 0) or 0),
         ))
 
-    # 6. 日志
+    # 6. 日志(scanner_timeline中与交易相关的事件)
     raw_logs = await mongo_manager.find_many(
-        "scanner_timeline",
+        COL_TIMELINE,
         {"trade_date": trade_date, "action": {"$in": ["buy", "sell", "signal", "risk", "circuit"]}},
         sort=[("ts_code", 1)],
         limit=100,
@@ -281,7 +278,6 @@ async def get_archive_day(
         position_value=sum(p.market_value for p in positions),
         available_cash=capital.available_cash,
         total_assets=capital.total_assets,
-        anomaly_count=0,
     )
 
     return TradingArchiveDay(
