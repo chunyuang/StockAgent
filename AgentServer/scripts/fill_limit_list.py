@@ -52,6 +52,34 @@ def fetch_dt_pool(date_str):
         return None, f"error: {e}"
 
 
+def _infer_open_times(ts_code: str, ak_doc: dict) -> int:
+    """从ak_full的high/close推算炸板次数(0或1)
+    
+    如果high触过涨停价但close没封住=炸板(open_times=1)
+    否则封板(open_times=0)
+    """
+    high = ak_doc.get('high', 0)
+    pre_close = ak_doc.get('pre_close', 0)
+    close_pct = ak_doc.get('pct_chg', 0)
+    
+    if not high or not pre_close or pre_close <= 0:
+        return 0
+    
+    high_pct = (high - pre_close) / pre_close * 100
+    
+    if ts_code.startswith(('30', '688')):
+        threshold = 20
+    elif ts_code.startswith(('8', '4', '920')):
+        threshold = 30
+    else:
+        threshold = 10
+    
+    # 盘中触涨停但收盘未封=炸板
+    if high_pct >= threshold * 0.99 and close_pct < threshold * 0.99:
+        return 1
+    return 0
+
+
 def code_to_tscode(code, name=""):
     """6位代码→ts_code格式"""
     if len(code) != 6:
@@ -199,7 +227,7 @@ def supplement_bj_from_ak_full(db, start=None, end=None):
                 "fc_ratio": 0,
                 "first_time": "",
                 "last_time": "",
-                "open_times": 0,
+                "open_times": _infer_open_times(code, doc),
                 "limit_times": 1,
                 "seal_amount": 0,
                 "sector": "北交所" if not code.startswith("688") else "科创板",

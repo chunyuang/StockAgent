@@ -525,13 +525,16 @@ class SignalManager:
                 logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
                 return False, "turnover_filter"
             # 市值限制(从实时数据或MongoDB读取)
+            # 【v2.9.110修复】ak_full的circ_mv单位=万元, 策略参数单位=亿元
+            # 必须除以10000转成亿元才能与参数比较
             min_mcap = params.get('min_circulation_market_cap', 0)
             max_mcap = params.get('max_circulation_market_cap', 999999)
             if min_mcap > 0 or max_mcap < 999999:
-                circ_mv = getattr(sig, 'circ_mv', 0) or 0  # 流通市值(亿元)
-                if circ_mv <= 0:
-                    # 尝试从信号数据获取
-                    circ_mv = getattr(sig, 'circulation_market_cap', 0) or 0
+                circ_mv_raw = getattr(sig, 'circ_mv', 0) or 0  # 万元
+                if circ_mv_raw <= 0:
+                    circ_mv_raw = getattr(sig, 'circulation_market_cap', 0) or 0
+                # 统一转成亿元: ak_full=万元÷10000, daily_basic=亿元直接用
+                circ_mv = circ_mv_raw / 10000.0 if circ_mv_raw > 10000 else circ_mv_raw
                 if circ_mv > 0:
                     if min_mcap > 0 and circ_mv < min_mcap:
                         reason = f"流通市值{circ_mv:.0f}亿<{min_mcap}亿"
