@@ -145,6 +145,7 @@ const allCollectionCategories = [
   {
     category: '行情数据',
     icon: '📈',
+    color: '#3b82f6',
     description: '数据源采补的原始行情与因子数据',
     collections: [
       { name: 'stock_daily_ak_full', desc: 'A股日线行情+46+因子', keyField: 'trade_date', freshness: '1天' },
@@ -156,6 +157,7 @@ const allCollectionCategories = [
   {
     category: '交易数据',
     icon: '💰',
+    color: '#10b981',
     description: '实盘交易产生的订单/持仓/账户数据',
     collections: [
       { name: 'broker_orders', desc: '买卖订单(filled/pending/cancelled)', keyField: 'created_at', freshness: '实时' },
@@ -167,6 +169,7 @@ const allCollectionCategories = [
   {
     category: '持久化/状态',
     icon: '⚙️',
+    color: '#8b5cf6',
     description: 'scanner运行时状态持久化',
     collections: [
       { name: 'scanner_runtime_snapshot', desc: 'scanner运行时快照(持仓/现金)', keyField: 'trade_date', freshness: '实时' },
@@ -179,6 +182,7 @@ const allCollectionCategories = [
   {
     category: '计算/展示',
     icon: '🖥️',
+    color: '#f59e0b',
     description: '衍生计算与展示层数据',
     collections: [
       { name: 'scanner_timeline', desc: '信号时间线(signal/skip/circuit)', keyField: 'trade_date', freshness: '实时' },
@@ -593,6 +597,9 @@ const factorSourceTag = (source: string) => {
 
 const factorRowClass = ({ row }: { row: any }) => {
   if (row.unitNote) return 'row-with-note'
+  if (row.source === '实时获取' || row.source === '实时计算') return 'row-realtime'
+  if (row.source === '外部获取' || row.source === '外部获取+同步') return 'row-external'
+  if (row.source === '计算') return 'row-compute'
   return ''
 }
 
@@ -634,7 +641,7 @@ onMounted(() => {
       </template>
       <div v-show="expandedSections.pipeline" class="section-body">
       <div class="pipeline-flow">
-        <div v-for="(step, idx) in pipelineSteps" :key="idx" class="pipeline-step">
+        <div v-for="(step, idx) in pipelineSteps" :key="idx" class="pipeline-step" :class="{ 'step-even': idx % 2 === 0 }">
           <div class="step-time">{{ step.time }}</div>
           <div class="step-content">
             <div class="step-name">{{ step.step }}</div>
@@ -706,7 +713,8 @@ onMounted(() => {
             <span v-for="c in collectionHealth" :key="c.name" class="sub-summary-chip" :class="c.status">{{ c.name.replace('stock_daily_ak_full','ak_full').replace('daily_basic','basic') }} {{ c.count?.toLocaleString() }}</span>
           </span>
         </template>
-        <ElTable :data="collectionHealth" size="small" stripe>
+        <div class="tab-note">按状态着色：✅绿色正常 · ⚠️黄色滞后 · ❌红色无数据</div>
+        <ElTable :data="collectionHealth" size="small" stripe :row-class-name="({row}: any) => 'row-status-' + row.status">
           <ElTableColumn prop="name" label="集合" min-width="180">
             <template #default="{ row }">
               <span class="mono-text">{{ row.name }}</span>
@@ -734,7 +742,8 @@ onMounted(() => {
             <span v-for="c in recentCoverage" :key="c.date" class="sub-summary-chip" :class="c.rate >= 80 ? 'ok' : c.rate >= 50 ? 'warn' : 'error'">{{ String(c.date).slice(4) }} {{ c.rate }}%</span>
           </span>
         </template>
-        <ElTable :data="recentCoverage" size="small" stripe>
+        <div class="tab-note">覆盖率≥80%为绿色，50-80%黄色，&lt;50%红色</div>
+        <ElTable :data="recentCoverage" size="small" stripe :row-class-name="({row}: any) => row.rate >= 80 ? 'row-status-ok' : row.rate >= 50 ? 'row-status-warn' : 'row-status-error'">
           <ElTableColumn prop="date" label="日期" width="120" />
           <ElTableColumn prop="total" label="记录数" width="100" />
           <ElTableColumn label="核心覆盖率" width="140">
@@ -883,9 +892,9 @@ onMounted(() => {
 
       <!-- 按类别展示 -->
       <div v-for="cat in allCollectionsStatus" :key="cat.category" class="collection-category">
-        <div class="cat-header-row">
+        <div class="cat-header-row" :style="{ borderLeftColor: cat.color }">
           <span class="cat-icon-lg">{{ cat.icon }}</span>
-          <span class="cat-name-lg">{{ cat.category }}</span>
+          <span class="cat-name-lg" :style="{ color: cat.color }">{{ cat.category }}</span>
           <ElTag size="small" type="info">{{ cat.collections.length }}集合</ElTag>
           <span class="cat-desc">{{ cat.description }}</span>
         </div>
@@ -971,15 +980,18 @@ onMounted(() => {
               <ElTag size="small" :color="cat.color" effect="dark" style="border: none; color: white; margin-left: 8px">{{ cat.factors.length }}个</ElTag>
             </div>
           </template>
-          <ElTable :data="cat.factors" size="small" stripe :row-class-name="factorRowClass">
+          <ElTable :data="cat.factors" size="small" stripe :row-class-name="factorRowClass" class="factor-table">
             <ElTableColumn label="因子" min-width="220">
               <template #default="{ row }">
                 <span class="factor-name">{{ row.name }}</span>
+                <ElTooltip v-if="row.unitNote" :content="row.unitNote" placement="top">
+                  <span class="unit-badge">⚠️</span>
+                </ElTooltip>
               </template>
             </ElTableColumn>
             <ElTableColumn label="来源" width="100">
               <template #default="{ row }">
-                <ElTag :type="factorSourceTag(row.source).type" size="small">{{ factorSourceTag(row.source).label }}</ElTag>
+                <ElTag :type="factorSourceTag(row.source).type" size="small" effect="plain">{{ factorSourceTag(row.source).label }}</ElTag>
               </template>
             </ElTableColumn>
             <ElTableColumn prop="compute" label="计算逻辑" min-width="240" />
@@ -996,7 +1008,6 @@ onMounted(() => {
             <ElTableColumn label="调度/单位" min-width="160">
               <template #default="{ row }">
                 <div>{{ row.schedule }}</div>
-                <div v-if="row.unitNote" class="unit-note">⚠️ {{ row.unitNote }}</div>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -1054,10 +1065,10 @@ onMounted(() => {
       <ElCollapse>
         <ElCollapseItem v-for="src in dataSources" :key="src.id" :name="src.id">
           <template #title>
-            <div class="source-header">
+            <div class="source-header" :class="'src-status-' + src.status">
               <span class="source-icon">{{ src.icon }}</span>
               <span class="source-name">{{ src.name }}</span>
-              <ElTag :type="getStatusTag(src.status).type" size="small">{{ getStatusTag(src.status).label }}</ElTag>
+              <ElTag :type="getStatusTag(src.status).type" size="small" effect="dark">{{ getStatusTag(src.status).label }}</ElTag>
               <span class="source-priority">优先级 #{{ src.priority }}</span>
             </div>
           </template>
@@ -1072,11 +1083,11 @@ onMounted(() => {
             </ElDescriptions>
 
             <!-- 单位警告 -->
-            <div v-if="src.unitWarnings.length > 0" class="unit-warnings">
+            <div v-if="src.unitWarnings.length > 0" class="unit-warnings" :class="{ 'unit-critical': src.unitWarnings.some((w: string) => w.startsWith('⚠️')) }">
               <div class="warning-title">⚠️ 单位转换注意事项</div>
-              <div v-for="(w, i) in src.unitWarnings" :key="i" class="warning-item">
-                <span class="warning-dot" :class="{ critical: w.startsWith('⚠️') }">•</span>
-                {{ w }}
+              <div v-for="(w, i) in src.unitWarnings" :key="i" class="warning-item" :class="{ critical: w.startsWith('⚠️') }">
+                <span class="warning-dot">{{ w.startsWith('⚠️') ? '🚨' : '•' }}</span>
+                {{ w.replace('⚠️ ', '') }}
               </div>
             </div>
           </div>
@@ -1147,7 +1158,7 @@ onMounted(() => {
           </span>
         </div>
       </template>
-      <ElTable :data="historicalBugs" size="small" stripe>
+      <ElTable :data="historicalBugs" size="small" stripe :row-class-name="({row}: any) => row.date.includes('07-02') ? 'row-critical' : 'row-warning'" class="bug-table">
         <ElTableColumn prop="date" label="日期" width="140" />
         <ElTableColumn prop="bug" label="Bug" min-width="220" />
         <ElTableColumn prop="impact" label="影响" min-width="180" />
@@ -1168,7 +1179,7 @@ onMounted(() => {
           </span>
         </div>
       </template>
-      <ElTable :data="knownIssues" size="small" stripe>
+      <ElTable :data="knownIssues" size="small" stripe class="fixed-issue-table">
         <ElTableColumn label="级别" width="70">
           <template #default="{ row }">
             <ElTag :color="levelColorMap[row.level]" effect="dark" size="small" style="border: none; color: white">{{ row.level }}</ElTag>
@@ -1741,4 +1752,109 @@ onMounted(() => {
 }
 
 /* 交易归档 */
+
+/* ===== 数据获取页面新增样式 ===== */
+
+/* 表格行着色 */
+.tab-note {
+  font-size: 12px;
+  color: var(--text-quaternary);
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+:deep(.row-status-ok) { background: rgba(34,197,94,0.05) !important; }
+:deep(.row-status-warn) { background: rgba(245,158,11,0.06) !important; }
+:deep(.row-status-error) { background: rgba(239,68,68,0.06) !important; }
+
+/* 因子表行着色 */
+:deep(.row-realtime) { background: rgba(236,72,153,0.05) !important; }
+:deep(.row-external) { background: rgba(34,197,94,0.05) !important; }
+:deep(.row-compute) { background: rgba(59,130,246,0.05) !important; }
+:deep(.row-with-note) { background: rgba(245,158,11,0.06) !important; }
+
+/* Bug表行着色 */
+:deep(.row-critical) { background: rgba(239,68,68,0.08) !important; }
+:deep(.row-warning) { background: rgba(245,158,11,0.06) !important; }
+
+/* 单位badge(因子名旁) */
+.unit-badge {
+  cursor: help;
+  font-size: 12px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* 集合类别头颜色条 */
+.cat-header-row {
+  border-left: 4px solid transparent;
+  padding-left: 8px;
+}
+
+/* 管道步骤交替色 */
+.pipeline-step.step-even {
+  .step-content {
+    background: rgba(59,130,246,0.03);
+  }
+}
+.pipeline-step:not(.step-even) {
+  .step-content {
+    background: rgba(16,185,129,0.03);
+  }
+}
+
+/* 数据源头部着色 */
+.source-header {
+  &.src-status-active {
+    border-left: 3px solid #22c55e;
+    padding-left: 8px;
+    border-radius: 4px;
+  }
+  &.src-status-fallback {
+    border-left: 3px solid #f59e0b;
+    padding-left: 8px;
+    border-radius: 4px;
+  }
+  &.src-status-limited {
+    border-left: 3px solid #3b82f6;
+    padding-left: 8px;
+    border-radius: 4px;
+  }
+  &.src-status-deprecated {
+    border-left: 3px solid #ef4444;
+    padding-left: 8px;
+    border-radius: 4px;
+  }
+  &.src-status-legacy {
+    border-left: 3px solid #6b7280;
+    padding-left: 8px;
+    border-radius: 4px;
+  }
+}
+
+/* 单位警告区-严重时红框 */
+.unit-warnings.unit-critical {
+  border-color: #ef4444 !important;
+  background: rgba(239,68,68,0.04) !important;
+}
+
+.unit-warnings .warning-item.critical {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* 已修issue表-绿色主题 */
+.fixed-issue-table {
+  :deep(tr) {
+    opacity: 0.75;
+  }
+  :deep(tr:hover) {
+    opacity: 1;
+  }
+}
+
+/* 因子表(轻微内边距) */
+.factor-table {
+  margin-bottom: 8px;
+}
 </style>
