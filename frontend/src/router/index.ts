@@ -47,6 +47,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据获取' },
       },
       {
+        path: 'trading-archive',
+        name: 'TradingArchive',
+        component: () => import('@/views/archive/TradingArchiveView.vue'),
+        meta: { title: '交易归档' },
+      },
+      {
         path: 'system/status',
         name: 'SystemStatus',
         component: () => import('@/views/system/SystemStatusView.vue'),

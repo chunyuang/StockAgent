@@ -28,6 +28,7 @@ import {
   Moon,
   DataLine,
   Download,
+  Box,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useTaskStore, useThemeStore } from '@/stores'
@@ -51,6 +52,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/stock')) return '/'
   if (path.startsWith('/strategies')) return '/strategies'
   if (path.startsWith('/data-source')) return '/data-source'
+  if (path.startsWith('/trading-archive')) return '/trading-archive'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
   return path
 })
@@ -63,6 +65,7 @@ const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
   { path: '/monitor', icon: Monitor, title: '市场监听' },
   { path: '/data-source', icon: Download, title: '数据获取' },
+  { path: '/trading-archive', icon: Box, title: '交易归档' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 
