@@ -76,14 +76,18 @@ class StrategyScorer:
             row["pct_chg"] = rt.get("pct_chg", 0)
             row["volume_ratio"] = rt.get("volume_ratio", 0) or 0
             row["turnover_rate"] = rt.get("turnover_rate", 0) or 0
-            # circ_mv: 众多名称; float_mv是元(腾讯/东财)/万元(MongoDB) - 统一转成万元
+            # circ_mv: 统一转成万元
+            # push2 f21=float_mv(元) → ÷10000 → 万元
+            # fallback已统一为元(circ_mv*10000)
             cm = rt.get("circ_mv")
             if cm is None or cm == 0:
                 fm = rt.get("float_mv") or 0
-                if fm > 1e7:  # 大于1000万个元 → 单位是元，除1万
+                if fm > 1e8:  # >1亿 → 单位是元, ÷10000转万元
                     cm = fm / 10000.0
                 else:
                     cm = fm  # 已是万元
+            elif cm > 1e8:  # circ_mv单位是元
+                cm = cm / 10000.0
             row["circ_mv"] = cm or 0
             row["open"] = rt.get("open", 0)
             row["high"] = rt.get("high", 0)

@@ -255,7 +255,7 @@ class SinaAdapter:
                             if item.get("pb") is None and doc.get("pb"):
                                 item["pb"] = doc["pb"]
                             if item.get("float_mv") is None and doc.get("circ_mv"):
-                                item["float_mv"] = doc["circ_mv"]
+                                item["float_mv"] = doc["circ_mv"] * 10000  # 万元→元(与push2 f21统一)
                             supplemented += 1
                     if supplemented:
                         logger.debug(f"[SINA] MongoDB补全: {supplemented}只PE/PB/量比")

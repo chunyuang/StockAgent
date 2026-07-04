@@ -305,7 +305,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
                             if item.get("pb") is None and doc.get("pb"):
                                 item["pb"] = doc["pb"]
                             if item.get("float_mv") is None and doc.get("circ_mv"):
-                                item["float_mv"] = doc["circ_mv"]  # 万
+                                item["float_mv"] = doc["circ_mv"] * 10000  # 万元→元(与push2 f21统一)
                     logger.info(f"[EASTMONEY] MongoDB补全: {supplemented}只PE/PB/量比")
             except Exception as e:
                 logger.debug(f"[EASTMONEY] MongoDB补全失败(非致命): {e}")
