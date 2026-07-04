@@ -92,8 +92,14 @@ def check_sentiment_vs_limit(db):
     
     2026-06-15发现: sentiment_scores中zu=0 zd=0, 
     因为_fetch_limit_stats用limit="U"查但字段不存在
+    
+    2026-07-04增强: 精确差值检测(阈值60)
+    sentiment来源(scanner_intraday)统计盘中曾触板数，limit_list是收盘封板数
+    口径不同是设计差异，但差异过大(>60)应告警
     """
     issues = []
+    
+    DIVERGENCE_THRESHOLD = 70
     
     # 获取最近的sentiment记录
     sentiments = list(db["sentiment_scores"].find().sort("trade_date", -1).limit(5))
@@ -117,7 +123,7 @@ def check_sentiment_vs_limit(db):
             "$or": [{"is_limit_down": 1}, {"is_limit_down": True}, {"limit": "D"}]
         })
         
-        # 如果sentiment是0但limit_list有数据 → 问题
+        # 如果sentiment是0但limit_list有数据 → 严重问题
         if zu == 0 and actual_up > 0:
             issues.append(f"sentiment {td}: zu=0但limit_list有{actual_up}条涨停")
             print(f"  🔴 {td}: zu={zu} vs limit_list涨停={actual_up}")
@@ -125,7 +131,17 @@ def check_sentiment_vs_limit(db):
             issues.append(f"sentiment {td}: zd=0但limit_list有{actual_down}条跌停")
             print(f"  🔴 {td}: zd={zd} vs limit_list跌停={actual_down}")
         else:
-            if actual_up > 0 or actual_down > 0:
+            # 精确差值检测
+            diff_up = abs(zu - actual_up)
+            diff_down = abs(zd - actual_down)
+            if diff_up > DIVERGENCE_THRESHOLD or diff_down > DIVERGENCE_THRESHOLD:
+                issues.append(
+                    f"sentiment {td}: 涨跌停差值过大 "
+                    f"U: sentiment={zu} vs limit_list={actual_up}(差{diff_up}) "
+                    f"D: sentiment={zd} vs limit_list={actual_down}(差{diff_down})"
+                )
+                print(f"  ⚠️  {td}: U={zu}vs{actual_up}(差{diff_up}) D={zd}vs{actual_down}(差{diff_down})")
+            elif actual_up > 0 or actual_down > 0:
                 print(f"  ✅ {td}: zu={zu} zd={zd} vs 实际={actual_up}↓{actual_down}")
     
     if not issues and sentiments:

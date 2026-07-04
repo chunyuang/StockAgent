@@ -168,21 +168,18 @@ async def main():
                            "盘中情绪计算未写入 → 复盘不可用"))
 
     try:
-        import urllib.request
-        resp = urllib.request.urlopen("http://localhost:8000/api/v1/scanner/analysis", timeout=5)
-        import json
-        api_data = json.loads(resp.read())["data"]
-        dd = api_data.get("daily_detail", [])
-        if dd:
-            cum_profit = sum(d.get("profit", 0) for d in dd)
-            equity_final = 1000000 + cum_profit
-            acct_total = api_data.get("account", {}).get("total_assets", 0)
-            if acct_total > 0 and abs(equity_final - acct_total) / acct_total > 0.01:
+        # 从equity_curve集合读取(含浮盈浮亏), 而非从API daily_detail累计profit推算
+        ec_last = db["equity_curve"].find_one(sort=[("date", -1)])
+        if ec_last:
+            equity_final = ec_last.get("equity", 0)
+            acct_total = db["broker_accounts"].find_one({"account_id": "default"}, {"total_assets": 1})
+            acct_total = acct_total.get("total_assets", 0) if acct_total else 0
+            if acct_total > 0 and equity_final > 0 and abs(equity_final - acct_total) / acct_total > 0.01:
                 issues.append(("P2", "资金曲线终值 ≠ 账户总资产",
                                f"¥{acct_total:,.0f}", f"¥{equity_final:,.0f}",
-                               f"差额¥{acct_total-equity_final:,.0f}, 资金曲线可能只含已实现盈亏"))
+                               f"差额¥{acct_total-equity_final:,.0f}, 资金曲线与账户不一致"))
     except Exception:
-        pass  # API不可用时跳过
+        pass  # equity_curve不可用时跳过
 
     # === 输出 ===
     p0 = [i for i in issues if i[0] == "P0"]

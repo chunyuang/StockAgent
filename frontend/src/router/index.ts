@@ -41,6 +41,12 @@ const routes: RouteRecordRaw[] = [
         redirect: '/monitor',
       },
       {
+        path: 'data-source',
+        name: 'DataSource',
+        component: () => import('@/views/data/DataSourceView.vue'),
+        meta: { title: '数据获取' },
+      },
+      {
         path: 'system/status',
         name: 'SystemStatus',
         component: () => import('@/views/system/SystemStatusView.vue'),
