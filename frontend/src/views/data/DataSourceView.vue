@@ -314,7 +314,7 @@ const factorScripts = [
   },
   {
     name: 'daily_factor_precompute.py',
-    lineCount: 220,
+    lineCount: 237,
     description: '每日因子预计算(回测高频使用)',
     functions: [
       { fn: 'precompute_factors()', desc: '读取60天数据→合并daily_basic→计算KEY_FACTORS→写回ak_full', note: '⚠️ L72-75: 从daily_basic合并circ_mv时用亿元值覆盖ak_full万元值! 但只写new_factors不影响circ_mv' },
@@ -323,7 +323,7 @@ const factorScripts = [
   },
   {
     name: 'factor_auto_compute.py',
-    lineCount: 300,
+    lineCount: 574,
     description: '回测时自动检测因子缺失并计算',
     functions: [
       { fn: 'auto_compute_factors()', desc: 'portfolio_backtest检测缺失→触发计算→写MongoDB→回测继续', note: '增量计算, 只算缺失日期' },
@@ -331,7 +331,7 @@ const factorScripts = [
   },
   {
     name: 'strategy_scorer.py (盘中)',
-    lineCount: 200,
+    lineCount: 613,
     description: '盘中实时因子合并',
     functions: [
       { fn: 'merge_factors()', desc: '实时数据→DataFrame', note: '' },
