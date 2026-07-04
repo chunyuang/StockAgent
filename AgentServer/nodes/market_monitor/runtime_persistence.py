@@ -760,6 +760,7 @@ class RuntimePersistence:
             'quantity': quantity or 0,
             'filled_price': getattr(order, 'filled_price', 0) or 0,
             'profit_pct': profit_pct or 0,
+            'profit_loss': round(profit_pct / 100 * (getattr(pos, 'avg_cost', 0) or 0) * (quantity or 0), 2) if profit_pct and quantity else 0,
             'trace_id': trace_id,
             'account_id': getattr(scanner, 'account_id', 'default') or 'default',
         }

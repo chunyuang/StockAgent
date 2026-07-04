@@ -700,6 +700,7 @@ class PositionChecker:
             'quantity': getattr(order, 'filled_qty', 0) or getattr(order, 'quantity', 0) or 0,
             'filled_price': getattr(order, 'filled_price', 0) or 0,
             'profit_pct': getattr(pos, 'profit_pct', 0) or 0,
+            'profit_loss': round((getattr(pos, 'profit_pct', 0) or 0) / 100 * (getattr(pos, 'avg_cost', 0) or 0) * (getattr(order, 'filled_qty', 0) or getattr(order, 'quantity', 0) or 0), 2),
             'risk_level': risk.get('level', '') if isinstance(risk, dict) else '',
             'trace_id': trace_id,
             'account_id': getattr(scanner, 'account_id', 'default') or 'default',

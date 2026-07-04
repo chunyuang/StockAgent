@@ -400,14 +400,14 @@ class SignalManager:
         # 异动信号只观察不自动买入
         if "anomaly" in sig.strategy:
             sig.signal_status = "skipped"
-            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+            self._add_timeline_log("signal", sig.ts_code, sig.stock_name,
                 sig.strategy_name, "异动信号, 仅观察不自动交易", sig)
             logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
             return False, "anomaly"
         # 去重: 已有持仓跳过
         if self.broker and any(p.ts_code == sig.ts_code for p in self.broker.get_positions()):
             sig.signal_status = "skipped"
-            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+            self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
                 sig.strategy_name, "已有持仓, 跳过", sig)
             existing = next((p for p in self.broker.get_positions() if p.ts_code == sig.ts_code), None)
             if existing:
@@ -417,7 +417,7 @@ class SignalManager:
                     f"已持仓·{sig.ts_code} {pos_qty}股 现盈{pos_pct:+.1f}% "
                     f"({existing.strategy or ''}策略持有中)"
                 )
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
                     sig.strategy_name, block_reason, sig)
                 logger.info(f"[EXEC] {block_reason}")
             else:
@@ -435,7 +435,7 @@ class SignalManager:
                 f"今日交易{today_trades}笔(亏损{today_losses}笔) "
                 f"连亏{consecutive}笔"
             )
-            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+            self._add_timeline_log("circuit", sig.ts_code, sig.stock_name,
                 sig.strategy_name, block_reason, sig)
             logger.info(f"[EXEC] {block_reason}")
             return False, "circuit_breaker"
