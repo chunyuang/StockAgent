@@ -146,6 +146,7 @@ def write_to_daily_basic(trade_date=None):
         print(f"删除已有 {existing} 条, 重新写入")
     
     updates = []
+    skipped_empty = 0
     for item in all_data:
         code = item.get('f12', '')
         if not code:
@@ -190,6 +191,11 @@ def write_to_daily_basic(trade_date=None):
             "pct_chg": pct_chg,
         }
         
+        # 【v2.9.110防护】跳过close为None的记录(停牌/退市票)
+        if close is None or (close is not None and close <= 0):
+            skipped_empty += 1
+            continue
+        
         updates.append(
             UpdateOne(
                 {"ts_code": ts_code, "trade_date": trade_date},
@@ -224,7 +230,7 @@ def write_to_daily_basic(trade_date=None):
         t1 = time.time()
         result = db.daily_basic.bulk_write(updates, ordered=False)
         write_time = time.time() - t1
-        print(f"写入 {result.upserted_count + result.modified_count} 条, 耗时 {write_time:.1f}s")
+        print(f"写入 {result.upserted_count + result.modified_count} 条, 跳过空壳{skipped_empty}条, 耗时 {write_time:.1f}s")
     
     # 统计
     total = db.daily_basic.count_documents({"trade_date": trade_date})

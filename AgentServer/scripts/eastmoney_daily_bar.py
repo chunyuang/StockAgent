@@ -137,6 +137,7 @@ def write_daily_bar(trade_date=None):
         pass
     
     updates = []
+    skipped_empty = 0
     for item in all_data:
         code = item.get('f12', '')
         if not code:
@@ -210,6 +211,11 @@ def write_daily_bar(trade_date=None):
             "amplitude": amplitude,
         }
         
+        # 【v2.9.110防护】跳过close为None/0的记录(停牌/退市票), 避免产生空壳
+        if not doc.get('close') or doc['close'] is None or doc['close'] <= 0:
+            skipped_empty += 1
+            continue
+        
         updates.append(
             UpdateOne(
                 {"ts_code": ts_code, "trade_date": trade_date},
@@ -249,7 +255,7 @@ def write_daily_bar(trade_date=None):
         
         t1 = time.time()
         result = db.stock_daily_ak_full.bulk_write(updates, ordered=False)
-        print(f"写入 {result.upserted_count + result.modified_count} 条, 耗时 {time.time()-t1:.1f}s")
+        print(f"写入 {result.upserted_count + result.modified_count} 条, 跳过空壳{skipped_empty}条, 耗时 {time.time()-t1:.1f}s")
     
     # 验证
     total = db.stock_daily_ak_full.count_documents({"trade_date": trade_date})

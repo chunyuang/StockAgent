@@ -288,6 +288,18 @@ async def compute_opening_and_intraday(trade_dates: list[int]):
                 update['open_below_limit'] = 1 if open_p <= limit_down_price * 1.005 else 0
                 update['open_above_limit_down'] = 1 if open_p > limit_down_price else 0
             
+            # 【v2.9.110新增】盘中涨停标记(最高价触过涨停板, 含炸板)
+            # 与is_limit_up的区别: is_limit_up=收盘涨停, intraday_limit_up=盘中触涨停
+            if high > 0:
+                if ts_code.startswith(('30', '688')):
+                    high_limit_pct = 19.5
+                elif ts_code.startswith(('8', '4')):
+                    high_limit_pct = 29.5
+                else:
+                    high_limit_pct = 9.5
+                max_rise_val = (high - pre_close) / pre_close * 100
+                update['intraday_limit_up'] = 1 if max_rise_val >= high_limit_pct else 0
+            
             if update:
                 ops.append(UpdateOne(
                     {'ts_code': ts_code, 'trade_date': td},
@@ -610,6 +622,20 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
 async def main():
     await mongo_manager.initialize()
     db = mongo_manager.db
+    
+    # 【v2.9.110】清理close=None的空壳记录(退市/停牌票被采补脚本误写入)
+    shell_count = 0
+    async for doc in db['stock_daily_ak_full'].find({'close': None}, {'trade_date': 1, '_id': 0}):
+        shell_count += 1
+    if shell_count > 0:
+        result = await db['stock_daily_ak_full'].delete_many({'close': None})
+        print(f'🧹 清理空壳记录: {result.deleted_count}条 (close=None)')
+    
+    # 【v2.9.110】清理daily_basic中close=None的空壳记录
+    basic_shell = await db['daily_basic'].count_documents({'close': None})
+    if basic_shell > 0:
+        result = await db['daily_basic'].delete_many({'close': None})
+        print(f'🧹 清理daily_basic空壳: {result.deleted_count}条 (close=None)')
     
     # 使用增强的检测逻辑
     trade_dates = await detect_missing_dates(db, lookback_days=30)
