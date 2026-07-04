@@ -364,7 +364,7 @@ const dbStats = ref<any>({})
 const fetchDbStats = async () => {
   loading.value = true
   try {
-    const result = await api.get<ApiResponse>('/system/db-stats')
+    const result = await api.get<ApiResponse>('/admin/db/stats')
     if (result.success && result.data) {
       dbStats.value = result.data
     }
