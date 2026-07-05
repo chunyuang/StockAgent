@@ -4,7 +4,7 @@
 检查交易数据(4集合)的关键一致性:
 1. broker_positions.market_value非空
 2. broker_accounts资产=现金+市值
-3. equity_curve连续性(realized_pnl单调递增)
+3. equity_curve完整性(total_assets+realized_pnl非空)
 4. risk_decisions字段完整性
 5. sell orders avg_cost非空
 6. cash偏差<5000(佣金误差)
@@ -51,24 +51,22 @@ def main():
         if diff > 1:
             issues.append(('P0', f'账户资产不等式: assets({assets:.0f}) ≠ cash({cash:.0f}) + mv({mv:.0f}), 差={diff:.0f}'))
     
-    # 3. equity_curve realized_pnl单调性
+    # 3. equity_curve完整性(每条记录必有total_assets和realized_pnl)
     ecs = list(db.equity_curve.find().sort('date', 1))
-    decreases = 0
-    prev = -999999
-    for e in ecs[-10:]:  # 只查最近10天
-        pnl = e.get('realized_pnl', 0) or 0
-        if pnl < prev - 1:  # 允许1元误差
-            decreases += 1
-        prev = pnl
-    if decreases > 0:
-        issues.append(('P1', f'equity_curve realized_pnl近10天下降{decreases}次 (应单调递增)'))
+    missing_assets = sum(1 for e in ecs if e.get('total_assets') is None)
+    missing_pnl = sum(1 for e in ecs if e.get('realized_pnl') is None)
+    if missing_assets == len(ecs) and len(ecs) > 0:
+        issues.append(('P1', f'equity_curve全部{len(ecs)}条total_assets=None'))
+    if missing_pnl > 0:
+        issues.append(('P2', f'equity_curve有{missing_pnl}条realized_pnl=None'))
+    # 注: realized_pnl非单调递增是正常的(亏损日就下降)，不再作为问题
     
     # 4. risk_decisions字段完整性(最近5条)
     recent_rds = list(db.risk_decisions.find().sort('timestamp', -1).limit(5))
-    profit_loss_none = sum(1 for rd in recent_rds if rd.get('profit_loss') is None)
+    profit_loss_none = sum(1 for rd in recent_rds if rd.get('profit_loss') is None and rd.get('profit_amount') is None)
     reason_none = sum(1 for rd in recent_rds if rd.get('reason') is None)
     if profit_loss_none == len(recent_rds) and len(recent_rds) > 0:
-        issues.append(('P1', f'risk_decisions最近{len(recent_rds)}条profit_loss全=None'))
+        issues.append(('P1', f'risk_decisions最近{len(recent_rds)}条profit_loss/profit_amount全=None'))
     if reason_none > 2:
         issues.append(('P2', f'risk_decisions最近{len(recent_rds)}条reason None={reason_none}'))
     
