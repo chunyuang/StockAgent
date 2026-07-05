@@ -124,6 +124,12 @@ def write_daily_bar(trade_date=None):
         if today.weekday() >= 5:  # 周六=5, 周日=6
             print(f"[SKIP] 今天是{today.strftime('%A')}，非交易日，跳过")
             return 0
+        # 开盘前不写入(此时API返回上一个交易日数据但trade_date用了今天)
+        from datetime import datetime as _dt
+        now = _dt.now()
+        if now.hour < 9 or (now.hour == 9 and now.minute < 30):
+            print(f"[SKIP] 当前{now.strftime('%H:%M')}未开盘，跳过(避免写入上一交易日假数据)")
+            return 0
         trade_date = int(today.strftime("%Y%m%d"))
     
     t0 = time.time()
