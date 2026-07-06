@@ -298,12 +298,8 @@ const {
                 <span class="ct-arrow-item">{{ expandedClosedTrades[t.ts_code + t.sell_time] ? '▼' : '▶' }}</span>
                 <span class="ct-name">{{ t.stock_name }}</span>
                 <span class="ct-code">{{ t.ts_code }}</span>
-                <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
                 <span :class="t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
                   {{ t.profit_pct != null && t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
-                </span>
-                <span :class="t.profit_amount != null && t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
-                  {{ t.profit_amount != null && t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
                 </span>
               </div>
               <div v-if="expandedClosedTrades[t.ts_code + t.sell_time]" class="ct-detail">
@@ -312,11 +308,15 @@ const {
                   <span class="ct-time">{{ t.buy_time || '--' }}</span>
                   <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
                   <span class="ct-qty">x{{ t.buy_qty }}</span>
+                  <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
                   <span class="ct-arrow-trade">→</span>
                   <span class="ct-tag-sell">卖</span>
                   <span class="ct-time">{{ t.sell_time || '--' }}</span>
                   <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
                   <span class="ct-qty">x{{ t.sell_qty }}</span>
+                  <span :class="t.profit_amount != null && t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
+                    {{ t.profit_amount != null && t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1042,8 +1042,8 @@ mm-tab-content {
 .ct-name { font-weight: 600; color: var(--text-primary); }
 .ct-code { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 .ct-pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; min-width: 56px; text-align: right; }
-.ct-amount { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; }
 .ct-line2 { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; }
+.ct-amount { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ct-tag-buy { color: var(--text-inverse); background: var(--stock-up); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
 .ct-tag-sell { color: var(--text-inverse); background: var(--stock-down); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
 .ct-time { font-variant-numeric: tabular-nums; min-width: 50px; }
