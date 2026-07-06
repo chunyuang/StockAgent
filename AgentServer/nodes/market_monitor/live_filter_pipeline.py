@@ -611,17 +611,31 @@ class LiveFilterPipeline:
     def _count_limits_from_realtime(self, realtime_data: Dict) -> Tuple[int, int, float]:
         """从实时行情统计涨跌停数量【v2.9.56从_check_force_empty提取】
         
+        【2026-07-06修复】按板块区分涨跌停阈值, 与intraday_sentiment保持一致。
+        之前统一用9.5%导致创业板/科创板(-9.5%~-19.5%)被误算为跌停,
+        虚高~27只, 误触强制空仓。
+        
         Returns: (limit_up_count, limit_down_count, index_drop_pct)
         """
         limit_up_count = 0
         limit_down_count = 0
         for code, data in realtime_data.items():
             pct = data.get("pct_chg", 0)
-            if isinstance(pct, (int, float)):
-                if pct >= 9.5:
-                    limit_up_count += 1
-                elif pct <= -9.5:
-                    limit_down_count += 1
+            if not isinstance(pct, (int, float)):
+                continue
+            # 按板块区分阈值(与intraday_sentiment.py对齐)
+            code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
+            if code_prefix in ('688', '30'):
+                lu_thresh, ld_thresh = 19.5, -19.5
+            elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+                lu_thresh, ld_thresh = 29.5, -29.5
+            else:
+                lu_thresh, ld_thresh = 9.5, -9.5
+            
+            if pct >= lu_thresh:
+                limit_up_count += 1
+            elif pct <= ld_thresh:
+                limit_down_count += 1
         # 上证指数跌幅
         sh_index = realtime_data.get("000001.SH", {})
         index_drop_pct = 0.0
@@ -643,13 +657,21 @@ class LiveFilterPipeline:
             if prev_date:
                 cursor = mongo_manager.db["stock_daily_ak_full"].find(
                     {"trade_date": int(prev_date)},
-                    {"pct_chg": 1, "_id": 0}
+                    {"ts_code": 1, "pct_chg": 1, "_id": 0}
                 )
                 async for doc in cursor:
                     pct = doc.get("pct_chg", 0)
-                    if pct >= 9.5:
+                    code = doc.get("ts_code", "")
+                    code_prefix = code.split(".")[0][:3] if "." in code else code[:3]
+                    if code_prefix in ('688', '30'):
+                        lu_t, ld_t = 19.5, -19.5
+                    elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+                        lu_t, ld_t = 29.5, -29.5
+                    else:
+                        lu_t, ld_t = 9.5, -9.5
+                    if pct >= lu_t:
                         limit_up_count += 1
-                    elif pct <= -9.5:
+                    elif pct <= ld_t:
                         limit_down_count += 1
             # 上证指数跌幅
             idx_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
