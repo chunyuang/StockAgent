@@ -1055,6 +1055,9 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         # 【动态持仓上限】同步给broker
         dynamic_max = self._get_dynamic_max_positions()
         if self._broker and hasattr(self._broker, '_dynamic_max_positions'):
+            old_max = self._broker._dynamic_max_positions
+            if old_max != dynamic_max:
+                logger.info(f"[POSITION] 动态持仓上限: {old_max}→{dynamic_max} (情绪周期={new_phase})")
             self._broker._dynamic_max_positions = dynamic_max
 
         logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "

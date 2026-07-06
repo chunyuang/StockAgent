@@ -51,6 +51,9 @@ def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> floa
     Returns:
         回撤容忍比例(如0.08=8%)
     """
+    # NaN/None安全: 返回最低档(最保守)
+    if peak_profit_pct is None or peak_profit_pct != peak_profit_pct:  # NaN != NaN
+        return _TRAILING_BASE + _DEFAULT_TRAILING_OFFSETS[0]
     offsets = STRATEGY_TRAILING_OFFSETS.get(strategy, _DEFAULT_TRAILING_OFFSETS)
     if peak_profit_pct < 5:
         return _TRAILING_BASE + offsets[0]
