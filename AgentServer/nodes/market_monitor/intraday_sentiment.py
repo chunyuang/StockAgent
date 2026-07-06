@@ -99,15 +99,10 @@ class IntradaySentimentCalculator:
             if not isinstance(pct, (int, float)):
                 continue
 
-            # 涨停判断: 创业板/科创板≥19.5%, 主板≥9.5%, 北交所≥29.5%
-            code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
-            code_suffix = code.split('.')[1] if '.' in code else ''
-            if code_prefix.startswith(('688', '30')):
-                lu_thresh, ld_thresh = 19.5, -19.5
-            elif code_suffix == 'BJ':
-                lu_thresh, ld_thresh = 29.5, -29.5
-            else:
-                lu_thresh, ld_thresh = 9.5, -9.5
+            # 涨停判断: 按板块区分阈值
+            from ..utils.board_limit import get_limit_threshold
+            thresh = get_limit_threshold(code)
+            lu_thresh, ld_thresh = thresh, -thresh
 
             if pct >= lu_thresh:
                 limit_up += 1

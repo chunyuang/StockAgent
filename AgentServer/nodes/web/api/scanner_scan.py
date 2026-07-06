@@ -21,6 +21,7 @@ from nodes.web.api.scanner_shared import (
     normalize_data_mode, prod_scan_query, is_debug_scan_doc,
 )
 from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
+from nodes.market_monitor.utils.board_limit import is_limit_up, is_limit_down
 
 router = APIRouter(prefix="/scanner", tags=["扫描追踪/盘前/行情/风控"])
 
@@ -1420,12 +1421,20 @@ async def get_premarket_status(date: str = None):
                 if docs:
                     df = pd.DataFrame(docs)
                     pcts = df['pct_chg'].dropna() if 'pct_chg' in df.columns else pd.Series()
+                    _lu = _ld = 0
+                    if 'ts_code' in df.columns and 'pct_chg' in df.columns:
+                        for _, _r in df.iterrows():
+                            _pct = _r.get('pct_chg', 0)
+                            _code = _r.get('ts_code', '')
+                            if isinstance(_pct, (int, float)) and _code:
+                                if is_limit_up(_code, _pct): _lu += 1
+                                elif is_limit_down(_code, _pct): _ld += 1
                     market_snapshot = {
                         "up_count": int((pcts > 0).sum()) if len(pcts) else 0,
                         "down_count": int((pcts < 0).sum()) if len(pcts) else 0,
                         "flat_count": int((pcts == 0).sum()) if len(pcts) else 0,
-                        "limit_up_count": int((pcts >= 9.9).sum()) if len(pcts) else 0,
-                        "limit_down_count": int((pcts <= -9.9).sum()) if len(pcts) else 0,
+                        "limit_up_count": _lu,
+                        "limit_down_count": _ld,
                         "avg_pct_chg": round(float(pcts.mean()), 2) if len(pcts) else 0,
                         "total_stocks": len(docs),
                         "data_date": target_date,
@@ -1444,7 +1453,8 @@ async def get_premarket_status(date: str = None):
                             candidates.append(c)
                             strategy_map.setdefault("halfway_chase", []).append(c)
                         
-                        fu = df[df['pct_chg'] >= 9.9].nlargest(10, 'pct_chg')
+                        _fu_mask = df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if 'ts_code' in df.columns else (df['pct_chg'] >= 9.9)
+                        fu = df[_fu_mask].nlargest(10, 'pct_chg')
                         for _, row in fu.iterrows():
                             c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
                                  "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
@@ -1579,8 +1589,8 @@ async def get_premarket_status(date: str = None):
                 if pct > 0: market_snapshot["up_count"] += 1
                 elif pct < 0: market_snapshot["down_count"] += 1
                 else: market_snapshot["flat_count"] += 1
-                if pct >= 9.9: market_snapshot["limit_up_count"] += 1
-                if pct <= -9.9: market_snapshot["limit_down_count"] += 1
+                if is_limit_up(ts_code, pct): market_snapshot["limit_up_count"] += 1
+                if is_limit_down(ts_code, pct): market_snapshot["limit_down_count"] += 1
                 if (rt.get("volume_ratio") or 0) >= 2: market_snapshot["volume_ratio_gt2"] += 1
             market_snapshot["total_stocks"] = len(pct_list)
             market_snapshot["avg_pct_chg"] = round(sum(pct_list) / len(pct_list), 2) if pct_list else 0
@@ -1650,8 +1660,9 @@ async def get_premarket_status(date: str = None):
                                      "signal_status": "preview", "reason": f"涨{row.get('pct_chg',0):.1f}%"}
                                 candidates.append(c)
                                 strategy_map.setdefault("halfway_chase", []).append(c)
-                            # 首板: >=9.9%
-                            fu = df[df['pct_chg'] >= 9.9].nlargest(10, 'pct_chg')
+                            # 首板: 按板块阈值
+                            _fu_mask = df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if 'ts_code' in df.columns else (df['pct_chg'] >= 9.9)
+                            fu = df[_fu_mask].nlargest(10, 'pct_chg')
                             for _, row in fu.iterrows():
                                 tc = row.get('ts_code', '')
                                 c = {"ts_code": tc, "stock_name": scanner._stock_name_map.get(tc, ''),
@@ -1666,8 +1677,10 @@ async def get_premarket_status(date: str = None):
                                 market_snapshot["up_count"] = int((pcts > 0).sum())
                                 market_snapshot["down_count"] = int((pcts < 0).sum())
                                 market_snapshot["flat_count"] = int((pcts == 0).sum())
-                                market_snapshot["limit_up_count"] = int((pcts >= 9.9).sum())
-                                market_snapshot["limit_down_count"] = int((pcts <= -9.9).sum())
+                                _lu2 = int(df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1).sum()) if 'ts_code' in df.columns else int((pcts >= 9.9).sum())
+                                _ld2 = int(df.apply(lambda r: is_limit_down(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1).sum()) if 'ts_code' in df.columns else int((pcts <= -9.9).sum())
+                                market_snapshot["limit_up_count"] = _lu2
+                                market_snapshot["limit_down_count"] = _ld2
                                 market_snapshot["avg_pct_chg"] = round(float(pcts.mean()), 2)
                                 market_snapshot["total_stocks"] = len(docs)
                                 market_snapshot["data_date"] = str(target_date)

@@ -19,6 +19,7 @@ from nodes.web.api.scanner_shared import (
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
 )
+from nodes.market_monitor.utils.board_limit import is_limit_up, is_limit_down
 from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis, _build_name_industry_maps, _aggregate_limit_stats
 
 router = APIRouter(prefix="/scanner", tags=["调试/模拟/热更新"])
@@ -227,12 +228,21 @@ async def debug_premarket_sim(date: str = None):
             
             # 构建market_snapshot
             pcts = df['pct_chg'].dropna() if 'pct_chg' in df.columns else pd.Series()
+            # 按板块区分涨跌停阈值
+            _lu = _ld = 0
+            if 'ts_code' in df.columns and 'pct_chg' in df.columns:
+                for _, row in df.iterrows():
+                    pct = row.get('pct_chg', 0)
+                    code = row.get('ts_code', '')
+                    if isinstance(pct, (int, float)) and code:
+                        if is_limit_up(code, pct): _lu += 1
+                        elif is_limit_down(code, pct): _ld += 1
             market_snapshot = {
                 "up_count": int((pcts > 0).sum()) if len(pcts) else 0,
                 "down_count": int((pcts < 0).sum()) if len(pcts) else 0,
                 "flat_count": int((pcts == 0).sum()) if len(pcts) else 0,
-                "limit_up_count": int((pcts >= 9.9).sum()) if len(pcts) else 0,
-                "limit_down_count": int((pcts <= -9.9).sum()) if len(pcts) else 0,
+                "limit_up_count": _lu,
+                "limit_down_count": _ld,
                 "avg_pct_chg": round(float(pcts.mean()), 2) if len(pcts) else 0,
                 "volume_ratio_gt2": 0, "total_stocks": len(docs),
                 "data_date": target_date,
@@ -252,7 +262,8 @@ async def debug_premarket_sim(date: str = None):
                     candidates.append(c)
                     strategy_map.setdefault("halfway_chase", []).append(c)
                 
-                zt = df[df['pct_chg'] >= 9.9].nlargest(5, 'pct_chg')
+                _zt_mask = df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if 'ts_code' in df.columns else (df['pct_chg'] >= 9.9)
+                zt = df[_zt_mask].nlargest(5, 'pct_chg')
                 for _, row in zt.iterrows():
                     c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
                          "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
@@ -375,13 +386,15 @@ async def debug_premarket_sim(date: str = None):
                 pass
             
             if not limit_from_db and 'pct_chg' in df.columns:
-                zt_df = df[df['pct_chg'] >= 9.9]
+                _zt_mask = df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if 'ts_code' in df.columns else (df['pct_chg'] >= 9.9)
+                zt_df = df[_zt_mask]
                 for _, row in zt_df.nlargest(20, 'pct_chg').iterrows():
                     limit_up_list.append({
                         "ts_code": row.get('ts_code', ''), "name": name_map.get(row.get('ts_code', ''), ''),
                         "pct_chg": round(row.get('pct_chg', 0), 2), "open_times": 0,
                     })
-                dt_df = df[df['pct_chg'] <= -9.9]
+                _dt_mask = df.apply(lambda r: is_limit_down(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if 'ts_code' in df.columns else (df['pct_chg'] <= -9.9)
+                dt_df = df[_dt_mask]
                 for _, row in dt_df.nlargest(10, 'pct_chg').iterrows():
                     limit_down_list.append({
                         "ts_code": row.get('ts_code', ''), "name": name_map.get(row.get('ts_code', ''), ''),
@@ -424,8 +437,8 @@ async def debug_premarket_sim(date: str = None):
             if pct > 0: market_snapshot["up_count"] += 1
             elif pct < 0: market_snapshot["down_count"] += 1
             else: market_snapshot["flat_count"] += 1
-            if pct >= 9.9: market_snapshot["limit_up_count"] += 1
-            if pct <= -9.9: market_snapshot["limit_down_count"] += 1
+            if is_limit_up(ts_code, pct): market_snapshot["limit_up_count"] += 1
+            if is_limit_down(ts_code, pct): market_snapshot["limit_down_count"] += 1
             if (rt.get("volume_ratio") or 0) >= 2: market_snapshot["volume_ratio_gt2"] += 1
         market_snapshot["total_stocks"] = len(pct_list)
         market_snapshot["avg_pct_chg"] = round(sum(pct_list) / len(pct_list), 2) if pct_list else 0
@@ -438,8 +451,10 @@ async def debug_premarket_sim(date: str = None):
             market_snapshot["up_count"] = int((pcts > 0).sum())
             market_snapshot["down_count"] = int((pcts < 0).sum())
             market_snapshot["flat_count"] = int((pcts == 0).sum())
-            market_snapshot["limit_up_count"] = int((pcts >= 9.9).sum())
-            market_snapshot["limit_down_count"] = int((pcts <= -9.9).sum())
+            _lu = int(df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1).sum()) if 'ts_code' in df.columns else int((pcts >= 9.9).sum())
+            _ld = int(df.apply(lambda r: is_limit_down(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1).sum()) if 'ts_code' in df.columns else int((pcts <= -9.9).sum())
+            market_snapshot["limit_up_count"] = _lu
+            market_snapshot["limit_down_count"] = _ld
             market_snapshot["avg_pct_chg"] = round(float(pcts.mean()), 2)
             market_snapshot["total_stocks"] = len(pcts)
         if 'volume_ratio' in df.columns:
@@ -538,7 +553,8 @@ async def debug_premarket_sim(date: str = None):
             funnel["strategy_candidates"] += len(hc)
         
         # 涨停Top5
-        zt_df = df[df['pct_chg'] >= 9.9] if 'pct_chg' in df.columns else pd.DataFrame()
+        _zt_mask = df.apply(lambda r: is_limit_up(r.get('ts_code', ''), r.get('pct_chg', 0)) if r.get('pct_chg') else False, axis=1) if ('ts_code' in df.columns and 'pct_chg' in df.columns) else (df['pct_chg'] >= 9.9 if 'pct_chg' in df.columns else pd.Series(dtype=bool))
+        zt_df = df[_zt_mask] if len(_zt_mask) > 0 else pd.DataFrame()
         zt = zt_df.nlargest(5, 'turnover_rate') if len(zt_df) > 0 and 'turnover_rate' in zt_df.columns else (zt_df.head(5) if len(zt_df) > 0 else pd.DataFrame())
         for _, row in zt.iterrows():
             ts_code = row.get('ts_code', '')

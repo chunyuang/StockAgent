@@ -619,23 +619,14 @@ class LiveFilterPipeline:
         """
         limit_up_count = 0
         limit_down_count = 0
+        from ..utils.board_limit import is_limit_up, is_limit_down
         for code, data in realtime_data.items():
             pct = data.get("pct_chg", 0)
             if not isinstance(pct, (int, float)):
                 continue
-            # 按板块区分阈值(与intraday_sentiment.py对齐)
-            code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
-            code_suffix = code.split('.')[1] if '.' in code else ''
-            if code_prefix.startswith(('688', '30')):
-                lu_thresh, ld_thresh = 19.5, -19.5
-            elif code_suffix == 'BJ':
-                lu_thresh, ld_thresh = 29.5, -29.5
-            else:
-                lu_thresh, ld_thresh = 9.5, -9.5
-            
-            if pct >= lu_thresh:
+            if is_limit_up(code, pct):
                 limit_up_count += 1
-            elif pct <= ld_thresh:
+            elif is_limit_down(code, pct):
                 limit_down_count += 1
         # 上证指数跌幅
         sh_index = realtime_data.get("000001.SH", {})
@@ -660,20 +651,13 @@ class LiveFilterPipeline:
                     {"trade_date": int(prev_date)},
                     {"ts_code": 1, "pct_chg": 1, "_id": 0}
                 )
+                from ..utils.board_limit import is_limit_up, is_limit_down
                 async for doc in cursor:
                     pct = doc.get("pct_chg", 0)
                     code = doc.get("ts_code", "")
-                    code_prefix = code.split(".")[0][:3] if "." in code else code[:3]
-                    code_suffix = code.split(".")[1] if "." in code else ''
-                    if code_prefix.startswith(('688', '30')):
-                        lu_t, ld_t = 19.5, -19.5
-                    elif code_suffix == 'BJ':
-                        lu_t, ld_t = 29.5, -29.5
-                    else:
-                        lu_t, ld_t = 9.5, -9.5
-                    if pct >= lu_t:
+                    if is_limit_up(code, pct):
                         limit_up_count += 1
-                    elif pct <= ld_t:
+                    elif is_limit_down(code, pct):
                         limit_down_count += 1
             # 上证指数跌幅
             idx_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
@@ -773,22 +757,15 @@ class LiveFilterPipeline:
         except ImportError:
             from ..listener.strategies.emotion_cycle import emotion_cycle_manager
         
+        from ..utils.board_limit import is_limit_up, is_limit_down
         limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
             for code, data in realtime_data.items():
                 pct = data.get("pct_chg", 0)
                 if isinstance(pct, (int, float)):
-                    prefix = code.split(".")[0][:3] if "." in code else code[:3]
-                    suffix = code.split(".")[1] if "." in code else ''
-                    if prefix.startswith(('688', '30')):
-                        lu_t, ld_t = 19.5, -19.5
-                    elif suffix == 'BJ':
-                        lu_t, ld_t = 29.5, -29.5
-                    else:
-                        lu_t, ld_t = 9.5, -9.5
-                    if pct >= lu_t:
+                    if is_limit_up(code, pct):
                         limit_stocks[code] = {"limit_type": "U", "pct_chg": pct}
-                    elif pct <= ld_t:
+                    elif is_limit_down(code, pct):
                         limit_stocks[code] = {"limit_type": "D", "pct_chg": pct}
                     else:
                         limit_stocks[code] = {"limit_type": "normal", "pct_chg": pct}
