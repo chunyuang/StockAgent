@@ -3,7 +3,7 @@
  * 数据获取页面 - 展示所有数据源配置、获取逻辑和注意事项
  * 纯展示页面，不修改任何运行时逻辑
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   ElCard,
   ElTable,
@@ -448,6 +448,92 @@ const toggleSection = (key: string) => {
   expandedSections.value[key] = !expandedSections.value[key]
 }
 
+const sentimentPoints = ref<any[]>([])
+const recentSignals = ref<any[]>([])
+const scannerRuntimeStatus = ref<any>({})
+
+/** 因子覆盖率详情(最新日) */
+const factorDetailLatest = computed(() => dataStatus.value?.factor_detail_latest || {})
+
+/** 盘中状态汇总 */
+const intradaySummary = computed(() => {
+  const snap = scannerRuntimeStatus.value || {}
+  const stats = snap.stats || {}
+  return [
+    { label: '扫描轮次', value: stats.scans ?? '-', icon: '🔄' },
+    { label: '扫描股票', value: stats.stocks_scanned?.toLocaleString() ?? '-', icon: '📊' },
+    { label: '发现信号', value: stats.signals_found ?? '-', icon: '📡' },
+    { label: '执行交易', value: stats.trades_executed ?? '-', icon: '✅' },
+    { label: '止损', value: stats.stop_losses ?? '-', icon: '🛑' },
+    { label: '止盈', value: stats.take_profits ?? '-', icon: '🎯' },
+    { label: '情绪分数', value: snap.sentiment_score ? snap.sentiment_score.toFixed(1) : '-', icon: '🌡️' },
+    { label: '持仓比例', value: snap.current_position_ratio != null ? (snap.current_position_ratio * 100).toFixed(0) + '%' : '-', icon: '💼' },
+    { label: '活跃信号', value: snap.active_signals_count ?? '-', icon: '⚡' },
+    { label: '熔断暂停', value: snap.circuit_breaker?.trading_paused ? '是' : '否', icon: '🚨' },
+  ]
+})
+
+/** 今日信号按策略分组 */
+const signalsByStrategy = computed(() => {
+  const sigs = recentSignals.value || []
+  const groups: Record<string, number> = {}
+  for (const s of sigs) {
+    const name = s.strategy_name || s.strategy || '未知'
+    groups[name] = (groups[name] || 0) + 1
+  }
+  return Object.entries(groups).map(([name, count]) => ({ name, count }))
+})
+
+/** 情绪曲线简化数据 */
+const sentimentChartPoints = computed(() => {
+  return (sentimentPoints.value || []).slice(-30).map((p: any) => ({
+    time: p.time_label || p.time?.slice(11, 16) || '?',
+    score: p.score?.toFixed(1) ?? 0,
+    limit_up: p.limit_up ?? 0,
+    broken: p.broken ?? 0,
+    broken_rate: p.broken_rate ? (p.broken_rate * 100).toFixed(0) + '%' : '-',
+    period: p.period || '-',
+  }))
+})
+
+/** 因子覆盖率详情表格 */
+const factorDetailRows = computed(() => {
+  const fdl = factorDetailLatest.value
+  if (!fdl || Object.keys(fdl).length === 0) return []
+  const groups: Record<string, { factor: string; rate: number }[]> = {
+    '基础': [],
+    '技术MA': [],
+    '技术TALib': [],
+    '量价': [],
+    '涨跌停': [],
+  }
+  const groupMap: Record<string, string[]> = {
+    '基础': ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close'],
+    '技术MA': ['ma5', 'ma10', 'ma20', 'ma60'],
+    '技术TALib': ['macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'],
+    '量价': ['turnover_rate', 'volume_ratio', 'circ_mv'],
+    '涨跌停': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'],
+  }
+  for (const [gname, factors] of Object.entries(groupMap)) {
+    for (const f of factors) {
+      if (fdl[f] != null) {
+        groups[gname].push({ factor: f, rate: fdl[f] })
+      }
+    }
+  }
+  const rows: { group: string; factor: string; rate: number; status: string }[] = []
+  for (const [gname, items] of Object.entries(groups)) {
+    for (const item of items) {
+      const status = item.rate >= 90 ? 'ok' : item.rate >= 50 ? 'warn' : 'error'
+      rows.push({ group: gname, factor: item.factor, rate: item.rate, status })
+    }
+  }
+  return rows
+})
+
+/** 今日MongoDB实时数据计数 */
+const intradayMongoCounts = ref<any[]>([])
+
 const fetchDbStats = async () => {
   loading.value = true
   try {
@@ -467,6 +553,113 @@ const fetchDbStats = async () => {
     loading.value = false
   }
 }
+
+/** 拉取盘中实时数据 */
+const fetchIntradayData = async () => {
+  try {
+    // 1. 情绪时间线
+    const sentRes = await api.get<ApiResponse>('/scanner/sentiment-timeline?mode=intraday')
+    if (sentRes.success && sentRes.data) {
+      sentimentPoints.value = sentRes.data.points || []
+    }
+    // 2. 最新信号
+    const sigRes = await api.get<ApiResponse>('/scanner/stream/signals?limit=50')
+    if (sigRes.success && sigRes.data) {
+      const sigData = sigRes.data
+      if (Array.isArray(sigData)) {
+        // 展开嵌套的signals
+        const flat: any[] = []
+        for (const item of sigData) {
+          const inner = item.data?.data
+          if (typeof inner === 'string') {
+            try {
+              const parsed = JSON.parse(inner)
+              if (parsed.signals) flat.push(...parsed.signals)
+            } catch {}
+          }
+        }
+        recentSignals.value = flat
+      }
+    }
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+/** 拉取MongoDB实时计数(通过admin/db/stats或直接用data-status的collections) */
+const fetchIntradayMongoCounts = async () => {
+  try {
+    // 从data-status的collections中提取盘中实时集合
+    const cols = dataStatus.value?.collections || {}
+    const realtimeCollections = [
+      'scanner_signals', 'scanner_timeline', 'sentiment_live_log',
+      'scan_traces', 'premarket_snapshots', 'limit_list',
+      'broker_orders', 'risk_decisions', 'scanner_runtime_snapshot',
+    ]
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    intradayMongoCounts.value = realtimeCollections.map(name => {
+      const info = cols[name] as any || {}
+      return {
+        name,
+        count: info.count || 0,
+        dateEnd: info.date_range?.end || '-',
+        freshness: info.date_range?.end === today || info.date_range?.end === today.slice(0, 4) + '-' + today.slice(4, 6) + '-' + today.slice(6) ? '今日' : (info.date_range?.end || '-'),
+      }
+    })
+  } catch (e) {
+    // 静默
+  }
+}
+
+/** 拉取scanner运行时快照 */
+const fetchScannerRuntime = async () => {
+  try {
+    const res = await api.get<ApiResponse>('/scanner/health')
+    if (res.success && res.data) {
+      const h = res.data.health || res.data
+      scannerRuntimeStatus.value = {
+        overall_status: h.overall_status,
+        message: h.message,
+        health_score: h.health_score,
+        scan_lag_seconds: h.scan_lag_seconds,
+        data_freshness: h.data_freshness,
+        warnings: h.warnings || [],
+        circuit_breaker: h.circuit_breaker || {},
+        risk_metrics: h.risk_metrics || {},
+        data_sources: h.data_sources || [],
+        version: h.version || {},
+      }
+    }
+  } catch (e) {
+    // 静默
+  }
+}
+
+/** 自动刷新(盘中每30秒) */
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const startAutoRefresh = () => {
+  const now = new Date()
+  const hour = now.getHours()
+  const day = now.getDay()
+  // 交易日 9:25-15:05
+  if (day >= 1 && day <= 5 && hour >= 9 && hour < 16) {
+    refreshTimer = setInterval(() => {
+      fetchIntradayData()
+      fetchScannerRuntime()
+    }, 30000)
+  }
+}
+
+onMounted(() => {
+  fetchDbStats().then(() => {
+    fetchIntradayMongoCounts()
+  })
+  fetchIntradayData()
+  fetchScannerRuntime()
+  startAutoRefresh()
+})
+
 
 /** 采补状态汇总计算 */
 const collectionHealth = computed(() => {
@@ -611,7 +804,16 @@ const levelColorMap: Record<string, string> = {
 }
 
 onMounted(() => {
-  fetchDbStats()
+  fetchDbStats().then(() => {
+    fetchIntradayMongoCounts()
+  })
+  fetchIntradayData()
+  fetchScannerRuntime()
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 
@@ -866,6 +1068,137 @@ onMounted(() => {
 
       </ElCollapse><!-- /statusSubCollapse -->
       </div><!-- /section-body -->
+    </ElCard>
+
+    <!-- 盘中实时采集状态 -->
+    <ElCard class="section-card" shadow="never">
+      <template #header>
+        <div class="section-title">
+          <span class="section-icon">⚡</span>
+          <span>盘中实时采集状态</span>
+          <ElTag v-if="scannerRuntimeStatus.overall_status === 'running'" type="success" size="small">运行中</ElTag>
+          <ElTag v-else-if="scannerRuntimeStatus.overall_status === 'dead'" type="danger" size="small">未运行</ElTag>
+          <ElTag v-else type="info" size="small">{{ scannerRuntimeStatus.overall_status || '未知' }}</ElTag>
+          <span v-if="scannerRuntimeStatus.scan_lag_seconds != null && scannerRuntimeStatus.scan_lag_seconds >= 0" class="summary-detail">扫描延迟 {{ scannerRuntimeStatus.scan_lag_seconds }}s</span>
+        </div>
+      </template>
+
+      <!-- Scanner状态概览 -->
+      <div class="intraday-stats-grid">
+        <div v-for="item in intradaySummary" :key="item.label" class="stat-card" :class="{ 'stat-warning': item.label === '熔断暂停' && item.value === '是' }">
+          <span class="stat-icon">{{ item.icon }}</span>
+          <div class="stat-info">
+            <span class="stat-label">{{ item.label }}</span>
+            <span class="stat-value">{{ item.value }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 警告信息 -->
+      <div v-if="scannerRuntimeStatus.warnings?.length" class="diag-bar">
+        <div v-for="(w, i) in scannerRuntimeStatus.warnings" :key="i" class="diag-item yellow">
+          <span class="diag-level">🟡</span>
+          <span>{{ w }}</span>
+        </div>
+      </div>
+
+      <!-- 情绪曲线 + 信号分组 -->
+      <ElCollapse class="status-sub-collapse">
+        <ElCollapseItem name="sentiment" class="sub-collapse-item">
+          <template #title>
+            <span class="sub-title" style="margin:0">盘中情绪曲线</span>
+            <span class="sub-summary">
+              <span v-if="sentimentChartPoints.length" class="sub-summary-chip ok">{{ sentimentChartPoints.length }}点</span>
+              <span v-if="sentimentChartPoints.length" class="sub-summary-chip" :class="sentimentChartPoints[sentimentChartPoints.length-1]?.score >= 50 ? 'ok' : 'warn'">最新 {{ sentimentChartPoints[sentimentChartPoints.length-1]?.score }}</span>
+            </span>
+          </template>
+          <div v-if="sentimentChartPoints.length" class="sentiment-table-wrap">
+            <ElTable :data="sentimentChartPoints" size="small" stripe max-height="300">
+              <ElTableColumn prop="time" label="时间" width="70" />
+              <ElTableColumn label="情绪分" width="80">
+                <template #default="{ row }">
+                  <span :class="row.score >= 50 ? 'cov-ok' : 'cov-bad'">{{ row.score }}</span>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="period" label="阶段" width="80" />
+              <ElTableColumn prop="limit_up" label="涨停" width="60" align="center" />
+              <ElTableColumn prop="broken" label="炸板" width="60" align="center" />
+              <ElTableColumn prop="broken_rate" label="炸板率" width="70" align="center" />
+            </ElTable>
+          </div>
+          <div v-else class="text-muted" style="padding: 12px; font-size: 13px;">暂无盘中情绪数据</div>
+        </ElCollapseItem>
+
+        <ElCollapseItem name="signals" class="sub-collapse-item">
+          <template #title>
+            <span class="sub-title" style="margin:0">今日信号分组</span>
+            <span class="sub-summary">
+              <span v-for="s in signalsByStrategy" :key="s.name" class="sub-summary-chip ok">{{ s.name }} {{ s.count }}</span>
+            </span>
+          </template>
+          <ElTable v-if="signalsByStrategy.length" :data="signalsByStrategy" size="small" stripe>
+            <ElTableColumn prop="name" label="策略" min-width="120" />
+            <ElTableColumn prop="count" label="信号数" width="100" align="right" />
+          </ElTable>
+          <div v-else class="text-muted" style="padding: 12px; font-size: 13px;">暂无信号数据</div>
+        </ElCollapseItem>
+
+        <ElCollapseItem name="realtime-collections" class="sub-collapse-item">
+          <template #title>
+            <span class="sub-title" style="margin:0">实时集合状态</span>
+            <span class="sub-summary">
+              <span v-for="c in intradayMongoCounts.filter(c => c.count > 0)" :key="c.name" class="sub-summary-chip ok">{{ c.name.replace('scanner_','').replace('sentiment_','') }} {{ c.count?.toLocaleString() }}</span>
+            </span>
+          </template>
+          <div class="tab-note">盘中实时写入的MongoDB集合（今日是否更新）</div>
+          <ElTable :data="intradayMongoCounts" size="small" stripe>
+            <ElTableColumn prop="name" label="集合" min-width="200">
+              <template #default="{ row }">
+                <span class="mono-text">{{ row.name }}</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn prop="count" label="总记录数" width="120" align="right">
+              <template #default="{ row }">
+                {{ row.count?.toLocaleString() }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn prop="dateEnd" label="最新日期" width="140" align="center" />
+            <ElTableColumn label="状态" width="80" align="center">
+              <template #default="{ row }">
+                <span v-if="row.dateEnd === new Date().toISOString().slice(0,10) || row.dateEnd === new Date().toISOString().slice(0,10).replace(/-/g,'')">✅</span>
+                <span v-else>⏳</span>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </ElCollapseItem>
+      </ElCollapse>
+    </ElCard>
+
+    <!-- 今日因子覆盖率详情 -->
+    <ElCard class="section-card" shadow="never">
+      <template #header>
+        <div class="section-title">
+          <span class="section-icon">🧪</span>
+          <span>今日因子覆盖率详情</span>
+          <span class="summary-detail">最新交易日每个因子的覆盖率(%)</span>
+        </div>
+      </template>
+      <div v-if="factorDetailRows.length" class="factor-detail-grid">
+        <div v-for="gname in ['基础', '技术MA', '技术TALib', '量价', '涨跌停']" :key="gname" class="factor-detail-group">
+          <div class="fdg-header">
+            <span class="fdg-name">{{ gname }}</span>
+            <ElTag size="small" :type="factorDetailRows.filter(r => r.group === gname).every(r => r.rate >= 90) ? 'success' : 'warning'">
+              {{ factorDetailRows.filter(r => r.group === gname).filter(r => r.rate >= 90).length }}/{{ factorDetailRows.filter(r => r.group === gname).length }}
+            </ElTag>
+          </div>
+          <div v-for="row in factorDetailRows.filter(r => r.group === gname)" :key="row.factor" class="fdg-item">
+            <span class="fdg-factor">{{ row.factor }}</span>
+            <ElProgress :percentage="row.rate" :stroke-width="6" :color="row.rate >= 90 ? '#10b981' : row.rate >= 50 ? '#f59e0b' : '#ef4444'" :show-text="false" style="flex: 1; min-width: 60px" />
+            <span class="fdg-rate" :class="row.status === 'ok' ? 'cov-ok' : 'cov-bad'">{{ row.rate.toFixed(1) }}%</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="text-muted" style="padding: 16px; font-size: 13px;">暂无因子覆盖率数据</div>
     </ElCard>
 
     <!-- 其余区块用折叠包裹 -->
@@ -1856,5 +2189,111 @@ onMounted(() => {
 /* 因子表(轻微内边距) */
 .factor-table {
   margin-bottom: 8px;
+}
+
+/* 盘中实时采集状态 */
+.intraday-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-muted);
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  transition: border-color 0.2s;
+
+  &.stat-warning {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.05);
+  }
+}
+
+.stat-icon {
+  font-size: 20px;
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: monospace;
+  color: var(--text-primary);
+}
+
+.diag-bar {
+  margin-bottom: 12px;
+}
+
+.sentiment-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* 今日因子覆盖率详情 */
+.factor-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.factor-detail-group {
+  background: var(--bg-muted);
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+}
+
+.fdg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.fdg-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fdg-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.fdg-factor {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.fdg-rate {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  min-width: 45px;
+  text-align: right;
 }
 </style>
