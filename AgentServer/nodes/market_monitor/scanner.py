@@ -710,9 +710,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                     if not isinstance(pct, (int, float)):
                         continue
                     prefix = code.split(".")[0][:3] if "." in code else code[:3]
-                    if prefix in ('688', '30'):
+                    suffix = code.split(".")[1] if "." in code else ''
+                    if prefix.startswith(('688', '30')):
                         lu_t, ld_t = 19.5, -19.5
-                    elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+                    elif suffix == 'BJ':
                         lu_t, ld_t = 29.5, -29.5
                     else:
                         lu_t, ld_t = 9.5, -9.5
@@ -1240,9 +1241,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 continue
             # 按板块区分涨跌停阈值
             prefix = code.split(".")[0][:3] if "." in code else code[:3]
-            if prefix in ('688', '30'):
+            suffix = code.split(".")[1] if "." in code else ''
+            if prefix.startswith(('688', '30')):
                 lu_t, ld_t = 19.5, -19.5
-            elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+            elif suffix == 'BJ':
                 lu_t, ld_t = 29.5, -29.5
             else:
                 lu_t, ld_t = 9.5, -9.5

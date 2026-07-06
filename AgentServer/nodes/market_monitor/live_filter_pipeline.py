@@ -625,9 +625,10 @@ class LiveFilterPipeline:
                 continue
             # 按板块区分阈值(与intraday_sentiment.py对齐)
             code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
-            if code_prefix in ('688', '30'):
+            code_suffix = code.split('.')[1] if '.' in code else ''
+            if code_prefix.startswith(('688', '30')):
                 lu_thresh, ld_thresh = 19.5, -19.5
-            elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+            elif code_suffix == 'BJ':
                 lu_thresh, ld_thresh = 29.5, -29.5
             else:
                 lu_thresh, ld_thresh = 9.5, -9.5
@@ -663,9 +664,10 @@ class LiveFilterPipeline:
                     pct = doc.get("pct_chg", 0)
                     code = doc.get("ts_code", "")
                     code_prefix = code.split(".")[0][:3] if "." in code else code[:3]
-                    if code_prefix in ('688', '30'):
+                    code_suffix = code.split(".")[1] if "." in code else ''
+                    if code_prefix.startswith(('688', '30')):
                         lu_t, ld_t = 19.5, -19.5
-                    elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+                    elif code_suffix == 'BJ':
                         lu_t, ld_t = 29.5, -29.5
                     else:
                         lu_t, ld_t = 9.5, -9.5
@@ -777,9 +779,10 @@ class LiveFilterPipeline:
                 pct = data.get("pct_chg", 0)
                 if isinstance(pct, (int, float)):
                     prefix = code.split(".")[0][:3] if "." in code else code[:3]
-                    if prefix in ('688', '30'):
+                    suffix = code.split(".")[1] if "." in code else ''
+                    if prefix.startswith(('688', '30')):
                         lu_t, ld_t = 19.5, -19.5
-                    elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+                    elif suffix == 'BJ':
                         lu_t, ld_t = 29.5, -29.5
                     else:
                         lu_t, ld_t = 9.5, -9.5

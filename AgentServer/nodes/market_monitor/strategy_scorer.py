@@ -111,13 +111,13 @@ class StrategyScorer:
         """
         code = (ts_code or "").split(".")[0]
         name = stock_name or ""
-        is_st = "ST" in name.upper() or name.startswith(("*ST", "ST"))
+        # 2026-07-06新规: 主板ST涨跌幅与普通股一致(10%), 不再需要ST特殊处理
+        # 创业板/科创板ST仍为20%, 北交所*ST仍为30%
         if code.startswith(("300", "301", "688")):
-            return 19.5  # 创业板/科创板: 20% (含ST)
+            return 19.5  # 创业板/科创板: 20%
         if code.startswith(("4", "8", "920")):
-            return 29.5  # 北交所: 30% (含*ST)
-        # 主板: ST和普通股统一10% (2026-07-06新规)
-        return 9.5
+            return 29.5  # 北交所: 30%
+        return 9.5  # 主板: 10%
 
     @classmethod
     def _classify_limit(cls, ts_code: str, pct: float, stock_name: str = "") -> tuple:

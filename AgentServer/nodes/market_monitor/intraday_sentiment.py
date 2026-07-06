@@ -101,9 +101,10 @@ class IntradaySentimentCalculator:
 
             # 涨停判断: 创业板/科创板≥19.5%, 主板≥9.5%, 北交所≥29.5%
             code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
-            if code_prefix in ('688', '30'):
+            code_suffix = code.split('.')[1] if '.' in code else ''
+            if code_prefix.startswith(('688', '30')):
                 lu_thresh, ld_thresh = 19.5, -19.5
-            elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+            elif code_suffix == 'BJ':
                 lu_thresh, ld_thresh = 29.5, -29.5
             else:
                 lu_thresh, ld_thresh = 9.5, -9.5
@@ -154,9 +155,10 @@ class IntradaySentimentCalculator:
                 if isinstance(pct, (int, float)):
                     # 溢价 = 涨幅 - 涨停线 (如10.02% - 10% = 0.02%)
                     code_prefix = code[:3] if '.' not in code else code.split('.')[0][:3]
-                    if code_prefix in ('688', '30'):
+                    code_suffix = code.split('.')[1] if '.' in code else ''
+                    if code_prefix.startswith(('688', '30')):
                         base = 20.0
-                    elif code_prefix in ('8', '4') and code[:1] in ('8', '4'):
+                    elif code_suffix == 'BJ':
                         base = 30.0
                     else:
                         base = 10.0

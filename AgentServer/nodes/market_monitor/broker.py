@@ -611,9 +611,12 @@ class SimulatedBroker:
         # 自动计算涨跌停价
         if pre_close and pre_close > 0:
             calc = self._calc_limit_prices(ts_code, pre_close)
-            if is_st:  # 主板ST股±10% (2026-07-06新规)
-                calc["upper"] = round(pre_close * 1.10, 2)
-                calc["lower"] = round(pre_close * 0.90, 2)
+            if is_st:
+                # 主板ST: ±10% (2026-07-06新规)
+                # 创业板/科创板/北交所ST不特殊处理, _calc_limit_prices已正确返回板块阈值
+                if not ts_code.startswith(('300', '301', '688', '4', '8', '920')):
+                    calc["upper"] = round(pre_close * 1.10, 2)
+                    calc["lower"] = round(pre_close * 0.90, 2)
             self._limit_prices[ts_code] = calc
         elif upper_limit is not None or lower_limit is not None:
             self._limit_prices[ts_code] = {

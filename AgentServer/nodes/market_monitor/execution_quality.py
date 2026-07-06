@@ -297,9 +297,10 @@ class FillSimulator:
         
         # 涨停/跌停附近 - 按板块区分阈值
         prefix = ts_code.split(".")[0][:3] if "." in ts_code else ts_code[:3]
-        if prefix in ('688', '30'):
+        suffix = ts_code.split(".")[1] if "." in ts_code else ''
+        if prefix.startswith(('688', '30')):
             limit_thresh = 19.5
-        elif prefix in ('8', '4') and ts_code[:1] in ('8', '4'):
+        elif suffix == 'BJ':
             limit_thresh = 29.5
         else:
             limit_thresh = 9.5
