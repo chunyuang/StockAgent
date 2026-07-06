@@ -66,6 +66,8 @@ class Order:
     source: str = "auto"     # auto=自动交易 / manual=手动下单
     profit_pct: float = 0.0
     profit_amount: float = 0.0
+    commission: float = 0.0    # 【修复】添加佣金字段, 否则getattr永远返回0
+    stamp_duty: float = 0.0    # 【修复】添加印花税字段
     decision_trace: dict = field(default_factory=dict)  # 【v2.9.96】完整决策轨迹: 选股参数+风控参数+L1-L9+情绪+仓位
 
 
@@ -394,6 +396,9 @@ class SimulatedBroker:
                 "fill_time": o.fill_time,
                 "profit_pct": o.profit_pct,
                 "profit_amount": o.profit_amount,
+                "commission": getattr(o, 'commission', 0),
+                "stamp_duty": getattr(o, 'stamp_duty', 0),
+                "avg_cost": getattr(o, 'avg_cost', 0),
                 "source": o.source,
                 "decision_trace": o.decision_trace if hasattr(o, 'decision_trace') else {},
             }
@@ -567,6 +572,12 @@ class SimulatedBroker:
                 source=doc.get("source", "auto"),
             )
             order.fill_time = doc.get("fill_time", "")
+            # 【修复】恢复profit/佣金/印花税字段, 否则save_state会用默认值0覆盖
+            order.profit_pct = doc.get("profit_pct", 0.0)
+            order.profit_amount = doc.get("profit_amount", 0.0)
+            order.avg_cost = doc.get("avg_cost", 0.0)
+            order.commission = doc.get("commission", 0.0)
+            order.stamp_duty = doc.get("stamp_duty", 0.0)
             self.orders.append(order)
             existing_ids.add(oid)
             loaded_orders += 1
@@ -916,6 +927,9 @@ class SimulatedBroker:
 
         order.filled_qty = quantity
         order.filled_price = fill_price
+        # 【修复】记录佣金/印花税到order, 供MongoDB持久化
+        order.commission = commission
+        order.stamp_duty = stamp_duty
         order.status = OrderStatus.FILLED
         order.fill_time = datetime.now().strftime("%H:%M:%S")
         total_cost = commission + stamp_duty
@@ -1124,6 +1138,7 @@ class SimulatedBroker:
                 order.avg_cost = avg_cost
                 # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
                 self.account.today_profit += profit
+                logger.info(f"[BROKER] 盈亏计算(兜底): {order.ts_code} fill_price={fill_price} avg_cost={avg_cost} qty={order.quantity} profit={profit:+.0f} pct={profit_pct:+.2f}%")
 
             # 收回资金(无论avg_cost是否找到)
             amount = fill_price * order.quantity - total_cost
@@ -1152,6 +1167,7 @@ class SimulatedBroker:
         order.profit_amount = round(profit_amount, 2)
         # 【v2.9.98f】记录avg_cost到order, 供MongoDB和analysis查询使用
         order.avg_cost = pos.avg_cost
+        logger.info(f"[BROKER] 盈亏计算: {order.ts_code} fill_price={fill_price} avg_cost={pos.avg_cost} qty={order.quantity} profit={profit_amount:+.0f} pct={profit_pct:+.2f}%")
         # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
         self.account.today_profit += profit  # 【v2.9.88修复】今日盈亏需同步累加
 
