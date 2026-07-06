@@ -184,9 +184,9 @@ function isDisabledDate(d: Date): boolean {
 }
 
 // 日历单元格染色
-function getCellClass(data: { dayjs: any }): string {
-  const d = data.dayjs
-  const ymd = `${d.year()}${String(d.month() + 1).padStart(2, '0')}${String(d.date()).padStart(2, '0')}`
+// Element Plus 2.x: cellClassName 回调参数是 Date 对象(不是 { dayjs })
+function getCellClass(d: Date): string {
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
   const info = availability.value[ymd]
   if (!info) return ''
   if (info.status === 'trades') return 'cell-has-trades'
