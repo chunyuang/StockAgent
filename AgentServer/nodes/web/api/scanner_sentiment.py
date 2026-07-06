@@ -640,29 +640,41 @@ async def get_sentiment_live_log(limit: int = 50, date: Optional[str] = None):
                 items.reverse()
                 in_memory = len(items)
 
-        # 【v2.9.106】内存为空 -> 回查 MongoDB
-        if not items:
-            try:
-                from core.managers import mongo_manager
-                if mongo_manager.is_initialized:
-                    query: dict = {}
-                    if date:
-                        try:
-                            td_int = int(str(date).replace('-', ''))
-                            query['trade_date'] = td_int
-                        except Exception:
-                            pass
-                    cursor = mongo_manager.db["sentiment_live_log"].find(
-                        query, {'_id': 0}
-                    ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
-                    items = await cursor.to_list(length=max(1, min(limit, 300)))
-                    # 去除可能的 datetime ts 字段(API 返回 JSON 可序列化)
-                    for it in items:
-                        if 'ts' in it:
-                            it['ts'] = it['ts'].isoformat() if hasattr(it['ts'], 'isoformat') else str(it['ts'])
+        # 【v2.9.106】始终合并 MongoDB 数据(内存可能因重启不完整)
+        # 内存优先(最新), MongoDB补充历史, 按time去重
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                query: dict = {}
+                if date:
+                    try:
+                        td_int = int(str(date).replace('-', ''))
+                        query['trade_date'] = td_int
+                    except Exception:
+                        pass
+                cursor = mongo_manager.db["sentiment_live_log"].find(
+                    query, {'_id': 0}
+                ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
+                mongo_items = await cursor.to_list(length=max(1, min(limit, 300)))
+                # 去除可能的 datetime ts 字段
+                for it in mongo_items:
+                    if 'ts' in it:
+                        it['ts'] = it['ts'].isoformat() if hasattr(it['ts'], 'isoformat') else str(it['ts'])
+                if items:
+                    # 内存有数据: 合并去重(内存优先, MongoDB补充)
+                    seen_times = {it.get('time') for it in items}
+                    for mi in mongo_items:
+                        if mi.get('time') not in seen_times:
+                            items.append(mi)
+                            seen_times.add(mi.get('time'))
+                    # 按time降序排
+                    items.sort(key=lambda x: x.get('time', ''), reverse=True)
+                    source = f"memory+mongodb({in_memory}+{len(mongo_items)})"
+                else:
+                    items = mongo_items
                     source = "mongodb"
-            except Exception as _e:
-                logger.warning(f"[sentiment-live-log] mongo fallback failed: {_e}")
+        except Exception as _e:
+            logger.warning(f"[sentiment-live-log] mongo merge failed: {_e}")
 
         items = items[:max(1, min(limit, 300))]
 

@@ -450,14 +450,21 @@ async def _ensure_live_log_indexes() -> None:
         if not mongo_manager.is_initialized:
             return
         col = mongo_manager.db["sentiment_live_log"]
-        # 按 trade_date 倒序 / scan_time 倒序 联合索引,主查询"今日最近 N 条"
-        await col.create_index([("trade_date", -1), ("ts", -1)], background=True)
-        # TTL: ts 超过 7 天自动清理 (避免无限增长)
-        await col.create_index("ts", expireAfterSeconds=7 * 24 * 3600, background=True)
+        # 按 trade_date 倒序 / ts 倒序 联合索引
+        try:
+            await col.create_index([("trade_date", -1), ("ts", -1)], background=True)
+        except Exception:
+            pass  # 索引已存在
+        # TTL: ts 超过 30 天自动清理 (与已有索引保持一致, 避免冲突)
+        try:
+            await col.create_index("ts", expireAfterSeconds=30 * 24 * 3600, background=True)
+        except Exception:
+            pass  # 索引已存在(可能TTL不同, 不影响功能)
         _LIVE_LOG_INDEX_CREATED = True
-        logger.info("[INTRA-EMO] sentiment_live_log 索引已创建 (TTL=7天)")
+        logger.info("[INTRA-EMO] sentiment_live_log 索引就绪 (TTL=30天)")
     except Exception as _e:
         logger.warning(f"[INTRA-EMO] sentiment_live_log 索引创建失败: {_e}")
+        _LIVE_LOG_INDEX_CREATED = True  # 避免反复重试
 
 
 async def _persist_live_log_entry(entry: dict, now=None) -> None:
