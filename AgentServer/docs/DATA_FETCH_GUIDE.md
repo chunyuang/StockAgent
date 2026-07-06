@@ -1,7 +1,12 @@
 # 数据获取操作手册
 
-> 最后更新: 2026-05-08
-> 分支: fix/data-layer-and-docs
+> ⚠️ **本文档部分过时**（最后更新2026-05-08），单位标准已有修正。
+>
+> - `vol` 单位已统一为 **手**（非股），`amount` 单位为 **百元**（非元）
+> - 数据源已增加东方财富为主力，量脉降级为实时专用
+> - 完整单位标准请查看：**[DATA_FIELD_UNITS.md](./DATA_FIELD_UNITS.md)**
+> - 采补链路请查看：**[DATA_COLLECTION_STRATEGY.md](./DATA_COLLECTION_STRATEGY.md)**
+> - 使用指南：**[../../docs/使用指南.md](../../docs/使用指南.md)**
 
 ---
 
