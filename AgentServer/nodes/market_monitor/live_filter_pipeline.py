@@ -776,9 +776,16 @@ class LiveFilterPipeline:
             for code, data in realtime_data.items():
                 pct = data.get("pct_chg", 0)
                 if isinstance(pct, (int, float)):
-                    if pct >= 9.5:
+                    prefix = code.split(".")[0][:3] if "." in code else code[:3]
+                    if prefix in ('688', '30'):
+                        lu_t, ld_t = 19.5, -19.5
+                    elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+                        lu_t, ld_t = 29.5, -29.5
+                    else:
+                        lu_t, ld_t = 9.5, -9.5
+                    if pct >= lu_t:
                         limit_stocks[code] = {"limit_type": "U", "pct_chg": pct}
-                    elif pct <= -9.5:
+                    elif pct <= ld_t:
                         limit_stocks[code] = {"limit_type": "D", "pct_chg": pct}
                     else:
                         limit_stocks[code] = {"limit_type": "normal", "pct_chg": pct}

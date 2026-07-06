@@ -700,6 +700,28 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             strategy_candidates = strategy_candidates or []
             passed_signals = passed_signals or []
             pcts = [float(v.get("pct_chg", v.get("auction_pct", 0)) or 0) for v in realtime_data.values() if isinstance(v, dict)]
+            # 按板块区分涨跌停阈值统计
+            def _count_limits_by_board(rtd):
+                lu, ld = 0, 0
+                for code, data in rtd.items():
+                    if not isinstance(data, dict):
+                        continue
+                    pct = data.get("pct_chg", data.get("auction_pct", 0))
+                    if not isinstance(pct, (int, float)):
+                        continue
+                    prefix = code.split(".")[0][:3] if "." in code else code[:3]
+                    if prefix in ('688', '30'):
+                        lu_t, ld_t = 19.5, -19.5
+                    elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+                        lu_t, ld_t = 29.5, -29.5
+                    else:
+                        lu_t, ld_t = 9.5, -9.5
+                    if pct >= lu_t:
+                        lu += 1
+                    elif pct <= ld_t:
+                        ld += 1
+                return lu, ld
+            _lu_cnt, _ld_cnt = _count_limits_by_board(realtime_data)
             def _sig(s):
                 return {
                     "ts_code": getattr(s, "ts_code", ""),
@@ -721,8 +743,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                     "up_count": sum(1 for p in pcts if p > 0),
                     "down_count": sum(1 for p in pcts if p < 0),
                     "flat_count": sum(1 for p in pcts if p == 0),
-                    "limit_up_count": sum(1 for p in pcts if p >= 9.9),
-                    "limit_down_count": sum(1 for p in pcts if p <= -9.9),
+                    "limit_up_count": _lu_cnt,
+                    "limit_down_count": _ld_cnt,
                     "avg_pct_chg": round(sum(pcts) / len(pcts), 2) if pcts else 0,
                 },
                 "force_empty_confirm": dict(getattr(self, "_premarket_force_empty_state", {}) or {}),
@@ -1205,17 +1227,32 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     def _collect_premarket_metrics(self, realtime_data: Dict) -> Tuple[Dict, List[str]]:
         """收集竞价期间市场指标并检测异常【v2.9.75提取】"""
         pcts = []
-        for v in realtime_data.values():
-            if isinstance(v, dict):
-                try:
-                    pcts.append(float(v.get("pct_chg", v.get("auction_pct", 0)) or 0))
-                except Exception as _e:
-                    logger.debug(f"[GUARD] scanner: {_e}")
+        limit_up = 0
+        limit_down = 0
+        for code, v in realtime_data.items():
+            if not isinstance(v, dict):
+                continue
+            try:
+                pct = float(v.get("pct_chg", v.get("auction_pct", 0)) or 0)
+                pcts.append(pct)
+            except Exception as _e:
+                logger.debug(f"[GUARD] scanner: {_e}")
+                continue
+            # 按板块区分涨跌停阈值
+            prefix = code.split(".")[0][:3] if "." in code else code[:3]
+            if prefix in ('688', '30'):
+                lu_t, ld_t = 19.5, -19.5
+            elif prefix in ('8', '4') and code[:1] in ('8', '4'):
+                lu_t, ld_t = 29.5, -29.5
+            else:
+                lu_t, ld_t = 9.5, -9.5
+            if pct >= lu_t:
+                limit_up += 1
+            elif pct <= ld_t:
+                limit_down += 1
         total = len(pcts)
         up_count = sum(1 for p in pcts if p > 0)
         down_count = sum(1 for p in pcts if p < 0)
-        limit_up = sum(1 for p in pcts if p >= 9.9)
-        limit_down = sum(1 for p in pcts if p <= -9.9)
         avg_pct = round(sum(pcts) / total, 2) if total else 0
         metrics = {
             "total_stocks": total, "up_count": up_count, "down_count": down_count,

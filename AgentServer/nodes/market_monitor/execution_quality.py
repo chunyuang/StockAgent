@@ -282,6 +282,7 @@ class FillSimulator:
         quantity: int,
         daily_volume: float = 0,
         side: str = "buy",
+        ts_code: str = "",
     ) -> Tuple[float, str]:
         """
         估算成交比率
@@ -294,10 +295,17 @@ class FillSimulator:
         
         pct_chg = (price - pre_close) / pre_close * 100
         
-        # 涨停/跌停附近
-        if side == "buy" and pct_chg >= 9.5:
+        # 涨停/跌停附近 - 按板块区分阈值
+        prefix = ts_code.split(".")[0][:3] if "." in ts_code else ts_code[:3]
+        if prefix in ('688', '30'):
+            limit_thresh = 19.5
+        elif prefix in ('8', '4') and ts_code[:1] in ('8', '4'):
+            limit_thresh = 29.5
+        else:
+            limit_thresh = 9.5
+        if side == "buy" and pct_chg >= limit_thresh:
             return 0.30, "涨停附近,流动性极低"
-        if side == "sell" and pct_chg <= -9.5:
+        if side == "sell" and pct_chg <= -limit_thresh:
             return 0.30, "跌停附近,流动性极低"
         
         # 大涨/大跌
