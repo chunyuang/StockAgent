@@ -871,13 +871,26 @@ async def get_data_status() -> Dict[str, Any]:
                     has = doc.get(f'{f}_count', 0)
                     rates.append(has / total * 100)
                 group_rates[gname] = round(sum(rates) / len(rates), 1)
-            # 核心覆盖率(排除limit组和talib组后的3组平均: basic+technical_ma+volume)
+            # 核心覆盖率(实盘必需: basic+technical_ma+volume 3组)
+            # 实盘因子: pct_chg/pre_close/ma5-60/turnover_rate/volume_ratio/circ_mv
+            # 这些因子参与策略筛选条件(mask), 缺失→不买
             core_rates = [group_rates[k] for k in ['basic', 'technical_ma', 'volume'] if k in group_rates]
             avg_rate = round(sum(core_rates) / len(core_rates), 1) if core_rates else 0
+            # 回测因子覆盖率(实盘+limit+talib 5组)
+            # limit组: 首板/跌停策略筛选条件需要
+            # talib组: 仅信号描述展示用, 回测时factor_engine实时算
+            bt_rates = [group_rates[k] for k in ['basic', 'technical_ma', 'volume', 'limit', 'technical_talib'] if k in group_rates]
+            bt_rate = round(sum(bt_rates) / len(bt_rates), 1) if bt_rates else 0
+            # 实盘因子覆盖率(实盘+limit, 不含talib)
+            # talib仅展示用, 不影响任何筛选条件
+            live_rates = [group_rates[k] for k in ['basic', 'technical_ma', 'volume', 'limit'] if k in group_rates]
+            live_rate = round(sum(live_rates) / len(live_rates), 1) if live_rates else 0
             daily_coverage.append({
                 'date': d,
                 'total': total,
                 'factor_rate': avg_rate,
+                'live_factor_rate': live_rate,
+                'backtest_factor_rate': bt_rate,
                 'groups': group_rates,
             })
 
@@ -1014,10 +1027,12 @@ async def get_data_status() -> Dict[str, Any]:
             if tech_ma_rate < 50:
                 diagnostics.append({'level': 'red', 'message': f'MA均线因子仅{tech_ma_rate}% - ma5/ma10/ma20/ma60缺失'})
 
-            # 技术talib因子(回测时自动补算)
+            # 技术talib因子(仅信号描述展示用, 不参与筛选条件)
             tech_talib_rate = latest['groups'].get('technical_talib', 0)
             if tech_talib_rate < 50:
-                diagnostics.append({'level': 'yellow', 'message': f'TALib指标仅{tech_talib_rate}% - MACD/RSI/BOLL/ATR等回测时自动补算'})
+                diagnostics.append({'level': 'green', 'message': f'TALib指标{tech_talib_rate}% - MACD/RSI/BOLL/ATR仅信号描述用,不影响实盘筛选,回测时自动补算'})
+            elif tech_talib_rate < 90:
+                diagnostics.append({'level': 'green', 'message': f'TALib指标{tech_talib_rate}% - 回测专用,盘后补算中'})
 
             # 数据新鲜度(日线滞后天数)
             if days_old > 3:
@@ -1247,13 +1262,31 @@ async def get_data_status() -> Dict[str, Any]:
             factor_detail_latest = await _get_factor_detail(db, last_day, all_check_factors)
 
         # ====== 健康分拆分 ======
+        # 实盘健康分: 只看实盘必需因子(basic+technical_ma+volume+limit)
+        # 回测健康分: 全部5组(含talib)
+        live_factor_score = 0
+        backtest_factor_score = factor_score  # 原factor_score基于3组, 回测用5组
+        if daily_coverage:
+            latest_cov = daily_coverage[-1]
+            # 实盘因子得分(0-50): 基于live_factor_rate(4组)
+            live_factor_score = min(50, latest_cov.get('live_factor_rate', 0) / 2)
+            # 回测因子得分(0-50): 基于backtest_factor_rate(5组)
+            backtest_factor_score = min(50, latest_cov.get('backtest_factor_rate', 0) / 2)
+
+        # 实盘健康分(用户关注)
+        live_health_score = int(live_factor_score + freshness_score + source_score)
+        # 回测健康分(完整度)
+        backtest_health_score = int(backtest_factor_score + freshness_score + source_score)
+
         health_breakdown = {
-            'factor_score': factor_score if daily_coverage else 0,
+            'factor_score': live_factor_score if daily_coverage else 0,
             'factor_max': 50,
             'freshness_score': freshness_score,
             'freshness_max': 30,
             'source_score': source_score,
             'source_max': 20,
+            'live_factor_score': live_factor_score if daily_coverage else 0,
+            'backtest_factor_score': backtest_factor_score if daily_coverage else 0,
         }
 
         # 跌停池数据
@@ -1263,7 +1296,8 @@ async def get_data_status() -> Dict[str, Any]:
         return {
             "success": True,
             "data": {
-                "health_score": health_score,
+                "health_score": live_health_score,
+                "backtest_health_score": backtest_health_score,
                 "health_breakdown": health_breakdown,
                 "diagnostics": diagnostics,
                 "collections": collections,

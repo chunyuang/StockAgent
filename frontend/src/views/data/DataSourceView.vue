@@ -753,6 +753,7 @@ const allCollectionsSummary = computed(() => {
 })
 /** 健康评分 */
 const healthScore = computed(() => dataStatus.value?.health_score ?? '-')
+const backtestHealthScore = computed(() => dataStatus.value?.backtest_health_score ?? null)
 const healthBreakdown = computed(() => dataStatus.value?.health_breakdown || {})
 
 /** 诊断信息 */
@@ -886,10 +887,15 @@ onUnmounted(() => {
       <!-- 健康概览条 -->
       <div v-if="healthScore !== '-'" class="health-overview-bar" :class="(healthScore as number) >= 80 ? 'bar-good' : (healthScore as number) >= 50 ? 'bar-warn' : 'bar-bad'">
         <div class="hov-item">
-          <span class="hov-label">健康分</span>
+          <span class="hov-label">实盘健康分</span>
           <span class="hov-value">{{ healthScore }}</span>
         </div>
         <div class="hov-sep"></div>
+        <div class="hov-item" v-if="backtestHealthScore != null">
+          <span class="hov-label">回测健康分</span>
+          <span class="hov-value hov-muted">{{ backtestHealthScore }}</span>
+        </div>
+        <div class="hov-sep" v-if="backtestHealthScore != null"></div>
         <div class="hov-item">
           <span class="hov-label">集合正常</span>
           <span class="hov-value">{{ collectionHealth.filter(c => c.status === 'ok').length }}/{{ collectionHealth.length }}</span>
@@ -909,7 +915,7 @@ onUnmounted(() => {
       <!-- 诊断信息 -->
       <div v-if="diagnostics.length > 0" class="diagnostics-bar">
         <div v-for="(d, i) in diagnostics" :key="i" class="diag-item" :class="d.level">
-          <span class="diag-level">{{ d.level === 'red' ? '🔴' : d.level === 'yellow' ? '🟡' : '🟢' }}</span>
+          <span class="diag-level">{{ d.level === 'red' ? '🔴' : d.level === 'yellow' ? '🟡' : d.level === 'green' ? '🟢' : '⚪' }}</span>
           <span>{{ d.message }}</span>
         </div>
       </div>
@@ -922,9 +928,20 @@ onUnmounted(() => {
           <span class="health-val">{{ healthBreakdown.freshness_score }}/{{ healthBreakdown.freshness_max }}</span>
         </div>
         <div class="health-item">
-          <span class="health-label">因子覆盖率</span>
-          <ElProgress :percentage="healthBreakdown.factor_max > 0 ? Math.round((healthBreakdown.factor_score / healthBreakdown.factor_max) * 100) : 0" :stroke-width="10" :color="'#f59e0b'" style="flex: 1" />
-          <span class="health-val">{{ healthBreakdown.factor_score }}/{{ healthBreakdown.factor_max }}</span>
+          <span class="health-label">实盘因子</span>
+          <ElProgress :percentage="healthBreakdown.factor_max > 0 ? Math.round((healthBreakdown.live_factor_score / healthBreakdown.factor_max) * 100) : 0" :stroke-width="10" :color="'#10b981'" style="flex: 1" />
+          <span class="health-val">{{ healthBreakdown.live_factor_score?.toFixed(0) }}/{{ healthBreakdown.factor_max }}</span>
+          <ElTooltip content="实盘必需: pct_chg/换手率/量比/流通市值/MA/涨跌停标记 — 缺失则策略不买" placement="top">
+            <span class="health-tip">ⓘ</span>
+          </ElTooltip>
+        </div>
+        <div class="health-item health-item-muted">
+          <span class="health-label">回测因子</span>
+          <ElProgress :percentage="healthBreakdown.factor_max > 0 ? Math.round((healthBreakdown.backtest_factor_score / healthBreakdown.factor_max) * 100) : 0" :stroke-width="10" :color="'#94a3b8'" style="flex: 1" />
+          <span class="health-val">{{ healthBreakdown.backtest_factor_score?.toFixed(0) }}/{{ healthBreakdown.factor_max }}</span>
+          <ElTooltip content="回测额外: MACD/RSI/BOLL/ATR等TALib指标 — 仅信号描述展示用,回测时factor_engine实时算,不影响实盘筛选" placement="top">
+            <span class="health-tip">ⓘ</span>
+          </ElTooltip>
         </div>
         <div class="health-item">
           <span class="health-label">数据源可用</span>
@@ -1577,7 +1594,7 @@ onUnmounted(() => {
     font-size: 13px;
     &.red { background: rgba(239, 68, 68, 0.08); color: #dc2626; }
     &.yellow { background: rgba(245, 158, 11, 0.08); color: #d97706; }
-    &.green { background: rgba(16, 185, 129, 0.08); color: #059669; }
+    &.green { background: rgba(16, 185, 129, 0.06); color: #059669; }
     .diag-level { font-size: 14px; }
   }
 }
@@ -2150,6 +2167,18 @@ onUnmounted(() => {
 
 .health-overview-bar.bar-good .hov-value { color: var(--el-color-success); }
 .health-overview-bar.bar-bad .hov-value { color: var(--el-color-danger); }
+.hov-muted { color: var(--text-tertiary) !important; font-size: 14px !important; }
+
+.health-item-muted {
+  .health-label { color: var(--text-quaternary) !important; }
+  .health-val { color: var(--text-quaternary) !important; }
+}
+.health-tip {
+  cursor: help;
+  color: var(--el-color-primary);
+  font-size: 11px;
+  margin-left: 4px;
+}
 
 /* 表格行着色 */
 .tab-note {
