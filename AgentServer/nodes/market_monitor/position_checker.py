@@ -830,9 +830,12 @@ class PositionChecker:
                         effective_pct = trailing_pct + 0.02
                     state["trailing_stop_pct"] = effective_pct
                     new_stop = state.get("high_price", price) * (1 - effective_pct)
-                    if new_stop > state.get("stop_price", 0):
+                    # 止损线更新规则: 正常只上移, 但分级切换时允许下移(回撤容忍变宽)
+                    old_pct = state.get("trailing_stop_pct", trailing_pct)
+                    tier_changed = abs(effective_pct - old_pct) > 0.001  # 分级切换
+                    if new_stop > state.get("stop_price", 0) or tier_changed:
                         state["stop_price"] = round(new_stop, 2)
-                        logger.debug(f"[TRAILING] {pos.ts_code} 峰值{peak_profit_pct:.1f}% 回撤{effective_pct*100:.0f}% 止损线上移至{new_stop:.2f}")
+                        logger.debug(f"[TRAILING] {pos.ts_code} 峰值{peak_profit_pct:.1f}% 回撤{effective_pct*100:.0f}% 止损线{'下移' if tier_changed and new_stop < state.get('stop_price', 0) else '上移'}至{new_stop:.2f}")
                 self.trailing_stops[pos.ts_code] = state
 
     def get_effective_stop_price(self, pos, risk: Dict) -> float:

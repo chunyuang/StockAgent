@@ -37,7 +37,7 @@ def _get_global_risk():
     if _DEFAULT_GLOBAL_RISK is None:
         try:
             from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR
-            _DEFAULT_GLOBAL_RISK = {"take_profit_pct": 0.07, "trailing_stop_pct": 0.05, "pullback_profit_lock_threshold": 0}
+            _DEFAULT_GLOBAL_RISK = dict(_GR)  # 默认值缓存一次(不变)
         except ImportError:
             _DEFAULT_GLOBAL_RISK = {"take_profit_pct": 0.07, "pullback_profit_lock_threshold": 0}
     result = dict(_DEFAULT_GLOBAL_RISK)
