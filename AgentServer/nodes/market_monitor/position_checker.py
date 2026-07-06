@@ -814,23 +814,26 @@ class PositionChecker:
                 }))
                 if price > state.get("high_price", pos.avg_cost):
                     state["high_price"] = price
-                if not state.get("activated") and profit_pct >= 5.0:
+                if not state.get("activated") and profit_pct >= trailing_pct * 100:
                     state["activated"] = True
                     state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=5%")
+                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>={trailing_pct*100:.0f}%")
                 if state.get("activated"):
                     # 分级追踪止损: 盈利越多回撤越宽(策略差异化)
                     peak_profit_pct = (state.get("high_price", price) / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
                     from nodes.market_monitor.position_manager import calc_tiered_trailing_pct
                     effective_pct = calc_tiered_trailing_pct(peak_profit_pct, pos.strategy)
-                    state["trailing_stop_pct"] = effective_pct
+                    old_pct = state.get("trailing_stop_pct", trailing_pct)  # 先读旧值
+                    tier_changed = abs(effective_pct - old_pct) > 0.001  # 分级切换检测
+                    state["trailing_stop_pct"] = effective_pct  # 再写入新值
                     new_stop = state.get("high_price", price) * (1 - effective_pct)
+                    # 止损线下限: 不能低于固定止损价(与position_manager对齐)
+                    _stop_loss_price = pos.avg_cost * (1 - risk.get("stop_loss_pct", 0.03))
+                    new_stop = max(new_stop, _stop_loss_price)
                     # 止损线更新规则: 正常只上移, 但分级切换时允许下移(回撤容忍变宽)
-                    old_pct = state.get("trailing_stop_pct", trailing_pct)
-                    tier_changed = abs(effective_pct - old_pct) > 0.001  # 分级切换
                     if new_stop > state.get("stop_price", 0) or tier_changed:
                         state["stop_price"] = round(new_stop, 2)
-                        logger.debug(f"[TRAILING] {pos.ts_code} 峰值{peak_profit_pct:.1f}% 回撤{effective_pct*100:.0f}% 止损线{'下移' if tier_changed and new_stop < state.get('stop_price', 0) else '上移'}至{new_stop:.2f}")
+                        logger.debug(f"[TRAILING] {pos.ts_code} 峰值{peak_profit_pct:.1f}% 回撤{effective_pct*100:.0f}% 止损线{'下移(分级切换)' if tier_changed and new_stop < state.get('stop_price', 0) else '上移'}至{new_stop:.2f}")
                 self.trailing_stops[pos.ts_code] = state
 
     def get_effective_stop_price(self, pos, risk: Dict) -> float:

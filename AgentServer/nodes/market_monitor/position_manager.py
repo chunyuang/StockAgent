@@ -681,7 +681,8 @@ class PositionManager:
 
     def _update_single_trailing_stop(
         self, ts_code: str, current_price: float, avg_cost: float,
-        profit_pct: float, trailing_stop_pct: float, strategy: str = ""
+        profit_pct: float, trailing_stop_pct: float, strategy: str = "",
+        stop_loss_pct: float = 0.03
     ) -> Dict:
         """更新单个持仓的追踪止损状态, 返回更新后的state【v2.9.62提取, v2.9.113分级追踪】
         
@@ -707,17 +708,27 @@ class PositionManager:
             # 计算峰值利润(从成本价算)
             peak_profit_pct = (state["high_price"] / avg_cost - 1) * 100 if avg_cost > 0 else 0
 
-            # 盈利>=5%时激活追踪止损(与回测对齐: 回测用trailing_stop_pct=5%作激活阈值)
-            if not state["activated"] and profit_pct >= 5.0:
+            # 盈利>=激活阈值时激活追踪止损(策略级trailing_stop_pct作激活阈值)
+            activate_threshold = trailing_stop_pct * 100  # 如0.05→5.0
+            if not state["activated"] and profit_pct >= activate_threshold:
                 state["activated"] = True
                 state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=5%")
+                logger.info(f"[TRAILING] {ts_code}({strategy}) 追踪止损激活: 盈利{profit_pct:.1f}%>={activate_threshold:.0f}%")
 
             # 计算追踪止损价(分级: 盈利越多回撤越宽)
             if state["activated"]:
                 effective_trailing_pct = self._get_tiered_trailing_pct(peak_profit_pct, trailing_stop_pct, strategy)
                 state["trailing_stop_pct"] = effective_trailing_pct
-                state["stop_price"] = state["high_price"] * (1 - effective_trailing_pct)
+                raw_stop_price = state["high_price"] * (1 - effective_trailing_pct)
+                
+                # 止损线下限: 不能低于固定止损价(追踪止损是增强, 不是替代)
+                # 激活初期回撤容忍宽时, 止损线可能低于成本, 此时应兜底到固定止损线
+                stop_loss_price = avg_cost * (1 - stop_loss_pct)
+                state["stop_price"] = max(raw_stop_price, stop_loss_price)
+                if raw_stop_price < stop_loss_price:
+                    logger.debug(
+                        f"[TRAILING] {ts_code}({strategy}) 追踪止损线{raw_stop_price:.2f}低于固定止损{stop_loss_price:.2f}, 兜底到固定止损"
+                    )
                 logger.debug(
                     f"[TRAILING] {ts_code}({strategy}) 峰值{peak_profit_pct:.1f}% "
                     f"回撤容忍{effective_trailing_pct*100:.0f}% "
@@ -748,15 +759,17 @@ class PositionManager:
 
             profit_pct = pos.profit_pct  # 如: 5.0 = +5%
 
-            # 获取策略追踪止损比例
+            # 获取策略级风控参数
             risk = self._scanner._get_strategy_risk(pos.strategy)
             trailing_stop_pct = risk.get("trailing_stop_pct", _get_global_risk().get("trailing_stop_pct", 0.05))
+            stop_loss_pct = risk.get("stop_loss_pct", _get_global_risk().get("stop_loss_pct", 0.03))
 
             if trailing_stop_pct <= 0:
                 continue
 
             self._update_single_trailing_stop(
-                ts_code, current_price, pos.avg_cost, profit_pct, trailing_stop_pct, pos.strategy
+                ts_code, current_price, pos.avg_cost, profit_pct, trailing_stop_pct, pos.strategy,
+                stop_loss_pct
             )
     
     # ==================== 超时强卖检查 ====================

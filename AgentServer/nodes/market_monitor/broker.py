@@ -68,6 +68,7 @@ class Order:
     profit_amount: float = 0.0
     commission: float = 0.0    # 【修复】添加佣金字段, 否则getattr永远返回0
     stamp_duty: float = 0.0    # 【修复】添加印花税字段
+    avg_cost: float = 0.0      # 【修复】平均成本(卖出时写入, 供MongoDB持久化)
     decision_trace: dict = field(default_factory=dict)  # 【v2.9.96】完整决策轨迹: 选股参数+风控参数+L1-L9+情绪+仓位
 
 
