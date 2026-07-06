@@ -458,18 +458,21 @@ const factorDetailLatest = computed(() => dataStatus.value?.factor_detail_latest
 /** 盘中状态汇总 */
 const intradaySummary = computed(() => {
   const snap = scannerRuntimeStatus.value || {}
-  const stats = snap.stats || {}
+  const rm = snap.risk_metrics || {}
+  const cb = snap.circuit_breaker || {}
+  const todaySignals = recentSignals.value.length
+  const todaySentiment = sentimentChartPoints.value.length
   return [
-    { label: '扫描轮次', value: stats.scans ?? '-', icon: '🔄' },
-    { label: '扫描股票', value: stats.stocks_scanned?.toLocaleString() ?? '-', icon: '📊' },
-    { label: '发现信号', value: stats.signals_found ?? '-', icon: '📡' },
-    { label: '执行交易', value: stats.trades_executed ?? '-', icon: '✅' },
-    { label: '止损', value: stats.stop_losses ?? '-', icon: '🛑' },
-    { label: '止盈', value: stats.take_profits ?? '-', icon: '🎯' },
-    { label: '情绪分数', value: snap.sentiment_score ? snap.sentiment_score.toFixed(1) : '-', icon: '🌡️' },
-    { label: '持仓比例', value: snap.current_position_ratio != null ? (snap.current_position_ratio * 100).toFixed(0) + '%' : '-', icon: '💼' },
-    { label: '活跃信号', value: snap.active_signals_count ?? '-', icon: '⚡' },
-    { label: '熔断暂停', value: snap.circuit_breaker?.trading_paused ? '是' : '否', icon: '🚨' },
+    { label: '扫描状态', value: snap.overall_status === 'running' ? '运行中' : snap.overall_status === 'dead' ? '已停止' : snap.message || '-', icon: '🔄' },
+    { label: '健康分', value: snap.health_score ?? '-', icon: ' ❤️' },
+    { label: '扫描延迟', value: snap.scan_lag_seconds != null && snap.scan_lag_seconds >= 0 ? snap.scan_lag_seconds + 's' : '-', icon: '⏱️' },
+    { label: '数据新鲜度', value: snap.data_freshness || '-', icon: '📊' },
+    { label: '今日信号', value: todaySignals, icon: '📡' },
+    { label: '情绪点数', value: todaySentiment, icon: '🌡️' },
+    { label: '持仓比例', value: rm.position_ratio != null ? (rm.position_ratio * 100).toFixed(0) + '%' : '-', icon: '💼' },
+    { label: '日内回撤', value: rm.daily_drawdown_pct != null ? rm.daily_drawdown_pct + '%' : '-', icon: '📉' },
+    { label: '最大回撤', value: rm.max_drawdown_pct != null ? rm.max_drawdown_pct + '%' : '-', icon: '⚠️' },
+    { label: '熔断暂停', value: cb.trading_paused ? '是' : '否', icon: '🚨' },
   ]
 })
 
@@ -614,9 +617,10 @@ const fetchIntradayMongoCounts = async () => {
 /** 拉取scanner运行时快照 */
 const fetchScannerRuntime = async () => {
   try {
-    const res = await api.get<ApiResponse>('/scanner/health')
-    if (res.success && res.data) {
-      const h = res.data.health || res.data
+    const res = await api.get<ApiResponse>('/scanner/health') as any
+    // API返回 { success, health: {...} }，health在顶层
+    const h = res.health || res.data?.health || res
+    if (h && h.overall_status) {
       scannerRuntimeStatus.value = {
         overall_status: h.overall_status,
         message: h.message,
