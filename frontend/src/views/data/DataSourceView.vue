@@ -825,11 +825,13 @@ onUnmounted(() => {
   <div class="data-source-page">
     <!-- 页面标题 -->
     <div class="page-header">
-      <h2>数据获取</h2>
-      <p class="subtitle">所有数据源配置、因子体系、单位标准和采补链路</p>
-      <div v-if="dbStats.collections" class="db-stats-bar">
-        <span>📦 MongoDB: {{ dbStats.total_documents?.toLocaleString() }} 文档 / {{ dbStats.collections?.length }} 集合</span>
-        <span v-if="dbStats.mongodb_version"> | v{{ dbStats.mongodb_version }}</span>
+      <div class="header-left">
+        <h2>数据获取</h2>
+        <p class="subtitle">所有数据源配置、因子体系、单位标准和采补链路</p>
+      </div>
+      <div v-if="dbStats.collections" class="db-stats-badge">
+        <span>📦 {{ dbStats.total_documents?.toLocaleString() }} 文档 / {{ dbStats.collections?.length }} 集合</span>
+        <span v-if="dbStats.mongodb_version" class="db-ver">v{{ dbStats.mongodb_version }}</span>
       </div>
     </div>
 
@@ -880,6 +882,29 @@ onUnmounted(() => {
       </template>
 
       <div v-show="expandedSections.status" class="section-body">
+
+      <!-- 健康概览条 -->
+      <div v-if="healthScore !== '-'" class="health-overview-bar" :class="(healthScore as number) >= 80 ? 'bar-good' : (healthScore as number) >= 50 ? 'bar-warn' : 'bar-bad'">
+        <div class="hov-item">
+          <span class="hov-label">健康分</span>
+          <span class="hov-value">{{ healthScore }}</span>
+        </div>
+        <div class="hov-sep"></div>
+        <div class="hov-item">
+          <span class="hov-label">集合正常</span>
+          <span class="hov-value">{{ collectionHealth.filter(c => c.status === 'ok').length }}/{{ collectionHealth.length }}</span>
+        </div>
+        <div class="hov-sep"></div>
+        <div class="hov-item" v-if="dataAlignment">
+          <span class="hov-label">数据对齐</span>
+          <span class="hov-value">{{ dataAlignment.common?.toLocaleString() }}条</span>
+        </div>
+        <div class="hov-sep" v-if="strategyAvailability.length"></div>
+        <div class="hov-item" v-if="strategyAvailability.length">
+          <span class="hov-label">策略可用</span>
+          <span class="hov-value">{{ strategyAvailability.filter((s: any) => s.available).length }}/{{ strategyAvailability.length }}</span>
+        </div>
+      </div>
 
       <!-- 诊断信息 -->
       <div v-if="diagnostics.length > 0" class="diagnostics-bar">
@@ -1089,11 +1114,11 @@ onUnmounted(() => {
 
       <!-- Scanner状态概览 -->
       <div class="intraday-stats-grid">
-        <div v-for="item in intradaySummary" :key="item.label" class="stat-card" :class="{ 'stat-warning': item.label === '熔断暂停' && item.value === '是' }">
+        <div v-for="item in intradaySummary" :key="item.label" class="stat-card" :class="[item.label === '熔断暂停' && item.value === '是' ? 'stat-danger' : item.label === '运行状态' && item.value === '运行中' ? 'stat-success' : '']">
           <span class="stat-icon">{{ item.icon }}</span>
           <div class="stat-info">
             <span class="stat-label">{{ item.label }}</span>
-            <span class="stat-value">{{ item.value }}</span>
+            <span class="stat-value" :class="item.label === '熔断暂停' && item.value === '是' ? 'val-danger' : ''">{{ item.value }}</span>
           </div>
         </div>
       </div>
@@ -1117,7 +1142,7 @@ onUnmounted(() => {
             </span>
           </template>
           <div v-if="sentimentChartPoints.length" class="sentiment-table-wrap">
-            <ElTable :data="sentimentChartPoints" size="small" stripe max-height="300">
+            <ElTable :data="sentimentChartPoints" size="small" stripe max-height="300" :row-class-name="({row}: any) => row.score >= 60 ? 'row-sentiment-greed' : row.score >= 40 ? 'row-sentiment-neutral' : 'row-sentiment-fear'">
               <ElTableColumn prop="time" label="时间" width="70" />
               <ElTableColumn label="情绪分" width="80">
                 <template #default="{ row }">
@@ -1188,11 +1213,11 @@ onUnmounted(() => {
         </div>
       </template>
       <div v-if="factorDetailRows.length" class="factor-detail-grid">
-        <div v-for="gname in ['基础', '技术MA', '技术TALib', '量价', '涨跌停']" :key="gname" class="factor-detail-group">
+        <div v-for="gname in ['基础', '技术MA', '技术TALib', '量价', '涨跌停']" :key="gname" class="factor-detail-group" :class="'fdg-' + gname.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '')">
           <div class="fdg-header">
             <span class="fdg-name">{{ gname }}</span>
-            <ElTag size="small" :type="factorDetailRows.filter(r => r.group === gname).every(r => r.rate >= 90) ? 'success' : 'warning'">
-              {{ factorDetailRows.filter(r => r.group === gname).filter(r => r.rate >= 90).length }}/{{ factorDetailRows.filter(r => r.group === gname).length }}
+            <ElTag size="small" :type="factorDetailRows.filter(r => r.group === gname).every(r => r.rate >= 90) ? 'success' : 'warning'" effect="plain">
+              {{ factorDetailRows.filter(r => r.group === gname).filter(r => r.rate >= 90).length }}/{{ factorDetailRows.filter(r => r.group === gname).length }} ≥90%
             </ElTag>
           </div>
           <div v-for="row in factorDetailRows.filter(r => r.group === gname)" :key="row.factor" class="fdg-item">
@@ -1235,7 +1260,7 @@ onUnmounted(() => {
           <ElTag size="small" type="info">{{ cat.collections.length }}集合</ElTag>
           <span class="cat-desc">{{ cat.description }}</span>
         </div>
-        <ElTable :data="cat.collections" size="small" stripe class="cat-table">
+        <ElTable :data="cat.collections" size="small" stripe class="cat-table" :row-class-name="({row}: any) => row.count === 0 ? 'row-empty' : row.error ? 'row-error' : row.freshness === '实时' ? 'row-realtime-col' : 'row-daily-col'">
           <ElTableColumn label="集合" min-width="200">
             <template #default="{ row }">
               <span class="col-name">{{ row.name }}</span>
@@ -1269,9 +1294,9 @@ onUnmounted(() => {
           </ElTableColumn>
           <ElTableColumn label="状态" width="80" align="center">
             <template #default="{ row }">
-              <span v-if="row.error">❌</span>
-              <span v-else-if="row.count === 0">🟡</span>
-              <span v-else>✅</span>
+              <ElTag v-if="row.error" type="danger" size="small" effect="dark">错误</ElTag>
+              <ElTag v-else-if="row.count === 0" type="warning" size="small" effect="plain">空</ElTag>
+              <ElTag v-else type="success" size="small" effect="plain">正常</ElTag>
             </template>
           </ElTableColumn>
         </ElTable>
@@ -1537,28 +1562,6 @@ onUnmounted(() => {
   padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
-}
-
-.page-header {
-  margin-bottom: 24px;
-  h2 {
-    margin: 0 0 4px 0;
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-  .subtitle {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-
-  .db-stats-bar {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    font-family: monospace;
-  }
 }
 
 // 数据采补状态
@@ -2090,7 +2093,63 @@ onUnmounted(() => {
 
 /* 交易归档 */
 
-/* ===== 数据获取页面新增样式 ===== */
+/* ===== 数据获取页面统一格式 ===== */
+
+/* 页面标题(与归档页统一) */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+
+  .header-left {
+    h2 { margin: 0 0 4px 0; font-size: 20px; font-weight: 700; }
+    .subtitle { margin: 0; font-size: 13px; color: var(--text-secondary); }
+  }
+
+  .db-stats-badge {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    background: var(--el-fill-color-lighter);
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: 'Menlo','Monaco',monospace;
+    .db-ver { color: var(--text-quaternary); }
+  }
+}
+
+/* 健康概览条(与归档页overview-bar统一) */
+.health-overview-bar {
+  display: flex;
+  align-items: center;
+  padding: 14px 24px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: var(--el-fill-color-lighter);
+  border-left: 4px solid var(--el-color-info);
+
+  &.bar-good { border-left-color: var(--el-color-success); background: rgba(34,197,94,0.04); }
+  &.bar-warn { border-left-color: var(--el-color-warning); background: rgba(245,158,11,0.04); }
+  &.bar-bad  { border-left-color: var(--el-color-danger); background: rgba(239,68,68,0.04); }
+
+  .hov-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 24px;
+    .hov-label { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+    .hov-value { font-size: 16px; font-weight: 700; font-family: 'Menlo','Monaco',monospace; }
+  }
+  .hov-sep { width: 1px; height: 32px; background: var(--el-border-color-lighter); flex-shrink: 0; }
+}
+
+.health-overview-bar.bar-good .hov-value { color: var(--el-color-success); }
+.health-overview-bar.bar-bad .hov-value { color: var(--el-color-danger); }
 
 /* 表格行着色 */
 .tab-note {
@@ -2110,9 +2169,46 @@ onUnmounted(() => {
 :deep(.row-compute) { background: rgba(59,130,246,0.05) !important; }
 :deep(.row-with-note) { background: rgba(245,158,11,0.06) !important; }
 
+/* 集合表行着色 */
+:deep(.row-empty) { background: rgba(245,158,11,0.06) !important; }
+:deep(.row-error) { background: rgba(239,68,68,0.08) !important; }
+:deep(.row-realtime-col) { background: rgba(34,197,94,0.04) !important; }
+:deep(.row-daily-col) { background: rgba(59,130,246,0.03) !important; }
+
 /* Bug表行着色 */
 :deep(.row-critical) { background: rgba(239,68,68,0.08) !important; }
 :deep(.row-warning) { background: rgba(245,158,11,0.06) !important; }
+
+/* 情绪表行着色 */
+:deep(.row-sentiment-greed) { background: rgba(34,197,94,0.06) !important; }
+:deep(.row-sentiment-neutral) { background: transparent !important; }
+:deep(.row-sentiment-fear) { background: rgba(239,68,68,0.06) !important; }
+
+/* 盘中状态卡片着色 */
+.stat-card.stat-success {
+  border-left: 3px solid #22c55e;
+  background: rgba(34,197,94,0.04);
+}
+.stat-card.stat-danger {
+  border-left: 3px solid #ef4444;
+  background: rgba(239,68,68,0.06);
+}
+.val-danger {
+  color: #ef4444 !important;
+  font-weight: 700;
+}
+
+/* 因子详情组着色 */
+.factor-detail-group {
+  border-left: 3px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding-left: 8px;
+}
+.factor-detail-group.fdg基础 { border-left-color: #3b82f6; }
+.factor-detail-group.fdg技术MA { border-left-color: #f59e0b; }
+.factor-detail-group.fdg技术TALib { border-left-color: #8b5cf6; }
+.factor-detail-group.fdg量价 { border-left-color: #10b981; }
+.factor-detail-group.fdg涨跌停 { border-left-color: #ef4444; }
 
 /* 单位badge(因子名旁) */
 .unit-badge {
@@ -2132,11 +2228,13 @@ onUnmounted(() => {
 .pipeline-step.step-even {
   .step-content {
     background: rgba(59,130,246,0.03);
+    border-color: rgba(59,130,246,0.15);
   }
 }
 .pipeline-step:not(.step-even) {
   .step-content {
     background: rgba(16,185,129,0.03);
+    border-color: rgba(16,185,129,0.15);
   }
 }
 
