@@ -1,0 +1,13 @@
+[
+ {
+  "_id": "6a3ad2b0154ab55099647006",
+  "account_id": "default",
+  "available_cash": 506119.32079999987,
+  "frozen_cash": 0.0,
+  "market_value": 525519.0,
+  "today_profit": 0,
+  "total_assets": 1031638.3207999999,
+  "total_profit": 31638.32,
+  "updated_at": "2026-07-04T07:50:52.277180"
+ }
+]

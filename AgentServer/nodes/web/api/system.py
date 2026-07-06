@@ -978,7 +978,15 @@ async def get_data_status() -> Dict[str, Any]:
             try:
                 today_dt = datetime.strptime(today_str, '%Y%m%d')
                 latest_dt = datetime.strptime(latest_daily_str, '%Y%m%d')
-                days_old = (today_dt - latest_dt).days
+                # 计算交易日滞后(跳过周末)
+                cal_days = (today_dt - latest_dt).days
+                weekends = 0
+                cur = latest_dt
+                while cur < today_dt:
+                    if cur.weekday() >= 5:  # 周六周日
+                        weekends += 1
+                    cur += timedelta(days=1)
+                days_old = cal_days - weekends
             except ValueError:
                 days_old = 999
         else:
@@ -1033,10 +1041,12 @@ async def get_data_status() -> Dict[str, Any]:
             factor_score = 0
             diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
 
-        # 数据新鲜度得分(0-30分)
+        # 数据新鲜度得分(0-30分, 按交易日计算)
         freshness_score = 0
         if days_old <= 1:
             freshness_score = 30
+        elif days_old <= 2:
+            freshness_score = 25
         elif days_old <= 3:
             freshness_score = 20
         elif days_old <= 7:

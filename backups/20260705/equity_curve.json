@@ -1,0 +1,74 @@
+[
+ {
+  "_id": "6a4839ed59ff7ab4311c547c",
+  "date": 20260624,
+  "cash": 397114.0,
+  "equity": 725227.0,
+  "market_value": 328113.0,
+  "realized_pnl": 0,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a4839ed59ff7ab4311c547d",
+  "date": 20260625,
+  "cash": 1007356.0,
+  "equity": 1393342.0,
+  "market_value": 385986.0,
+  "realized_pnl": 7289.0,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a4839ed59ff7ab4311c547e",
+  "date": 20260626,
+  "cash": 843884.0,
+  "equity": 1134799.0,
+  "market_value": 290915.0,
+  "realized_pnl": 7289.0,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a4839ed59ff7ab4311c547f",
+  "date": 20260629,
+  "cash": 561186.0,
+  "equity": 794459.0,
+  "market_value": 233273.0,
+  "realized_pnl": 2780.0,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a4839ed59ff7ab4311c5480",
+  "date": 20260703,
+  "cash": 510264.0,
+  "equity": 1035783.0,
+  "market_value": 525519.0,
+  "realized_pnl": -271.98,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a483a0659ff7ab4311c549d",
+  "date": 20260630,
+  "cash": 616174.0,
+  "equity": 1077700.0,
+  "market_value": 461526.0,
+  "realized_pnl": -4185.0,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a483a0659ff7ab4311c54a1",
+  "date": 20260701,
+  "cash": 396946.0,
+  "equity": 902650.0,
+  "market_value": 505704.0,
+  "realized_pnl": 7240.1,
+  "source": "recalculated"
+ },
+ {
+  "_id": "6a483a0659ff7ab4311c54a5",
+  "date": 20260702,
+  "cash": 466203.0,
+  "equity": 974620.0,
+  "market_value": 508417.0,
+  "realized_pnl": -3054.98,
+  "source": "recalculated"
+ }
+]
