@@ -819,15 +819,10 @@ class PositionChecker:
                     state["activated_at"] = datetime.now().strftime("%H:%M:%S")
                     logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=5%")
                 if state.get("activated"):
-                    # 分级追踪止损: 盈利越多回撤越宽
+                    # 分级追踪止损: 盈利越多回撤越宽(策略差异化)
                     peak_profit_pct = (state.get("high_price", price) / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
-                    effective_pct = trailing_pct
-                    if peak_profit_pct >= 20:
-                        effective_pct = trailing_pct + 0.08
-                    elif peak_profit_pct >= 10:
-                        effective_pct = trailing_pct + 0.05
-                    elif peak_profit_pct >= 5:
-                        effective_pct = trailing_pct + 0.02
+                    from nodes.market_monitor.position_manager import calc_tiered_trailing_pct
+                    effective_pct = calc_tiered_trailing_pct(peak_profit_pct, pos.strategy)
                     state["trailing_stop_pct"] = effective_pct
                     new_stop = state.get("high_price", price) * (1 - effective_pct)
                     # 止损线更新规则: 正常只上移, 但分级切换时允许下移(回撤容忍变宽)

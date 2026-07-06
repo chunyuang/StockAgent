@@ -24,6 +24,43 @@ from typing import Dict, List, Tuple, Any, Optional
 # Lazy import to avoid circular dependency; resolved at runtime
 _DEFAULT_GLOBAL_RISK = None
 
+# 策略差异化追踪止损偏移表 (v2.9.114)
+# 格式: (offset_5%, offset_10%, offset_20%, offset_20%+)
+# base统一0.05(5%), 策略级trailing_stop_pct只控制激活阈值
+STRATEGY_TRAILING_OFFSETS = {
+    "first_limit_up":  (0.03, 0.06, 0.10, 0.13),  # 涨停票波动大: 8%/11%/15%/18%
+    "limit_up_open":   (0.00, 0.03, 0.06, 0.09),  # 炸板票风险高: 5%/8%/11%/14%
+    "dragon_head":     (0.02, 0.04, 0.07, 0.10),  # 低吸票需时间: 7%/9%/12%/15%
+    "halfway_chase":   (0.01, 0.03, 0.06, 0.09),  # 追涨票标准: 6%/8%/11%/14%
+    "limit_down_qiao": (0.00, 0.02, 0.05, 0.08),  # 翘板票风险极高: 5%/7%/10%/13%
+}
+_DEFAULT_TRAILING_OFFSETS = (0.00, 0.02, 0.05, 0.08)  # 默认偏移
+_TRAILING_BASE = 0.05  # 统一base=5%
+
+
+def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> float:
+    """计算分级追踪止损回撤容忍(模块级函数, position_manager/position_checker共用)
+    
+    v2.9.114: 策略差异化
+    - base统一5%, 策略级trailing_stop_pct只控制激活阈值
+    - 不同策略加不同偏移: 涨停票宽追踪/炸板票紧追踪/低吸票中追踪
+    
+    Args:
+        peak_profit_pct: 从成本价算的峰值利润(如5.0=+5%)
+        strategy: 策略名(如'first_limit_up')
+    Returns:
+        回撤容忍比例(如0.08=8%)
+    """
+    offsets = STRATEGY_TRAILING_OFFSETS.get(strategy, _DEFAULT_TRAILING_OFFSETS)
+    if peak_profit_pct < 5:
+        return _TRAILING_BASE + offsets[0]
+    elif peak_profit_pct < 10:
+        return _TRAILING_BASE + offsets[1]
+    elif peak_profit_pct < 20:
+        return _TRAILING_BASE + offsets[2]
+    else:
+        return _TRAILING_BASE + offsets[3]
+
 
 def _get_global_risk():
     """获取有效全局风控参数(默认值+运行时覆盖)
@@ -634,37 +671,17 @@ class PositionManager:
         
         return None
     
-    def _get_tiered_trailing_pct(self, peak_profit_pct: float, base_trailing_pct: float) -> float:
-        """分级追踪止损: 盈利越多,回撤容忍越宽
+    def _get_tiered_trailing_pct(self, peak_profit_pct: float, base_trailing_pct: float, strategy: str = "") -> float:
+        """分级追踪止损: 盈利越多,回撤容忍越宽, 策略差异化偏移
         
-        设计依据:
-        - 涨停票日内波动2-3%很常见, 固定2%回撤太容易被震出
-        - 小利时紧保(不让盈利变亏损), 大利时宽放(让利润奔跑)
-        - 与回测对齐: 回测用固定5%, 实盘分级后5%+/7%+/10%+区间更优
-        
-        分级规则:
-          盈利幅度        回撤容忍          说明
-          +2%~+5%        base(5%)          小利紧保, 快速锁利
-          +5%~+10%       base+2%(7%)       中利放宽, 让利润奔跑
-          +10%~+20%      base+5%(10%)      大利更宽, 避免涨停震出
-          +20%以上       base+8%(13%)      超大利极宽, 吃完整波段
-        
-        Args:
-            peak_profit_pct: 从成本价算的峰值利润(如5.0=+5%)
-            base_trailing_pct: 基础回撤比例(如0.05=5%)
+        v2.9.114: 委托给模块级 calc_tiered_trailing_pct
+        base_trailing_pct 保留参数签名但不再作为base(仅用于激活阈值)
         """
-        if peak_profit_pct < 5:
-            return base_trailing_pct                      # +2%~+5%: 5%
-        elif peak_profit_pct < 10:
-            return base_trailing_pct + 0.02              # +5%~+10%: 7%
-        elif peak_profit_pct < 20:
-            return base_trailing_pct + 0.05              # +10%~+20%: 10%
-        else:
-            return base_trailing_pct + 0.08              # +20%+: 13%
+        return calc_tiered_trailing_pct(peak_profit_pct, strategy)
 
     def _update_single_trailing_stop(
         self, ts_code: str, current_price: float, avg_cost: float,
-        profit_pct: float, trailing_stop_pct: float
+        profit_pct: float, trailing_stop_pct: float, strategy: str = ""
     ) -> Dict:
         """更新单个持仓的追踪止损状态, 返回更新后的state【v2.9.62提取, v2.9.113分级追踪】
         
@@ -698,11 +715,11 @@ class PositionManager:
 
             # 计算追踪止损价(分级: 盈利越多回撤越宽)
             if state["activated"]:
-                effective_trailing_pct = self._get_tiered_trailing_pct(peak_profit_pct, trailing_stop_pct)
+                effective_trailing_pct = self._get_tiered_trailing_pct(peak_profit_pct, trailing_stop_pct, strategy)
                 state["trailing_stop_pct"] = effective_trailing_pct
                 state["stop_price"] = state["high_price"] * (1 - effective_trailing_pct)
                 logger.debug(
-                    f"[TRAILING] {ts_code} 峰值{peak_profit_pct:.1f}% "
+                    f"[TRAILING] {ts_code}({strategy}) 峰值{peak_profit_pct:.1f}% "
                     f"回撤容忍{effective_trailing_pct*100:.0f}% "
                     f"止损线{state['stop_price']:.2f}"
                 )
@@ -739,7 +756,7 @@ class PositionManager:
                 continue
 
             self._update_single_trailing_stop(
-                ts_code, current_price, pos.avg_cost, profit_pct, trailing_stop_pct
+                ts_code, current_price, pos.avg_cost, profit_pct, trailing_stop_pct, pos.strategy
             )
     
     # ==================== 超时强卖检查 ====================
