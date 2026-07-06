@@ -99,6 +99,7 @@ const leftRailCollapsed = ref(false)
 // 【v2.9.99-r1 恢复 v17/v18/v19】从 useViewHelpers 取所有视图辅助逻辑
 const {
   closedTradesCollapsed, closedTradesProfitTotal, todayInt, formatBuyDateShort,
+  expandedClosedTrades, toggleClosedTrade,
   activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
   leftPanelExpanded, expandedPositions, anyPositionExpanded,
   currentDateCompact, enabledStrategyCount, visibleSignals,
@@ -293,9 +294,11 @@ const {
           </div>
           <div v-show="!closedTradesCollapsed" class="closed-trades-body">
             <div v-for="t in todayClosedTrades" :key="t.ts_code + t.sell_time" class="closed-trade-row" :class="t.profit_pct != null && t.profit_pct >= 0 ? 'row-up' : 'row-down'">
-              <div class="ct-line1">
+              <div class="ct-summary cp" @click="toggleClosedTrade(t.ts_code + t.sell_time)">
+                <span class="ct-arrow-item">{{ expandedClosedTrades[t.ts_code + t.sell_time] ? '▼' : '▶' }}</span>
                 <span class="ct-name">{{ t.stock_name }}</span>
                 <span class="ct-code">{{ t.ts_code }}</span>
+                <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
                 <span :class="t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
                   {{ t.profit_pct != null && t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
                 </span>
@@ -303,17 +306,18 @@ const {
                   {{ t.profit_amount != null && t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
                 </span>
               </div>
-              <div class="ct-line2">
-                <span class="ct-tag-buy">买</span>
-                <span class="ct-time">{{ t.buy_time || '--' }}</span>
-                <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
-                <span class="ct-qty">x{{ t.buy_qty }}</span>
-                <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
-                <span class="ct-arrow-trade">→</span>
-                <span class="ct-tag-sell">卖</span>
-                <span class="ct-time">{{ t.sell_time || '--' }}</span>
-                <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
-                <span class="ct-qty">x{{ t.sell_qty }}</span>
+              <div v-if="expandedClosedTrades[t.ts_code + t.sell_time]" class="ct-detail">
+                <div class="ct-line2">
+                  <span class="ct-tag-buy">买</span>
+                  <span class="ct-time">{{ t.buy_time || '--' }}</span>
+                  <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
+                  <span class="ct-qty">x{{ t.buy_qty }}</span>
+                  <span class="ct-arrow-trade">→</span>
+                  <span class="ct-tag-sell">卖</span>
+                  <span class="ct-time">{{ t.sell_time || '--' }}</span>
+                  <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
+                  <span class="ct-qty">x{{ t.sell_qty }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1027,10 +1031,13 @@ mm-tab-content {
 .ct-count { font-size: 11px; }
 .ct-total { flex: 1; text-align: right; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .closed-trades-body { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.closed-trade-row { padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.15s; }
+.closed-trade-row { padding: 0; border-radius: 5px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.15s; overflow: hidden; }
 .closed-trade-row.row-up { border-left: 3px solid var(--stock-up); }
 .closed-trade-row.row-down { border-left: 3px solid var(--stock-down); }
 .closed-trade-row:hover { border-color: var(--el-color-primary); }
+.ct-summary { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 8px; user-select: none; }
+.ct-arrow-item { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; color: var(--text-tertiary); }
+.ct-detail { padding: 4px 8px 5px 22px; border-top: 1px dashed var(--border-default); }
 .ct-line1 { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 2px; }
 .ct-name { font-weight: 600; color: var(--text-primary); }
 .ct-code { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }

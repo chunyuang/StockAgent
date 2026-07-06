@@ -17,6 +17,10 @@ export function useViewHelpers(deps: {
   stratCollapsed?: Ref<Record<string, boolean>>
 }) {
   const closedTradesCollapsed = ref(false)
+  const expandedClosedTrades = ref<Record<string, boolean>>({})
+  const toggleClosedTrade = (key: string) => {
+    expandedClosedTrades.value = { ...expandedClosedTrades.value, [key]: !expandedClosedTrades.value[key] }
+  }
   const closedTradesProfitTotal = computed(() =>
     (deps.todayClosedTrades.value || []).reduce((s: number, t: any) => s + (Number(t.profit_amount) || 0), 0)
   )
@@ -225,6 +229,7 @@ export function useViewHelpers(deps: {
   }
   return {
     closedTradesCollapsed, closedTradesProfitTotal, todayInt, formatBuyDateShort,
+    expandedClosedTrades, toggleClosedTrade,
     activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
     leftPanelExpanded, expandedPositions, anyPositionExpanded,
     currentDateCompact, enabledStrategyCount, visibleSignals,
