@@ -151,7 +151,15 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     POSITION_CHECK_FAST = 10      # 持仓快速检查(秒): 接近止损位10秒级
     POSITION_CHECK_CRITICAL = 5   # 持仓紧急检查(秒): 已触及止损区5秒级
     BATCH_SIZE = 100    # 批量行情每批处理数
-    MAX_POSITIONS = 10  # 最大持仓数
+    MAX_POSITIONS = 10  # 最大持仓数(基准, 实际按情绪动态调整)
+    # 【动态持仓上限】情绪越高, 允许持仓越多, 抓住行情好的时候多买
+    # 高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
+    DYNAMIC_MAX_POSITIONS = {
+        "euphoria": 12,   # 高潮: 行情好, 多抓机会
+        "differentiation": 10,  # 分化: 标准上限
+        "chaos": 8,       # 震荡: 适当收紧
+        "frozen": 5,      # 冰点: 大幅收紧
+    }
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
     SIGNAL_EXPIRE_ACTION = True   # 过期信号是否自动取消买入(后端强制)
@@ -486,6 +494,15 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
 
     # ==================== 盘前准备 ====================
 
+    def _get_dynamic_max_positions(self) -> int:
+        """【动态持仓上限】根据当前情绪周期返回持仓数上限
+
+        高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
+        """
+        sentiment = self._current_sentiment or {}
+        period = sentiment.get("period", "chaos")
+        base = self.DYNAMIC_MAX_POSITIONS.get(period, self.MAX_POSITIONS)
+        return base
 
     def _update_name_map(self, realtime_data: Dict[str, Dict]) -> None:
         """从实时行情数据更新ts_code→stock_name映射
@@ -1031,6 +1048,11 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         self._current_position_ratio = result.position_ratio
         self._current_sentiment = self._filter_pipeline.get_sentiment_info()
         new_phase = (self._current_sentiment or {}).get("period", "")
+
+        # 【动态持仓上限】同步给broker
+        dynamic_max = self._get_dynamic_max_positions()
+        if self._broker and hasattr(self._broker, '_dynamic_max_positions'):
+            self._broker._dynamic_max_positions = dynamic_max
 
         logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
                      f"仓位系数={result.position_ratio:.0%}")

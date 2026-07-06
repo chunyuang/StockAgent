@@ -113,7 +113,8 @@ class SimulatedBroker:
     # 【v2.9.92w】从strategy_defaults读取，不硬编码(与回测对齐)
     MAX_POSITION_RATIO = GLOBAL_RISK.get("max_position_per_stock", 0.35)  # 单票最大仓位(回测35%)
     MAX_TOTAL_RATIO = GLOBAL_RISK.get("max_total_position", 0.75)       # 总仓位上限(回测75%)
-    MAX_POSITIONS = GLOBAL_RISK.get("max_positions", 10)                # 最大持仓数(默认10只)
+    MAX_POSITIONS = GLOBAL_RISK.get("max_positions", 10)                # 最大持仓数(基准, 实际由scanner动态调整)
+    _dynamic_max_positions = None  # 【动态持仓上限】由scanner实时设置
 
     # 涨跌停比例
     LIMIT_RATIO_MAIN = 0.10       # 主板±10%
@@ -785,8 +786,9 @@ class SimulatedBroker:
         current_positions = len([p for p in self.positions.values() if p.total_qty > 0])
         existing = self.positions.get(ts_code)
         is_new_position = existing is None or existing.total_qty <= 0
-        if is_new_position and current_positions >= self.MAX_POSITIONS:
-            return False, f"持仓数已达上限{self.MAX_POSITIONS}只", 0
+        if is_new_position and current_positions >= (self._dynamic_max_positions or self.MAX_POSITIONS):
+            limit = self._dynamic_max_positions or self.MAX_POSITIONS
+            return False, f"持仓数已达上限{limit}只", 0
 
         # 仓位检查(【v2.9.84修复】估算金额含佣金, 避免扣费后资金不足)
         est_amount = quantity * current_price * (1 + self.COMMISSION_RATE)

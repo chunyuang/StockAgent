@@ -456,8 +456,8 @@ class SignalManager:
                 sig.strategy_name, block_reason, sig)
             logger.info(f"[EXEC] {block_reason}")
             return False, "circuit_breaker"
-        # 最大持仓数
-        MAX_POSITIONS = scanner.MAX_POSITIONS
+        # 最大持仓数 — 【动态持仓上限】按情绪周期调整
+        MAX_POSITIONS = scanner._get_dynamic_max_positions()
         if self.broker and len(self.broker.get_positions()) >= MAX_POSITIONS:
             curr_count = len(self.broker.get_positions())
             block_reason = (
@@ -793,7 +793,7 @@ class SignalManager:
                 "available_cash_before": round(acct.available_cash, 2),
                 "total_assets_before": round(acct.total_assets, 2),
                 "position_count_before": len(self.broker.get_positions()) if self.broker else 0,
-                "max_positions": scanner.MAX_POSITIONS,
+                "max_positions": scanner._get_dynamic_max_positions(),
                 "max_position_ratio": GLOBAL_RISK.get("max_position_ratio", 0.7),
                 "single_position_cap": GLOBAL_RISK.get("max_single_position_ratio", 0.35),
                 "calculated_position_ratio": position_ratio,
