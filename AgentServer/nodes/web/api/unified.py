@@ -362,7 +362,7 @@ def _build_position_dict(p: dict, qty: int, avg_cost: float, cur_price: float, p
 # 核心函数: 日期可用性 (染色用)
 # ============================================================
 
-async def fetch_date_availability(days: int = 60, account_id: str = "default") -> dict:
+async def fetch_date_availability(days: int = 180, account_id: str = "default") -> dict:
     """返回近 N 天每日是否有交易/持仓数据
 
     用于前端日期选择器染色:
@@ -479,7 +479,7 @@ async def api_unified_positions(
 
 @router.get("/date-availability")
 async def api_date_availability(
-    days: int = Query(60, ge=1, le=365),
+    days: int = Query(180, ge=1, le=365),
     account_id: str = Query("default"),
 ):
     """返回近 N 天每日数据可用性, 用于日期选择器染色"""
