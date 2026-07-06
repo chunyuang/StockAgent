@@ -332,7 +332,10 @@ class PositionManager:
         Returns: (sell_reason, sell_price)
         """
         rt = realtime_data.get(pos.ts_code, {})
-        today_open = rt.get("open", 0) if rt else self._get_open_price(pos.ts_code)
+        today_open = rt.get("open", 0) if rt else 0
+        # 【修复】rt存在但open缺失时, fallback到scanner缓存, 避免走普通止损绕过跳空观察期
+        if not today_open or today_open <= 0:
+            today_open = self._get_open_price(pos.ts_code) or 0
         
         sell_reason = None
         sell_price = pos.current_price
@@ -604,6 +607,9 @@ class PositionManager:
         if check_profit_pct <= sl_pct:
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
             today_open = rt.get("open", 0)
+            # 【修复】rt存在但open缺失时, fallback到scanner缓存
+            if not today_open or today_open <= 0:
+                today_open = self._get_open_price(pos.ts_code) or 0
             if today_open > 0 and today_open < stop_loss_price:
                 # 【v2.9.112】分级跳空止损观察期(统一调用)
                 action = self._check_gap_stop_with_tiered_observation(
