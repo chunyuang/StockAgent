@@ -118,7 +118,7 @@ class SimulatedBroker:
     LIMIT_RATIO_KCB = 0.20        # 科创板±20%
     LIMIT_RATIO_CYB = 0.20        # 创业板±20%
     LIMIT_RATIO_BJB = 0.30        # 北交所±30%
-    LIMIT_RATIO_ST = 0.05         # ST股±5%
+    LIMIT_RATIO_ST = 0.10          # ST股±10% (2026-07-06新规: 主板ST由5%调整为10%)
 
     def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000, virtual_mode: bool = False):
         self.account = Account(account_id=account_id, total_assets=initial_cash, available_cash=initial_cash)
@@ -591,10 +591,11 @@ class SimulatedBroker:
         else:
             ratio = 0.10
 
-        # ST股: ±5% (从持仓stock_name或实时行情判断)
+        # ST股: ±10% (2026-07-06新规: 主板ST由5%调整为10%, 与主板普通股一致)
+        # 创业板/科创板ST仍为20%, 北交所*ST仍为30%, 不需要单独处理
         stock_name = self._stock_names.get(ts_code, '')
-        if 'ST' in stock_name or '*ST' in stock_name:
-            ratio = 0.05
+        if ('ST' in stock_name or '*ST' in stock_name) and not ts_code.startswith(('300', '301', '688', '4', '8', '920')):
+            ratio = 0.10  # 主板ST: 10% (新规)
 
         upper = round(pre_close * (1 + ratio), 2)
         lower = round(pre_close * (1 - ratio), 2)
@@ -610,9 +611,9 @@ class SimulatedBroker:
         # 自动计算涨跌停价
         if pre_close and pre_close > 0:
             calc = self._calc_limit_prices(ts_code, pre_close)
-            if is_st:  # ST股±5%
-                calc["upper"] = round(pre_close * 1.05, 2)
-                calc["lower"] = round(pre_close * 0.95, 2)
+            if is_st:  # 主板ST股±10% (2026-07-06新规)
+                calc["upper"] = round(pre_close * 1.10, 2)
+                calc["lower"] = round(pre_close * 0.90, 2)
             self._limit_prices[ts_code] = calc
         elif upper_limit is not None or lower_limit is not None:
             self._limit_prices[ts_code] = {

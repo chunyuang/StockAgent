@@ -104,15 +104,19 @@ class StrategyScorer:
 
     @staticmethod
     def _limit_threshold(ts_code: str, stock_name: str = "") -> float:
-        """统一涨跌停阈值(百分比): ST=5%, 主板=10%, 创业/科创=20%, 北交=30%。"""
+        """统一涨跌停阈值(百分比): 主板=10%, 创业/科创=20%, 北交=30%。
+        
+        【2026-07-06新规】主板ST/*ST涨跌幅限制由5%调整为10%，与主板普通股票一致。
+        创业板/科创板ST仍为20%，北交所*ST仍为30%。
+        """
         code = (ts_code or "").split(".")[0]
         name = stock_name or ""
-        if "ST" in name.upper() or name.startswith(("*ST", "ST")):
-            return 4.8
+        is_st = "ST" in name.upper() or name.startswith(("*ST", "ST"))
         if code.startswith(("300", "301", "688")):
-            return 19.5
+            return 19.5  # 创业板/科创板: 20% (含ST)
         if code.startswith(("4", "8", "920")):
-            return 29.5
+            return 29.5  # 北交所: 30% (含*ST)
+        # 主板: ST和普通股统一10% (2026-07-06新规)
         return 9.5
 
     @classmethod
