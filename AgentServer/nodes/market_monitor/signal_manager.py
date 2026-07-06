@@ -381,13 +381,16 @@ class SignalManager:
                         return
         except Exception as _e:
             logger.debug(f"[EXEC] 交易时间闸锁检查异常仅记录: {_e}")
-        for sig in signals:
+        for i, sig in enumerate(signals):
             eligible, reason = self._check_signal_eligibility(sig)
             if not eligible:
                 if reason == "max_positions":
                     # 【优化】满仓被拒的信号从活跃池移除, 下轮可重新尝试
-                    # 之前: 信号留在active_signals → 下轮“已在进行中” → 永久错过
+                    # 之前: 信号留在active_signals → 下轮"已在进行中" → 永久错过
                     self._remove_signal(sig.ts_code, sig.strategy)
+                    # break后剩余信号也移除, 避免被“已存在”阻塞5分钟
+                    for remaining in signals[i+1:]:
+                        self._remove_signal(remaining.ts_code, remaining.strategy)
                     break  # 全局阻挡, 后续也不执行
                 if reason == "circuit_breaker":
                     break  # 熔断, 后续也不执行

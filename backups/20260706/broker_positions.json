@@ -1,0 +1,53 @@
+[
+ {
+  "_id": "6a4b054259ff7ab4311f5163",
+  "account_id": "default",
+  "ts_code": "688310.SH",
+  "available_qty": 2800,
+  "avg_cost": 18.355507142857146,
+  "buy_date": "20260706",
+  "current_price": 17.66,
+  "market_value": 49112.0,
+  "stock_name": "迈得医疗",
+  "stop_loss_price": 17.8,
+  "strategy": "halfway_chase",
+  "take_profit_price": 19.64,
+  "today_buy_qty": 0,
+  "total_qty": 2800,
+  "profit_pct": -4.4428472420305365
+ },
+ {
+  "_id": "6a4b068359ff7ab4311f5766",
+  "account_id": "default",
+  "ts_code": "300345.SZ",
+  "available_qty": 6000,
+  "avg_cost": 8.312495,
+  "buy_date": "20260706",
+  "current_price": 7.69,
+  "market_value": 47220.0,
+  "stock_name": "华民股份",
+  "stop_loss_price": 8.06,
+  "strategy": "halfway_chase",
+  "take_profit_price": 8.89,
+  "today_buy_qty": 0,
+  "total_qty": 6000,
+  "profit_pct": -5.323251322256435
+ },
+ {
+  "_id": "6a4b0ffb59ff7ab4311f6c5e",
+  "ts_code": "603903.SH",
+  "account_id": "default",
+  "available_qty": 4700,
+  "avg_cost": 15.634689361702126,
+  "buy_date": "20260706",
+  "current_price": 15.57,
+  "market_value": 73179.0,
+  "stock_name": "中持股份",
+  "stop_loss_price": 15.17,
+  "strategy": "first_limit_up",
+  "take_profit_price": 16.73,
+  "today_buy_qty": 0,
+  "total_qty": 4700,
+  "profit_pct": -0.4137553372859782
+ }
+]

@@ -498,11 +498,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         """【动态持仓上限】根据当前情绪周期返回持仓数上限
 
         高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
+        启动阶段(无情绪数据)返回MAX_POSITIONS(10)
         """
-        sentiment = self._current_sentiment or {}
+        sentiment = self._current_sentiment
+        if not sentiment:
+            # 启动阶段还没有情绪数据, 用标准上限
+            return self.MAX_POSITIONS
         period = sentiment.get("period", "chaos")
-        base = self.DYNAMIC_MAX_POSITIONS.get(period, self.MAX_POSITIONS)
-        return base
+        return self.DYNAMIC_MAX_POSITIONS.get(period, self.MAX_POSITIONS)
 
     def _update_name_map(self, realtime_data: Dict[str, Dict]) -> None:
         """从实时行情数据更新ts_code→stock_name映射
