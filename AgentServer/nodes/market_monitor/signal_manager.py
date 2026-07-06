@@ -133,6 +133,18 @@ class SignalManager:
         self.active_signals = [s for s in self.active_signals
                                 if s.signal_status not in ("expired",) or s.created_at == 0]
 
+    def _remove_signal(self, ts_code: str, strategy: str) -> bool:
+        """【优化】从活跃信号池移除指定信号, 下轮可重新尝试"""
+        before = len(self.active_signals)
+        self.active_signals = [
+            s for s in self.active_signals
+            if not (s.ts_code == ts_code and s.strategy == strategy)
+        ]
+        removed = before - len(self.active_signals)
+        if removed > 0:
+            logger.info(f"[SIGNAL] 移除被拒信号: {ts_code} {strategy} (下轮可重试)")
+        return removed > 0
+
     def _merge_new_signals(self, new_signals: List[ScanSignal]) -> List[ScanSignal]:
         """增量合并新信号【v2.9.43从update_signals提取】"""
         now = time.time()
@@ -372,8 +384,13 @@ class SignalManager:
         for sig in signals:
             eligible, reason = self._check_signal_eligibility(sig)
             if not eligible:
-                if reason == "circuit_breaker" or reason == "max_positions":
+                if reason == "max_positions":
+                    # 【优化】满仓被拒的信号从活跃池移除, 下轮可重新尝试
+                    # 之前: 信号留在active_signals → 下轮“已在进行中” → 永久错过
+                    self._remove_signal(sig.ts_code, sig.strategy)
                     break  # 全局阻挡, 后续也不执行
+                if reason == "circuit_breaker":
+                    break  # 熔断, 后续也不执行
                 continue  # 单票阻挡, 继续下一个
             await self._execute_single_buy(sig)
 

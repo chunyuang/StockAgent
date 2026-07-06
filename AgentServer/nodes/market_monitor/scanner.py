@@ -847,17 +847,17 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             self._update_name_map(realtime_data)
             merged_df = self._merge_factors(realtime_data)
 
-        # Step 3: 策略筛选 + 异动检测 + 9层筛选管道
+        # Step 3: 持仓检查(止损止盈) — 先卖后买, 卖出释放的槽位当轮可用
+        with timer.step("持仓检查"):
+            await self._check_positions(realtime_data, trade_date)
+
+        # Step 4: 策略筛选 + 异动检测 + 9层筛选管道
         with timer.step("策略+筛选"):
             new_signals = await self._apply_strategies_and_filters(merged_df, trade_date, realtime_data)
 
-        # Step 4: 增量更新信号
+        # Step 5: 增量更新信号
         with timer.step("信号"):
             await self._update_signals(new_signals, scan_time)
-
-        # Step 5: 持仓检查(止损止盈)
-        with timer.step("持仓检查"):
-            await self._check_positions(realtime_data, trade_date)
 
         # Step 6: 同步broker实时价格
         self._sync_broker_prices(realtime_data)
