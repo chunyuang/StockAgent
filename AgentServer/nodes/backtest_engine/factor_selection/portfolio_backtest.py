@@ -422,9 +422,18 @@ class PortfolioBacktester:
                         if _is_multi_day and code in getattr(self, '_trailing_peak_profit', {}):
                             _current_peak = self._trailing_peak_profit[code]
                             _drawdown_from_peak = _current_peak - current_profit_pct
-                            if _drawdown_from_peak >= _trailing_stop_pct and current_profit_pct > 0:
+                            # 分级追踪止损: 盈利越多回撤越宽(与实盘position_manager对齐)
+                            _effective_trailing_pct = _trailing_stop_pct
+                            _peak_pct = _current_peak * 100  # 转百分比
+                            if _peak_pct >= 20:
+                                _effective_trailing_pct = _trailing_stop_pct + 0.08
+                            elif _peak_pct >= 10:
+                                _effective_trailing_pct = _trailing_stop_pct + 0.05
+                            elif _peak_pct >= 5:
+                                _effective_trailing_pct = _trailing_stop_pct + 0.02
+                            if _drawdown_from_peak >= _effective_trailing_pct and current_profit_pct > 0:
                                 forced_sell_prices[code] = _close_p
-                                forced_sell_codes.append((code, f'追踪止损(峰{_current_peak*100:.1f}%→现{current_profit_pct*100:.1f}%)'))
+                                forced_sell_codes.append((code, f'追踪止损(峰{_current_peak*100:.1f}%→现{current_profit_pct*100:.1f}%,回撤{_effective_trailing_pct*100:.0f}%)'))
                                 forced_sell_codes_set.add(code)
                                 if code in self._trailing_peak_profit:
                                     del self._trailing_peak_profit[code]

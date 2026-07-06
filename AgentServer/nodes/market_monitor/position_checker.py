@@ -814,15 +814,25 @@ class PositionChecker:
                 }))
                 if price > state.get("high_price", pos.avg_cost):
                     state["high_price"] = price
-                if not state.get("activated") and profit_pct >= 2.0:
+                if not state.get("activated") and profit_pct >= 5.0:
                     state["activated"] = True
                     state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%")
+                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=5%")
                 if state.get("activated"):
-                    new_stop = price * (1 - trailing_pct)
+                    # 分级追踪止损: 盈利越多回撤越宽
+                    peak_profit_pct = (state.get("high_price", price) / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
+                    effective_pct = trailing_pct
+                    if peak_profit_pct >= 20:
+                        effective_pct = trailing_pct + 0.08
+                    elif peak_profit_pct >= 10:
+                        effective_pct = trailing_pct + 0.05
+                    elif peak_profit_pct >= 5:
+                        effective_pct = trailing_pct + 0.02
+                    state["trailing_stop_pct"] = effective_pct
+                    new_stop = state.get("high_price", price) * (1 - effective_pct)
                     if new_stop > state.get("stop_price", 0):
                         state["stop_price"] = round(new_stop, 2)
-                        logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}")
+                        logger.debug(f"[TRAILING] {pos.ts_code} 峰值{peak_profit_pct:.1f}% 回撤{effective_pct*100:.0f}% 止损线上移至{new_stop:.2f}")
                 self.trailing_stops[pos.ts_code] = state
 
     def get_effective_stop_price(self, pos, risk: Dict) -> float:

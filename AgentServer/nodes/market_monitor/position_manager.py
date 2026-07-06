@@ -37,7 +37,7 @@ def _get_global_risk():
     if _DEFAULT_GLOBAL_RISK is None:
         try:
             from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR
-            _DEFAULT_GLOBAL_RISK = dict(_GR)  # 默认值缓存一次(不变)
+            _DEFAULT_GLOBAL_RISK = {"take_profit_pct": 0.07, "trailing_stop_pct": 0.05, "pullback_profit_lock_threshold": 0}
         except ImportError:
             _DEFAULT_GLOBAL_RISK = {"take_profit_pct": 0.07, "pullback_profit_lock_threshold": 0}
     result = dict(_DEFAULT_GLOBAL_RISK)
@@ -634,11 +634,45 @@ class PositionManager:
         
         return None
     
+    def _get_tiered_trailing_pct(self, peak_profit_pct: float, base_trailing_pct: float) -> float:
+        """分级追踪止损: 盈利越多,回撤容忍越宽
+        
+        设计依据:
+        - 涨停票日内波动2-3%很常见, 固定2%回撤太容易被震出
+        - 小利时紧保(不让盈利变亏损), 大利时宽放(让利润奔跑)
+        - 与回测对齐: 回测用固定5%, 实盘分级后5%+/7%+/10%+区间更优
+        
+        分级规则:
+          盈利幅度        回撤容忍          说明
+          +2%~+5%        base(5%)          小利紧保, 快速锁利
+          +5%~+10%       base+2%(7%)       中利放宽, 让利润奔跑
+          +10%~+20%      base+5%(10%)      大利更宽, 避免涨停震出
+          +20%以上       base+8%(13%)      超大利极宽, 吃完整波段
+        
+        Args:
+            peak_profit_pct: 从成本价算的峰值利润(如5.0=+5%)
+            base_trailing_pct: 基础回撤比例(如0.05=5%)
+        """
+        if peak_profit_pct < 5:
+            return base_trailing_pct                      # +2%~+5%: 5%
+        elif peak_profit_pct < 10:
+            return base_trailing_pct + 0.02              # +5%~+10%: 7%
+        elif peak_profit_pct < 20:
+            return base_trailing_pct + 0.05              # +10%~+20%: 10%
+        else:
+            return base_trailing_pct + 0.08              # +20%+: 13%
+
     def _update_single_trailing_stop(
         self, ts_code: str, current_price: float, avg_cost: float,
         profit_pct: float, trailing_stop_pct: float
     ) -> Dict:
-        """更新单个持仓的追踪止损状态, 返回更新后的state【v2.9.62提取】"""
+        """更新单个持仓的追踪止损状态, 返回更新后的state【v2.9.62提取, v2.9.113分级追踪】
+        
+        v2.9.113改动:
+        1. 激活阈值从2%→5%, 与回测对齐(回测trailing_stop_pct=0.05即5%才激活)
+        2. 回撤容忍从固定2%→分级动态: 盈利越多回撤越宽
+        3. fallback从0.02→0.05, 与回测和scanner_delegate_router一致
+        """
         with self.state_lock:
             state = dict(self.trailing_stops.get(ts_code, {
                 "high_price": avg_cost,
@@ -653,15 +687,25 @@ class PositionManager:
                 state["high_price"] = current_price
                 logger.debug(f"[TRAILING] {ts_code} 新高: {current_price:.2f}")
 
-            # 盈利>=2%时激活追踪止损
-            if not state["activated"] and profit_pct >= 2.0:
+            # 计算峰值利润(从成本价算)
+            peak_profit_pct = (state["high_price"] / avg_cost - 1) * 100 if avg_cost > 0 else 0
+
+            # 盈利>=5%时激活追踪止损(与回测对齐: 回测用trailing_stop_pct=5%作激活阈值)
+            if not state["activated"] and profit_pct >= 5.0:
                 state["activated"] = True
                 state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=2%")
+                logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=5%")
 
-            # 计算追踪止损价
+            # 计算追踪止损价(分级: 盈利越多回撤越宽)
             if state["activated"]:
-                state["stop_price"] = state["high_price"] * (1 - trailing_stop_pct)
+                effective_trailing_pct = self._get_tiered_trailing_pct(peak_profit_pct, trailing_stop_pct)
+                state["trailing_stop_pct"] = effective_trailing_pct
+                state["stop_price"] = state["high_price"] * (1 - effective_trailing_pct)
+                logger.debug(
+                    f"[TRAILING] {ts_code} 峰值{peak_profit_pct:.1f}% "
+                    f"回撤容忍{effective_trailing_pct*100:.0f}% "
+                    f"止损线{state['stop_price']:.2f}"
+                )
 
             self.trailing_stops[ts_code] = state
             return state
@@ -689,7 +733,7 @@ class PositionManager:
 
             # 获取策略追踪止损比例
             risk = self._scanner._get_strategy_risk(pos.strategy)
-            trailing_stop_pct = risk.get("trailing_stop_pct", _get_global_risk().get("trailing_stop_pct", 0.02))
+            trailing_stop_pct = risk.get("trailing_stop_pct", _get_global_risk().get("trailing_stop_pct", 0.05))
 
             if trailing_stop_pct <= 0:
                 continue

@@ -14,6 +14,7 @@
 GLOBAL_RISK = {
     "stop_loss_pct": 0.03,          # 全局默认止损3%
     "take_profit_pct": 0.07,        # 全局默认止盈7%
+    "trailing_stop_pct": 0.05,      # 追踪止损5%(激活阈值+基础回撤容忍, 与实盘对齐)
     "max_hold_days": 3,             # 全局默认最大持仓3天
     "slippage_pct": 0.002,          # 全局默认滑点0.2%
     "commission_rate": 0.0003,      # 综合佣金率万3
