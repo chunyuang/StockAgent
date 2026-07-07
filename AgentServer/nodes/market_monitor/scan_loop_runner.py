@@ -175,7 +175,19 @@ class ScanLoopRunner:
                 self._scan_loop_error_count += 1
                 return False
         else:
+            # 【v2.9.117】非全量扫描轮: 定期刷新行情+持仓检查, 避免两次全量扫描之间行情缓存陈旧
+            # 之前: 只sleep(check_interval) → 风控线程用5分钟前价格做止损
             check_interval = self._get_smart_check_interval(self._broker.get_positions() if self._broker else [])
+            # 30秒刷新一次行情(不全量, 用东财TTL缓存: <5s返回缓存, >5s才拉API)
+            quote_age = time.monotonic() - getattr(self._quote_manager, '_last_fetch_time', 0)
+            if quote_age > 30:
+                try:
+                    realtime_data = await self._fetch_realtime_batch(force=False)
+                    if realtime_data:
+                        await self._check_positions(realtime_data, trade_date)
+                        self._sync_broker_prices(realtime_data)
+                except Exception as e:
+                    logger.debug(f"[SCAN_LOOP] 行情刷新异常(非致命): {e}")
             await asyncio.sleep(check_interval)
             return False
 

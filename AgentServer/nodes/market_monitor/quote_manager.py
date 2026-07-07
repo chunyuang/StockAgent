@@ -572,8 +572,8 @@ class QuoteManager:
         if self._last_fetch_time == 0:
             return 999.0
         elapsed = time.monotonic() - self._last_fetch_time
-        if elapsed > 30 and self._quote_degrade_level == 0:
-            logger.warning(f"[QUOTE] 行情数据陈旧: {elapsed:.0f}秒(>30s阈值)")
+        if elapsed > 60 and self._quote_degrade_level == 0:
+            logger.warning(f"[QUOTE] 行情数据陈旧: {elapsed:.0f}秒(>60s阈值)")
             # v2.9.105: 陈旧度>60秒时通知用户
             if elapsed > 60 and not getattr(self, '_stale_warned', False):
                 self._stale_warned = True
@@ -676,7 +676,7 @@ class QuoteManager:
             "data_sources": list(self._data_router._sources.keys()) if self._data_router else [],
             "source_details": source_details,
             "staleness_seconds": round(staleness, 1),
-            "is_stale": staleness > 30,
+            "is_stale": staleness > 60,
             "degrade_duration_seconds": round(time.monotonic() - self._degrade_since, 1) if self._degrade_since > 0 else 0,
             "next_recover_in_seconds": max(0, round(self._recover_interval - (time.monotonic() - self._last_recover_attempt), 1)) if self._quote_degrade_level > 0 else 0,
         }
