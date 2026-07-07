@@ -1545,6 +1545,8 @@ async def get_premarket_status(date: str = None):
                     
                     return _sanitize({"success": True, "data": {
                         "status": status,
+                        "trade_date": int(target_date) if target_date.isdigit() else int(now.strftime("%Y%m%d")),
+                        "scan_time": now.strftime("%Y-%m-%dT%H:%M:%S"),
                         "market_snapshot": market_snapshot,
                         "sentiment": sentiment,
                         "candidates": candidates[:30],
@@ -1611,12 +1613,15 @@ async def get_premarket_status(date: str = None):
         # ===== 候选列表(带完整因子) =====
         candidates = []
         strategy_map = {}  # strategy -> [candidates]
+        from datetime import datetime as _dt
+        _today = int(_dt.now().strftime("%Y%m%d"))
         for sig in scanner._active_signals:
             s = sig.strategy or "system_force"
             c = {
                 "ts_code": sig.ts_code,
                 "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
                 "strategy": s,
+                "trade_date": getattr(sig, 'trade_date', 0) or _today,
                 "pct_chg": sig.pct_chg or 0,
                 "auction_pct": sig.factors.get('auction_pct'),
                 "volume_ratio": sig.factors.get('volume_ratio', 0),
@@ -1745,6 +1750,8 @@ async def get_premarket_status(date: str = None):
         
         data = {
             "status": status,
+            "trade_date": int(now.strftime("%Y%m%d")),
+            "scan_time": now.strftime("%Y-%m-%dT%H:%M:%S"),
             "market_snapshot": market_snapshot,
             "sentiment": sentiment,
             "candidates": candidates[:30],

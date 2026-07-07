@@ -462,6 +462,7 @@ class StrategyScorer:
             limit_up_count=lbc,
             reason=reason,
             scan_time=datetime.now().strftime("%H:%M:%S"),
+            trade_date=int(trade_date) if trade_date else 0,
             factors={k: row.get(k, 0) for k in
                      ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
                       "ma5", "rsi_6", "is_limit_up", "limit_up_count",

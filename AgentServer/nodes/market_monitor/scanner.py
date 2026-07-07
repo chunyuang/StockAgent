@@ -106,6 +106,8 @@ class ScanSignal:
     signal_status: str = "new"  # new/executed/expired/skipped
     # 信号创建时间(用于过期判断)
     created_at: float = 0.0  # time.time()戳
+    # 交易日期(YYYYMMDD int, 用于前端区分历史数据)
+    trade_date: int = 0
 
     def to_candidate(self) -> Dict[str, Any]:
         """转换为filter_pipeline候选格式【v2.9.35】"""
@@ -287,11 +289,14 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     # _build_account_info已提取到ScannerUtils【v2.9.27:DELEGATE_MAP动态委托】
 
     def get_signals(self) -> List[Dict]:
+        today = int(datetime.now().strftime("%Y%m%d"))
         result = [self._signal_to_dict(s) for s in self._active_signals]
-        # 填充空名称
+        # 填充空名称 + 补trade_date
         for r in result:
             if not r.get("stock_name"):
                 r["stock_name"] = self._stock_name_map.get(r.get("ts_code", ""), "")
+            if not r.get("trade_date"):
+                r["trade_date"] = today
         return result
 
     def get_positions(self) -> List[Dict]:

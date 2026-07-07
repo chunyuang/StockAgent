@@ -193,9 +193,10 @@ class EmotionCycleManager:
             'today_premium': factors.get('zt_premium', 0.0),
             'trade_date': trade_date,
         }
-        # 【v2.9.96h】只在实时模式(limit_stocks!=None)记录日志, 避免夜审污染
+        # 【v2.9.96h】只在非盘中模式(limit_stocks is None)记录日志, 避免夜审污染
         # 【v2.9.106】同步持久化到 sentiment_live_log
-        if limit_stocks is not None:
+        # 【v2.9.109修复】盘中模式由 intraday_sentiment.calculate 统一写live_log(7dim), 避免双写
+        if limit_stocks is None:
             from datetime import datetime
             now = datetime.now()
             entry = {
