@@ -54,6 +54,24 @@ PARTIAL_TAKE_PROFIT_RATIO = 0.5     # 卖出50%仓位
 # 新: 最低3%激活, 给盈利更多呼吸空间
 MIN_TRAILING_ACTIVATE_PCT = 3.0  # 最低3%才激活追踪止损
 
+# 【v2.9.119】ATR自适应止损
+# 数据证据: 25笔止损全部是高波动股(ATR14: 3.3%-13%), 固定3%全错
+# 10笔固定止损全被误杀, 14笔跳空止损本可不触发(持有到收盘少亏6716元)
+# 方案: stop_loss = min(max(strategy_min, 1.2*ATR14%), ATR_STOP_CAP%)
+# 封顶6%防止高波动股单笔亏损过大(6%×5万=3000元可承受)
+ATR_STOP_MULTIPLIER = 1.2      # ATR乘数
+ATR_STOP_CAP_PCT = 6.0          # 止损上限6%
+ATR_STOP_PERIOD = 14            # ATR计算周期(14天)
+ATR_STOP_MIN_PCT = 2.5          # 止损下限2.5%(即使低波动也至少2.5%)
+# 策略级ATR止损范围(覆盖strategy_defaults中的stop_loss_pct)
+STRATEGY_ATR_RANGES = {
+    "halfway_chase":   (3.0, 6.0),   # 追涨: 3%-6%
+    "first_limit_up":  (3.5, 7.0),   # 首板: 3.5%-7%
+    "limit_up_open":   (4.0, 7.0),   # 炸板: 4%-7%
+    "dragon_head":     (3.0, 7.0),   # 龙头: 3%-7%
+    "limit_down_qiao": (5.0, 8.0),   # 翘板: 5%-8%(高波动, 原止损就是5%)
+}
+
 
 def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> float:
     """计算分级追踪止损回撤容忍(模块级函数, position_manager/position_checker共用)
@@ -219,9 +237,30 @@ class PositionManager:
         return pos_or_cost.avg_cost
 
     def calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
-        """统一止损价计算"""
+        """统一止损价计算
+        
+        v2.9.119: ATR自适应止损
+        - 查询T-1前14天high/low/pre_close计算ATR14
+        - stop_loss_pct = min(max(strategy_min, 1.2*ATR%), strategy_max)
+        - ATR不可用时fallback到risk中的stop_loss_pct
+        """
         cost = self._extract_cost(pos_or_cost)
-        sl_pct = risk.get("stop_loss_pct", 0.03)
+        
+        # 优先使用已算好的ATR止损百分比(从_check_quick_stop_loss传入)
+        atr_pct = risk.get('_atr_stop_pct')
+        if atr_pct is not None:
+            sl_pct = atr_pct / 100.0
+        else:
+            # 尝试实时计算
+            strategy = getattr(pos_or_cost, 'strategy', '') if hasattr(pos_or_cost, 'strategy') else ''
+            atr_range = STRATEGY_ATR_RANGES.get(strategy, (ATR_STOP_MIN_PCT, ATR_STOP_CAP_PCT))
+            atr_pct = self._calc_atr_stop_pct(pos_or_cost, strategy, atr_range)
+            
+            if atr_pct is not None:
+                sl_pct = atr_pct / 100.0
+            else:
+                sl_pct = risk.get("stop_loss_pct", 0.03)
+        
         return round(cost * (1 - sl_pct), 2)
     
     def calc_take_profit_price(self, pos_or_cost, risk: Dict) -> float:
@@ -264,7 +303,17 @@ class PositionManager:
                 continue  # T+1: 今日买入不可卖
 
             risk = self._get_risk_with_overrides(pos)
-            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
+            
+            # 【v2.9.119】ATR自适应止损
+            strategy_name = pos.strategy or ""
+            atr_range = STRATEGY_ATR_RANGES.get(strategy_name, (ATR_STOP_MIN_PCT, ATR_STOP_CAP_PCT))
+            atr_stop_pct = self._calc_atr_stop_pct(pos, strategy_name, atr_range)
+            if atr_stop_pct is not None:
+                stop_loss_pct = -atr_stop_pct
+                risk['_atr_stop_pct'] = atr_stop_pct
+            else:
+                stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
+            
             take_profit_pct = risk.get("take_profit_pct", _get_global_risk().get("take_profit_pct", 0.07)) * 100
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
 
@@ -300,6 +349,87 @@ class PositionManager:
         if 'take_profit_pct' in pos_overrides:
             risk['take_profit_pct'] = pos_overrides['take_profit_pct']
         return risk
+    
+    # ==================== ATR自适应止损 ====================
+    
+    _atr_sync_client = None  # 类级缓存同步MongoDB客户端
+    
+    def _get_sync_db(self):
+        """获取同步MongoDB连接(风控线程用, 不依赖事件循环)"""
+        if PositionManager._atr_sync_client is not None:
+            return PositionManager._atr_sync_client["stock_agent"]
+        try:
+            from pymongo import MongoClient as SyncClient
+            client = SyncClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+            client.admin.command("ping")
+            PositionManager._atr_sync_client = client
+            return client["stock_agent"]
+        except Exception:
+            return None
+    
+    def _calc_atr_stop_pct(self, pos_or_cost, strategy: str, atr_range: tuple) -> Optional[float]:
+        """【v2.9.119】计算ATR自适应止损百分比
+        
+        Returns:
+            float: 止损百分比(如3.5表示3.5%)
+            None: ATR不可用, 用fallback
+        """
+        ts_code = getattr(pos_or_cost, 'ts_code', '') if hasattr(pos_or_cost, 'ts_code') else ''
+        if not ts_code:
+            return None
+        
+        # 检查缓存(ATR在当日内不变)
+        cache_key = f"_atr_{ts_code}"
+        cached = getattr(self._scanner, cache_key, None)
+        if cached is not None:
+            return cached
+        
+        db = self._get_sync_db()
+        if db is None:
+            return None
+        
+        try:
+            # 获取T-1前14天日线(T日开盘前用昨日及之前数据)
+            cursor = db["stock_daily_ak_full"].find(
+                {"ts_code": ts_code}
+            ).sort("trade_date", -1).limit(ATR_STOP_PERIOD + 2)
+            daily_list = list(cursor)
+            
+            if len(daily_list) < 5:  # 至少5条才能算
+                return None
+            
+            # 计算TR(True Range)序列
+            trs = []
+            for d in daily_list:
+                h = d.get("high", 0) or 0
+                l = d.get("low", 0) or 0
+                pc = d.get("pre_close", 0) or 0
+                if h > 0 and l > 0 and pc > 0:
+                    tr = max(h - l, abs(h - pc), abs(l - pc))
+                    trs.append(tr / pc * 100)  # 百分比
+            
+            if len(trs) < 5:
+                return None
+            
+            # ATR = 简单平均TR
+            atr14 = sum(trs) / len(trs)
+            
+            # ATR止损 = 1.2 * ATR14%, 但限制在策略范围内
+            min_pct, max_pct = atr_range
+            atr_stop = ATR_STOP_MULTIPLIER * atr14
+            effective_pct = min(max(atr_stop, min_pct), max_pct)
+            
+            # 缓存到scanner实例(日内有效)
+            setattr(self._scanner, cache_key, effective_pct)
+            
+            logger.debug(f"[ATR] {ts_code} ATR14={atr14:.2f}% raw_stop={atr_stop:.2f}% "
+                        f"strategy_range=[{min_pct}%,{max_pct}%] effective={effective_pct:.2f}%")
+            
+            return effective_pct
+            
+        except Exception as e:
+            logger.debug(f"[ATR] {ts_code} 计算失败: {e}")
+            return None
     
     def _check_partial_take_profit(self, pos, risk: Dict, take_profit_pct: float) -> Optional[Tuple]:
         """【v2.9.118】分批止盈: 盈利≥8%时卖出半仓锁定利润
@@ -727,7 +857,17 @@ class PositionManager:
         """
         ts_code = pos.ts_code
         risk = self._get_risk_with_overrides(pos)
-        sl_pct = -risk.get("stop_loss_pct", 0.03) * 100
+        
+        # 【v2.9.119】ATR自适应止损: 用ATR算实际止损百分比, fallback到risk中的固定值
+        strategy = pos.strategy or ""
+        atr_range = STRATEGY_ATR_RANGES.get(strategy, (ATR_STOP_MIN_PCT, ATR_STOP_CAP_PCT))
+        atr_stop_pct = self._calc_atr_stop_pct(pos, strategy, atr_range)
+        if atr_stop_pct is not None:
+            sl_pct = -atr_stop_pct  # 负数(如-3.5表示-3.5%)
+            # 同步更新risk中的stop_loss_pct, 后续calc_stop_loss_price会用
+            risk['_atr_stop_pct'] = atr_stop_pct
+        else:
+            sl_pct = -risk.get("stop_loss_pct", 0.03) * 100
         
         # 【v2.9.82修复】优先用实时profit_pct, 避免pos.profit_pct基于过期current_price
         check_profit_pct = realtime_profit_pct if realtime_profit_pct is not None else pos.profit_pct
