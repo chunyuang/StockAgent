@@ -814,10 +814,13 @@ class PositionChecker:
                 }))
                 if price > state.get("high_price", pos.avg_cost):
                     state["high_price"] = price
-                if not state.get("activated") and profit_pct >= trailing_pct * 100:
+                # 【v2.9.118对齐】最低激活阈值3%, 与position_manager对齐
+                from nodes.market_monitor.position_manager import MIN_TRAILING_ACTIVATE_PCT
+                activate_threshold = max(trailing_pct * 100, MIN_TRAILING_ACTIVATE_PCT)
+                if not state.get("activated") and profit_pct >= activate_threshold:
                     state["activated"] = True
                     state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>={trailing_pct*100:.0f}%")
+                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>={activate_threshold:.0f}%")
                 if state.get("activated"):
                     # 分级追踪止损: 盈利越多回撤越宽(策略差异化)
                     peak_profit_pct = (state.get("high_price", price) / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0

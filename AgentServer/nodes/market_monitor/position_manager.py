@@ -218,14 +218,39 @@ class PositionManager:
             return None
     
     def _calc_trade_days_held(self, buy_date, trade_date) -> Optional[int]:
-        """计算持仓交易日天数(缓存Backtester实例)"""
+        """计算持仓交易日天数
+        
+        优先用回测引擎的交易日索引(O(1)), 
+        fallback用MongoDB日线数据构建交易日历。
+        """
         bt = self._get_backtester()
-        if bt is None:
-            return None
+        if bt is not None:
+            try:
+                result = bt._calc_trade_days_held(int(buy_date), int(trade_date))
+                if result is not None and result > 0:
+                    return result
+            except (ValueError, TypeError):
+                pass
+        
+        # fallback: 从MongoDB查交易日列表(实盘路径)
         try:
-            return bt._calc_trade_days_held(int(buy_date), int(trade_date))
-        except (ValueError, TypeError):
-            return None
+            db = self._get_sync_db()
+            if db is not None:
+                # 用一只大盘股的交易日作为交易日历
+                dates = list(db["stock_daily_ak_full"].distinct(
+                    "trade_date", {"ts_code": "600036.SH", "trade_date": {"$gte": int(buy_date), "$lte": int(trade_date)}}
+                ))
+                dates.sort()
+                # 持仓天数 = 交易日数-1 (不含买入日,含卖出日)
+                # 如果trade_date当天数据还没入库, 补偿+1
+                count = len(dates)
+                if count > 0 and dates[-1] < int(trade_date):
+                    count += 1  # trade_date是交易日但数据未入库
+                return max(0, count - 1)
+        except Exception:
+            pass
+        
+        return None
 
     # ==================== 止损止盈计算 ====================
     
@@ -418,6 +443,8 @@ class PositionManager:
             min_pct, max_pct = atr_range
             atr_stop = ATR_STOP_MULTIPLIER * atr14
             effective_pct = min(max(atr_stop, min_pct), max_pct)
+            # 【v2.9.119-fix】全局封顶ATR_STOP_CAP_PCT, 防止策略max_pct超过封顶
+            effective_pct = min(effective_pct, ATR_STOP_CAP_PCT)
             
             # 缓存到scanner实例(日内有效)
             setattr(self._scanner, cache_key, effective_pct)

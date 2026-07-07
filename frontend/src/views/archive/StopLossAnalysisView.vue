@@ -1,15 +1,30 @@
 <template>
   <div class="stop-loss-analysis">
-    <!-- 顶部标题 -->
+    <!-- 顶部标题 + 优化前后开关 -->
     <div class="page-header">
       <h2>止损止盈分析</h2>
+      <div class="header-controls">
+        <span class="version-label">实盘版本：</span>
+        <el-radio-group v-model="liveVersion" size="small" @change="onVersionChange">
+          <el-radio-button value="post">优化后 (v2.9.119)</el-radio-button>
+          <el-radio-button value="pre">优化前 (v2.9.115)</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <el-tabs v-model="activeTab" class="main-tabs">
-      <!-- Tab 1: 流程对比（左右并排） -->
+      <!-- Tab 1: 止损止盈流程（实盘 + 回测并排） -->
       <el-tab-pane label="止损止盈流程" name="flow">
+        <div class="flow-version-banner">
+          <el-alert
+            :title="liveVersion === 'post' ? '当前展示：实盘优化后流程 (v2.9.119)' : '当前展示：实盘优化前流程 (v2.9.115)'"
+            :type="liveVersion === 'post' ? 'success' : 'info'"
+            :closable="false"
+            show-icon
+          />
+        </div>
         <div v-if="liveFlow && backtestFlow" class="flow-compare">
-          <!-- 左：实盘 -->
+          <!-- 左：实盘（根据开关显示优化前/后） -->
           <div class="flow-panel">
             <div class="flow-panel-header">
               <span class="flow-badge live">实盘</span>
@@ -39,9 +54,16 @@
                 <el-tag v-for="f in liveFlow.features" :key="f" :type="f.startsWith('✅') ? 'success' : 'danger'" effect="plain" size="small">{{ f }}</el-tag>
               </div>
             </div>
+            <!-- 优化前后差异说明 -->
+            <div v-if="liveVersion === 'pre' && liveFlow.gaps_with_post && liveFlow.gaps_with_post.length" class="gaps-section">
+              <h4>⚠️ 优化后改进点</h4>
+              <div class="feature-tags">
+                <el-tag v-for="g in liveFlow.gaps_with_post" :key="g" type="warning" effect="dark" size="small">{{ g }}</el-tag>
+              </div>
+            </div>
           </div>
 
-          <!-- 右：回测 -->
+          <!-- 右：回测（始终显示，标注与实盘的差异） -->
           <div class="flow-panel">
             <div class="flow-panel-header">
               <span class="flow-badge backtest">回测</span>
@@ -78,7 +100,7 @@
         </div>
       </el-tab-pane>
 
-      <!-- Tab 2: 策略配置对比（左右并排） -->
+      <!-- Tab 2: 策略配置对比（左右并排，优化前 vs 优化后） -->
       <el-tab-pane label="策略配置对比" name="config">
         <div class="config-list">
           <el-card v-for="item in configData" :key="item.category" class="config-card" shadow="hover">
@@ -236,6 +258,7 @@ import { ElMessage } from 'element-plus'
 
 const API_BASE = '/api/v1/stop-loss-analysis'
 const activeTab = ref('flow')
+const liveVersion = ref<'post' | 'pre'>('post') // 默认优化后
 const filterDate = ref('')
 const liveFlow = ref<any>(null)
 const backtestFlow = ref<any>(null)
@@ -250,11 +273,19 @@ function sellTypeTag(type: string) {
 
 async function loadFlow() {
   try {
-    const [liveRes, btRes] = await Promise.all([fetch(`${API_BASE}/flow/live`), fetch(`${API_BASE}/flow/backtest`)])
+    const [liveRes, btRes] = await Promise.all([
+      fetch(`${API_BASE}/flow/live?version=${liveVersion.value}`),
+      fetch(`${API_BASE}/flow/backtest`)
+    ])
     liveFlow.value = await liveRes.json()
     backtestFlow.value = await btRes.json()
   } catch (e: any) { ElMessage.error('加载流程数据失败: ' + e.message) }
 }
+
+function onVersionChange() {
+  loadFlow()
+}
+
 async function loadConfig() {
   try { const res = await fetch(`${API_BASE}/config`); configData.value = await res.json() }
   catch (e: any) { ElMessage.error('加载配置数据失败: ' + e.message) }
@@ -278,10 +309,13 @@ onMounted(() => { loadFlow(); loadConfig(); loadExecutions(); loadStats() })
 
 <style scoped>
 .stop-loss-analysis { padding: 20px; }
-.page-header { margin-bottom: 16px; }
+.page-header { margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 .page-header h2 { margin: 0; font-size: 20px; }
+.header-controls { display: flex; align-items: center; gap: 8px; }
+.version-label { font-size: 13px; color: #606266; }
 
 /* 流程左右并排 */
+.flow-version-banner { margin-bottom: 12px; }
 .flow-compare {
   display: grid;
   grid-template-columns: 1fr 1fr;
