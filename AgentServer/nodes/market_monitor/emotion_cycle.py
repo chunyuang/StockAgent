@@ -790,13 +790,15 @@ class EmotionCycleManager:
         
         降级链:
         1. scanner_realtime: 实时必盈涨停池(盘中)
-        2. limit_list(limit="U"): scanner收盘同步写入的涨跌停标记
-        3. stock_daily_ak_full(is_limit_up=1): 东财日线涨跌停标记(阈值9.9%)
-        4. stock_daily_ak_full(pct_chg): 东财日线涨跌幅估算(阈值9.8%)
+        2. limit_list(limit="U") + 日线交叉校验跌停: scanner收盘同步写入
+           ⚠️ limit_list跌停数据不全(只采集涨停池中的跌停),需用日线补全
+        3. stock_daily_ak_full(is_limit_up=1): 东财日线涨跌停标记
+        4. stock_daily_ak_full(pct_chg): 东财日线涨跌幅估算(按板块阈值)
         
         注意: daily_basic没有pct_chg字段,不能用于涨跌停统计!
         注意: tushare_stk_limit只有up_limit/down_limit价格,没有limit标记!
         """
+        from nodes.market_monitor.utils.board_limit import count_limits
         limit_pools = getattr(scanner, '_limit_pools', None) or {}
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
@@ -811,9 +813,21 @@ class EmotionCycleManager:
             ).to_list(length=None)
             limit_ups = await _enrich_limit_times_from_history(db, td_int, limit_ups)
             lu = len(limit_ups)
-            ld = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td_int), "limit": "D"})
+            ld_limit_list = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td_int), "limit": "D"})
             max_lb = max((int(item.get("limit_times") or 0) for item in limit_ups), default=1) if lu > 0 else 1
             data_source = "limit_list"
+            # 【v2.9.115修复】limit_list跌停数据不全(只采集涨停池中的跌停),
+            # 用日线按板块阈值交叉校验跌停数,取较大值
+            lu_daily, ld_daily = await count_limits(db, td_int)
+            if ld_daily > ld_limit_list:
+                ld = ld_daily
+                data_source = "limit_list+daily_xref"
+            else:
+                ld = ld_limit_list
+            # 涨停数也用日线校验(limit_list含盘中触板但收盘未封的)
+            # 但涨停数取limit_list的值更准确(含盘中信息),日线只做下限校验
+            if lu == 0 and lu_daily > 0:
+                lu = lu_daily
         if lu == 0 and ld == 0:
             # 【v2.9.76修复】daily_basic没有pct_chg，改用stock_daily_ak_full
             # is_limit_up/is_limit_down是int(1),不是True/False
@@ -822,9 +836,8 @@ class EmotionCycleManager:
             max_lb = 1
             data_source = "stock_daily_ak_full"
         if lu == 0 and ld == 0:
-            # 最后降级: 用pct_chg估算(9.8%阈值,覆盖9.9%遗漏的)
-            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
-            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
+            # 最后降级: 用board_limit按板块阈值精确统计
+            lu, ld = await count_limits(db, td_int)
             max_lb = 1
             data_source = "stock_daily_ak_full_pct"
         return lu, ld, max_lb, data_source
@@ -906,6 +919,7 @@ class EmotionCycleManager:
             {"trade_date": td_int},
             {"$set": {
                 "trade_date": td_int, "score": score, "period": period,
+                "formula": "5dim",  # 【v2.9.115】明确标注: 5维盘后公式
                 "position_ratio": _get_position_ratio(period),
                 "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
                 "zu": lu, "zd": ld,  # 【v2.9.110】兼容旧字段名

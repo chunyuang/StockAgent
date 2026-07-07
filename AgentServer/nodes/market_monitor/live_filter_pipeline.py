@@ -619,7 +619,7 @@ class LiveFilterPipeline:
         """
         limit_up_count = 0
         limit_down_count = 0
-        from ..utils.board_limit import is_limit_up, is_limit_down
+        from .utils.board_limit import is_limit_up, is_limit_down
         for code, data in realtime_data.items():
             pct = data.get("pct_chg", 0)
             if not isinstance(pct, (int, float)):
@@ -651,7 +651,7 @@ class LiveFilterPipeline:
                     {"trade_date": int(prev_date)},
                     {"ts_code": 1, "pct_chg": 1, "_id": 0}
                 )
-                from ..utils.board_limit import is_limit_up, is_limit_down
+                from .utils.board_limit import is_limit_up, is_limit_down
                 async for doc in cursor:
                     pct = doc.get("pct_chg", 0)
                     code = doc.get("ts_code", "")
@@ -757,7 +757,7 @@ class LiveFilterPipeline:
         except ImportError:
             from ..listener.strategies.emotion_cycle import emotion_cycle_manager
         
-        from ..utils.board_limit import is_limit_up, is_limit_down
+        from .utils.board_limit import is_limit_up, is_limit_down
         limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
             for code, data in realtime_data.items():

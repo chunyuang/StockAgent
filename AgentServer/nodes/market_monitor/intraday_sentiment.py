@@ -100,7 +100,7 @@ class IntradaySentimentCalculator:
                 continue
 
             # 涨停判断: 按板块区分阈值
-            from ..utils.board_limit import get_limit_threshold
+            from .utils.board_limit import get_limit_threshold
             thresh = get_limit_threshold(code)
             lu_thresh, ld_thresh = thresh, -thresh
 

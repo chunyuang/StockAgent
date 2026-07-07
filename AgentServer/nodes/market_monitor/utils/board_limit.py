@@ -32,11 +32,15 @@ def get_limit_threshold(ts_code: str) -> float:
 
 def is_limit_up(ts_code: str, pct_chg: float) -> bool:
     """是否涨停(按板块阈值)"""
+    if not isinstance(pct_chg, (int, float)):
+        return False
     return pct_chg >= get_limit_threshold(ts_code)
 
 
 def is_limit_down(ts_code: str, pct_chg: float) -> bool:
     """是否跌停(按板块阈值)"""
+    if not isinstance(pct_chg, (int, float)):
+        return False
     return pct_chg <= -get_limit_threshold(ts_code)
 
 
@@ -53,6 +57,32 @@ def count_limits(stock_data: dict) -> tuple:
         if not isinstance(data, dict):
             continue
         pct = data.get("pct_chg", data.get("auction_pct", 0))
+        if not isinstance(pct, (int, float)):
+            continue
+        if is_limit_up(code, pct):
+            lu += 1
+        elif is_limit_down(code, pct):
+            ld += 1
+    return lu, ld
+
+
+async def count_limits(db, td_int: int) -> tuple:
+    """从MongoDB统计当日涨跌停数量(按板块阈值)
+
+    Args:
+        db: MongoDB数据库实例
+        td_int: 交易日期(int, 如20260706)
+
+    Returns: (limit_up_count, limit_down_count)
+    """
+    lu, ld = 0, 0
+    cursor = db["stock_daily_ak_full"].find(
+        {"trade_date": td_int, "pct_chg": {"$ne": None}},
+        {"ts_code": 1, "pct_chg": 1, "_id": 0}
+    )
+    async for doc in cursor:
+        code = doc.get("ts_code", "")
+        pct = doc.get("pct_chg", 0)
         if not isinstance(pct, (int, float)):
             continue
         if is_limit_up(code, pct):
