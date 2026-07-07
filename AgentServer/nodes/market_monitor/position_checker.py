@@ -722,7 +722,7 @@ class PositionChecker:
 
     def _place_sell_order(self, pos, reason: str, force_price, risk: Dict) -> Optional[Dict]:
         """下单卖出并返回(ok, msg, order, sell_info)【v2.9.26提取, v2.9.80:用实际成交价计算盈亏】"""
-        sell_qty = pos.available_qty
+        sell_qty = risk.get('_partial_qty', pos.available_qty) if isinstance(risk, dict) else pos.available_qty
         sell_current_price = pos.current_price
         sell_price = force_price if force_price else sell_current_price
         self.broker.update_realtime(pos.ts_code, sell_price)

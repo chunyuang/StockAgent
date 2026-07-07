@@ -43,6 +43,17 @@ _TRAILING_BASE = 0.05  # 统一base=5%
 HIGH_PROFIT_TIGHTEN_THRESHOLD = 8.0  # 盈利≥8%时触发紧缩
 HIGH_PROFIT_TIGHTEN_PCT = 0.03       # 紧缩回撤容忍到3%(从最高价回撤3%即卖出)
 
+# 【v2.9.118】分批止盈: 盈利到达此阈值时卖出半仓锁定利润
+# 数据证据: 追踪止损20笔中6笔(30%)盈利仅0-2%, 被正常波动洗出
+# 分批止盈让8%以上的盈利先落袋一半, 剩余继续追踪
+PARTIAL_TAKE_PROFIT_THRESHOLD = 8.0  # 盈利≥8%时触发分批止盈
+PARTIAL_TAKE_PROFIT_RATIO = 0.5     # 卖出50%仓位
+
+# 【v2.9.118】追踪止损最低激活阈值
+# 旧: halfway_chase trailing_stop_pct=2%, 日内正常波动就激活→6笔0-2%被洗出
+# 新: 最低3%激活, 给盈利更多呼吸空间
+MIN_TRAILING_ACTIVATE_PCT = 3.0  # 最低3%才激活追踪止损
+
 
 def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> float:
     """计算分级追踪止损回撤容忍(模块级函数, position_manager/position_checker共用)
@@ -271,6 +282,11 @@ class PositionManager:
 
             if sell_reason:
                 to_sell.append((pos, sell_reason, sell_price, risk))
+            else:
+                # 【v2.9.118】分批止盈: 盈利≥8%且未触发其他卖出→卖半仓锁定利润
+                partial = self._check_partial_take_profit(pos, risk, take_profit_pct)
+                if partial:
+                    to_sell.append(partial)
 
         return to_sell
     
@@ -284,6 +300,50 @@ class PositionManager:
         if 'take_profit_pct' in pos_overrides:
             risk['take_profit_pct'] = pos_overrides['take_profit_pct']
         return risk
+    
+    def _check_partial_take_profit(self, pos, risk: Dict, take_profit_pct: float) -> Optional[Tuple]:
+        """【v2.9.118】分批止盈: 盈利≥8%时卖出半仓锁定利润
+        
+        数据证据: 追踪止损20笔中6笔(30%)盈利仅0-2%, 被正常波动洗出。
+        3笔盈利≥8%的追踪止损本可等止盈12%, 但被回撤洗出。
+        分批止盈让8%以上的盈利先落袋一半, 剩余继续追踪/止盈。
+        
+        规则:
+        - 盈利≥8%且<止盈线(12%) → 卖50%, 剩余继续持有
+        - 同一持仓只分批一次(用position_risk_overrides标记)
+        - 不影响涨停票(first_limit_up止盈10%, 8%太接近不触发)
+        """
+        if pos.profit_pct < PARTIAL_TAKE_PROFIT_THRESHOLD:
+            return None
+        if pos.profit_pct >= take_profit_pct:
+            return None  # 已到止盈线, 走正常止盈全仓卖出
+        
+        # 检查是否已经分批过
+        ts_code = pos.ts_code
+        with self.state_lock:
+            already_partial = self.position_risk_overrides.get(ts_code, {}).get('_partial_tp_done', False)
+        if already_partial:
+            return None
+        
+        # 计算卖出数量(半仓, 取整到手)
+        lot = 200 if ts_code.startswith('688') else 100
+        sell_qty = (pos.available_qty // 2 // lot) * lot
+        if sell_qty < lot:
+            return None  # 仓位太小无法分批
+        
+        # 标记已分批
+        with self.state_lock:
+            if ts_code not in self.position_risk_overrides:
+                self.position_risk_overrides[ts_code] = {}
+            self.position_risk_overrides[ts_code]['_partial_tp_done'] = True
+        
+        reason = f"分批止盈·盈{pos.profit_pct:+.1f}%≥{PARTIAL_TAKE_PROFIT_THRESHOLD:.0f}% 卖{sell_qty}/{pos.available_qty}股"
+        logger.info(f"[PARTIAL_TP] {ts_code} {reason}")
+        
+        # 返回时用特殊risk标记sell_qty
+        sell_risk = dict(risk)
+        sell_risk['_partial_qty'] = sell_qty
+        return (pos, reason, pos.current_price, sell_risk)
     
     def _check_trailing_stop(self, pos, risk: Dict) -> Tuple:
         """追踪止损检查【v2.9.45提取】
@@ -741,7 +801,8 @@ class PositionManager:
             peak_profit_pct = (state["high_price"] / avg_cost - 1) * 100 if avg_cost > 0 else 0
 
             # 盈利>=激活阈值时激活追踪止损(策略级trailing_stop_pct作激活阈值)
-            activate_threshold = trailing_stop_pct * 100  # 如0.05→5.0
+            # 【v2.9.118】最低激活阈值3%, 避免2%就激活被正常波动洗出
+            activate_threshold = max(trailing_stop_pct * 100, MIN_TRAILING_ACTIVATE_PCT)  # 如max(2,3)=3.0
             if not state["activated"] and profit_pct >= activate_threshold:
                 state["activated"] = True
                 state["activated_at"] = datetime.now().strftime("%H:%M:%S")
@@ -1126,7 +1187,7 @@ class PositionManager:
         for pos, reason, price, risk in to_sell:
             if scanner._loop and not scanner._loop.is_closed():
                 try:
-                    sell_qty = pos.available_qty
+                    sell_qty = risk.get('_partial_qty', pos.available_qty) if isinstance(risk, dict) else pos.available_qty
                     future = asyncio.run_coroutine_threadsafe(
                         self.execute_risk_sell(pos, reason, price, sell_qty),
                         scanner._loop
