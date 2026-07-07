@@ -383,7 +383,7 @@ class IntradaySentimentCalculator:
         """获取最高连板高度(首次从MongoDB读, 后续用缓存)"""
         try:
             from core.managers import mongo_manager
-            from nodes.market_monitor.constants import C
+            from core.constants import C
             if not mongo_manager.is_initialized:
                 return max(1, min(10, limit_up // 5 + 1))
 
