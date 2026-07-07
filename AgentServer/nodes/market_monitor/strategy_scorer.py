@@ -350,7 +350,7 @@ class StrategyScorer:
             col = cond.get("name") or cond.get("column")
             op = cond.get("operator", ">=")
             val = cond["target"] if "target" in cond else cond.get("value")
-            if not col or val is None:
+            if not col or val is None or (isinstance(val, (list, tuple, set)) and len(val) == 0):
                 continue
             if col not in merged_df.columns:
                 missing_cols.append(col)
