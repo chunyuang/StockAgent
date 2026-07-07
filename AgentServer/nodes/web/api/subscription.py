@@ -316,8 +316,9 @@ async def get_subscription_by_type(strategy_type: str = Path(...)):
     
     if not record:
         # 创建默认记录
-        from ..strategy_configs import get_default_params
-        default_params = get_default_params(strategy_type)
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+        cfg = STRATEGY_CONFIGS.get(strategy_type, {})
+        default_params = cfg.get("params", {})
         record = {
             "strategy_type": strategy_type,
             "params": default_params,

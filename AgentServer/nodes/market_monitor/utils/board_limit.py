@@ -32,14 +32,14 @@ def get_limit_threshold(ts_code: str) -> float:
 
 def is_limit_up(ts_code: str, pct_chg: float) -> bool:
     """是否涨停(按板块阈值)"""
-    if not isinstance(pct_chg, (int, float)):
+    if not ts_code or not isinstance(pct_chg, (int, float)):
         return False
     return pct_chg >= get_limit_threshold(ts_code)
 
 
 def is_limit_down(ts_code: str, pct_chg: float) -> bool:
     """是否跌停(按板块阈值)"""
-    if not isinstance(pct_chg, (int, float)):
+    if not ts_code or not isinstance(pct_chg, (int, float)):
         return False
     return pct_chg <= -get_limit_threshold(ts_code)
 

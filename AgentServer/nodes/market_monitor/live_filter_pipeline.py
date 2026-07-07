@@ -752,11 +752,7 @@ class LiveFilterPipeline:
         # ── 优先级2: EmotionCycleManager 5维公式 ──────
         self._last_intraday_dimensions = None  # 标记非盘中模式
         
-        try:
-            from .emotion_cycle import emotion_cycle_manager
-        except ImportError:
-            from ..listener.strategies.emotion_cycle import emotion_cycle_manager
-        
+        from .emotion_cycle import emotion_cycle_manager
         from .utils.board_limit import is_limit_up, is_limit_down
         limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
