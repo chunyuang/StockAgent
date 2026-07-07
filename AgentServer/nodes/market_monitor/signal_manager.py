@@ -554,7 +554,7 @@ class SignalManager:
                 if circ_mv_raw <= 0:
                     circ_mv_raw = getattr(sig, 'circulation_market_cap', 0) or 0
                 # 统一转成亿元: ak_full=万元÷10000, daily_basic=亿元直接用
-                circ_mv = circ_mv_raw / 10000.0 if circ_mv_raw > 10000 else circ_mv_raw
+                circ_mv = circ_mv_raw / 10000.0 if circ_mv_raw >= 10000 else circ_mv_raw
                 if circ_mv > 0:
                     if min_mcap > 0 and circ_mv < min_mcap:
                         reason = f"流通市值{circ_mv:.0f}亿<{min_mcap}亿"
