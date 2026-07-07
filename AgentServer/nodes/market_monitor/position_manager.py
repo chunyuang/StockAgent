@@ -37,6 +37,12 @@ STRATEGY_TRAILING_OFFSETS = {
 _DEFAULT_TRAILING_OFFSETS = (0.00, 0.02, 0.05, 0.08)  # 默认偏移
 _TRAILING_BASE = 0.05  # 统一base=5%
 
+# 【v2.9.116】高盈利紧缩阈值: 盈利超过此值时, 回撤容忍收紧到最紧档
+# 数据证据: 半路追涨止盈触发率仅5%(3/59), 大部分盈利6-8%被追踪止损锁定
+# 修复: 盈利≥8%时不再给宽回撤空间, 收紧保护让利润落袋
+HIGH_PROFIT_TIGHTEN_THRESHOLD = 8.0  # 盈利≥8%时触发紧缩
+HIGH_PROFIT_TIGHTEN_PCT = 0.03       # 紧缩回撤容忍到3%(从最高价回撤3%即卖出)
+
 
 def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> float:
     """计算分级追踪止损回撤容忍(模块级函数, position_manager/position_checker共用)
@@ -44,6 +50,10 @@ def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> floa
     v2.9.114: 策略差异化
     - base统一5%, 策略级trailing_stop_pct只控制激活阈值
     - 不同策略加不同偏移: 涨停票宽追踪/炸板票紧追踪/低吸票中追踪
+    
+    v2.9.116: 高盈利紧缩
+    - 盈利≥8%时回撤容忍收紧到3%, 让利润落袋
+    - 解决半路追涨止盈触发率仅5%的问题(大部分盈利6-8%被宽追踪止损锁定)
     
     Args:
         peak_profit_pct: 从成本价算的峰值利润(如5.0=+5%)
@@ -54,6 +64,12 @@ def calc_tiered_trailing_pct(peak_profit_pct: float, strategy: str = "") -> floa
     # NaN/None安全: 返回最低档(最保守)
     if peak_profit_pct is None or peak_profit_pct != peak_profit_pct:  # NaN != NaN
         return _TRAILING_BASE + _DEFAULT_TRAILING_OFFSETS[0]
+    
+    # 【v2.9.116】高盈利紧缩: 盈利≥8%时收紧到3%
+    # 仅对半路追涨生效(涨停票波动大, 3%回撤太紧会被洗出)
+    if peak_profit_pct >= HIGH_PROFIT_TIGHTEN_THRESHOLD and strategy in ("halfway_chase", "dragon_head", "limit_down_qiao"):
+        return HIGH_PROFIT_TIGHTEN_PCT
+    
     offsets = STRATEGY_TRAILING_OFFSETS.get(strategy, _DEFAULT_TRAILING_OFFSETS)
     if peak_profit_pct < 5:
         return _TRAILING_BASE + offsets[0]
@@ -322,6 +338,19 @@ class PositionManager:
 
         if gap_pct >= TIER_LARGE:
             # 大跳: 立即止损, 不观察
+            # 【v2.9.115】大跳但大盘竞价强势时给5分钟观察(暴跌中也有反弹机会)
+            market_bread = self._get_market_bread()
+            if market_bread > 0.5 and gap_pct < 8.0:
+                # 大盘上涨>0.5%且跳空<8%: 给5分钟观察
+                in_short_observe = (now.hour == 9 and now.minute >= 30 and now.minute < 35)
+                if in_short_observe:
+                    if current_price >= stop_loss_price:
+                        return "cancel"
+                    logger.info(
+                        f"[GAP-OBSERVE] {ts_code} 大跳{gap_pct:+.1f}%但大盘+{market_bread:.1f}% "
+                        f"短观察5min 现价{current_price:.2f}<止损{stop_loss_price:.2f}"
+                    )
+                    return "observe"
             return "execute"
 
         # 中跳/微跳: 判断观察期
@@ -830,6 +859,52 @@ class PositionManager:
     def _get_open_price(self, ts_code: str) -> Optional[float]:
         """获取当日开盘价(委托给scanner)"""
         return self._scanner._get_open_price(ts_code)
+
+    def _get_market_bread(self) -> float:
+        """【v2.9.115】获取市场广度(大盘强弱近似)
+
+        用于跳空止损竞价过滤: 大盘强势时给观察期, 弱势时立即止损。
+
+        Returns:
+            float: 市场平均涨跌幅(%), 正数=大盘上涨, 负数=下跌
+            0.0 = 无法判断或中性
+        """
+        try:
+            cache = getattr(self._scanner, '_realtime_cache', {})
+            if not cache:
+                # fallback: 从 sentiment 读涨跌家数
+                sentiment = getattr(self._scanner, '_current_sentiment', {}) or {}
+                dims = sentiment.get('dimensions', {}) if isinstance(sentiment, dict) else {}
+                up = dims.get('up_count', 0)
+                down = dims.get('down_count', 0)
+                total = up + down
+                if total > 0:
+                    # 涨跌家数比 → 近似涨跌幅
+                    # ratio=1.0(全涨)→+2%, ratio=0.5(平衡)→0%, ratio=0.0(全跌)→-2%
+                    return round((up - down) / total * 2.0, 2)
+                return 0.0
+
+            # 主路径: 从 realtime_cache 算平均 pct_chg
+            pct_chgs = []
+            for code, data in cache.items():
+                pct = data.get('pct_chg')
+                if pct is not None and isinstance(pct, (int, float)) and -21 < pct < 21:
+                    pct_chgs.append(pct)
+
+            if len(pct_chgs) > 100:
+                return round(sum(pct_chgs) / len(pct_chgs), 2)
+
+            # 数据太少, 用 sentiment fallback
+            sentiment = getattr(self._scanner, '_current_sentiment', {}) or {}
+            dims = sentiment.get('dimensions', {}) if isinstance(sentiment, dict) else {}
+            up = dims.get('up_count', 0)
+            down = dims.get('down_count', 0)
+            total = up + down
+            if total > 0:
+                return round((up - down) / total * 2.0, 2)
+            return 0.0
+        except Exception:
+            return 0.0
     
     def _is_limit_down(self, ts_code: str) -> bool:
         """跌停判断(委托给scanner)"""

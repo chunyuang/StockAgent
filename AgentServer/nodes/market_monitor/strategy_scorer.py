@@ -316,6 +316,7 @@ class StrategyScorer:
                 continue
             signals.append(self._build_signal_from_row(
                 row, strategy_key, strategy_name, len(conditions), len(merged_df), len(selected),
+                trade_date=trade_date,
             ))
         return signals, {"strategy": strategy_key, "name": strategy_name,
                           "enabled": True, "conditions": len(conditions),
@@ -376,6 +377,7 @@ class StrategyScorer:
     def _build_signal_from_row(
         self, row, strategy_key: str, strategy_name: str,
         conditions_count: int, candidates_before: int, candidates_after: int,
+        *, trade_date: str = "",
     ) -> ScanSignal:
         """从DataFrame行构建ScanSignal对象"""
         ts_code = row.get("ts_code", "")

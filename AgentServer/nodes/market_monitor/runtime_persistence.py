@@ -643,6 +643,8 @@ class RuntimePersistence:
         if not trace_id:
             import uuid
             trace_id = f"sell-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
+        
+        logger.info(f"[POST_SELL] post_sell_cleanup called: {pos.ts_code} reason={reason} qty={quantity} source={source}")
 
         # Timeline记录
         entry = self.build_timeline_entry(
@@ -728,7 +730,8 @@ class RuntimePersistence:
         以前只有 position_checker._persist_risk_decision 写入，跳空止损走 event 路径丢失。
         """
         from core.managers import mongo_manager
-        if not getattr(mongo_manager, '_initialized', False) or not mongo_manager.db:
+        if not getattr(mongo_manager, '_initialized', False) or not getattr(mongo_manager, 'db', None):
+            logger.warning(f"[RISK_AUDIT] mongo_manager未初始化, 跳过risk_decision: {pos.ts_code} {reason}")
             return
         trade_date = scanner._trade_date or datetime.now().strftime('%Y%m%d')
         td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
@@ -756,11 +759,19 @@ class RuntimePersistence:
             'strategy': getattr(pos, 'strategy', ''),
             'trigger_reason': reason,
             'trigger_price': getattr(pos, 'current_price', 0) or 0,
+            # 兼容字段: 同时写 cost_price(新) 和 avg_cost(旧) 保证前后端一致
             'cost_price': getattr(pos, 'avg_cost', 0) or getattr(pos, 'cost_price', 0) or 0,
+            'avg_cost': getattr(pos, 'avg_cost', 0) or getattr(pos, 'cost_price', 0) or 0,
             'quantity': quantity or 0,
+            # 兼容字段: 同时写 filled_price(新) 和 price(旧)
             'filled_price': getattr(order, 'filled_price', 0) or 0,
+            'price': getattr(order, 'filled_price', 0) or 0,
             'profit_pct': profit_pct or 0,
+            # 盈亏金额(统一字段)
             'profit_loss': round(profit_pct / 100 * (getattr(pos, 'avg_cost', 0) or 0) * (quantity or 0), 2) if profit_pct and quantity else 0,
+            'profit_amount': round(profit_pct / 100 * (getattr(pos, 'avg_cost', 0) or 0) * (quantity or 0), 2) if profit_pct and quantity else 0,
+            # order_id 方便关联
+            'order_id': getattr(order, 'order_id', '') if order else '',
             'trace_id': trace_id,
             'account_id': getattr(scanner, 'account_id', 'default') or 'default',
         }

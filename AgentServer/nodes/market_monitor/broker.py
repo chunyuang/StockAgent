@@ -939,6 +939,8 @@ class SimulatedBroker:
 
         if side_enum == OrderSide.BUY:
             self._execute_buy(order, fill_price, total_cost)
+            # 【修复】买入order写入avg_cost, 供MongoDB持久化(此前order.avg_cost始终=0)
+            order.avg_cost = (fill_price * quantity + total_cost) / quantity
         else:
             self._execute_sell(order, fill_price, total_cost)
 
