@@ -1,5 +1,5 @@
 """
-止损止盈分析 API — 展示策略配置、实盘执行、优化前后对比
+止损止盈分析 API — 展示策略配置、实盘执行、回测对比、优化前后切换
 用于交易归档页面下的止损止盈子页面
 """
 import logging
@@ -13,88 +13,279 @@ router = APIRouter(prefix="/stop-loss-analysis", tags=["StopLossAnalysis"])
 logger = logging.getLogger("api.stop_loss_analysis")
 
 COL_ORDERS = "broker_orders"
-COL_RISK_DECISIONS = "risk_decisions"
 
-# ==================== 优化前后的参数配置 ====================
+# ==================== 回测止损止盈流程 ====================
 
-# 优化前(v2.9.115之前): 固定止损, 无ATR, 无分批止盈
+BACKTEST_FLOW = {
+    "title": "回测引擎止损止盈流程",
+    "engine": "portfolio_backtest.py → _check_stop_loss_take_profit()",
+    "check_frequency": "每日调仓时检查(使用当日OHLCV)",
+    "steps": [
+        {
+            "step": 1,
+            "name": "T+1门控",
+            "desc": "当日买入的股票不可止损/止盈卖出(T+1规则)",
+            "code": "buy_dt == trade_date → skip",
+        },
+        {
+            "step": 2,
+            "name": "冲高回落/利润保护/高开即卖",
+            "desc": "开盘价检查: 高开后回落→以开盘价卖出; 利润保护→以收盘价卖出",
+            "code": "_check_early_sell_signals() → open_p / close_p",
+            "sub_rules": [
+                "冲高回落: 开盘涨幅≥阈值 + 收盘回落→以open卖出",
+                "利润保护: 开盘涨≥2%+收盘涨≥2%+收盘<开盘→以close卖出",
+                "高开即卖: 首板策略开盘涨幅≥阈值→以open卖出",
+                "利润锁定: 盘中冲高≥6%+回撤≥2.5%→以close卖出(不扣滑点)",
+            ],
+        },
+        {
+            "step": 3,
+            "name": "跳空止损",
+            "desc": "开盘价≤止损价→以开盘价卖出",
+            "code": "open_p <= stop_price → 以open卖出",
+        },
+        {
+            "step": 4,
+            "name": "固定止损",
+            "desc": "盘中最低价≤止损价→以止损价卖出(不扣滑点)",
+            "code": "low_p <= stop_price → 以stop_price卖出",
+        },
+        {
+            "step": 5,
+            "name": "止盈",
+            "desc": "盘中最高价≥止盈价→以止盈价卖出",
+            "code": "high_p >= tp_price → 以tp_price卖出",
+        },
+        {
+            "step": 6,
+            "name": "追踪止损(跨日)",
+            "desc": "多日持仓: 峰值利润回撤≥容忍幅度→以收盘价卖出",
+            "code": "hold_days>1 + peak_profit - current >= trailing_pct → 以close卖出",
+            "note": "与实盘对齐: 调用calc_tiered_trailing_pct()计算策略级回撤容忍",
+        },
+        {
+            "step": 7,
+            "name": "超时强卖",
+            "desc": "持仓天数≥max_hold_days→以收盘价卖出",
+            "code": "trade_days_held >= max_hold → 以close卖出",
+        },
+        {
+            "step": 8,
+            "name": "龙头5天低利润",
+            "desc": "龙头低吸策略: 持仓≥5天且利润<3%→以收盘价卖出",
+            "code": "dragon_head + hold>=5 + profit<3% → 以close卖出",
+        },
+    ],
+    "features": [
+        "✅ 止损/止盈卖出不扣滑点(止损价已保守)",
+        "✅ 追踪止损调用实盘同一函数calc_tiered_trailing_pct()",
+        "✅ 策略级参数从strategy_defaults.py读取(单一来源)",
+        "❌ 不支持ATR自适应止损(回测使用固定stop_loss_pct)",
+        "❌ 不支持分批止盈(回测全仓卖出)",
+        "❌ 不支持跳空分级观察期(回测直接以open卖出)",
+        "❌ 不支持高盈利紧缩(回测不检查HIGH_PROFIT_TIGHTEN)",
+    ],
+    "gaps_with_live": [
+        "ATR自适应: 实盘有, 回测无 → 需要对齐",
+        "分批止盈: 实盘有, 回测无 → 需要对齐",
+        "跳空分级观察: 实盘有, 回测无 → 需要对齐",
+        "高盈利紧缩: 实盘有, 回测无 → 需要对齐",
+    ],
+}
+
+# ==================== 实盘止损止盈流程 ====================
+
+LIVE_FLOW = {
+    "title": "实盘止损止盈流程",
+    "engine": "position_manager.py + position_checker.py + risk_loop_runner.py",
+    "check_frequency": "1秒级(风控线程) + 30秒级(快速检查) + 5分钟级(完整检查)",
+    "steps": [
+        {
+            "step": 1,
+            "name": "T+1门控",
+            "desc": "当日买入的股票不可止损/止盈卖出(T+1规则)",
+            "code": "available_qty == 0 → skip",
+        },
+        {
+            "step": 2,
+            "name": "跌停不可卖处理",
+            "desc": "当前价触及跌停板→挂起pending_sells, 等可卖时再执行",
+            "code": "_handle_limit_down() → pending_sells",
+            "frequency": "1秒级",
+        },
+        {
+            "step": 3,
+            "name": "跳空止损(分级观察)",
+            "desc": "开盘价<止损价→按跳空幅度分级处理",
+            "code": "_check_gap_stop_with_tiered_observation()",
+            "frequency": "1秒级",
+            "sub_rules": [
+                "微跳(<3%): 观察30分钟, 期间价格回升→取消止损",
+                "中跳(3-5%): 观察10分钟",
+                "大跳(>5%): 立即止损; 但大盘涨幅>0.5%且跳空<8%→观察5分钟",
+                "极大跳(>8%): 立即止损, 不给观察期",
+            ],
+        },
+        {
+            "step": 4,
+            "name": "固定止损(ATR自适应)",
+            "desc": "盈亏≤-止损线→以当前价卖出",
+            "code": "profit_pct <= -stop_loss_pct → 以current_price卖出",
+            "frequency": "1秒级",
+            "note": "v2.9.119: stop_loss_pct = min(max(策略下限, 1.2×ATR14%), 策略上限)",
+        },
+        {
+            "step": 5,
+            "name": "追踪止损(分级+紧缩)",
+            "desc": "峰值利润回撤≥容忍幅度→以当前价卖出",
+            "code": "_check_trailing_stop() → calc_tiered_trailing_pct()",
+            "frequency": "1秒级",
+            "sub_rules": [
+                "激活阈值: max(策略trailing_stop_pct, 3%) (v2.9.118提高)",
+                "回撤容忍: 5策略差异化偏移表 STRATEGY_TRAILING_OFFSETS",
+                "高盈利紧缩: 盈利≥8%时回撤收紧到3% (v2.9.116)",
+            ],
+        },
+        {
+            "step": 6,
+            "name": "分批止盈",
+            "desc": "盈利≥8%且<止盈线→卖出50%仓位锁定利润",
+            "code": "_check_partial_take_profit() → 卖half qty",
+            "frequency": "30秒级/5分钟级",
+            "note": "v2.9.118新增, 同一持仓只分批一次",
+        },
+        {
+            "step": 7,
+            "name": "止盈",
+            "desc": "盈亏≥止盈线→以当前价全仓卖出",
+            "code": "profit_pct >= take_profit_pct → 全仓卖出",
+            "frequency": "30秒级/5分钟级",
+        },
+        {
+            "step": 8,
+            "name": "冲高回落/利润保护/利润锁定",
+            "desc": "次日高开后回落/盘中冲高回撤→卖出",
+            "code": "_check_intraday_rules()",
+            "frequency": "5分钟级",
+            "sub_rules": [
+                "冲高回落: 开盘涨≥阈值+收盘回落→以开盘价卖出",
+                "利润保护: 开盘涨≥2%+收盘涨≥2%+收盘<开盘→卖出",
+                "利润锁定: 盘中冲高≥6%+回撤≥2.5%→以收盘价卖出",
+            ],
+        },
+        {
+            "step": 9,
+            "name": "超时强卖",
+            "desc": "持仓天数≥max_hold_days→以当前价卖出",
+            "code": "check_timeout_sell()",
+            "frequency": "5分钟级",
+        },
+        {
+            "step": 10,
+            "name": "强制空仓",
+            "desc": "特殊时期(熔断/情绪极端)→所有持仓强制卖出",
+            "code": "execute_sell_list_from_risk() → 全部清仓",
+            "frequency": "5分钟级",
+        },
+    ],
+    "features": [
+        "✅ ATR自适应止损(v2.9.119): 1.2×ATR14%, 策略3-8%范围, 封顶6%",
+        "✅ 分批止盈(v2.9.118): 盈利≥8%卖50%, 剩余继续持有",
+        "✅ 跳空分级观察(v2.9.112-115): 微跳30min/中跳10min/大跳5min+大盘过滤",
+        "✅ 高盈利紧缩(v2.9.116): 盈利≥8%回撤收紧到3%",
+        "✅ 分级追踪止损(v2.9.114): 5策略差异化偏移",
+        "✅ 追踪止损激活阈值提高(v2.9.118): 2%→3%",
+        "✅ 跌停不可卖挂起(保护性)",
+        "✅ 非连续竞价门控(仅早盘/午盘/尾盘可卖)",
+    ],
+}
+
+
+# ==================== 优化前后配置 ====================
+
 PRE_OPTIMIZATION_CONFIG = {
     "version": "v2.9.115 (优化前)",
     "stop_loss": {
+        "name": "止损",
         "type": "固定止损",
         "default_pct": 3.0,
         "strategy_pct": {
-            "halfway_chase": 3.0,
-            "first_limit_up": 3.5,
-            "limit_up_open": 5.0,
-            "dragon_head": 3.0,
-            "limit_down_qiao": 5.0,
+            "半路追涨": 3.0,
+            "首板打板": 3.5,
+            "涨停炸板": 5.0,
+            "龙头低吸": 3.0,
+            "跌停翘板": 5.0,
         },
         "atr_adaptive": False,
         "description": "所有股票统一固定止损百分比, 不考虑个股波动率差异",
     },
     "take_profit": {
+        "name": "止盈",
         "type": "固定止盈",
         "default_pct": 7.0,
         "strategy_pct": {
-            "halfway_chase": 12.0,
-            "first_limit_up": 10.0,
-            "limit_up_open": 6.0,
-            "dragon_head": 30.0,
-            "limit_down_qiao": 20.0,
+            "半路追涨": 12.0,
+            "首板打板": 10.0,
+            "涨停炸板": 6.0,
+            "龙头低吸": 30.0,
+            "跌停翘板": 20.0,
         },
         "partial_take_profit": False,
         "description": "到达止盈线一次性全部卖出",
     },
     "trailing_stop": {
-        "type": "追踪止损",
+        "name": "追踪止损",
+        "type": "统一回撤追踪",
         "base_pct": 5.0,
         "activate_threshold": {
-            "halfway_chase": 2.0,
-            "first_limit_up": 2.0,
-            "limit_up_open": 2.0,
-            "dragon_head": 3.0,
-            "limit_down_qiao": 4.0,
+            "半路追涨": 2.0,
+            "首板打板": 2.0,
+            "涨停炸板": 2.0,
+            "龙头低吸": 3.0,
+            "跌停翘板": 4.0,
         },
-        "strategy_offsets": "无差异化(统一5%base)",
+        "strategy_offsets": "无差异化(统一5%基准)",
         "high_profit_tighten": False,
         "description": "盈利达激活阈值后, 从最高价回撤5%触发卖出",
     },
     "gap_stop": {
-        "type": "跳空止损",
-        "observation_period": "无观察期, 立即止损",
+        "name": "跳空止损",
+        "type": "立即执行",
+        "observation_period": "无观察期, 开盘价低于止损价立即以开盘价卖出",
         "market_filter": False,
-        "description": "开盘价低于止损价立即以开盘价卖出",
+        "description": "不区分跳空幅度, 不考虑大盘强弱, 一律立即止损",
     },
 }
 
-# 优化后(v2.9.119): ATR自适应 + 分批止盈 + 高盈利紧缩 + 分级追踪
 POST_OPTIMIZATION_CONFIG = {
     "version": "v2.9.119 (优化后)",
     "stop_loss": {
+        "name": "止损",
         "type": "ATR自适应止损",
         "default_pct": 3.0,
         "atr_multiplier": 1.2,
         "atr_period": 14,
         "strategy_atr_ranges": {
-            "halfway_chase": {"min": 3.0, "max": 6.0},
-            "first_limit_up": {"min": 3.5, "max": 7.0},
-            "limit_up_open": {"min": 4.0, "max": 7.0},
-            "dragon_head": {"min": 3.0, "max": 7.0},
-            "limit_down_qiao": {"min": 5.0, "max": 8.0},
+            "半路追涨": {"min": 3.0, "max": 6.0},
+            "首板打板": {"min": 3.5, "max": 7.0},
+            "涨停炸板": {"min": 4.0, "max": 7.0},
+            "龙头低吸": {"min": 3.0, "max": 7.0},
+            "跌停翘板": {"min": 5.0, "max": 8.0},
         },
         "atr_adaptive": True,
-        "description": "stop_loss = min(max(strategy_min, 1.2*ATR14%), strategy_max), 封顶防止高波动股单笔亏损过大",
+        "description": "止损幅度 = min(max(策略下限, 1.2×ATR14%), 策略上限), 封顶防止高波动股单笔亏损过大",
     },
     "take_profit": {
+        "name": "止盈",
         "type": "分批止盈",
         "default_pct": 7.0,
         "strategy_pct": {
-            "halfway_chase": 12.0,
-            "first_limit_up": 10.0,
-            "limit_up_open": 6.0,
-            "dragon_head": 30.0,
-            "limit_down_qiao": 20.0,
+            "半路追涨": 12.0,
+            "首板打板": 10.0,
+            "涨停炸板": 6.0,
+            "龙头低吸": 30.0,
+            "跌停翘板": 20.0,
         },
         "partial_take_profit": True,
         "partial_threshold": 8.0,
@@ -102,34 +293,37 @@ POST_OPTIMIZATION_CONFIG = {
         "description": "盈利≥8%先卖50%锁定利润, 剩余继续持有等止盈或追踪止损",
     },
     "trailing_stop": {
+        "name": "追踪止损",
         "type": "分级追踪止损",
         "base_pct": 5.0,
         "min_activate_pct": 3.0,
         "activate_threshold": {
-            "halfway_chase": "max(2%, 3%)=3%",
-            "first_limit_up": "max(2%, 3%)=3%",
-            "limit_up_open": "max(2%, 3%)=3%",
-            "dragon_head": "max(3%, 3%)=3%",
-            "limit_down_qiao": "max(4%, 3%)=4%",
+            "半路追涨": "max(2%, 3%) = 3%",
+            "首板打板": "max(2%, 3%) = 3%",
+            "涨停炸板": "max(2%, 3%) = 3%",
+            "龙头低吸": "max(3%, 3%) = 3%",
+            "跌停翘板": "max(4%, 3%) = 4%",
         },
         "strategy_offsets": {
-            "first_limit_up": [0.03, 0.06, 0.10, 0.13],
-            "limit_up_open": [0.00, 0.03, 0.06, 0.09],
-            "dragon_head": [0.02, 0.04, 0.07, 0.10],
-            "halfway_chase": [0.01, 0.03, 0.06, 0.09],
-            "limit_down_qiao": [0.00, 0.02, 0.05, 0.08],
+            "首板打板": "+3/+6/+10/+13%",
+            "涨停炸板": "+0/+3/+6/+9%",
+            "龙头低吸": "+2/+4/+7/+10%",
+            "半路追涨": "+1/+3/+6/+9%",
+            "跌停翘板": "+0/+2/+5/+8%",
         },
         "high_profit_tighten": True,
         "high_profit_threshold": 8.0,
         "high_profit_tighten_pct": 3.0,
-        "description": "盈利≥3%激活; 5策略差异化回撤; 盈利≥8%回撤收紧到3%",
+        "description": "盈利≥3%激活; 5策略差异化回撤偏移; 盈利≥8%回撤收紧到3%",
     },
     "gap_stop": {
+        "name": "跳空止损",
         "type": "分级跳空止损",
         "observation_period": {
-            "micro_gap": "<3% → 观察30min",
-            "medium_gap": "3-5% → 观察10min",
-            "large_gap": ">5% → 立即止损(大盘强势>0.5%且跳空<8%时观察5min)",
+            "微跳(<3%)": "观察30分钟, 期间价格回升到止损线上方→取消止损",
+            "中跳(3-5%)": "观察10分钟",
+            "大跳(5-8%)": "立即止损; 但大盘涨幅>0.5%且跳空<8%→观察5分钟",
+            "极大跳(≥8%)": "立即止损, 不给观察期",
         },
         "market_filter": True,
         "description": "按跳空幅度分级处理, 大盘强势时给观察期避免误杀",
@@ -139,19 +333,33 @@ POST_OPTIMIZATION_CONFIG = {
 
 # ==================== 响应模型 ====================
 
-class StopLossConfigItem(BaseModel):
-    """止损止盈配置项"""
+class FlowStep(BaseModel):
+    step: int
+    name: str
+    desc: str
+    code: str = ""
+    frequency: str = ""
+    note: str = ""
+    sub_rules: List[str] = []
+
+class FlowInfo(BaseModel):
+    title: str
+    engine: str
+    check_frequency: str
+    steps: List[FlowStep]
+    features: List[str]
+    gaps_with_live: List[str] = []
+
+class ConfigItem(BaseModel):
     category: str
+    name: str
     pre_optimization: dict
     post_optimization: dict
 
-
-class StopLossExecution(BaseModel):
-    """实盘止损止盈执行记录"""
+class ExecutionRecord(BaseModel):
     ts_code: str = ""
     stock_name: str = ""
     strategy: str = ""
-    side: str = ""
     filled_price: float = 0
     filled_qty: int = 0
     profit_pct: float = 0
@@ -159,40 +367,46 @@ class StopLossExecution(BaseModel):
     reason: str = ""
     trade_date: int = 0
     fill_time: str = ""
-    sell_type: str = ""  # 跳空止损/固定止损/追踪止损/止盈/冲高回落/分批止盈/强制空仓
+    sell_type: str = ""
 
-
-class StopLossStats(BaseModel):
-    """止损止盈统计"""
+class StatsResponse(BaseModel):
     total_sells: int = 0
     total_pnl: float = 0
     win_rate: float = 0
     by_type: List[dict] = []
 
 
-class StopLossAnalysisResponse(BaseModel):
-    """止损止盈分析响应"""
-    config: List[StopLossConfigItem] = []
-    executions: List[StopLossExecution] = []
-    stats: StopLossStats = StopLossStats()
-
-
 # ==================== API ====================
 
-@router.get("/config", response_model=List[StopLossConfigItem])
+@router.get("/flow/backtest", response_model=FlowInfo)
+async def get_backtest_flow():
+    """获取回测引擎止损止盈流程"""
+    return FlowInfo(**BACKTEST_FLOW)
+
+
+@router.get("/flow/live", response_model=FlowInfo)
+async def get_live_flow():
+    """获取实盘止损止盈流程"""
+    return FlowInfo(**LIVE_FLOW)
+
+
+@router.get("/config", response_model=List[ConfigItem])
 async def get_stop_loss_config():
     """获取止损止盈配置(优化前后对比)"""
     items = []
     for category in ["stop_loss", "take_profit", "trailing_stop", "gap_stop"]:
-        items.append(StopLossConfigItem(
+        pre = PRE_OPTIMIZATION_CONFIG.get(category, {})
+        post = POST_OPTIMIZATION_CONFIG.get(category, {})
+        items.append(ConfigItem(
             category=category,
-            pre_optimization=PRE_OPTIMIZATION_CONFIG.get(category, {}),
-            post_optimization=POST_OPTIMIZATION_CONFIG.get(category, {}),
+            name=pre.get("name", category),
+            pre_optimization=pre,
+            post_optimization=post,
         ))
     return items
 
 
-@router.get("/executions", response_model=List[StopLossExecution])
+@router.get("/executions", response_model=List[ExecutionRecord])
 async def get_stop_loss_executions(
     trade_date: Optional[int] = Query(default=None, description="交易日, 不传则返回全部"),
     limit: int = Query(default=200, ge=1, le=500),
@@ -206,12 +420,10 @@ async def get_stop_loss_executions(
     results = []
     async for doc in cursor:
         reason = doc.get("reason", "") or ""
-        sell_type = _classify_sell_reason(reason)
-        results.append(StopLossExecution(
+        results.append(ExecutionRecord(
             ts_code=doc.get("ts_code", ""),
             stock_name=doc.get("stock_name", ""),
-            strategy=doc.get("strategy", ""),
-            side=doc.get("side", ""),
+            strategy=_strategy_cn_name(doc.get("strategy", "")),
             filled_price=doc.get("filled_price", 0) or 0,
             filled_qty=doc.get("filled_qty", 0) or 0,
             profit_pct=doc.get("profit_pct", 0) or 0,
@@ -219,12 +431,12 @@ async def get_stop_loss_executions(
             reason=reason,
             trade_date=int(doc.get("trade_date", 0) or 0),
             fill_time=str(doc.get("fill_time", "") or doc.get("created_at", "")),
-            sell_type=sell_type,
+            sell_type=_classify_sell_reason(reason),
         ))
     return results
 
 
-@router.get("/stats", response_model=StopLossStats)
+@router.get("/stats", response_model=StatsResponse)
 async def get_stop_loss_stats(
     trade_date: Optional[int] = Query(default=None, description="交易日, 不传则返回全部"),
 ):
@@ -241,7 +453,6 @@ async def get_stop_loss_stats(
             "profit_amount": doc.get("profit_amount", 0) or 0,
             "profit_pct": doc.get("profit_pct", 0) or 0,
             "sell_type": _classify_sell_reason(reason),
-            "reason": reason,
         })
 
     total = len(sells)
@@ -249,7 +460,6 @@ async def get_stop_loss_stats(
     wins = sum(1 for s in sells if s["profit_amount"] > 0)
     win_rate = (wins / total * 100) if total > 0 else 0
 
-    # 按类型分组
     type_map = {}
     for s in sells:
         st = s["sell_type"]
@@ -271,12 +481,26 @@ async def get_stop_loss_stats(
             "avg_pct": round(v["avg_pct"] / v["count"], 1) if v["count"] else 0,
         })
 
-    return StopLossStats(
+    return StatsResponse(
         total_sells=total,
         total_pnl=round(total_pnl, 0),
         win_rate=round(win_rate, 1),
         by_type=by_type,
     )
+
+
+# ==================== 工具函数 ====================
+
+_STRATEGY_CN_MAP = {
+    "halfway_chase": "半路追涨",
+    "first_limit_up": "首板打板",
+    "limit_up_open": "涨停炸板",
+    "dragon_head": "龙头低吸",
+    "limit_down_qiao": "跌停翘板",
+}
+
+def _strategy_cn_name(name: str) -> str:
+    return _STRATEGY_CN_MAP.get(name, name)
 
 
 def _classify_sell_reason(reason: str) -> str:
