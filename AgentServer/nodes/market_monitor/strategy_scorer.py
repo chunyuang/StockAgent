@@ -294,7 +294,7 @@ class StrategyScorer:
                                "enabled": False, "candidates": 0, "after_existing": 0})
                 continue
             selected_signals, info = self._run_one_strategy(
-                bt, merged_df, strategy_key, cfg, existing_positions)
+                bt, merged_df, strategy_key, cfg, existing_positions, trade_date=trade_date)
             signals.extend(selected_signals)
             funnel.append(info)
 
@@ -302,7 +302,7 @@ class StrategyScorer:
         self._log_strategy_funnel(merged_df, funnel, signals)
         return signals
 
-    def _run_one_strategy(self, bt, merged_df, strategy_key, cfg, existing_positions):
+    def _run_one_strategy(self, bt, merged_df, strategy_key, cfg, existing_positions, *, trade_date: str = ""):
         """执行单个策略筛选, 返回(signals, funnel_info)【v2.9.105提取】"""
         strategy_name = cfg.get("name", strategy_key)
         params = cfg.get("params", {})
