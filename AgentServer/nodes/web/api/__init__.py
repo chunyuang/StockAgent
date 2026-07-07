@@ -16,11 +16,12 @@ from .strategy_config import router as strategy_config_router
 from .datasource import router as datasource_router
 from .factor import router as factor_router
 from .trading_archive import router as trading_archive_router
+from .stop_loss_analysis import router as stop_loss_analysis_router
 
 __all__ = [
     "auth_router", "user_router", "task_router", "stock_router",
     "market_router", "subscription_router", "backtest_router",
     "trading_router", "system_router",
     "scanner_router", "strategy_config_router", "datasource_router",
-    "factor_router", "trading_archive_router",
+    "factor_router", "trading_archive_router", "stop_loss_analysis_router",
 ]

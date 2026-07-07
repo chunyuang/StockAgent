@@ -53,6 +53,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '交易归档' },
       },
       {
+        path: 'stop-loss-analysis',
+        name: 'StopLossAnalysis',
+        component: () => import('@/views/archive/StopLossAnalysisView.vue'),
+        meta: { title: '止损止盈分析' },
+      },
+      {
         path: 'system/status',
         name: 'SystemStatus',
         component: () => import('@/views/system/SystemStatusView.vue'),
