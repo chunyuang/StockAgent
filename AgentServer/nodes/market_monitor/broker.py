@@ -225,6 +225,18 @@ class SimulatedBroker:
             
             # 2. 写入/更新持仓 (upsert by ts_code)
             if position is not None:
+                # 【v2.9.120修复】计算策略级止损/止盈价(与_save_positions_to_mongo对齐)
+                # 旧: getattr(position, 'stop_loss_price', 0) → Position无此属性→始终=0
+                # 异步save_state会覆盖正确值, 但同步路径先写入→短暂窗口内MongoDB中止损价=0
+                _sl_pct = GLOBAL_RISK.get("stop_loss_pct", 0.03) if GLOBAL_RISK else 0.03
+                _tp_pct = GLOBAL_RISK.get("take_profit_pct", 0.07) if GLOBAL_RISK else 0.07
+                try:
+                    from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+                    _risk_params = STRATEGY_CONFIGS.get(position.strategy, {}).get("riskParams", {})
+                    _sl_pct = _risk_params.get("stop_loss_pct", _sl_pct)
+                    _tp_pct = _risk_params.get("take_profit_pct", _tp_pct)
+                except Exception:
+                    pass
                 pos_doc = {
                     "account_id": account_id,
                     "ts_code": position.ts_code,
@@ -237,8 +249,8 @@ class SimulatedBroker:
                     "market_value": position.current_price * position.total_qty if position.current_price > 0 else position.avg_cost * position.total_qty,
                     "strategy": position.strategy,
                     "buy_date": position.buy_date,
-                    "stop_loss_price": getattr(position, 'stop_loss_price', 0),
-                    "take_profit_price": getattr(position, 'take_profit_price', 0),
+                    "stop_loss_price": round(position.avg_cost * (1 - _sl_pct), 2) if position.avg_cost > 0 else 0,
+                    "take_profit_price": round(position.avg_cost * (1 + _tp_pct), 2) if position.avg_cost > 0 else 0,
                 }
                 db["broker_positions"].update_one(
                     {"account_id": account_id, "ts_code": position.ts_code},
@@ -338,8 +350,10 @@ class SimulatedBroker:
             try:
                 from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
                 strat_cfg = STRATEGY_CONFIGS.get(pos.strategy, {})
-                stop_loss_pct = strat_cfg.get("stop_loss_pct", stop_loss_pct)
-                take_profit_pct = strat_cfg.get("take_profit_pct", take_profit_pct)
+                # 【v2.9.120修复】从riskParams子字典读取策略级止损/止盈(此前读顶层=None→fallback全局默认)
+                risk_params = strat_cfg.get("riskParams", {})
+                stop_loss_pct = risk_params.get("stop_loss_pct", stop_loss_pct)
+                take_profit_pct = risk_params.get("take_profit_pct", take_profit_pct)
             except Exception as _e:
                 logger.debug(f"[GUARD] broker: {_e}")
 
