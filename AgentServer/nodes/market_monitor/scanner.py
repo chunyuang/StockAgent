@@ -195,6 +195,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     _risk_thread_restarts: int = 0
     _prefetch_thread = None  # 【v2.9.112】行情预取线程
     _prefetch_running: bool = False  # 【v2.9.112】行情预取控制标志
+    _prefetch_in_progress: bool = False  # 【v2.9.112】防重入标志
     _cache_lock = None
     _state_lock: threading.Lock = None  # type: ignore[assignment]  # 初始化在__init__中完成
     _loop = None
@@ -1609,12 +1610,16 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 # 30秒刷新一次行情(用东财TTL缓存: <5秒返回缓存, >5秒才拉API)
                 if self._loop and not self._loop.is_closed() and self._quote_manager:
                     quote_age = time.monotonic() - getattr(self._quote_manager, '_last_fetch_time', 0)
-                    if quote_age > 25:  # 缓存>25秒才拉(留5秒余量)
-                        future = asyncio.run_coroutine_threadsafe(
-                            self._fetch_realtime_batch(force=False),
-                            self._loop
-                        )
-                        future.result(timeout=15)  # 最多等15秒
+                    if quote_age > 25 and not self._prefetch_in_progress:  # 防重入
+                        self._prefetch_in_progress = True
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                self._fetch_realtime_batch(force=False),
+                                self._loop
+                            )
+                            future.result(timeout=15)  # 最多等15秒
+                        finally:
+                            self._prefetch_in_progress = False
             except Exception as e:
                 logger.debug(f"[PREFETCH] 行情预取异常(非致命): {e}")
 

@@ -245,6 +245,10 @@ class StrategyScorer:
         high_today = merged.get("high", pd.Series(0, index=merged.index)).fillna(0)
         high_prev = merged.get("high_daily", pd.Series(0, index=merged.index)).fillna(0)  # T-1日high(如有)
 
+        # fallback: high_today=0时用pre_close(盘中开盘前可能没high)
+        if high_today.sum() == 0 and "pre_close" in merged.columns:
+            high_today = merged["pre_close"].fillna(0)
+
         # 使用近2日high的max作为峰值(近似rolling_10_high)
         # 注意: 理想情况应加载10日数据, 但load_daily_factors只加载1日
         # 2日近似足够捕捉短期回调(龙头股回调通常1-5天)

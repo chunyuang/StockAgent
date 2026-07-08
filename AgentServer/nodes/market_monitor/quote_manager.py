@@ -506,7 +506,7 @@ class QuoteManager:
             }
         # 更新本地缓存
         self._realtime_cache = realtime
-        self._last_fetch_time = time.time()
+        self._last_fetch_time = time.monotonic()  # 【v2.9.112修复】统一用monotonic(与L365/L382一致)
         return realtime
 
     def get_cached_price(self, ts_code: str) -> Optional[float]:

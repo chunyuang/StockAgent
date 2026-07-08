@@ -113,12 +113,18 @@ class SignalManager:
         await self._process_new_signals(added, scan_time)
 
     async def _expire_old_signals(self) -> None:
-        """过期信号清理【v2.9.43从update_signals提取】"""
+        """过期信号清理【v2.9.43从update_signals提取, v2.9.112:跌停翘板延长过期】"""
         scanner = self._scanner
         SIGNAL_EXPIRE_SECONDS = scanner.SIGNAL_EXPIRE_SECONDS
         now = time.time()
         for s in self.active_signals:
-            if s.created_at > 0 and (now - s.created_at) > SIGNAL_EXPIRE_SECONDS:
+            # 【v2.9.112】limit_down_qiao信号延长过期: 竞价/午休产生的信号保留到下一交易时段
+            # 根因: 竞价扫描9:15-9:25产生信号, 9:30才连续竞价, 300秒不够等
+            if s.strategy == "limit_down_qiao":
+                expire_seconds = 1800  # 30分钟(覆盖竞价→开盘+午休→下午)
+            else:
+                expire_seconds = SIGNAL_EXPIRE_SECONDS
+            if s.created_at > 0 and (now - s.created_at) > expire_seconds:
                 if s.signal_status == "new":
                     s.signal_status = "expired"
                     logger.debug(f"[SIGNAL] 过期: {s.ts_code} {s.strategy_name} ({now - s.created_at:.0f}s)")
@@ -343,8 +349,22 @@ class SignalManager:
             phase = MarketPhase.classify()
             trading_phases = {MarketPhase.MORNING, MarketPhase.AFTERNOON, MarketPhase.LATE_TRADING}
             if phase not in trading_phases:
+                # 【v2.9.112】limit_down_qiao竞价信号: 不blocked, 保留到开盘后执行
+                # 根因: 竞价9:15-9:25发现跌停翘板, 9:30才可下单, 信号300秒后过期→0成交
+                # 修复: 竞价/午休阶段limit_down_qiao信号保持"new"状态, 延长过期到30分钟
+                blocked_count = 0
                 for sig in signals:
+                    if sig.strategy == "limit_down_qiao" and phase in (MarketPhase.AUCTION, MarketPhase.LUNCH):
+                        sig.layer_trace = sig.layer_trace or {}
+                        sig.layer_trace["execution"] = {
+                            "mode": "deferred_to_trading",
+                            "reason": f"跌停翘板信号延退至交易时段执行(当前={phase})",
+                            "phase": phase,
+                        }
+                        logger.info(f"[SIGNAL] 跌停翘板信号延退: {sig.ts_code} {sig.stock_name} (当前{phase}, 等9:30开盘)")
+                        continue  # 不blocked, 保持new状态
                     sig.signal_status = "blocked"
+                    blocked_count += 1
                     sig.layer_trace = sig.layer_trace or {}
                     sig.layer_trace["execution"] = {
                         "mode": "non_trading_hours",
@@ -356,8 +376,10 @@ class SignalManager:
                             sig.strategy_name, f"非交易时间({phase}), 不下单", sig)
                     except Exception as _e:
                         logger.debug(f"[GUARD] signal_manager: {_e}")
-                logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
-                return
+                # 只有全部信号被blocked才return; 延退的信号需要继续推送+持久化
+                if blocked_count == len(signals):
+                    logger.warning(f"[EXEC] 非交易时间({phase}), 跳过{len(signals)}个信号的下单")
+                    return
             # 【v2.9.110】尾盘禁止新开仓: 过滤buy信号,保留sell信号
             if phase == MarketPhase.LATE_TRADING:
                 buy_signals = [s for s in signals if s.signal_type == "buy"]

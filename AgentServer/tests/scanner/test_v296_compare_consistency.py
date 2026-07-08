@@ -175,6 +175,7 @@ class TestCompareModeConsistency:
         # 两种路径都应检测到止损
         stop_loss_price = pm.calc_stop_loss_price(positions[0], {
             'stop_loss_pct': 0.03,
+            '_atr_stop_pct': 3.0,  # 显式提供ATR pct避免mock问题
         })
         assert stop_loss_price > 0, "止损价应有效"
         assert positions[0].current_price < stop_loss_price, "当前价应低于止损价(触发止损)"
@@ -394,7 +395,7 @@ class TestCalcStopLossTakeProfitDelegation:
         pm = PositionManager(scanner)
         
         pos = MockPosition(avg_cost=10.0)
-        risk = {'stop_loss_pct': 0.03}
+        risk = {'stop_loss_pct': 0.03, '_atr_stop_pct': 3.0}  # 显式提供ATR pct避免mock问题
         
         price = pm.calc_stop_loss_price(pos, risk)
         assert price == 9.7  # 10 * (1 - 0.03) = 9.7

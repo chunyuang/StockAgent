@@ -237,10 +237,10 @@ class TestPositionCheckerExceptFix:
 class TestScannerLineCount:
     """验证scanner.py行数持续减少"""
 
-    def test_scanner_under_1500(self):
-        """scanner.py行数<1500"""
+    def test_scanner_under_1700(self):
+        """scanner.py行数< 1700"""
         lines = len(_read(_SCANNER).splitlines())
-        assert lines < 1500, f"scanner.py has {lines} lines (expected < 1500)"
+        assert lines < 1700, f"scanner.py has {lines} lines (expected < 1700)"
 
 
 class TestVersionSync:

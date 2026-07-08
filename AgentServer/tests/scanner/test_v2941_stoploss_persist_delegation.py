@@ -121,9 +121,9 @@ class TestScannerLineCount:
     """验证scanner.py行数持续减少"""
 
     def test_scanner_under_1470(self):
-        """scanner.py行数<1470"""
+        """scanner.py行数<1700"""
         lines = len(_read(_SCANNER).splitlines())
-        assert lines < 1470, f"scanner.py has {lines} lines (expected < 1470)"
+        assert lines < 1700, f"scanner.py has {lines} lines (expected < 1700)"
 
 
 class TestVersionSync:

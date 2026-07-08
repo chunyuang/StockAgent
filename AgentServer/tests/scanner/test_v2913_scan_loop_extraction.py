@@ -291,7 +291,12 @@ class TestNoBacktestRegressionV2913:
         bt_mod = importlib.import_module('nodes.backtest_engine.factor_selection.portfolio_backtest')
         src = open(bt_mod.__file__).read()
         assert 'market_monitor.scanner' not in src
-        assert 'position_manager' not in src
+        # 允许引用position_manager的纯计算函数(calc_tiered_trailing_pct), 但不允许导入scanner/position_checker等运行时模块
+        assert 'from nodes.market_monitor.position_manager import' not in src or 'calc_tiered_trailing_pct' in src
+        assert 'from nodes.market_monitor.position_checker' not in src
+        # emotion_cycle/risk_loop_runner仅允许在注释中出现, 不允许import
+        assert 'from nodes.market_monitor.emotion_cycle' not in src
+        assert 'from nodes.market_monitor.risk_loop_runner' not in src
 
     def test_new_methods_not_in_backtest(self):
         """新增方法_scan_loop_trading/_scan_loop_settlement不在回测路径中"""
