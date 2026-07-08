@@ -132,8 +132,6 @@ class ScanLoopRunner:
             else:
                 logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
                 await asyncio.sleep(30)
-            logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
-            await asyncio.sleep(30)
         try:
             if self._loop and not self._loop.is_closed():
                 self._loop.call_soon_threadsafe(

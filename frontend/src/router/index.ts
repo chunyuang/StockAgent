@@ -71,6 +71,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据库管理' },
       },
       {
+        path: 'scan-insight',
+        name: 'ScanInsight',
+        component: () => import('@/views/scan/ScanInsightView.vue'),
+        meta: { title: '数据扫描' },
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/SettingsView.vue'),
