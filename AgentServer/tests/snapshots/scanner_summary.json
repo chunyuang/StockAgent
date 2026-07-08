@@ -43,7 +43,7 @@
       "wins": "int",
       "total_pnl": "int"
     },
-    "anomaly_strong": {
+    "first_limit_up": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "int"
@@ -52,16 +52,6 @@
       "trades": "int",
       "wins": "int",
       "total_pnl": "float"
-    },
-    "半路追涨": {
-      "trades": "int",
-      "wins": "int",
-      "total_pnl": "int"
-    },
-    "first_limit_up": {
-      "trades": "int",
-      "wins": "int",
-      "total_pnl": "int"
     }
   },
   "risk_status": {

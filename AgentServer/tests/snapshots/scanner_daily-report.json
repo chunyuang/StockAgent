@@ -11,6 +11,22 @@
   "positions": {
     "count": "int",
     "strategy_summary": {
+      "first_limit_up": {
+        "count": "int",
+        "market_value": "float",
+        "total_profit": "float",
+        "win_count": "int",
+        "loss_count": "int",
+        "win_rate": "float",
+        "closed_win_rate": "int",
+        "stop_loss_count": "int",
+        "take_profit_count": "int",
+        "avg_win_pct": "int",
+        "avg_loss_pct": "int",
+        "profit_loss_ratio": "int",
+        "max_win_pct": "int",
+        "max_loss_pct": "int"
+      },
       "halfway_chase": {
         "count": "int",
         "market_value": "float",

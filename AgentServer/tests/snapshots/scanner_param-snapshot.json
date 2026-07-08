@@ -3,6 +3,7 @@
   "global_risk": {
     "stop_loss_pct": "float",
     "take_profit_pct": "float",
+    "trailing_stop_pct": "float",
     "max_hold_days": "int",
     "slippage_pct": "float",
     "commission_rate": "float",

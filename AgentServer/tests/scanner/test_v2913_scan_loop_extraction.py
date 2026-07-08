@@ -54,6 +54,7 @@ class TestScanLoopTradingLogic:
         scanner._broker.get_positions.return_value = []
         scanner._quote_manager = MagicMock()
         scanner._quote_manager.should_try_recover.return_value = False
+        scanner._quote_manager._last_fetch_time = 0
         scanner._risk_running = False
         scanner._risk_thread = None
         scanner._risk_thread_restarts = 0

@@ -37,7 +37,8 @@
         "limit_down_yesterday": "int",
         "macd": "float",
         "boll_upper": "float",
-        "atr": "float"
+        "atr": "float",
+        "fear_greed_index": "float"
       },
       "signal_status": "str",
       "created_at": "float",
@@ -81,6 +82,7 @@
             "L5_auction": "str",
             "L6_strategy": "str",
             "L7_ranking": "str",
+            "L8_cooldown": "str",
             "L8_position": "str"
           },
           "position_ratio": "float",
@@ -114,7 +116,8 @@
           "limit_down_yesterday": "int",
           "macd": "float",
           "boll_upper": "float",
-          "atr": "float"
+          "atr": "float",
+          "fear_greed_index": "float"
         },
         "scan_time": "str"
       },
@@ -164,6 +167,10 @@
           "detail": "str",
           "applied": "bool"
         },
+        "L8_cooldown": {
+          "detail": "str",
+          "applied": "bool"
+        },
         "L8_position": {
           "detail": "str",
           "applied": "bool"
@@ -194,8 +201,13 @@
             "passed": "bool",
             "reason": "str"
           }
+        },
+        "execution": {
+          "mode": "str",
+          "reason": "str"
         }
-      }
+      },
+      "trade_date": "int"
     }
   ],
   "historical": "bool"

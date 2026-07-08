@@ -112,16 +112,8 @@
         "L5_auction": "str",
         "L6_strategy": "str",
         "L7_ranking": "str",
+        "L8_cooldown": "str",
         "L8_position": "str"
-      },
-      "l9_results": {
-        "603680": {
-          "SH": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        }
       },
       "scan_id": "str",
       "exec": {

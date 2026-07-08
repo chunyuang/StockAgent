@@ -42,7 +42,7 @@
         }
       },
       "sentiment": "str",
-      "sentiment_score": "float"
+      "sentiment_score": "int"
     }
   ],
   "weekly_trend": [
@@ -62,11 +62,9 @@
     "drifts": [
       {
         "level": "str",
-        "strategy": "str",
-        "param_type": "str",
         "key": "str",
-        "old": "int",
-        "new": "int",
+        "old": "NoneType",
+        "new": "float",
         "severity": "str"
       }
     ],
@@ -74,6 +72,10 @@
     "high_severity": "int"
   },
   "index_performance": [
-    "<empty_list>"
+    {
+      "date": "str",
+      "close": "float",
+      "pct_chg": "float"
+    }
   ]
 }

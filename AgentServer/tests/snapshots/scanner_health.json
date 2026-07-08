@@ -29,24 +29,6 @@
         "value": "str",
         "threshold": "str",
         "message": "str"
-      },
-      "datasource_eastmoney": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
-      },
-      "datasource_sina": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
-      },
-      "datasource_biying": {
-        "status": "str",
-        "value": "str",
-        "threshold": "str",
-        "message": "str"
       }
     },
     "circuit_breaker": {
@@ -63,13 +45,7 @@
       "max_consecutive_losses": "int"
     },
     "data_sources": [
-      {
-        "name": "str",
-        "available": "bool",
-        "stocks": "int",
-        "calls": "int",
-        "limit": "int"
-      }
+      "<empty_list>"
     ],
     "health_score": "int",
     "data_freshness": "str",
@@ -96,7 +72,7 @@
           "handled": "int",
           "errors": "int"
         },
-        "quote_warning": {
+        "signal_generated": {
           "emitted": "int",
           "handled": "int",
           "errors": "int"
@@ -111,7 +87,7 @@
           "handled": "int",
           "errors": "int"
         },
-        "signal_generated": {
+        "quote_warning": {
           "emitted": "int",
           "handled": "int",
           "errors": "int"

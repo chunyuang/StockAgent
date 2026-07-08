@@ -54,7 +54,14 @@
       "<empty_list>"
     ],
     "timing": [
-      "<empty_list>"
+      {
+        "type": "str",
+        "strategy": "str",
+        "execute_time": "str",
+        "expected": "str",
+        "ts_code": "str",
+        "stock_name": "str"
+      }
     ]
   }
 }

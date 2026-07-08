@@ -119,14 +119,14 @@
   "quote_degrade_level": "int",
   "quote_degrade_desc": "str",
   "trailing_stops": {
-    "000534.SZ": {
+    "603903.SH": {
       "high_price": "float",
       "trailing_stop_pct": "float",
       "activated": "bool",
       "activated_at": "str",
       "stop_price": "float"
     },
-    "688282.SH": {
+    "603065.SH": {
       "high_price": "float",
       "trailing_stop_pct": "float",
       "activated": "bool",
@@ -147,7 +147,8 @@
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
   "realtime_cache_age_sec": "float",
-  "smart_check_interval": "float",
+  "smart_check_interval": "NoneType",
+  "current_scan_interval": "NoneType",
   "sell_logic_mode": "str",
   "health": {
     "status": "str",
@@ -166,7 +167,7 @@
         "handled": "int",
         "errors": "int"
       },
-      "quote_warning": {
+      "signal_generated": {
         "emitted": "int",
         "handled": "int",
         "errors": "int"
@@ -181,7 +182,7 @@
         "handled": "int",
         "errors": "int"
       },
-      "signal_generated": {
+      "quote_warning": {
         "emitted": "int",
         "handled": "int",
         "errors": "int"
@@ -206,14 +207,7 @@
     "filtered": "int"
   },
   "data_sources": [
-    {
-      "name": "str",
-      "available": "bool",
-      "stocks": "int",
-      "calls": "int",
-      "limit": "int",
-      "note": "str"
-    }
+    "<empty_list>"
   ],
   "sentiment": {
     "score": "float",
