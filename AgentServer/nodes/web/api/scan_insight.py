@@ -17,67 +17,64 @@ def _get_scanner():
         return None
 
 
-async def _get_db():
-    """获取MongoDB数据库实例(异步Motor)"""
-    try:
-        from core.managers import mongo_manager
-        db = mongo_manager.db
-        if db is not None:
-            return db
-    except Exception:
-        pass
-    return None
-
-
 # ===================== 1. 架构总览 =====================
 
 @router.get("/architecture")
 async def get_architecture():
     scanner = _get_scanner()
-    arch = {
-        "core": {
-            "name": "MarketScanner",
-            "bases": ["ScannerInitializer", "ScanLoopRunner", "RiskLoopRunner", "ScannerAccessorsMixin"],
-            "threads": {
-                "scan_loop": {"purpose": "主扫描循环", "interval": "动态(120-300秒)", "phase_aware": True},
-                "risk_loop": {"purpose": "风控循环(1秒级止损)", "interval": "1秒", "always_on": True},
-                "prefetch": {"purpose": "行情预取(v2.9.112)", "interval": "30秒", "force": False},
-                "daemon_ipc": {"purpose": "守护进程通信", "trigger": "event"},
-            },
-        },
-        "sub_modules": {
-            "StrategyScorer": {"file": "strategy_scorer.py", "purpose": "策略筛选引擎", "key_methods": ["merge_factors", "apply_strategies", "_compute_pullback_pct"]},
-            "SignalManager": {"file": "signal_manager.py", "purpose": "信号生命周期管理", "key_methods": ["add_signal", "execute_signals"]},
-            "QuoteManager": {"file": "quote_manager.py", "purpose": "行情数据管理", "key_methods": ["fetch_realtime_batch", "get_quote"]},
-            "PositionManager": {"file": "position_manager.py", "purpose": "持仓管理(止损止盈)", "key_methods": ["check_stop_loss", "check_trailing_stop"]},
-            "LiveFilterPipeline": {"file": "live_filter_pipeline.py", "purpose": "9层筛选管道", "key_methods": ["apply", "_apply_L1_force_empty"]},
-            "EmotionCycleManager": {"file": "emotion_cycle.py", "purpose": "情绪周期(7维→4阶段)", "key_methods": ["compute_emotion_score"]},
-            "RiskWatchdog": {"file": "risk_watchdog.py", "purpose": "风控看门狗", "key_methods": ["check_health", "force_empty"]},
-            "RuntimePersistence": {"file": "runtime_persistence.py", "purpose": "运行时状态持久化", "key_methods": ["save_snapshot", "restore_snapshot"]},
-            "Broker": {"file": "broker.py", "purpose": "模拟券商", "key_methods": ["buy", "sell", "get_account"]},
-        },
-        "data_flow": [
-            {"step": 1, "name": "行情获取", "from": "QuoteManager", "to": "Scanner", "desc": "东方财富push2批量获取实时行情"},
-            {"step": 2, "name": "因子合并", "from": "merge_factors", "to": "merged_df", "desc": "实时行情+日级因子合并，补算技术指标"},
-            {"step": 3, "name": "策略筛选", "from": "apply_strategies", "to": "candidates", "desc": "5策略独立筛选"},
-            {"step": 4, "name": "9层管道", "from": "LiveFilterPipeline", "to": "filtered", "desc": "L1→L2→L3→L4→L5→L6→L7→L8→L9"},
-            {"step": 5, "name": "信号管理", "from": "SignalManager", "to": "signals", "desc": "new→dispatched→executed/expired/skipped/blocked"},
-            {"step": 6, "name": "下单执行", "from": "Broker", "to": "orders", "desc": "模拟券商执行买入/卖出"},
-            {"step": 7, "name": "持仓风控", "from": "PositionManager", "to": "positions", "desc": "1秒级止损止盈+追踪止损"},
-        ],
-        "mongo_collections": {
-            "scan_traces": "扫描追踪(漏斗+候选+拒绝)",
-            "scanner_signals": "信号记录(策略+因子+层链路)",
-            "scanner_timeline": "时间线(信号/执行/风控事件)",
-            "broker_orders": "委托订单", "broker_positions": "持仓记录",
-            "broker_accounts": "账户快照", "equity_curve": "资金曲线",
-            "risk_decisions": "风控决策", "sentiment_scores": "情绪评分",
-            "scanner_runtime_snapshot": "运行时快照",
-        },
-    }
+    # sub_modules: 返回数组(前端用v-for遍历)
+    sub_modules = [
+        {"name": "StrategyScorer", "file": "strategy_scorer.py", "purpose": "策略筛选引擎", "key_methods": ["merge_factors", "apply_strategies", "_compute_pullback_pct"]},
+        {"name": "SignalManager", "file": "signal_manager.py", "purpose": "信号生命周期管理", "key_methods": ["add_signal", "execute_signals"]},
+        {"name": "QuoteManager", "file": "quote_manager.py", "purpose": "行情数据管理", "key_methods": ["fetch_realtime_batch", "get_quote"]},
+        {"name": "PositionManager", "file": "position_manager.py", "purpose": "持仓管理(止损止盈)", "key_methods": ["check_stop_loss", "check_trailing_stop"]},
+        {"name": "LiveFilterPipeline", "file": "live_filter_pipeline.py", "purpose": "9层筛选管道", "key_methods": ["apply", "_apply_L1_force_empty"]},
+        {"name": "EmotionCycleManager", "file": "emotion_cycle.py", "purpose": "情绪周期(7维→4阶段)", "key_methods": ["compute_emotion_score"]},
+        {"name": "RiskWatchdog", "file": "risk_watchdog.py", "purpose": "风控看门狗", "key_methods": ["check_health", "force_empty"]},
+        {"name": "RuntimePersistence", "file": "runtime_persistence.py", "purpose": "运行时状态持久化", "key_methods": ["save_snapshot", "restore_snapshot"]},
+        {"name": "Broker", "file": "broker.py", "purpose": "模拟券商", "key_methods": ["buy", "sell", "get_account"]},
+    ]
+    # data_flow: 返回字符串数组(前端用step.label显示)
+    data_flow = [
+        "行情获取(东方财富push2)",
+        "因子合并(merge_factors)",
+        "策略筛选(5策略独立)",
+        "9层管道(L1→L9)",
+        "信号管理(new→executed)",
+        "下单执行(模拟Broker)",
+        "持仓风控(1秒级止损)",
+    ]
+    # mongo_collections: 返回数组(前端ElTable需要name/purpose/count)
+    mongo_collections = [
+        {"name": "scan_traces", "purpose": "扫描追踪(漏斗+候选+拒绝)", "count": 0},
+        {"name": "scanner_signals", "purpose": "信号记录(策略+因子+层链路)", "count": 0},
+        {"name": "scanner_timeline", "purpose": "时间线(信号/执行/风控事件)", "count": 0},
+        {"name": "broker_orders", "purpose": "委托订单", "count": 0},
+        {"name": "broker_positions", "purpose": "持仓记录", "count": 0},
+        {"name": "broker_accounts", "purpose": "账户快照", "count": 0},
+        {"name": "equity_curve", "purpose": "资金曲线", "count": 0},
+        {"name": "risk_decisions", "purpose": "风控决策", "count": 0},
+        {"name": "sentiment_scores", "purpose": "情绪评分", "count": 0},
+        {"name": "scanner_runtime_snapshot", "purpose": "运行时快照", "count": 0},
+    ]
+    # 补充count
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
+            for col in mongo_collections:
+                try:
+                    col["count"] = await db[col["name"]].count_documents({})
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    runtime = {"is_running": False}
     if scanner and scanner.is_running():
-        arch["runtime"] = {
-            "is_running": True, "trade_date": scanner.get_trade_date(),
+        runtime = {
+            "is_running": True,
+            "trade_date": scanner.get_trade_date(),
             "scan_thread": scanner._scan_thread is not None and scanner._scan_thread.is_alive(),
             "risk_thread": scanner.is_risk_running(),
             "prefetch": getattr(scanner, '_prefetch_running', False),
@@ -86,41 +83,45 @@ async def get_architecture():
             "position_ratio": scanner.get_current_position_ratio(),
             "scan_errors": scanner.get_scan_error_count(),
         }
-    else:
-        arch["runtime"] = {"is_running": False}
-    return {"success": True, "data": arch}
+
+    return {"success": True, "data": {
+        "runtime": runtime,
+        "sub_modules": sub_modules,
+        "data_flow": data_flow,
+        "mongo_collections": mongo_collections,
+    }}
 
 
 # ===================== 2. 9层管道 =====================
 
 @router.get("/pipeline")
 async def get_pipeline_detail():
-    scanner = _get_scanner()
+    # layers: 字段名对齐前端模板(name/description/enabled/input/output/rejected/condition/effect/icon/details)
     layers = [
-        {"id": "L1", "name": "强制空仓", "icon": "🛑", "desc": "涨停/跌停极端时清仓+冷却期", "conditions": ["跌停≥80", "涨停≤10且跌停>0", "大盘跌≥3%"], "effect": "卖出所有持仓, 冷却2交易日, 仓位上限60%"},
-        {"id": "L2", "name": "特殊时期", "icon": "📅", "desc": "月末/季末/年末/节前效应降仓", "conditions": ["月末仓位70%", "季末60%", "年末50%", "节前50%"], "effect": "仓位系数下调"},
-        {"id": "L3", "name": "情绪周期", "icon": "🎭", "desc": "7维评分→4阶段→仓位系数", "conditions": ["高潮≥70→100%", "分化55-70→70%", "震荡40-55→50%", "冰点<40→25%"], "effect": "仓位系数+可淘汰低优先级候选"},
-        {"id": "L4", "name": "盘前预选", "icon": "🔍", "desc": "排除ST/退市/次新/低流动", "conditions": ["ST/退市排除", "次新<60天排除", "日均成交<500万排除"], "effect": "候选精简"},
-        {"id": "L5", "name": "竞价过滤", "icon": "⚡", "desc": "真实竞价数据过滤(实盘优势)", "conditions": ["高开>7%排除", "低开<-5%排除", "首板要求竞价≥2%"], "effect": "排除极端竞价"},
-        {"id": "L6", "name": "策略量能", "icon": "📐", "desc": "5策略独立条件检查", "conditions": ["半路:涨2-7%+量比>1.5", "首板:涨停封板+10-500亿", "龙头:连板回调5-22%+量比0.5-2", "开板:2-4连板炸板", "翘板:跌停撬板+量比>10"], "effect": "核心筛选"},
-        {"id": "L7", "name": "综合排序", "icon": "🏆", "desc": "优先级排序+去重+截断", "conditions": ["龙头>翘板>首板>半路", "同股取最高优先级", "最多10候选"], "effect": "候选排序"},
-        {"id": "L8", "name": "仓位控制", "icon": "⚖️", "desc": "情绪×特殊×单票上限×冷却×MA60", "conditions": ["min(情绪,特殊,硬上限70%)", "单票≤35%", "冷却期≤60%", "MA60下×0.5", "同板块≤3只"], "effect": "最终仓位"},
-        {"id": "L9", "name": "买入执行", "icon": "💰", "desc": "T+1+跳空止损+成交概率+下单", "conditions": ["T+1限制", "跳空低开超止损即卖", "滑点0.2%", "成交概率评估"], "effect": "实际成交"},
+        {"id": "L1", "name": "强制空仓", "icon": "🛑", "description": "涨停/跌停极端时清仓+冷却期", "enabled": True, "condition": "跌停≥80 或 涨停≤10且跌停>0 或 大盘跌≥3%", "effect": "卖出所有持仓, 冷却2交易日, 仓位上限60%"},
+        {"id": "L2", "name": "特殊时期", "icon": "📅", "description": "月末/季末/年末/节前效应降仓", "enabled": True, "condition": "月末仓位70% / 季末60% / 年末50% / 节前50%", "effect": "仓位系数下调"},
+        {"id": "L3", "name": "情绪周期", "icon": "🎭", "description": "7维评分→4阶段→仓位系数", "enabled": True, "condition": "高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%", "effect": "仓位系数+可淘汰低优先级候选"},
+        {"id": "L4", "name": "盘前预选", "icon": "🔍", "description": "排除ST/退市/次新/低流动", "enabled": True, "condition": "ST/退市排除 / 次新<60天排除 / 日均成交<500万排除", "effect": "候选精简"},
+        {"id": "L5", "name": "竞价过滤", "icon": "⚡", "description": "真实竞价数据过滤(实盘优势)", "enabled": True, "condition": "高开>7%排除 / 低开<-5%排除 / 首板要求竞价≥2%", "effect": "排除极端竞价"},
+        {"id": "L6", "name": "策略量能", "icon": "📐", "description": "5策略独立条件检查", "enabled": True, "condition": "半路:涨2-7%+量比>1.5 / 首板:涨停封板+10-500亿 / 龙头:连板回调5-22%+量比0.5-2 / 开板:2-4连板炸板 / 翘板:跌停撬板+量比>10", "effect": "核心筛选"},
+        {"id": "L7", "name": "综合排序", "icon": "🏆", "description": "优先级排序+去重+截断", "enabled": True, "condition": "龙头>翘板>首板>半路 / 同股取最高优先级 / 最多10候选", "effect": "候选排序"},
+        {"id": "L8", "name": "仓位控制", "icon": "⚖️", "description": "情绪×特殊×单票上限×冷却×MA60", "enabled": True, "condition": "min(情绪,特殊,硬上限70%) / 单票≤35% / 冷却期≤60% / MA60下×0.5 / 同板块≤3只", "effect": "最终仓位"},
+        {"id": "L9", "name": "买入执行", "icon": "💰", "description": "T+1+跳空止损+成交概率+下单", "enabled": True, "condition": "T+1限制 / 跳空低开超止损即卖 / 滑点0.2% / 成交概率评估", "effect": "实际成交"},
     ]
     # 最新漏斗
-    latest_funnel, latest_details = {}, {}
+    latest_funnel = {}
     try:
-        db = await _get_db()
-        if db is not None:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
             cursor = db["scan_traces"].find({"candidates": {"$exists": True, "$ne": []}}).sort("_id", -1).limit(1)
             traces = await cursor.to_list(1)
             trace = traces[0] if traces else None
             if trace:
                 latest_funnel = trace.get("summary", {})
-                latest_details = trace.get("layer_details", {})
     except Exception as e:
         logger.warning(f"获取最新scan_trace失败: {e}")
-    return {"success": True, "data": {"layers": layers, "latest_funnel": latest_funnel, "latest_details": latest_details}}
+    return {"success": True, "data": {"layers": layers, "latest_funnel": latest_funnel}}
 
 
 # ===================== 3. 策略配置 =====================
@@ -130,95 +131,163 @@ async def get_strategy_detail():
     from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
     strategies = []
     for sid, cfg in STRATEGY_CONFIGS.items():
-        strategies.append({"id": sid, "name": cfg.get("name", sid), "enabled": cfg.get("enabled", True), "params": cfg.get("params", {}), "riskParams": cfg.get("riskParams", {})})
-    return {"success": True, "data": {"strategies": strategies, "globalRisk": GLOBAL_RISK}}
+        # params: 转为前端ElTable需要的{name/value/desc}数组
+        params_list = []
+        raw_params = cfg.get("params", {})
+        if isinstance(raw_params, dict):
+            for pk, pv in raw_params.items():
+                params_list.append({"name": pk, "value": str(pv), "desc": ""})
+        # riskParams: 转为前端ElTable需要的数组
+        risk_list = []
+        raw_risk = cfg.get("riskParams", {})
+        if isinstance(raw_risk, dict):
+            for rk, rv in raw_risk.items():
+                risk_list.append({"name": rk, "value": str(rv)})
+        strategies.append({
+            "id": sid,
+            "name": cfg.get("name", sid),
+            "enabled": cfg.get("enabled", True),
+            "params": params_list,
+            "risk_params": risk_list,
+        })
+    # globalRisk: 转为params数组
+    global_risk_list = []
+    if isinstance(GLOBAL_RISK, dict):
+        for gk, gv in GLOBAL_RISK.items():
+            global_risk_list.append({"name": gk, "value": str(gv), "desc": ""})
+    return {"success": True, "data": {"strategies": strategies, "globalRisk": {"params": global_risk_list}}}
 
 
 # ===================== 4. 情绪周期 =====================
 
 @router.get("/emotion-cycle")
 async def get_emotion_cycle():
-    scanner = _get_scanner()
-    dims = [
-        {"id": "limit_up", "name": "涨停数", "weight": "高"},
-        {"id": "limit_down", "name": "跌停数", "weight": "高(负)"},
-        {"id": "up_down", "name": "涨跌比", "weight": "中"},
-        {"id": "volume", "name": "成交量", "weight": "中"},
-        {"id": "north", "name": "北向资金", "weight": "中"},
-        {"id": "volatility", "name": "波动率", "weight": "低"},
-        {"id": "consecutive", "name": "连板高度", "weight": "高"},
+    # dimensions: 前端ElTable需要name/weight/desc
+    dimensions = [
+        {"name": "涨停数", "weight": 0.25, "desc": "市场热度核心指标，涨停多=情绪高"},
+        {"name": "跌停数", "weight": 0.25, "desc": "恐慌指标，跌停多=情绪低(负向)"},
+        {"name": "涨跌比", "weight": 0.15, "desc": "上涨家数/下跌家数，反映广度"},
+        {"name": "成交量", "weight": 0.10, "desc": "市场参与度，放量=活跃"},
+        {"name": "北向资金", "weight": 0.10, "desc": "外资流向，净买入=看好"},
+        {"name": "波动率", "weight": 0.05, "desc": "市场波动幅度"},
+        {"name": "连板高度", "weight": 0.10, "desc": "最高连板数，龙头效应"},
     ]
+    # periods: 前端需要name/color/span/score_min/score_max/position_ratio
     periods = [
-        {"name": "高潮(rising)", "min": 70, "ratio": "100%", "desc": "市场亢奋，满仓"},
-        {"name": "分化(differentiation)", "min": 55, "ratio": "70%", "desc": "板块分化，适度参与"},
-        {"name": "震荡(chaos)", "min": 40, "ratio": "50%", "desc": "方向不明，半仓防守"},
-        {"name": "冰点(freezing)", "min": 0, "ratio": "25%", "desc": "市场低迷，低仓观望"},
+        {"name": "高潮(rising)", "color": "#e74c3c", "span": 3, "score_min": 70, "score_max": 100, "position_ratio": 100},
+        {"name": "分化(differentiation)", "color": "#e67e22", "span": 2, "score_min": 55, "score_max": 70, "position_ratio": 70},
+        {"name": "震荡(chaos)", "color": "#3498db", "span": 2, "score_min": 40, "score_max": 55, "position_ratio": 50},
+        {"name": "冰点(freezing)", "color": "#2c3e50", "span": 1, "score_min": 0, "score_max": 40, "position_ratio": 25},
     ]
     latest = {}
     try:
-        db = await _get_db()
-        if db:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
             cursor = db["sentiment_scores"].find().sort("_id", -1).limit(1)
             docs = await cursor.to_list(1)
             doc = docs[0] if docs else None
             if doc:
-                latest = {"score": doc.get("score"), "period": doc.get("period"), "limit_up": doc.get("limit_up_count"), "limit_down": doc.get("limit_down_count"), "broken": doc.get("broken_count"), "broken_rate": doc.get("broken_rate"), "trade_date": doc.get("trade_date"), "factors": doc.get("factors", {})}
-        else:
-            logger.warning("emotion-cycle: db is None")
+                latest = {
+                    "score": doc.get("score"),
+                    "period": doc.get("period"),
+                    "limit_up_count": doc.get("limit_up_count"),
+                    "limit_down_count": doc.get("limit_down_count"),
+                    "broken_count": doc.get("broken_count"),
+                    "broken_rate": doc.get("broken_rate"),
+                    "trade_date": doc.get("trade_date"),
+                }
     except Exception as e:
         logger.warning(f"获取情绪数据失败: {e}")
-    return {"success": True, "data": {"dimensions": dims, "periods": periods, "latest": latest}}
+    return {"success": True, "data": {"dimensions": dimensions, "periods": periods, "latest": latest}}
 
 
 # ===================== 5. 信号生命周期 =====================
 
 @router.get("/signal-lifecycle")
 async def get_signal_lifecycle():
-    scanner = _get_scanner()
+    # states: 前端需要name/label/color/desc
     states = [
-        {"name": "new", "label": "新信号", "icon": "🆕", "color": "blue", "desc": "策略筛选通过，等待执行"},
-        {"name": "deferred", "label": "延退", "icon": "⏳", "color": "orange", "desc": "竞价/午休产生，等交易时段"},
-        {"name": "dispatched", "label": "已派发", "icon": "📤", "color": "cyan", "desc": "已发送给执行模块"},
-        {"name": "executed", "label": "已执行", "icon": "✅", "color": "green", "desc": "已成功下单成交"},
-        {"name": "expired", "label": "已过期", "icon": "⏰", "color": "gray", "desc": "超时未执行"},
-        {"name": "skipped", "label": "跳过", "icon": "⏭️", "color": "yellow", "desc": "L7截断或仓位不足"},
-        {"name": "blocked", "label": "阻止", "icon": "🚫", "color": "red", "desc": "非交易时段/冷却期"},
+        {"name": "new", "label": "新信号", "color": "#409eff", "desc": "策略筛选通过，等待执行"},
+        {"name": "deferred", "label": "延退", "color": "#e6a23c", "desc": "竞价/午休产生，等交易时段"},
+        {"name": "dispatched", "label": "已派发", "color": "#00bcd4", "desc": "已发送给执行模块"},
+        {"name": "executed", "label": "已执行", "color": "#67c23a", "desc": "已成功下单成交"},
+        {"name": "expired", "label": "已过期", "color": "#909399", "desc": "超时未执行"},
+        {"name": "skipped", "label": "跳过", "color": "#e6a23c", "desc": "L7截断或仓位不足"},
+        {"name": "blocked", "label": "阻止", "color": "#f56c6c", "desc": "非交易时段/冷却期"},
     ]
+    # expiry: 前端ElTable需要strategy/seconds/desc
     expiry = [
         {"strategy": "halfway_chase", "seconds": 300, "desc": "5分钟"},
         {"strategy": "first_limit_up", "seconds": 180, "desc": "3分钟"},
         {"strategy": "dragon_head", "seconds": 600, "desc": "10分钟"},
         {"strategy": "limit_down_qiao", "seconds": 1800, "desc": "30分钟(v2.9.112: 300→1800)"},
     ]
-    status_stats = {}
+    # status_stats: 返回数组(前端v-for遍历)
+    status_stats = []
     try:
-        db = await _get_db()
-        if db:
-            async for doc in db["scanner_signals"].aggregate([{"$group": {"_id": "$signal_status", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}]):
-                status_stats[doc["_id"] or "unknown"] = doc["count"]
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
+            total = 0
+            raw_stats = {}
+            async for doc in db["scanner_signals"].aggregate([
+                {"$group": {"_id": "$signal_status", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}}
+            ]):
+                status = doc["_id"] or "unknown"
+                raw_stats[status] = doc["count"]
+                total += doc["count"]
+            color_map = {"new": "#409eff", "executed": "#67c23a", "skipped": "#e6a23c", "blocked": "#f56c6c", "expired": "#909399", "deferred": "#00bcd4"}
+            for status, count in raw_stats.items():
+                status_stats.append({
+                    "status": status,
+                    "count": count,
+                    "pct": round(count / total * 100, 1) if total else 0,
+                    "color": color_map.get(status, "#909399"),
+                })
     except Exception as e:
         logger.warning(f"统计信号状态失败: {e}")
-    return {"success": True, "data": {"states": states, "expiry": expiry, "status_stats": status_stats, "deferred_note": "v2.9.112: 竞价/午休信号保持new不blocked，延退信号继续推送+持久化"}}
+    return {"success": True, "data": {
+        "states": states,
+        "expiry": expiry,
+        "status_stats": status_stats,
+        "deferred_note": {"title": "v2.9.112 延退机制", "desc": "竞价/午休信号保持new不blocked，延退信号继续推送+持久化。limit_down_qiao过期时间从300秒延长到1800秒。"},
+    }}
 
 
 # ===================== 6. 行情管理 =====================
 
 @router.get("/quote-manager")
 async def get_quote_manager():
-    scanner = _get_scanner()
+    # sources: 前端ElTable需要name/priority/purpose/fields/available
     sources = [
-        {"name": "东方财富Push2", "priority": 1, "usage": "盘中实时", "fields": "38字段", "limit": "无限~3秒/次", "avail": "仅交易时间"},
-        {"name": "东方财富DataCenter", "priority": 2, "usage": "周末补采PE/PB", "fields": "PE/PB/流通市值", "avail": "全时段"},
-        {"name": "搜狐hisHq", "priority": 3, "usage": "盘后fallback", "fields": "12字段", "avail": "全时段"},
+        {"name": "东方财富Push2", "priority": 1, "purpose": "盘中实时行情", "fields": "38字段(OHLCV+因子)", "available": "仅交易时间"},
+        {"name": "东方财富DataCenter", "priority": 2, "purpose": "周末补采PE/PB", "fields": "PE/PB/流通市值", "available": "全时段"},
+        {"name": "搜狐hisHq", "priority": 3, "purpose": "盘后fallback补采", "fields": "12字段(OHLCV+turn)", "available": "全时段"},
     ]
+    # cache: 前端ElDescriptions需要直接key
     cache = {"max_age": "5秒(盘中)/30秒(盘后)", "time_source": "time.monotonic() (v2.9.112修复)"}
-    prefetch = {"interval": "30秒/轮", "force": False, "anti_reentry": "_prefetch_in_progress标志", "purpose": "提前拉取候选股行情"}
-    degradation = {"steps": ["push2不可用→datacenter", "5分钟重试push2", "恢复后自动切回"]}
-    runtime = {}
+    # prefetch: 直接key
+    prefetch = {"interval": "30秒/轮", "force": False, "anti_reentry": True}
+    # degradation: steps数组
+    degradation = {"steps": ["1. push2不可用→切datacenter", "2. 5分钟后重试push2", "3. 恢复后自动切回push2"]}
+    # runtime: 直接key
+    runtime = {"cache_size": 0, "source": "-"}
+    scanner = _get_scanner()
     if scanner and hasattr(scanner, '_quote_manager'):
         qm = scanner._quote_manager
-        runtime = {"cache_size": len(qm._cache) if hasattr(qm, '_cache') else 0, "source": getattr(qm, '_current_source', 'unknown')}
-    return {"success": True, "data": {"sources": sources, "cache": cache, "prefetch": prefetch, "degradation": degradation, "runtime": runtime}}
+        runtime = {
+            "cache_size": len(qm._cache) if hasattr(qm, '_cache') else 0,
+            "source": getattr(qm, '_current_source', '-'),
+        }
+    return {"success": True, "data": {
+        "sources": sources,
+        "cache": cache,
+        "prefetch": prefetch,
+        "degradation": degradation,
+        "runtime": runtime,
+    }}
 
 
 # ===================== 7. 风控体系 =====================
@@ -226,41 +295,70 @@ async def get_quote_manager():
 @router.get("/risk-system")
 async def get_risk_system():
     scanner = _get_scanner()
-    stop_loss = {"halfway_chase": "3%", "first_limit_up": "3.5%", "dragon_head": "3%", "limit_up_open": "5%", "limit_down_qiao": "5%"}
-    take_profit = {"halfway_chase": "12%", "first_limit_up": "10%", "dragon_head": "30%", "limit_up_open": "6%", "limit_down_qiao": "20%"}
-    trailing = {"halfway_chase": "保护4%回撤2%", "first_limit_up": "回撤2%", "dragon_head": "保护4%回撤3%", "limit_down_qiao": "回撤4%"}
-    hold_days = {"halfway_chase": 3, "first_limit_up": 2, "dragon_head": 7, "limit_up_open": 2, "limit_down_qiao": 3}
+    # 前端模板用 riskStopLoss/riskTakeProfit/riskTrailing/riskHoldDays
+    # 都是ElDescriptionsItem遍历，需要 {label: value} 格式
+    stop_loss = {"半路追涨": "3%", "首板打板": "3.5%", "龙头股": "3%", "涨停开板": "5%", "跌停翘板": "5%"}
+    take_profit = {"半路追涨": "12%", "首板打板": "10%", "龙头股": "30%", "涨停开板": "6%", "跌停翘板": "20%"}
+    trailing_stop = {"半路追涨": "保护4%回撤2%", "首板打板": "回撤2%", "龙头股": "保护4%回撤3%", "跌停翘板": "回撤4%"}
+    max_hold_days = {"半路追涨": "3天", "首板打板": "2天", "龙头股": "7天", "涨停开板": "2天", "跌停翘板": "3天"}
     runtime = {}
     if scanner and scanner.is_running():
         try:
-            runtime = {"circuit_breaker": scanner.get_circuit_breaker(), "position_ratio": scanner.get_current_position_ratio(), "cooldown": getattr(scanner, '_cooldown_info', None), "force_empty": getattr(scanner, '_force_empty_active', False)}
+            runtime = {
+                "circuit_breaker": scanner.get_circuit_breaker(),
+                "position_ratio": scanner.get_current_position_ratio(),
+                "force_empty": getattr(scanner, '_force_empty_active', False),
+            }
         except Exception:
             pass
-    return {"success": True, "data": {"stop_loss": stop_loss, "take_profit": take_profit, "trailing_stop": trailing, "max_hold_days": hold_days, "ma60_filter": True, "sector_top_n": 3, "runtime": runtime}}
+    return {"success": True, "data": {
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "trailing_stop": trailing_stop,
+        "max_hold_days": max_hold_days,
+        "ma60_filter": True,
+        "sector_top_n": 3,
+        "runtime": runtime,
+    }}
 
 
 # ===================== 8. 扫描时序 =====================
 
 @router.get("/timing")
 async def get_scan_timing():
+    # phases: 前端ElTable需要phase/time/action/scan/purpose + key_operations展开
     phases = [
-        {"phase": "PREMARKET", "time": "07:00-09:00", "action": "盘前准备: 加载代码+因子", "scan": False},
-        {"phase": "AUCTION", "time": "09:00-09:25", "action": "竞价扫描: L4+L5+L6", "scan": True},
-        {"phase": "MORNING", "time": "09:30-11:30", "action": "早盘连续竞价扫描", "scan": True},
-        {"phase": "LUNCH", "time": "11:30-13:00", "action": "午休(信号可延退)", "scan": False},
-        {"phase": "AFTERNOON", "time": "13:00-15:00", "action": "下午盘扫描", "scan": True},
-        {"phase": "AFTER_CLOSE", "time": "15:00+", "action": "盘后: 采补+持久化", "scan": False},
+        {"phase": "PREMARKET", "time": "07:00-09:00", "action": "盘前准备: 加载代码+因子", "scan": False, "purpose": "加载全市场5000+股票代码和日级因子，为实时扫描准备数据底座", "key_operations": ["mongo_manager恢复连接", "ak_full+daily_basic加载到内存", "必盈API初始化(涨停池)", "scanner.restore_snapshot()恢复昨日状态"]},
+        {"phase": "AUCTION", "time": "09:00-09:25", "action": "竞价扫描: L4+L5+L6", "scan": True, "purpose": "集合竞价期间做预筛选，竞价数据是实盘独有优势", "key_operations": ["L4盘前预选: 排除ST/退市/次新/低流动", "L5竞价过滤: 排除高开>7%/低开<-5%", "L6策略量能: 5策略条件检查", "limit_down_qiao信号产生但延退(v2.9.112)"]},
+        {"phase": "MORNING", "time": "09:30-11:30", "action": "早盘连续竞价扫描", "scan": True, "purpose": "核心交易时段，扫描间隔动态调整", "key_operations": ["09:30-10:00: 120秒/次(开盘剧烈)", "10:00-11:00: 180秒/次(趋势确认)", "11:00-11:30: 300秒/次(午盘清淡)", "行情预取线程30秒/轮", "风控循环1秒/次(止损止盈)"]},
+        {"phase": "LUNCH", "time": "11:30-13:00", "action": "午休(信号可延退)", "scan": False, "purpose": "不触发新扫描，延退信号保持等待状态", "key_operations": ["scan_loop暂停", "延退信号保持new状态(v2.9.112)", "风控循环继续(止损不停)", "行情预取可能降频"]},
+        {"phase": "AFTERNOON", "time": "13:00-15:00", "action": "下午盘扫描", "scan": True, "purpose": "下午盘扫描，尾盘加密", "key_operations": ["13:00-14:00: 300秒/次(盘初)", "14:00-14:30: 180秒/次(趋势加速)", "14:30-15:00: 120秒/次(尾盘冲刺)", "L1熔断检查: 尾盘极端行情清仓"]},
+        {"phase": "AFTER_CLOSE", "time": "15:00+", "action": "盘后: 采补+持久化", "scan": False, "purpose": "盘后数据补采和状态持久化", "key_operations": ["东方财富daily_bar补采(3秒/全市场)", "东方财富daily_basic补PE/PB(2.4秒)", "fill_limit_list补涨停池", "scanner.save_snapshot()持久化运行时状态", "lightweight_factor_fill补技术指标"]},
     ]
-    intervals = {"09:30-10:00": 120, "10:00-11:00": 180, "11:00-11:30": 300, "13:00-14:00": 300, "14:00-14:30": 180, "14:30-15:00": 120}
+    # intervals: 返回数组(前端v-for遍历)
+    intervals = [
+        {"time_range": "09:30-10:00", "seconds": 120, "reason": "开盘剧烈，高频捕捉"},
+        {"time_range": "10:00-11:00", "seconds": 180, "reason": "趋势确认期，适度加密"},
+        {"time_range": "11:00-11:30", "seconds": 300, "reason": "午盘清淡，降低频率"},
+        {"time_range": "13:00-14:00", "seconds": 300, "reason": "盘初观察，频率适中"},
+        {"time_range": "14:00-14:30", "seconds": 180, "reason": "趋势加速，适度加密"},
+        {"time_range": "14:30-15:00", "seconds": 120, "reason": "尾盘冲刺，高频捕捉"},
+    ]
+    # premarket: 前端需要step/time/action/detail
     premarket = [
-        {"step": 1, "time": "07:00", "action": "加载全市场代码列表"},
-        {"step": 2, "time": "08:30", "action": "预加载日级因子(daily_basic+ak_full)"},
-        {"step": 3, "time": "09:00", "action": "竞价数据获取+L4预选"},
-        {"step": 4, "time": "09:15", "action": "竞价风控观察(多轮确认)"},
-        {"step": 5, "time": "09:20", "action": "竞价风控确认+风险分级"},
-        {"step": 6, "time": "09:25", "action": "最终确认+执行pending动作"},
+        {"step": 1, "time": "07:00", "action": "加载全市场代码列表", "detail": "从MongoDB stock_daily_ak_full获取最新交易日全市场代码"},
+        {"step": 2, "time": "08:30", "action": "预加载日级因子", "detail": "daily_basic+ak_full: PE/PB/换手率/流通市值/连板数"},
+        {"step": 3, "time": "09:00", "action": "竞价数据获取+L4预选", "detail": "东方财富push2获取竞价数据，L4排除ST/退市/次新"},
+        {"step": 4, "time": "09:15", "action": "竞价风控观察", "detail": "多轮竞价数据确认趋势，避免单一时点误判"},
+        {"step": 5, "time": "09:20", "action": "竞价风控确认+风险分级", "detail": "最终竞价确认，L1熔断判断，风险等级评估"},
+        {"step": 6, "time": "09:25", "action": "最终确认+执行pending动作", "detail": "生成信号，派发给执行模块，准备9:30开盘"},
     ]
-    return {"success": True, "data": {"phases": phases, "intervals": intervals, "premarket": premarket, "error_recovery": "盘中5秒/非交易30秒(v2.9.112)"}}
+    return {"success": True, "data": {
+        "phases": phases,
+        "intervals": intervals,
+        "premarket": premarket,
+        "error_recovery": "盘中5秒/非交易30秒(v2.9.112)",
+    }}
 
 
 # ===================== 9. 最近扫描概览 =====================
@@ -268,26 +366,29 @@ async def get_scan_timing():
 @router.get("/recent-scans")
 async def get_recent_scans(days: int = Query(default=5, ge=1, le=30)):
     try:
-        db = await _get_db()
-        if db is None:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
-        pipeline = [
-            {"$sort": {"_id": -1}},
-            {"$group": {"_id": "$trade_date", "scan_count": {"$sum": 1}, "candidates": {"$sum": {"$size": {"$ifNull": ["$candidates", []]}}}, "rejected": {"$sum": {"$size": {"$ifNull": ["$rejected_summary", []]}}}}},
-            {"$sort": {"_id": -1}}, {"$limit": days},
-        ]
+        db = mongo_manager.db
+        cache_docs = await db["scan_date_cache"].find({}).sort("date", -1).limit(days).to_list(None)
         results = []
-        async for doc in db["scan_traces"].aggregate(pipeline):
-            td = doc["_id"]
-            sig_stats, strat_stats = {}, {}
+        for cache_doc in (cache_docs or []):
+            td = cache_doc["date"]
+            scan_count = cache_doc.get("count", 0)
+            sig_stats = {}
             try:
-                async for s in db["scanner_signals"].aggregate([{"$match": {"trade_date": td}}, {"$group": {"_id": "$signal_status", "count": {"$sum": 1}}}]):
+                async for s in db["scanner_signals"].aggregate([
+                    {"$match": {"trade_date": td}},
+                    {"$group": {"_id": "$signal_status", "count": {"$sum": 1}}}
+                ]):
                     sig_stats[s["_id"] or "unknown"] = s["count"]
-                async for s in db["scanner_signals"].aggregate([{"$match": {"trade_date": td}}, {"$group": {"_id": "$strategy", "count": {"$sum": 1}}}]):
-                    strat_stats[s["_id"] or "unknown"] = s["count"]
             except Exception:
                 pass
-            results.append({"trade_date": td, "scan_count": doc["scan_count"], "candidates": doc["candidates"], "rejected": doc["rejected"], "signal_stats": sig_stats, "strategy_stats": strat_stats})
+            results.append({
+                "scan_date": td,
+                "total_scans": scan_count,
+                "signal_stats": sig_stats,
+            })
         return {"success": True, "data": results}
     except Exception as e:
         logger.error(f"获取最近扫描概览失败: {e}")
@@ -305,7 +406,7 @@ async def get_factor_detail():
         {"name": "circ_mv", "unit": "万元(merged_df统一)", "source": "push2(元)→daily_basic(亿)→统一万元", "used_by": "首板,龙头,翘板", "warning": "3个来源单位不同, merge时需转换"},
         {"name": "is_limit_up", "unit": "0/1", "source": "ak_full", "used_by": "首板"},
         {"name": "limit_up_count", "unit": "连板数(1,2,3...)", "source": "ak_full(必盈limit_times优先)", "used_by": "龙头,开板", "note": "v2.9.112: 旧代码用is_limit_up(0/1)覆盖, 修复为fallback到daily_df"},
-        {"name": "pullback_pct", "unit": "小数(-0.15=回调15%)", "source": "实时计算(v2.9.112)", "used_by": "龙头", "formula": "1 - close/high_max(high_today, high_daily)", "note": "v2.9.112前补0导致dragon_head 0信号"},
+        {"name": "pullback_pct", "unit": "小数(-0.15=回调15%)", "source": "实时计算(v2.9.112)", "used_by": "龙头", "formula": "1 - close/max(high_today, high_daily)", "note": "v2.9.112前补0导致dragon_head 0信号"},
         {"name": "pullback_days", "unit": "天数(1-7)", "source": "实时计算(v2.9.112)", "used_by": "龙头", "formula": "从T-1涨停日到T日回调天数"},
         {"name": "pe_ttm", "unit": "倍", "source": "daily_basic", "used_by": "展示"},
         {"name": "pb_mrq", "unit": "倍", "source": "daily_basic", "used_by": "展示"},

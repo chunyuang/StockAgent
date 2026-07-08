@@ -79,7 +79,7 @@ async function loadAll() {
   await Promise.all(
     endpoints.map(e =>
       api.get(e.path)
-        .then((res: any) => { e.ref.value = res })
+        .then((res: any) => { e.ref.value = res?.data || res })
         .catch((err: any) => { console.warn(`[${e.key}] 加载失败`, err) })
     )
   )
@@ -90,39 +90,53 @@ onMounted(loadAll)
 
 // ==================== 计算属性 ====================
 
-const archStatus = computed(() => architecture.value?.status || {})
-const archModules = computed(() => architecture.value?.modules || [])
+const archStatus = computed(() => architecture.value?.runtime || {})
+const archModules = computed(() => architecture.value?.sub_modules || [])
 const archDataFlow = computed(() => architecture.value?.data_flow || [])
-const archCollections = computed(() => architecture.value?.collections || [])
+const archCollections = computed(() => architecture.value?.mongo_collections || [])
 
 const pipelineLayers = computed(() => pipeline.value?.layers || [])
-const pipelineSummary = computed(() => pipeline.value?.summary || null)
+const pipelineSummary = computed(() => pipeline.value?.latest_funnel || null)
 
 const strategyList = computed(() => strategies.value?.strategies || [])
-const globalRisk = computed(() => strategies.value?.global_risk || {})
+const globalRisk = computed(() => strategies.value?.globalRisk || {})
 
 const emotionDimensions = computed(() => emotionCycle.value?.dimensions || [])
-const emotionPhases = computed(() => emotionCycle.value?.phases || [])
+const emotionPhases = computed(() => emotionCycle.value?.periods || [])
 const emotionLatest = computed(() => emotionCycle.value?.latest || null)
 
 const signalStates = computed(() => signalLifecycle.value?.states || [])
-const signalTransitions = computed(() => signalLifecycle.value?.transitions || [])
-const signalExpiry = computed(() => signalLifecycle.value?.expiry_policies || [])
+const signalTransitions = computed(() => signalLifecycle.value?.deferred_note || [])
+const signalExpiry = computed(() => signalLifecycle.value?.expiry || [])
 const signalStats = computed(() => signalLifecycle.value?.status_stats || [])
-const signalDelay = computed(() => signalLifecycle.value?.delay_mechanism || null)
+const signalDelay = computed(() => signalLifecycle.value?.deferred_note || null)
 
 const quoteSources = computed(() => quoteManager.value?.sources || [])
 const quoteCache = computed(() => quoteManager.value?.cache || {})
 const quotePrefetch = computed(() => quoteManager.value?.prefetch || {})
-const quoteDegradation = computed(() => quoteManager.value?.degradation || [])
+const quoteDegradation = computed(() => quoteManager.value?.degradation?.steps || [])
 const quoteRuntime = computed(() => quoteManager.value?.runtime || {})
 
-const riskCategories = computed(() => riskSystem.value?.categories || [])
+const riskStopLoss = computed(() => riskSystem.value?.stop_loss || {})
+const riskTakeProfit = computed(() => riskSystem.value?.take_profit || {})
+const riskTrailing = computed(() => riskSystem.value?.trailing_stop || {})
+const riskHoldDays = computed(() => riskSystem.value?.max_hold_days || {})
 const riskRuntime = computed(() => riskSystem.value?.runtime || {})
 
-const timingSessions = computed(() => timing.value?.sessions || [])
-const timingIntervals = computed(() => timing.value?.intervals || [])
-const timingPremarket = computed(() => timing.value?.premarket_flow || [])
+const timingSessions = computed(() => timing.value?.phases || [])
+const timingIntervals = computed(() => {
+  const raw = timing.value?.intervals || []
+  if (!Array.isArray(raw) || !raw.length) return []
+  const maxSec = Math.max(...raw.map((v: any) => v.seconds || 0), 1)
+  return raw.map((val: any) => ({
+    phase: val.time_range || '',
+    seconds: val.seconds || 0,
+    reason: val.reason || '',
+    pct: Math.round(((val.seconds || 0) / maxSec) * 100),
+    color: (val.seconds || 0) <= 120 ? '#e6a23c' : (val.seconds || 0) <= 180 ? '#409eff' : '#67c23a'
+  }))
+})
+const timingPremarket = computed(() => timing.value?.premarket || [])
 const timingRecovery = computed(() => timing.value?.error_recovery || null)
 </script>
 
@@ -340,18 +354,20 @@ const timingRecovery = computed(() => timing.value?.error_recovery || null)
                 <div class="state-desc" v-if="st.desc">{{ st.desc }}</div>
               </div>
             </div>
-            <ElDivider>状态转换</ElDivider>
-            <ElTable :data="signalTransitions" size="small" stripe border>
-              <ElTableColumn prop="from" label="起始状态" min-width="120" />
-              <ElTableColumn prop="to" label="目标状态" min-width="120" />
-              <ElTableColumn prop="trigger" label="触发条件" min-width="200" />
-            </ElTable>
+            <ElDivider>状态统计</ElDivider>
+            <div class="state-stats-grid">
+              <div v-for="s in signalStats" :key="s.status" class="stat-item">
+                <div class="stat-label">{{ s.status }}</div>
+                <div class="stat-value">{{ s.count }}</div>
+              </div>
+            </div>
+            <ElEmpty v-if="!signalStats.length" description="无信号统计数据" :image-size="40" />
           </ElCard>
           <ElCard shadow="hover" class="section-card">
             <template #header><span class="card-title">⏱️ 过期策略</span></template>
             <ElTable :data="signalExpiry" size="small" stripe border>
               <ElTableColumn prop="strategy" label="策略" min-width="140" />
-              <ElTableColumn prop="ttl_seconds" label="过期秒数" width="120" align="right"><template #default="{ row }">{{ fmtNum(row.ttl_seconds) }}s</template></ElTableColumn>
+              <ElTableColumn prop="seconds" label="过期秒数" width="120" align="right"><template #default="{ row }">{{ row.seconds }}s</template></ElTableColumn>
               <ElTableColumn prop="desc" label="说明" min-width="280" />
             </ElTable>
           </ElCard>
@@ -424,27 +440,36 @@ const timingRecovery = computed(() => timing.value?.error_recovery || null)
       <ElTabPane label="🛡️ 风控体系" name="risk-system">
         <ElEmpty v-if="!riskSystem" description="暂无风控数据" />
         <template v-else>
-          <div class="risk-grid">
-            <ElCard v-for="cat in riskCategories" :key="cat.name" shadow="hover" class="section-card risk-card">
-              <template #header>
-                <div class="risk-header"><span>{{ cat.icon || '🛡️' }} {{ cat.name }}</span></div>
-              </template>
-              <p class="risk-desc" v-if="cat.desc">{{ cat.desc }}</p>
-              <ElTable v-if="cat.strategies?.length" :data="cat.strategies" size="small" stripe border>
-                <ElTableColumn prop="strategy" label="策略" min-width="120" />
-                <ElTableColumn v-for="col in cat.columns" :key="col.key" :prop="col.key" :label="col.label" min-width="100">
-                  <template #default="{ row }"><code>{{ row[col.key] ?? '-' }}</code></template>
-                </ElTableColumn>
-              </ElTable>
-            </ElCard>
-          </div>
           <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🖥️ 风控运行时</span></template>
+            <template #header><span class="card-title">🛑 止损配置</span></template>
+            <ElDescriptions :column="3" border size="small">
+              <ElDescriptionsItem v-for="(val, key) in riskStopLoss" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
+            </ElDescriptions>
+          </ElCard>
+          <ElCard shadow="hover" class="section-card">
+            <template #header><span class="card-title">🎯 止盈配置</span></template>
+            <ElDescriptions :column="3" border size="small">
+              <ElDescriptionsItem v-for="(val, key) in riskTakeProfit" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
+            </ElDescriptions>
+          </ElCard>
+          <ElCard shadow="hover" class="section-card">
+            <template #header><span class="card-title">📈 追踪止损</span></template>
+            <ElDescriptions :column="3" border size="small">
+              <ElDescriptionsItem v-for="(val, key) in riskTrailing" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
+            </ElDescriptions>
+          </ElCard>
+          <ElCard shadow="hover" class="section-card">
+            <template #header><span class="card-title">📅 最大持仓天数</span></template>
+            <ElDescriptions :column="3" border size="small">
+              <ElDescriptionsItem v-for="(val, key) in riskHoldDays" :key="key" :label="key">{{ val }}天</ElDescriptionsItem>
+            </ElDescriptions>
+          </ElCard>
+          <ElCard shadow="hover" class="section-card" v-if="Object.keys(riskRuntime).length">
+            <template #header><span class="card-title">🖥️ 运行时状态</span></template>
             <ElDescriptions :column="2" border size="small">
               <ElDescriptionsItem label="熔断器"><ElTag :type="riskRuntime.circuit_breaker ? 'danger' : 'success'" size="small">{{ riskRuntime.circuit_breaker ? '已熔断' : '正常' }}</ElTag></ElDescriptionsItem>
               <ElDescriptionsItem label="仓位比例">{{ fmtPct(riskRuntime.position_ratio) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="冷却期">{{ riskRuntime.cooldown ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="强制空仓">{{ fmtBool(riskRuntime.force_empty) }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="强制空仓"><ElTag :type="riskRuntime.force_empty ? 'danger' : 'success'" size="small">{{ riskRuntime.force_empty ? '是' : '否' }}</ElTag></ElDescriptionsItem>
             </ElDescriptions>
           </ElCard>
         </template>
@@ -455,22 +480,31 @@ const timingRecovery = computed(() => timing.value?.error_recovery || null)
         <ElEmpty v-if="!timing" description="暂无时序数据" />
         <template v-else>
           <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🕐 交易时段</span></template>
+            <template #header><span class="card-title">🕐 交易时段与用处</span></template>
             <ElTable :data="timingSessions" size="small" stripe border>
-              <ElTableColumn prop="phase" label="阶段" min-width="140" />
-              <ElTableColumn prop="time" label="时间" min-width="160" />
-              <ElTableColumn prop="action" label="动作" min-width="200" />
-              <ElTableColumn prop="scanning" label="是否扫描" width="110" align="center">
-                <template #default="{ row }"><ElTag :type="row.scanning ? 'success' : 'info'" size="small">{{ row.scanning ? '是' : '否' }}</ElTag></template>
+              <ElTableColumn prop="phase" label="阶段" min-width="120" />
+              <ElTableColumn prop="time" label="时间" min-width="120" />
+              <ElTableColumn prop="action" label="动作" min-width="180" />
+              <ElTableColumn label="扫描" width="80" align="center">
+                <template #default="{ row }"><ElTag :type="row.scan ? 'success' : 'info'" size="small">{{ row.scan ? '✅' : '❌' }}</ElTag></template>
               </ElTableColumn>
+              <ElTableColumn prop="purpose" label="用途" min-width="220" />
             </ElTable>
+            <!-- 关键操作展开 -->
+            <ElCollapse style="margin-top: 8px">
+              <ElCollapseItem v-for="p in timingSessions" :key="p.phase" :title="`${p.phase} 关键操作`" :name="p.phase">
+                <div v-for="(op, i) in (p.key_operations || [])" :key="i" class="key-op">• {{ op }}</div>
+                <ElEmpty v-if="!p.key_operations?.length" description="无" :image-size="40" />
+              </ElCollapseItem>
+            </ElCollapse>
           </ElCard>
           <ElCard shadow="hover" class="section-card" v-if="timingIntervals.length">
             <template #header><span class="card-title">⚡ 动态扫描间隔</span></template>
             <div class="interval-bars">
               <div v-for="iv in timingIntervals" :key="iv.phase" class="interval-row">
                 <div class="iv-label">{{ iv.phase }}</div>
-                <ElProgress :percentage="iv.pct || 0" :stroke-width="22" :text-inside="true" :format="() => iv.seconds + 's'" :color="iv.color || '#409eff'" />
+                <ElProgress :percentage="iv.pct || 0" :stroke-width="22" :text-inside="true" :format="() => iv.seconds + '秒'" :color="iv.color || '#409eff'" />
+                <div class="iv-reason" v-if="iv.reason">{{ iv.reason }}</div>
               </div>
             </div>
           </ElCard>
@@ -482,13 +516,14 @@ const timingRecovery = computed(() => timing.value?.error_recovery || null)
                 <div class="tl-content">
                   <div class="tl-time" v-if="step.time">⏰ {{ step.time }}</div>
                   <div class="tl-action">{{ step.action }}</div>
+                  <div class="tl-detail" v-if="step.detail">{{ step.detail }}</div>
                 </div>
               </div>
             </div>
           </ElCard>
           <ElCard shadow="hover" class="section-card" v-if="timingRecovery">
             <template #header><span class="card-title">🔧 错误恢复</span></template>
-            <ElAlert :title="timingRecovery.title || '错误恢复策略'" :description="timingRecovery.desc || ''" type="warning" show-icon :closable="false" />
+            <ElAlert :title="String(timingRecovery)" type="warning" show-icon :closable="false" />
           </ElCard>
         </template>
       </ElTabPane>
