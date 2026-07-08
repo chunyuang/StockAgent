@@ -662,10 +662,15 @@ async def _daily_report_from_mongo(mode: str = "production", include_debug: bool
         _date_fmt = f"{today_int//10000}-{today_int%10000//100:02d}-{today_int%100:02d}"
         return {"success": True, "data": {
             "date": _date_fmt,
-            "account": {"total_assets": 0, "available_cash": 0, "market_value": 0, "today_profit": 0, "total_profit": 0, "position_ratio": 0},
+            "account": {"total_assets": 0.0, "available_cash": 0.0, "market_value": 0.0, "today_profit": 0.0, "total_profit": 0.0, "position_ratio": 0.0},
             "positions": {"count": 0, "strategy_summary": {}, "top_profit": [], "top_loss": []},
             "trades": {"buy": 0, "sell": 0, "total_amount": 0},
-            "scanner_stats": {}, "funnel_summary": None, "sentiment_snapshot": None,
+            "win_rate": 0.0,
+            "take_profit_count": 0,
+            "stop_loss_count": 0,
+            "risk": {"circuit_breaker": False, "consecutive_losses": 0, "today_losses": 0},
+            "scanner_stats": {"total_signals": 0, "signals_found": 0, "scans": 0, "buy_count": 0, "trades_executed": 0, "stop_losses": 0, "stocks_scanned": 0, "sell_count": 0, "take_profits": 0, "scan_count": 0},
+            "funnel_summary": None, "sentiment_snapshot": None,
         }}
     
     # 2. 按策略汇总(从卖出记录统计已平仓, 从买入记录统计建仓中)

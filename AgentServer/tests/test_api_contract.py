@@ -249,7 +249,12 @@ def diff_structures(old: dict, new: dict, prefix: str = "") -> list[str]:
                 if isinstance(old[key], dict) and isinstance(new[key], dict):
                     diffs.extend(diff_structures(old[key], new[key], f"{prefix}.{key}"))
                 else:
-                    diffs.append(f"  ~ {prefix}.{key}: {old[key]} → {new[key]}")
+                    # 空列表对比：当一侧为 ["<empty_list>"] 时跳过
+                    # 空列表只表示"当前无数据"，不代表结构变化
+                    old_is_empty = (isinstance(old[key], list) and len(old[key]) == 1 and old[key][0] == "<empty_list>")
+                    new_is_empty = (isinstance(new[key], list) and len(new[key]) == 1 and new[key][0] == "<empty_list>")
+                    if not (old_is_empty or new_is_empty):
+                        diffs.append(f"  ~ {prefix}.{key}: {old[key]} → {new[key]}")
 
     return diffs
 
