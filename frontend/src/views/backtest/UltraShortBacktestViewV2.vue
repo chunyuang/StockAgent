@@ -1027,27 +1027,27 @@ function onViewLogs(_taskId: string) {
         <div class="review-cards">
           <div class="review-card" :class="reviewReport.totalReturn >= 0 ? 'positive' : 'negative'">
             <div class="rc-label">总收益</div>
-            <div class="rc-value">{{ reviewReport.totalReturn.toFixed(1) }}%</div>
+            <div class="rc-value">{{ (reviewReport.totalReturn ?? 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">年化收益</div>
-            <div class="rc-value">{{ reviewReport.annualReturn.toFixed(1) }}%</div>
+            <div class="rc-value">{{ (reviewReport.annualReturn ?? 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card negative">
             <div class="rc-label">最大回撤</div>
-            <div class="rc-value">-{{ reviewReport.maxDD.toFixed(1) }}%</div>
+            <div class="rc-value">-{{ (reviewReport.maxDD ?? 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">夏普比率</div>
-            <div class="rc-value">{{ reviewReport.sharpe.toFixed(2) }}</div>
+            <div class="rc-value">{{ (reviewReport.sharpe ?? 0).toFixed(2) }}</div>
           </div>
           <div class="review-card">
             <div class="rc-label">胜率</div>
-            <div class="rc-value">{{ reviewReport.winRate.toFixed(1) }}%</div>
+            <div class="rc-value">{{ (reviewReport.winRate ?? 0).toFixed(1) }}%</div>
           </div>
           <div class="review-card">
             <div class="rc-label">盈亏比</div>
-            <div class="rc-value">{{ reviewReport.profitLossRatio.toFixed(2) }}</div>
+            <div class="rc-value">{{ (reviewReport.profitLossRatio ?? 0).toFixed(2) }}</div>
           </div>
         </div>
 

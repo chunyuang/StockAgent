@@ -4,6 +4,7 @@
  * 纯展示页面，不修改任何运行时逻辑
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { getChinaDateInt } from '@/utils/chinaDate'
 import {
   ElCard,
   ElTable,
@@ -552,6 +553,7 @@ const fetchDbStats = async () => {
     }
   } catch (e) {
     // 静默失败，页面仍可用
+    console.warn('[DataSourceView] fetchDbStats partially failed:', e?.message || e)
   } finally {
     loading.value = false
   }
@@ -578,7 +580,9 @@ const fetchIntradayData = async () => {
             try {
               const parsed = JSON.parse(inner)
               if (parsed.signals) flat.push(...parsed.signals)
-            } catch {}
+            } catch (e) {
+              console.error('[DataSourceView] Failed to parse signal data:', e)
+            }
           }
         }
         recentSignals.value = flat
@@ -586,6 +590,7 @@ const fetchIntradayData = async () => {
     }
   } catch (e) {
     // 静默失败
+    console.warn('[DataSourceView] fetchIntradayData failed:', e?.message || e)
   }
 }
 
@@ -599,7 +604,7 @@ const fetchIntradayMongoCounts = async () => {
       'scan_traces', 'premarket_snapshots', 'limit_list',
       'broker_orders', 'risk_decisions', 'scanner_runtime_snapshot',
     ]
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const today = getChinaDateInt()
     intradayMongoCounts.value = realtimeCollections.map(name => {
       const info = cols[name] as any || {}
       return {
@@ -610,7 +615,7 @@ const fetchIntradayMongoCounts = async () => {
       }
     })
   } catch (e) {
-    // 静默
+    console.warn('[DataSourceView] fetchIntradayMongoCounts failed:', e?.message || e)
   }
 }
 
@@ -635,7 +640,7 @@ const fetchScannerRuntime = async () => {
       }
     }
   } catch (e) {
-    // 静默
+    console.warn('[DataSourceView] fetchScannerRuntime failed:', e?.message || e)
   }
 }
 
@@ -669,12 +674,16 @@ onMounted(() => {
 const collectionHealth = computed(() => {
   const cols = dataStatus.value?.collections || {}
   const results: { name: string; count: number; dateEnd: string; status: 'ok' | 'warn' | 'error'; statusText: string }[] = []
-  const today = new Date()
-  const yesterday = new Date(today.getTime() - 86400000)
-  const todayStr = today.toISOString().slice(0, 10).replace(/-/g, '')
-  const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '')
-  const fridayStr = new Date(today.getTime() - (today.getDay() + 2) % 7 * 86400000).toISOString().slice(0, 10).replace(/-/g, '')
-  const expectedLatest = today.getDay() === 0 || today.getDay() === 6 ? fridayStr : yesterdayStr
+  const todayStr = getChinaDateInt()
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = getChinaDateInt(yesterday)
+  // Friday of current week for weekend comparison
+  const todayDate = new Date()
+  const fridayOffset = (todayDate.getDay() + 2) % 7
+  const fridayDate = new Date(todayDate.getTime() - fridayOffset * 86400000)
+  const fridayStr = getChinaDateInt(fridayDate)
+  const expectedLatest = todayDate.getDay() === 0 || todayDate.getDay() === 6 ? fridayStr : yesterdayStr
 
   for (const [name, info] of Object.entries(cols)) {
     const col = info as any
@@ -1211,7 +1220,7 @@ onUnmounted(() => {
             <ElTableColumn prop="dateEnd" label="最新日期" width="140" align="center" />
             <ElTableColumn label="状态" width="80" align="center">
               <template #default="{ row }">
-                <span v-if="row.dateEnd === new Date().toISOString().slice(0,10) || row.dateEnd === new Date().toISOString().slice(0,10).replace(/-/g,'')">✅</span>
+                <span v-if="row.dateEnd === getChinaDateInt() || row.dateEnd === getChinaDateInt().replace(/-/g,'')">✅</span>
                 <span v-else>⏳</span>
               </template>
             </ElTableColumn>
@@ -1240,7 +1249,7 @@ onUnmounted(() => {
           <div v-for="row in factorDetailRows.filter(r => r.group === gname)" :key="row.factor" class="fdg-item">
             <span class="fdg-factor">{{ row.factor }}</span>
             <ElProgress :percentage="row.rate" :stroke-width="6" :color="row.rate >= 90 ? '#10b981' : row.rate >= 50 ? '#f59e0b' : '#ef4444'" :show-text="false" style="flex: 1; min-width: 60px" />
-            <span class="fdg-rate" :class="row.status === 'ok' ? 'cov-ok' : 'cov-bad'">{{ row.rate.toFixed(1) }}%</span>
+            <span class="fdg-rate" :class="row.status === 'ok' ? 'cov-ok' : 'cov-bad'">{{ row.rate != null ? row.rate.toFixed(1) : '-' }}%</span>
           </div>
         </div>
       </div>

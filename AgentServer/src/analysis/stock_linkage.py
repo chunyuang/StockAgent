@@ -124,7 +124,7 @@ class StockLinkageAnalyzer:
             self.logger.warning(f"Sector not found: {sector}")
             return []
         
-        component_codes = [s["code"] for s in sector_doc.get("stocks", [])]
+        component_codes = [s["code"] for s in (sector_doc.get("stocks") or [])]
         
         # 2. 获取当日涨停的成分股
         limit_stocks = await db["review_limit"].find({
@@ -218,7 +218,7 @@ class StockLinkageAnalyzer:
             return StockRole.CENTRAL_ARMY, 0.8, reasons
         
         # 检查连板数（实力判断）
-        limit_times = stock.get("limit_times", 1)
+        limit_times = stock.get("limit_times") or 1
         if limit_times >= 3:
             reasons.append(f"连板数: {limit_times}")
             return StockRole.DRAGON_TWO, 0.7, reasons
@@ -228,7 +228,7 @@ class StockLinkageAnalyzer:
         stock_map = await db["stock_sector_map"].find_one({"code": stock_code})
         
         if stock_map:
-            sectors = [s["name"] for s in stock_map.get("sectors", [])]
+            sectors = [s["name"] for s in (stock_map.get("sectors") or [])]
             # 检查是否有多个热门板块
             if len(sectors) > 5:
                 reasons.append("题材较多，可能跟风")
@@ -241,7 +241,7 @@ class StockLinkageAnalyzer:
                 return StockRole.FOLLOWER, 0.5, reasons
         
         # 检查是否滞后启动（补涨）
-        first_time = stock.get("first_time", "15:00")
+        first_time = stock.get("first_time") or "15:00"
         if first_time > "14:00":
             reasons.append(f"尾盘封板: {first_time}")
             return StockRole.CATCH_UP, 0.65, reasons
