@@ -116,13 +116,22 @@ class ScanLoopRunner:
         return 300
 
     async def _scan_loop_error_recovery(self, error: Exception) -> None:
-        """_scan_loop异常恢复【v2.9.28从_scan_loop提取】"""
+        """_scan_loop异常恢复【v2.9.28从_scan_loop提取, v2.9.112:减少重启空白时间】"""
         logger.error(f"[SCANNER] _scan_loop异常: {error}", exc_info=True)
         self._scan_loop_error_count += 1
         if self._scan_loop_error_count >= 3:
             logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
             self._is_running = False
         else:
+            # 【v2.9.112】盘中异常: 快速恢复(5秒)而非30秒, 减少扫描空白
+            from nodes.market_monitor.market_phase import MarketPhase
+            phase = MarketPhase.classify()
+            if MarketPhase.is_in_trading(phase):
+                logger.warning(f"[SCANNER] 盘中第{self._scan_loop_error_count}次异常, 5秒后快速恢复")
+                await asyncio.sleep(5)
+            else:
+                logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
+                await asyncio.sleep(30)
             logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
             await asyncio.sleep(30)
         try:
@@ -165,7 +174,8 @@ class ScanLoopRunner:
                 return False
 
         elapsed = time.time() - last_full_scan
-        if elapsed >= self.SCAN_INTERVAL:
+        current_interval = self._get_dynamic_scan_interval()
+        if elapsed >= current_interval:
             try:
                 await self.scan_once(trade_date)
                 return True

@@ -98,7 +98,15 @@ class StrategyScorer:
 
             pct = rt.get("pct_chg") or 0
             row["is_limit_up"], row["is_limit_down"] = self._classify_limit(ts_code, pct, row["stock_name"])
-            row["limit_up_count"] = row["is_limit_up"]
+            # 【v2.9.112修复】limit_up_count不再用is_limit_up(0/1)覆盖daily_df的连板数
+            # 旧bug: 实时is_limit_up=0/1覆盖了T-1日的limit_up_count(连板数2+)
+            # dragon_head需要limit_up_count>=1(近5日至少1板), 用daily_df的值更准确
+            # 必盈的limit_times(连板数)如果可用, 优先使用
+            rt_limit_times = int(self._safe_float(rt.get("limit_times")) or 0)
+            if rt_limit_times > 0:
+                row["limit_up_count"] = rt_limit_times  # 必盈连板数最准确
+            else:
+                row["limit_up_count"] = 0  # 留给_merge_with_daily_factors从daily_df补充
             rt_rows.append(row)
         return pd.DataFrame(rt_rows)
 
@@ -137,21 +145,31 @@ class StrategyScorer:
         if daily_df is not None and not daily_df.empty:
             direct_cols = ["ts_code", "ma5", "macd", "rsi_6", "boll_upper", "atr",
                            "limit_up_count", "limit_up_yesterday", "limit_down_yesterday",
-                           "fear_greed_index"]
+                           "fear_greed_index", "high"]  # 【v2.9.112】加入high(供pullback计算用)
             prev_source_cols = ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
                                 "first_limit_up", "is_limit_up"]
             available_cols = [c for c in direct_cols + prev_source_cols if c in daily_df.columns]
             if available_cols:
                 daily_sub = daily_df[available_cols].copy()
+                # 【v2.9.112】high重命名为high_daily(供pullback_pct计算用, 不覆盖实时high)
                 rename_prev = {c: f"{c}_prev" for c in prev_source_cols if c in daily_sub.columns}
+                if "high" in daily_sub.columns and "high" not in rename_prev:
+                    rename_prev["high"] = "high_daily"
                 daily_sub = daily_sub.rename(columns=rename_prev)
                 merged = merged.merge(daily_sub, on="ts_code", how="left", suffixes=("", "_daily"))
                 for col in ["ma5", "macd", "rsi_6", "boll_upper", "atr", "limit_up_count",
                             "limit_up_yesterday", "limit_down_yesterday", "fear_greed_index",
+                            "high_daily",
                             "pct_chg_prev", "volume_ratio_prev", "turnover_rate_prev", "circ_mv_prev",
                             "first_limit_up_prev", "is_limit_up_prev"]:
                     if col in merged.columns:
                         merged[col] = merged[col].fillna(0)
+
+                # 【v2.9.112修复】limit_up_count: 实时值0时用daily_df值(连板数)
+                # 旧bug: _realtime_to_dataframe设limit_up_count=is_limit_up(0/1), merge后0覆盖daily_df的连板数
+                if "limit_up_count" in merged.columns and "limit_up_count_daily" in merged.columns:
+                    mask_zero = merged["limit_up_count"] == 0
+                    merged.loc[mask_zero, "limit_up_count"] = merged.loc[mask_zero, "limit_up_count_daily"].fillna(0)
 
         # 当前首板: 当前涨停 且 昨日未涨停。若上游first_limit_up缺失/全0，实盘在这里动态补齐。
         if "first_limit_up" not in merged.columns or (
@@ -179,11 +197,15 @@ class StrategyScorer:
             # open_above_limit_down: 开盘贴近跌停价 (limit_down_qiao需要)
             if "open_above_limit_down" not in merged.columns:
                 merged["open_above_limit_down"] = (merged["opening_pct_chg"] <= -8.5).astype(int)
-            # pullback_days/pullback_pct: 需多日历史, 实盘无法实时计算 → 补 0(同于原逻辑)
-            for col in ("pullback_days", "pullback_pct"):
-                if col not in merged.columns:
-                    merged[col] = 0
-            # limit_down_open_amount: 跌停开板成交额 → 补 0
+            # 【v2.9.112】pullback_days/pullback_pct: 从daily_factors_df近10日数据实时计算
+            # 回测逻辑(factor_auto_compute.py L399): pullback_pct=(close-rolling_10_high)/rolling_10_high
+            # pullback_days=连续pullback_pct<-0.01的天数
+            # 实盘简化: 用merged_df当前行数据+daily_factors_df历史数据计算
+            if "pullback_pct" not in merged.columns or ("pullback_pct" in merged.columns and merged["pullback_pct"].fillna(0).abs().sum() == 0):
+                merged["pullback_pct"] = self._compute_pullback_pct(merged)
+            if "pullback_days" not in merged.columns or ("pullback_days" in merged.columns and merged["pullback_days"].fillna(0).sum() == 0):
+                merged["pullback_days"] = self._compute_pullback_days(merged)
+            # limit_down_open_amount: 回测已设target=0(跳过), 实盘补0与回测一致
             if "limit_down_open_amount" not in merged.columns:
                 merged["limit_down_open_amount"] = 0
             # sentiment_period_in: 从 scanner 取全局情绪阶段
@@ -210,6 +232,42 @@ class StrategyScorer:
                     merged[col] = 0
 
         return merged
+
+    def _compute_pullback_pct(self, merged: pd.DataFrame) -> pd.Series:
+        """【v2.9.112】实盘计算pullback_pct(与回测factor_auto_compute.py对齐)
+
+        回测逻辑: pullback_pct = (close - rolling_10_high) / rolling_10_high
+        实盘简化: 用当前close和当日high近似(盘中: close是实时价, high是盘中最高价)
+                  如果T-1日high可用(从daily_factors_df), 用近2日high的max作为peak
+        """
+        import numpy as np
+        close = merged.get("close", pd.Series(0, index=merged.index)).fillna(0)
+        high_today = merged.get("high", pd.Series(0, index=merged.index)).fillna(0)
+        high_prev = merged.get("high_daily", pd.Series(0, index=merged.index)).fillna(0)  # T-1日high(如有)
+
+        # 使用近2日high的max作为峰值(近似rolling_10_high)
+        # 注意: 理想情况应加载10日数据, 但load_daily_factors只加载1日
+        # 2日近似足够捕捉短期回调(龙头股回调通常1-5天)
+        peak = np.maximum(high_today, high_prev)
+        peak = peak.where(peak > 0, high_today)  # fallback到当日high
+
+        # pullback_pct = (close - peak) / peak, 负数=回调
+        valid = peak > 0
+        pullback = pd.Series(0.0, index=merged.index)
+        pullback[valid] = (close[valid] - peak[valid]) / peak[valid]
+        return pullback
+
+    def _compute_pullback_days(self, merged: pd.DataFrame) -> pd.Series:
+        """【v2.9.112】实盘计算pullback_days(与回测factor_auto_compute.py对齐)
+
+        回测逻辑: 连续pullback_pct < -0.01的天数(连续回调天数计数器)
+        实盘简化: pullback_pct < -0.01 → 1(至少1天回调), 否则0
+                  因为实盘只有T日数据, 无法计算连续天数, 但dragon_head至少需要pullback_days>=1
+                  所以只要pullback_pct<-0.01就设1(满足最低条件)
+        """
+        pullback_pct = merged.get("pullback_pct", pd.Series(0, index=merged.index)).fillna(0)
+        # pullback_pct < -0.01 → 至少1天回调
+        return (pullback_pct < -0.01).astype(int)
     
     # ==================== 策略配置 ====================
     

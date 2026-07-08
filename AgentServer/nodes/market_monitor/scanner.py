@@ -148,7 +148,22 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     """超短量化市场扫描器"""
 
     # 扫描配置
-    SCAN_INTERVAL = 300    # 全量扫描间隔(秒): 涨停池+策略筛选, 5分钟
+    SCAN_INTERVAL = 300    # 默认全量扫描间隔(秒), 实际由 _get_dynamic_scan_interval() 按时段动态调整
+
+    # 【v2.9.111】分时段扫描间隔(秒) — 早盘高峰加密, 午盘恢复
+    SCAN_INTERVALS_BY_PHASE = {
+        MarketPhase.MORNING:     {
+            "09:30-10:00": 120,   # 早盘高峰 2分钟/次 (原来5分钟)
+            "10:00-11:00": 180,   # 早盘延续 3分钟/次
+            "11:00-11:30": 300,   # 早盘尾段 5分钟/次
+        },
+        MarketPhase.AFTERNOON:   {
+            "13:00-14:00": 300,   # 午盘初段 5分钟/次
+            "14:00-14:30": 180,   # 午盘后段 3分钟/次 (尾盘前最后机会)
+        },
+        # LATE_TRADING: 尾盘不做全量扫描, 维持现状
+        # LUNCH: 午休不扫描
+    }
     POSITION_CHECK_INTERVAL = 30  # 持仓检查间隔(秒): 常规30秒
     POSITION_CHECK_FAST = 10      # 持仓快速检查(秒): 接近止损位10秒级
     POSITION_CHECK_CRITICAL = 5   # 持仓紧急检查(秒): 已触及止损区5秒级
@@ -178,6 +193,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     _risk_thread = None
     _risk_running: bool = False
     _risk_thread_restarts: int = 0
+    _prefetch_thread = None  # 【v2.9.112】行情预取线程
+    _prefetch_running: bool = False  # 【v2.9.112】行情预取控制标志
     _cache_lock = None
     _state_lock: threading.Lock = None  # type: ignore[assignment]  # 初始化在__init__中完成
     _loop = None
@@ -244,6 +261,28 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     def is_running(self) -> bool:
         return self._is_running
 
+    def _get_dynamic_scan_interval(self) -> int:
+        """【v2.9.111】分时段动态扫描间隔(秒)
+
+        早盘高峰(9:30-10:00)加密到2分钟, 午盘后段(14:00-14:30)加密到3分钟,
+        其他时段维持5分钟。尾盘不做全量扫描。
+
+        Returns:
+            当前时段的扫描间隔(秒)
+        """
+        phase = MarketPhase.classify()
+        phase_config = self.SCAN_INTERVALS_BY_PHASE.get(phase)
+        if not phase_config:
+            return self.SCAN_INTERVAL  # 默认300秒
+
+        ct = datetime.now().strftime("%H:%M")
+        for time_range, interval in phase_config.items():
+            start, end = time_range.split("-")
+            if start <= ct < end:
+                return interval
+
+        return self.SCAN_INTERVAL  # 兜底默认
+
     # ==================== 📚 生命周期 ====================
     def get_status(self) -> Dict[str, Any]:
         """Scanner完整状态快照"""
@@ -272,6 +311,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             "last_realtime_update_ts": self._last_realtime_update_ts,
             "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,
             "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions() if self._broker else []) if self._is_running else None,
+            "current_scan_interval": self._get_dynamic_scan_interval() if self._is_running else None,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
             "health": self._compute_health_score(),
         }
@@ -411,7 +451,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         await self._runtime_persistence.restore_start_state()
 
     def _start_risk_thread(self) -> None:
-        """启动风控独立线程【v2.9.18:从start()提取】"""
+        """启动风控独立线程+行情预取线程【v2.9.18:从start()提取, v2.9.112:加入行情预取】"""
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
         if self._state_lock is None:
@@ -424,6 +464,15 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         )
         self._risk_thread.start()
         logger.info("[SCANNER] 风控独立线程已启动")
+        
+        # 【v2.9.112】行情预取独立线程: 30秒刷新行情缓存, 使scan_once不用等待行情获取
+        self._prefetch_running = True
+        self._prefetch_thread = threading.Thread(
+            target=self._quote_prefetch_loop, daemon=True,
+            name="scanner-quote-prefetch"
+        )
+        self._prefetch_thread.start()
+        logger.info("[SCANNER] 行情预取线程已启动(30秒/轮)")
 
     async def stop(self, sell_all: bool = False) -> Dict:
         """停止扫描【v2.9.55:清理逻辑提取到_stop_cleanup】"""
@@ -431,6 +480,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         
         # 停止风控独立线程
         self._risk_running = False
+        self._prefetch_running = False  # 【v2.9.112】停止行情预取
         if self._risk_thread and self._risk_thread.is_alive():
             self._risk_thread.join(timeout=5)
             logger.info("[SCANNER] 风控线程已停止")
@@ -859,7 +909,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         scan_time = datetime.now().strftime("%H:%M:%S")
 
         self._reset_scan_error_state()
-        logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time}")
+        logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time} (间隔={self._get_dynamic_scan_interval()}s)")
 
         timer = _StepTimer()
 
@@ -1533,6 +1583,44 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         if self._position_checker:
             return self._position_checker.is_limit_down(ts_code)
         return False  # 无PositionChecker时默认非跌停(保守策略)
+
+    def _quote_prefetch_loop(self) -> None:
+        """【v2.9.112】行情预取独立线程
+
+        每30秒刷新realtime_cache, 使scan_once不用等待行情获取(6-10秒)。
+        scan_once直接读缓存 → 单轮从10秒降到2秒。
+
+        设计原则:
+        - threading.Thread(daemon=True), 随进程退出
+        - 通过asyncio.run_coroutine_threadsafe调用async方法
+        - 只在交易时间运行, 非交易时间sleep
+        - 失败不中断, 只记录日志(行情获取是scan_once的职责)
+        """
+        logger.info("[PREFETCH] 行情预取线程启动")
+        while self._prefetch_running:
+            try:
+                # 非交易时间sleep
+                from nodes.market_monitor.market_phase import MarketPhase
+                phase = MarketPhase.classify()
+                if not MarketPhase.is_in_trading(phase) and phase != MarketPhase.AUCTION:
+                    time.sleep(30)
+                    continue
+
+                # 30秒刷新一次行情(用东财TTL缓存: <5秒返回缓存, >5秒才拉API)
+                if self._loop and not self._loop.is_closed() and self._quote_manager:
+                    quote_age = time.monotonic() - getattr(self._quote_manager, '_last_fetch_time', 0)
+                    if quote_age > 25:  # 缓存>25秒才拉(留5秒余量)
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._fetch_realtime_batch(force=False),
+                            self._loop
+                        )
+                        future.result(timeout=15)  # 最多等15秒
+            except Exception as e:
+                logger.debug(f"[PREFETCH] 行情预取异常(非致命): {e}")
+
+            time.sleep(30)
+
+        logger.info("[PREFETCH] 行情预取线程已退出")
 
     # DELEGATE_MAP条目即委托文档
 

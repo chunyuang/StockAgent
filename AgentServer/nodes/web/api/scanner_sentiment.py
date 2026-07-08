@@ -628,47 +628,51 @@ async def get_sentiment_live_log(limit: int = 50, date: Optional[str] = None):
     """
     scanner = await _get_scanner()
     try:
-        # 【v2.9.96h】直接读全局单例 emotion_cycle_manager (不依赖 filter_pipeline)
-        from nodes.market_monitor.emotion_cycle import emotion_cycle_manager as emotion
+        from core.managers import mongo_manager
+        from datetime import datetime, timezone, timedelta
+
+        # 【v2.9.111】默认只查当天数据, 避免跨日混合
+        tz_cn = timezone(timedelta(hours=8))
+        today_int = int(datetime.now(tz_cn).strftime('%Y%m%d'))
+        target_date: int | None = None
+        if date:
+            try:
+                target_date = int(str(date).replace('-', ''))
+            except Exception:
+                pass
+        else:
+            target_date = today_int
+
         items: list = []
         in_memory = 0
         source = "memory"
+
+        # 1. 内存环形缓冲 (只取当天的)
+        from nodes.market_monitor.emotion_cycle import emotion_cycle_manager as emotion
         if emotion is not None:
             log = getattr(emotion, '_compute_log', None)
             if log is not None and len(log) > 0:
-                items = list(log)
+                items = [it for it in log if it.get('trade_date') == target_date]
                 items.reverse()
                 in_memory = len(items)
 
-        # 【v2.9.106】始终合并 MongoDB 数据(内存可能因重启不完整)
-        # 内存优先(最新), MongoDB补充历史, 按time去重
+        # 2. MongoDB 补充 (只查当天)
         try:
-            from core.managers import mongo_manager
             if mongo_manager.is_initialized:
-                query: dict = {}
-                if date:
-                    try:
-                        td_int = int(str(date).replace('-', ''))
-                        query['trade_date'] = td_int
-                    except Exception:
-                        pass
                 cursor = mongo_manager.db["sentiment_live_log"].find(
-                    query, {'_id': 0}
+                    {'trade_date': target_date}, {'_id': 0}
                 ).sort([("ts", -1)]).limit(max(1, min(limit, 300)))
                 mongo_items = await cursor.to_list(length=max(1, min(limit, 300)))
-                # 去除可能的 datetime ts 字段
                 for it in mongo_items:
                     if 'ts' in it:
                         it['ts'] = it['ts'].isoformat() if hasattr(it['ts'], 'isoformat') else str(it['ts'])
                 if items:
-                    # 内存有数据: 合并去重(内存优先, MongoDB补充)
-                    seen_times = {it.get('time') for it in items}
+                    seen_keys = {(it.get('trade_date'), it.get('time')) for it in items}
                     for mi in mongo_items:
-                        if mi.get('time') not in seen_times:
+                        mk = (mi.get('trade_date'), mi.get('time'))
+                        if mk not in seen_keys:
                             items.append(mi)
-                            seen_times.add(mi.get('time'))
-                    # 按time降序排
-                    items.sort(key=lambda x: x.get('time', ''), reverse=True)
+                            seen_keys.add(mk)
                     source = f"memory+mongodb({in_memory}+{len(mongo_items)})"
                 else:
                     items = mongo_items
@@ -676,6 +680,8 @@ async def get_sentiment_live_log(limit: int = 50, date: Optional[str] = None):
         except Exception as _e:
             logger.warning(f"[sentiment-live-log] mongo merge failed: {_e}")
 
+        # 按 time 降序 (同一天内, 时间字符串排序即可)
+        items.sort(key=lambda x: x.get('time', ''), reverse=True)
         items = items[:max(1, min(limit, 300))]
 
         return _sanitize({"success": True, "data": {
