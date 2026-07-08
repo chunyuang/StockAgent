@@ -75,8 +75,8 @@ const riskScore = computed(() => {
   const n = globalRisk.value?.risk_summary?.normal ?? 0
   const t = c + w + n
   if (t === 0) return 0
-  // 【v2.9.112】加权评分: critical=80, warning=45, normal=10, 归一化到0-100
-  // 15维度权重: D1(25)+D2(15)+D3(15)+D4(10)+D5(10)+D6(5)+D7(5)+D8(5)+D9(5)+D10(3)+D11(2)+D12(2)+D13(2)+D14(2)+D15(2)=108, cap=100
+  // 【v2.9.112】全局风险评分: 基于持仓风险等级计数加权, 归一化到0-100
+  // (15维度D1-D15评分在后端risk_score字段, 此处用3级汇总做全局仪表)
   const raw = (c * 80 + w * 45 + n * 10) / t
   return safeNum(Math.min(Math.round(raw / 80 * 100), 100))
 })
@@ -131,8 +131,8 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-industry" v-if="Object.keys(globalRisk?.industry_exposure || {}).length > 1">
         <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
           <span class="ind-label">{{ name }}</span>
-          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min(Number(pct || 0), 100).toFixed(0) + '%' }"></div></div>
-          <span class="ind-pct">{{ Number(pct || 0).toFixed(1) }}%</span>
+          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: Math.min(safeNum(pct, 0), 100).toFixed(0) + '%' }"></div></div>
+          <span class="ind-pct">{{ safeNum(pct, 0).toFixed(1) }}%</span>
         </div>
       </div>
     </div>

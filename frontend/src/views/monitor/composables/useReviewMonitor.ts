@@ -72,13 +72,16 @@ export function useReviewMonitor() {
       const dateParam = reviewDate.value.replace(/-/g, '')
       const isToday = reviewDate.value === today
 
-      // ===== 通用数据 =====
+      // ===== 共享数据(所有Tab共用,不重复请求) =====
       promises.push(
         api.get(`${scannerApi}/backtest-compare?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
         api.get(`${scannerApi}/review-hero?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
+        api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
+        api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+        api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
       )
 
-      // ===== 按周期差异化 =====
+      // ===== 按周期差异化(仅周期特有数据) =====
       if (reviewTab.value === 'daily') {
         if (isToday) {
           promises.push(
@@ -117,19 +120,12 @@ export function useReviewMonitor() {
           )
         }
         promises.push(
-          api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
-          api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
-          api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
-          // 执行质量: 直接调用专用API
           api.get(`${scannerApi}/execution-quality?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
         )
       } else if (reviewTab.value === 'weekly') {
         promises.push(
           api.get(`${scannerApi}/review-weekly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReviewData.value = p.data }),
           api.get(`${scannerApi}/weekly-report?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportRaw.value = p.data }),
-          api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
-          api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
-          api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
         )
       } else if (reviewTab.value === 'monthly') {
         promises.push(
@@ -137,8 +133,6 @@ export function useReviewMonitor() {
           api.get(`${scannerApi}/param-drift`, opts).then(r => { const p = parseResponse(r); if (p.success) paramDriftData.value = p.data }),
           api.get(`${scannerApi}/factor-effectiveness?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) factorEffectData.value = p.data }),
           api.get(`${scannerApi}/review-closed-loop?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) closedLoopData.value = p.data }),
-          api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
-          api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
         )
       }
 
