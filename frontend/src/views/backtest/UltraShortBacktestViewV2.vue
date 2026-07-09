@@ -1077,9 +1077,9 @@ function onViewLogs(_taskId: string) {
             </div>
           </div>
           <div v-if="reviewReport.bestStrategy" class="rs-summary">
-            最优策略: <strong>{{ reviewReport.bestStrategy }}</strong> ({{ reviewReport.bestReturn.toFixed(1) }}%)
+            最优策略: <strong>{{ reviewReport.bestStrategy }}</strong> ({{ (reviewReport.bestReturn ?? 0).toFixed(1) }}%)
             <span v-if="reviewReport.worstStrategy && reviewReport.worstStrategy !== reviewReport.bestStrategy">
-              · 最差: {{ reviewReport.worstStrategy }} ({{ reviewReport.worstReturn.toFixed(1) }}%)
+              · 最差: {{ reviewReport.worstStrategy }} ({{ (reviewReport.worstReturn ?? 0).toFixed(1) }}%)
             </span>
           </div>
         </div>
@@ -1106,9 +1106,9 @@ function onViewLogs(_taskId: string) {
           <div class="rs-title">📝 回测概览</div>
           <div class="review-overview">
             回测区间 {{ reviewReport.days }} 个交易日，共产生 {{ reviewReport.totalSignals }} 个信号，成交 {{ reviewReport.totalTrades }} 笔交易。
-            总收益率 {{ reviewReport.totalReturn.toFixed(1) }}%，年化 {{ reviewReport.annualReturn.toFixed(1) }}%。
-            最大回撤 {{ reviewReport.maxDD.toFixed(1) }}%，夏普比率 {{ reviewReport.sharpe.toFixed(2) }}，卡尔玛比率 {{ reviewReport.calmar.toFixed(2) }}。
-            胜率 {{ reviewReport.winRate.toFixed(1) }}%，盈亏比 {{ reviewReport.profitLossRatio.toFixed(2) }}。
+            总收益率 {{ (reviewReport.totalReturn ?? 0).toFixed(1) }}%，年化 {{ (reviewReport.annualReturn ?? 0).toFixed(1) }}%。
+            最大回撤 {{ (reviewReport.maxDD ?? 0).toFixed(1) }}%，夏普比率 {{ (reviewReport.sharpe ?? 0).toFixed(2) }}，卡尔玛比率 {{ (reviewReport.calmar ?? 0).toFixed(2) }}。
+            胜率 {{ (reviewReport.winRate ?? 0).toFixed(1) }}%，盈亏比 {{ (reviewReport.profitLossRatio ?? 0).toFixed(2) }}。
           </div>
         </div>
       </div>

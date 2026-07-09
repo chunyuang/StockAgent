@@ -242,7 +242,7 @@ async function loadAll() {
     endpoints.map(e =>
       api.get(e.path)
         .then((res: any) => { e.ref.value = res?.data || res })
-        .catch(() => {})
+        .catch((err) => { if (__DEV__) console.warn('[ScanInsight] Failed to load', e.path, err?.message) })
     )
   )
   loading.value = false
