@@ -13,22 +13,22 @@
         <span class="value">{{ currentPhase?.phase || '-' }}</span>
       </div>
       <div class="status-item">
-        <span class="label">扫描次数</span>
-        <span class="value">{{ archStatus.scan_count ?? '-' }}</span>
-      </div>
-      <div class="status-item">
-        <span class="label">信号数</span>
-        <span class="value">{{ archStatus.active_signals ?? '-' }}</span>
+        <span class="label">仓位</span>
+        <span class="value">{{ fmtPct(archStatus.position_ratio) }}</span>
       </div>
       <div class="status-item">
         <span class="label">熔断器</span>
-        <ElTag :type="archStatus.circuit_breaker ? 'danger' : 'success'" size="small">
-          {{ archStatus.circuit_breaker ? '已熔断' : '正常' }}
+        <ElTag :type="cbPaused ? 'danger' : 'success'" size="small">
+          {{ cbPaused ? '已暂停' : '正常' }}
         </ElTag>
       </div>
       <div class="status-item">
         <span class="label">情绪</span>
-        <ElTag type="warning" size="small">{{ archStatus.sentiment || '-' }}</ElTag>
+        <ElTag type="warning" size="small">{{ sentimentLabel }}</ElTag>
+      </div>
+      <div class="status-item" v-if="cbInfo">
+        <span class="label">连亏</span>
+        <span class="value">{{ cbInfo.consecutive_losses }}/{{ cbInfo.consecutive_loss_limit }}</span>
       </div>
     </div>
 
@@ -71,8 +71,8 @@
         <template #header><span class="card-title">{{ phaseLabel(selectedPhase?.phase) }} · 做什么</span></template>
         <div class="detail-body" v-if="selectedPhase">
           <p class="purpose">{{ selectedPhase.purpose }}</p>
-          <div class="op-list">
-            <div v-for="(op, i) in (selectedPhase.key_operations || [])" :key="i" class="op-item">
+          <div class="op-list" v-if="selectedPhase.key_operations?.length">
+            <div v-for="(op, i) in selectedPhase.key_operations" :key="i" class="op-item">
               <span class="op-dot">•</span> {{ op }}
             </div>
           </div>
@@ -104,15 +104,15 @@
       <ElCard shadow="never" class="detail-card">
         <template #header><span class="card-title">🎯 策略概览</span></template>
         <div class="detail-body">
-          <div v-for="s in strategyList" :key="s.name" class="strategy-row">
+          <div v-for="s in strategyList" :key="s.id" class="strategy-row">
             <div class="strat-header">
-              <span class="strat-name">{{ s.name_cn || s.name }}</span>
+              <span class="strat-name">{{ s.name || s.id }}</span>
               <ElTag size="small" :type="s.enabled ? 'success' : 'info'">{{ s.enabled ? '启用' : '停用' }}</ElTag>
             </div>
             <div class="strat-params">
-              <span>止损 {{ (s.risk?.stop_loss_pct * 100).toFixed(1) }}%</span>
-              <span>止盈 {{ (s.risk?.take_profit_pct * 100).toFixed(0) }}%</span>
-              <span v-if="s.risk?.trailing_stop_pct">追踪 {{ (s.risk.trailing_stop_pct * 100).toFixed(1) }}%</span>
+              <span v-for="rp in (s.risk_params || [])" :key="rp.name" v-show="isCoreRisk(rp.name)">
+                {{ riskLabel(rp.name) }} {{ fmtRiskVal(rp.name, rp.value) }}
+              </span>
             </div>
           </div>
         </div>
@@ -125,8 +125,8 @@
           <div class="pipeline-flow">
             <div v-for="(layer, i) in pipelineLayers" :key="i" class="pipe-step">
               <span class="pipe-num">L{{ i + 1 }}</span>
-              <span class="pipe-name">{{ layer.name || layer.layer }}</span>
-              <span class="pipe-desc" v-if="layer.purpose">{{ layer.purpose }}</span>
+              <span class="pipe-name">{{ layer.name }}</span>
+              <span class="pipe-desc" v-if="layer.description">{{ layer.description }}</span>
             </div>
           </div>
         </div>
@@ -160,6 +160,13 @@ const pipeline = ref<any>(null)
 const selectedPhase = ref<any>(null)
 
 const archStatus = computed(() => architecture.value?.runtime || {})
+const cbInfo = computed(() => archStatus.value?.circuit_breaker && typeof archStatus.value.circuit_breaker === 'object' ? archStatus.value.circuit_breaker : null)
+const cbPaused = computed(() => cbInfo.value?.trading_paused || false)
+const sentimentLabel = computed(() => {
+  const s = archStatus.value?.sentiment
+  if (!s || typeof s !== 'object') return '-'
+  return `${s.period || '-'} ${s.score?.toFixed(0) || ''}`
+})
 const timingPhases = computed(() => timing.value?.phases || [])
 const timingIntervals = computed(() => timing.value?.intervals || [])
 const timingPremarket = computed(() => timing.value?.premarket || [])
@@ -191,6 +198,22 @@ const phaseIntervals = computed(() => {
 })
 
 function selectPhase(p: any) { selectedPhase.value = p }
+
+function fmtPct(v: any) {
+  if (v == null) return '-'
+  return (v * 100).toFixed(0) + '%'
+}
+
+const CORE_RISK = ['stop_loss_pct', 'take_profit_pct', 'trailing_stop_pct', 'max_hold_days']
+function isCoreRisk(name: string) { return CORE_RISK.includes(name) }
+function riskLabel(name: string) {
+  const map: Record<string, string> = { stop_loss_pct: '止损', take_profit_pct: '止盈', trailing_stop_pct: '追踪', max_hold_days: '持仓' }
+  return map[name] || name
+}
+function fmtRiskVal(name: string, val: string) {
+  if (name === 'max_hold_days') return val + '天'
+  return (parseFloat(val) * 100).toFixed(1) + '%'
+}
 
 function phaseLabel(phase?: string) {
   const map: Record<string, string> = {
