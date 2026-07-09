@@ -1455,6 +1455,25 @@ class PositionManager:
         for p in positions:
             if p.available_qty <= 0:
                 continue  # T+1: 不可卖跳过
+
+            # 【v2.9.120】强制空仓时跳过跌停票(不可卖)和盈利票(保留收益)
+            if source == "force_empty":
+                # 跌停票不卖, 挂入pending_sells等恢复
+                if self._is_limit_down(p.ts_code):
+                    with self.state_lock:
+                        self.pending_sells[p.ts_code] = {
+                            "reason": f"强制空仓跌停挂起",
+                            "price": p.current_price,
+                            "added_at": time.time(),
+                            "source": "force_empty",
+                        }
+                    logger.warning(f"[LIQUIDATE] {p.ts_code} 跌停挂起(强制空仓)")
+                    continue
+                # 盈利票保留(>0.5%), 只清亏损和微利
+                if p.profit_pct > 0.5:
+                    logger.info(f"[LIQUIDATE] {p.ts_code} 保留盈利票(+{p.profit_pct:.1f}%)")
+                    continue
+
             trace_id = f"liq-{p.ts_code}-{uuid.uuid4().hex[:8]}"
             try:
                 scanner._broker.update_realtime(p.ts_code, p.current_price)

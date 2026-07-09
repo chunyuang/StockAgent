@@ -1299,7 +1299,7 @@ async def adjust_position_risk(ts_code: str, request: Request):
         # 持久化到MongoDB
         try:
             from core.managers import mongo_manager
-            if mongo_manager.db:
+            if mongo_manager.db is not None:
                 await mongo_manager.db["position_risk_overrides"].replace_one(
                     {"ts_code": ts_code},
                     {"ts_code": ts_code, **overrides[ts_code], "updated_at": datetime.now().isoformat()},

@@ -730,7 +730,8 @@ class RuntimePersistence:
         以前只有 position_checker._persist_risk_decision 写入，跳空止损走 event 路径丢失。
         """
         from core.managers import mongo_manager
-        if not getattr(mongo_manager, '_initialized', False) or not getattr(mongo_manager, 'db', None):
+        _db = getattr(mongo_manager, 'db', None)
+        if not getattr(mongo_manager, '_initialized', False) or _db is None:
             logger.warning(f"[RISK_AUDIT] mongo_manager未初始化, 跳过risk_decision: {pos.ts_code} {reason}")
             return
         trade_date = scanner._trade_date or datetime.now().strftime('%Y%m%d')
@@ -786,7 +787,7 @@ class RuntimePersistence:
         从scanner._save_performance_snapshot提取【v2.9.6】
         """
         from core.managers import mongo_manager
-        if not mongo_manager.db:
+        if mongo_manager.db is None:
             return
         scanner = self._scanner
         acct = scanner._broker.get_account()
@@ -1031,7 +1032,7 @@ class RuntimePersistence:
         # 审计日志TTL索引(90天自动过期)
         try:
             from core.managers import mongo_manager
-            if mongo_manager.db:
+            if mongo_manager.db is not None:
                 await mongo_manager.db["audit_log"].create_index(
                     "timestamp", expireAfterSeconds=7776000  # 90天
                 )

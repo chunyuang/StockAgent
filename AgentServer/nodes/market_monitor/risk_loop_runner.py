@@ -56,7 +56,8 @@ class RiskLoopRunner:
                 self._risk_tick_body(tick)
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
+                import traceback
+                logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}\n{traceback.format_exc()}")
                 self._emit_risk_thread_error(e, consecutive_errors)
                 sleep_s = self._risk_error_backoff(consecutive_errors, e)
                 time.sleep(sleep_s)
