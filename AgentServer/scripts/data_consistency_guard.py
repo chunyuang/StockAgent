@@ -45,18 +45,22 @@ async def main():
     realized_profit = 0
     wins = 0
     for s in sells:
-        fp = s.get("filled_price", 0) or 0
-        qty = s.get("filled_qty", 0) or s.get("quantity", 0)
-        cost = buy_cost_map.get(s.get("ts_code", ""), 0)
-        if cost > 0 and fp > 0:
-            profit = (fp - cost) * qty
-            realized_profit += profit
-            if fp >= cost:
-                wins += 1
-        elif (s.get("profit_amount") or 0) != 0:
-            realized_profit += s.get("profit_amount", 0)
+        # 优先用order自带的profit_amount(broker用avg_cost计算，比分批买入的last_buy_price准确)
+        pa = s.get("profit_amount", 0) or 0
+        if pa != 0:
+            realized_profit += pa
             if (s.get("profit_pct") or 0) >= 0:
                 wins += 1
+        else:
+            # fallback: 用买入均价
+            fp = s.get("filled_price", 0) or 0
+            qty = s.get("filled_qty", 0) or s.get("quantity", 0)
+            cost = buy_cost_map.get(s.get("ts_code", ""), 0)
+            if cost > 0 and fp > 0:
+                profit = (fp - cost) * qty
+                realized_profit += profit
+                if fp >= cost:
+                    wins += 1
 
     # 从broker_positions算未实现盈亏
     positions = list(db["broker_positions"].find({"account_id": "default"}))
@@ -65,10 +69,15 @@ async def main():
     total_market = 0
     for pos in positions:
         qty = pos.get("total_qty", 0) or pos.get("shares", 0) or pos.get("quantity", 0) or 0
+        if qty <= 0:
+            continue
         cost = pos.get("avg_cost", 0) or pos.get("cost_price", 0) or 0
-        # 从stock_daily_ak_full取最新收盘价
-        latest = list(db["stock_daily_ak_full"].find({"ts_code": pos.get("ts_code")}).sort("trade_date", -1).limit(1))
-        price = latest[0].get("close", 0) if latest else (pos.get("current_price", 0) or 0)
+        # 优先用position自带的current_price(与broker保存时一致)
+        price = pos.get("current_price", 0) or 0
+        if price <= 0:
+            # fallback: 从stock_daily_ak_full取最新收盘价
+            latest = list(db["stock_daily_ak_full"].find({"ts_code": pos.get("ts_code")}).sort("trade_date", -1).limit(1))
+            price = latest[0].get("close", 0) if latest else 0
         unrealized_pnl += (price - cost) * qty
         total_cost += cost * qty
         total_market += price * qty
@@ -87,11 +96,14 @@ async def main():
                            f"¥{total_market:,.0f}", f"¥{acct_market_value:,.0f}",
                            f"差额¥{acct_market_value-total_market:,.0f}, 可能是成本价代市价"))
 
-        # 2b. account.total_profit vs 未实现盈亏(market_value - total_cost)
-        if total_cost > 0 and abs(acct_total_profit - (total_market - total_cost)) / max(abs(total_market - total_cost), 1) > 0.1:
-            issues.append(("P1", "account.total_profit ≠ 市值-成本(未实现盈亏)",
-                           f"¥{total_market-total_cost:,.0f}", f"¥{acct_total_profit:,.0f}",
-                           f"差额¥{acct_total_profit-(total_market-total_cost):,.0f}"))
+        # 2b. account.total_profit vs 总盈亏(已实现+未实现)
+        # broker定义: total_profit = total_assets - initial_cash = 已实现+未实现
+        # 守卫推算: realized_profit + unrealized_pnl
+        expected_total_profit = realized_profit + unrealized_pnl
+        if abs(acct_total_profit - expected_total_profit) / max(abs(expected_total_profit), 1) > 0.1:
+            issues.append(("P1", "account.total_profit ≠ 已实现+未实现盈亏",
+                           f"¥{expected_total_profit:,.0f}", f"¥{acct_total_profit:,.0f}",
+                           f"差额¥{acct_total_profit-expected_total_profit:,.0f}"))
 
     # === 3. 胜率交叉验证 ===
     actual_win_rate = round(wins / len(sells) * 100, 1) if sells else 0

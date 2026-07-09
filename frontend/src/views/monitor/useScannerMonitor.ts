@@ -82,7 +82,7 @@ export function useScannerMonitor() {
       if (covered.has(key)) continue
       const buy = orders.value.find(b => b.side === 'buy' && b.ts_code === o.ts_code && b.strategy === o.strategy)
       const buyPrice = buy?.filled_price ?? 0
-      result.push({ ts_code: o.ts_code, stock_name: o.stock_name || '', strategy: o.strategy, buy_price: buyPrice, sell_price: o.filled_price, profit_amount: (o.filled_price - buyPrice) * o.filled_qty, profit_pct: buyPrice > 0 ? (o.filled_price - buyPrice) / buyPrice * 100 : 0, buy_time: buy?.create_time || '', sell_time: o.create_time || '' })
+      result.push({ ts_code: o.ts_code, stock_name: o.stock_name || '', strategy: o.strategy, buy_price: buyPrice, sell_price: o.filled_price, profit_amount: buyPrice > 0 ? (o.filled_price - buyPrice) * o.filled_qty : null, profit_pct: buyPrice > 0 ? (o.filled_price - buyPrice) / buyPrice * 100 : null, buy_time: buy?.create_time || '', sell_time: o.create_time || '' })
     }
     return result.sort((a, b) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
   })

@@ -163,6 +163,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
 
       <!-- ========== 日线/周线/月线 SVG 图表 ========== -->
       <div v-if="sentimentMode!=='intraday'||isIntradayFallback" class="chart-wrap" style="margin-top:4px">
+        <div style="font-size:11px;color:var(--text-tertiary);padding:2px 8px">📈 {{ displayTimeline.length }}点 <span v-if="sentimentMode==='daily'">(日线)</span><span v-else-if="sentimentMode==='weekly'">(周线)</span><span v-else>(月线)</span></div>
         <VChart :option="sentimentChartOption" autoresize style="height:280px;width:100%" />
       </div>
 
@@ -218,7 +219,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
             <tr v-for="(l,i) in liveLogs" :key="l.time+i" :class="i===0?'live-log-latest':''">
               <td class="ll-time">{{ l.time }}</td>
               <td class="ll-score" :style="{color:scoreColor(l.score),fontWeight:'bold'}">{{ Number(l.score||0).toFixed(1) }}</td>
-              <td><span class="ll-phase" :style="{color:phaseColors[l.phase_label]||'#888'}">{{ l.phase_label }}</span></td>
+              <td><span class="ll-phase" :style="{color:phaseColors[m.phaseCN(l.phase_label)]||phaseColors[l.phase_label]||'#888'}">{{ m.phaseCN(l.phase_label) }}</span></td>
               <td>{{ ((l.position_ratio||0)*100).toFixed(0) }}%</td>
               <td class="up">{{ l.limit_up }}</td><td class="down">{{ l.limit_down }}</td>
               <td>{{ l.max_continue }}</td><td>{{ ((l.up_down_ratio||0)*100).toFixed(1) }}%</td>
