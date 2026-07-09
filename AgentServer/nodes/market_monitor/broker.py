@@ -526,6 +526,38 @@ class SimulatedBroker:
             self.account.total_profit = self.account.total_assets - self._initial_cash  # 总是从资产重算
             logger.info(f"[BROKER] 账户恢复: 资产{self.account.total_assets:.0f} 现金{self.account.available_cash:.0f}")
 
+    def _restore_position_from_mongo(self, ts_code: str) -> Optional['Position']:
+        """【v2.9.113】从MongoDB恢复单条position (同步方法, 供_validate_sell调用)
+        
+        场景: scanner重启后position丢失, 但MongoDB中仍有记录。
+        _validate_sell原来只查内存, 丢失的position会导致卖出被拒绝,
+        即使_execute_sell有MongoDB兆底也走不到。
+        """
+        try:
+            if not self._ensure_sync_mongo():
+                return None
+            doc = self._sync_mongo_db["broker_positions"].find_one(
+                {"account_id": self.account.account_id, "ts_code": ts_code, "total_qty": {"$gt": 0}}
+            )
+            if not doc:
+                return None
+            pos = Position(
+                ts_code=doc["ts_code"],
+                stock_name=doc.get("stock_name", ""),
+                total_qty=doc.get("total_qty", 0),
+                available_qty=doc.get("available_qty", doc.get("total_qty", 0)),  # 恢复后默认可卖
+                avg_cost=doc.get("avg_cost", 0),
+                current_price=doc.get("current_price", 0),
+                profit_pct=doc.get("profit_pct", 0),
+                today_buy_qty=0,  # 恢复的不是今日买入
+                strategy=doc.get("strategy", ""),
+                buy_date=doc.get("buy_date", ""),
+            )
+            return pos if pos.total_qty > 0 else None
+        except Exception as e:
+            logger.error(f"[BROKER] 从MongoDB恢复position失败 {ts_code}: {e}")
+            return None
+
     async def _restore_positions_from_mongo(self) -> None:
         """【v2.9.57提取】从MongoDB恢复持仓"""
         cursor = self._mongo_db["broker_positions"].find(
@@ -840,8 +872,19 @@ class SimulatedBroker:
         quantity: int,
         current_price: float,
     ) -> Tuple[bool, str, int]:
-        """卖出检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】"""
+        """卖出检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】
+        
+        【v2.9.113】增加MongoDB兜底: position不在内存时从DB恢复,
+        避免_ensure_mongo兜底代码永远走不到(被_validate_sell提前拦截)
+        """
         pos = self.positions.get(ts_code)
+        if not pos:
+            # 【v2.9.113】从MongoDB恢复position (重启丢失场景)
+            pos = self._restore_position_from_mongo(ts_code)
+            if pos:
+                self.positions[ts_code] = pos
+                logger.warning(f"[BROKER] ⚠️ 从MongoDB恢复position: {ts_code} qty={pos.total_qty} available={pos.available_qty}")
+
         if not pos or pos.available_qty <= 0:
             reason = "无可用持仓(T+1限制)" if pos and pos.total_qty > 0 else "无持仓"
             return False, reason, quantity

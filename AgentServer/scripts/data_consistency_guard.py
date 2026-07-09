@@ -149,33 +149,39 @@ async def main():
     # 【v2.9.107】补充检查 — 持久化完整性
     today_int = int(datetime.now().strftime("%Y%m%d"))
 
-    # === 5a. performance_snapshots 今日应有一条 (交易日) ===
+    # === 5a. performance_snapshots 最近交易日应有一条 ===
     weekday = datetime.now().weekday()  # 0=Mon, 4=Fri
+    # 简单交易日检查: 工作日且非节假日, 用broker_orders判断是否交易日
+    recent_trade_date = today_int
     if weekday < 5:  # 工作日才检查
-        perf_today = db["performance_snapshots"].count_documents({"trade_date": today_int})
-        if perf_today == 0:
-            issues.append(("P1", "performance_snapshots今日缺失",
-                           "≥1条", "0条",
-                           "结算后未写入资产快照 → 资金曲线丢今日点"))
+        # 如果今日没有交易数据, 向前找最近交易日
+        if db["broker_orders"].count_documents({"trade_date": today_int}) == 0:
+            recent_doc = db["broker_orders"].find_one(sort=[("trade_date", -1)])
+            recent_trade_date = recent_doc.get("trade_date", 0) if recent_doc else 0
+        if recent_trade_date > 0:
+            perf_count = db["performance_snapshots"].count_documents({"trade_date": recent_trade_date})
+            if perf_count == 0:
+                issues.append(("P1", f"performance_snapshots缺失(td={recent_trade_date})",
+                               "≥1条", "0条",
+                               "结算后未写入资产快照 → 资金曲线丢点"))
 
     # === 5b. risk_decisions 与 broker_orders 一致性 (卸货必须有决策记录) ===
     sells_today = list(db["broker_orders"].find({
-        "status": "filled", "side": "sell", "trade_date": today_int
+        "status": "filled", "side": "sell", "trade_date": recent_trade_date
     }))
     if sells_today:
-        risk_decisions_today = db["risk_decisions"].count_documents({"trade_date": today_int})
-        if risk_decisions_today < len(sells_today):
+        risk_decisions_count = db["risk_decisions"].count_documents({"trade_date": recent_trade_date})
+        if risk_decisions_count < len(sells_today):
             issues.append(("P1", "risk_decisions与卸货记录不匹配",
-                           f"≥{len(sells_today)}条", f"{risk_decisions_today}条",
-                           f"今日有{len(sells_today)}笔卸货但只{risk_decisions_today}条决策记录 → 风控审计润丢失"))
+                           f"≥{len(sells_today)}条", f"{risk_decisions_count}条",
+                           f"有{len(sells_today)}笔卸货但只{risk_decisions_count}条决策记录 → 风控审计记录丢失"))
 
-    # === 5c. sentiment_live_log 工作日应有数据 ===
-    if weekday < 5:
-        sentiment_logs_today = db["sentiment_live_log"].count_documents({"trade_date": today_int})
-        # 仅在盘中后一点才检查 (避免于凌晨误报)
+    # === 5c. sentiment_live_log 最近交易日应有数据 ===
+    if weekday < 5 and recent_trade_date > 0:
+        sentiment_logs = db["sentiment_live_log"].count_documents({"trade_date": recent_trade_date})
         hour = datetime.now().hour
-        if 10 <= hour <= 16 and sentiment_logs_today == 0:
-            issues.append(("P1", "sentiment_live_log今日缺失",
+        if 10 <= hour <= 16 and sentiment_logs == 0:
+            issues.append(("P1", f"sentiment_live_log缺失(td={recent_trade_date})",
                            "交易时间后该≥1条", "0条",
                            "盘中情绪计算未写入 → 复盘不可用"))
 
