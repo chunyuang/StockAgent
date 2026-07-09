@@ -75,7 +75,7 @@ async def get_architecture():
         runtime = {
             "is_running": True,
             "trade_date": scanner.get_trade_date(),
-            "scan_thread": scanner._scan_thread is not None and scanner._scan_thread.is_alive(),
+            "scan_thread": getattr(scanner, '_task', None) is not None and not getattr(scanner, '_task', None).done(),
             "risk_thread": scanner.is_risk_running(),
             "prefetch": getattr(scanner, '_prefetch_running', False),
             "circuit_breaker": scanner.get_circuit_breaker(),
