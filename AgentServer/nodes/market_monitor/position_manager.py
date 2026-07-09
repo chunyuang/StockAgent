@@ -57,19 +57,21 @@ MIN_TRAILING_ACTIVATE_PCT = 3.0  # 最低3%才激活追踪止损
 # 【v2.9.119】ATR自适应止损
 # 数据证据: 25笔止损全部是高波动股(ATR14: 3.3%-13%), 固定3%全错
 # 10笔固定止损全被误杀, 14笔跳空止损本可不触发(持有到收盘少亏6716元)
-# 方案: stop_loss = min(max(strategy_min, 1.2*ATR14%), ATR_STOP_CAP%)
-# 封顶6%防止高波动股单笔亏损过大(6%×5万=3000元可承受)
+# 方案: stop_loss = min(max(strategy_min, 1.2*ATR14%), strategy_max)
+# v2.9.120: ATR上限从2×收紧到1.5×, 与回测固定止损更接近
+# 之前: halfway_chase (3%, 6%) -> 高波动时取6%, 比回测3%宽一倍
+# 现在: halfway_chase (3%, 4.5%) -> 高波动时取4.5%, 与回测差距缩小50%
 ATR_STOP_MULTIPLIER = 1.2      # ATR乘数
-ATR_STOP_CAP_PCT = 6.0          # 止损上限6%
+ATR_STOP_CAP_PCT = 6.0          # 全局封顶6%(防止极端值)
 ATR_STOP_PERIOD = 14            # ATR计算周期(14天)
 ATR_STOP_MIN_PCT = 2.5          # 止损下限2.5%(即使低波动也至少2.5%)
-# 策略级ATR止损范围(覆盖strategy_defaults中的stop_loss_pct)
+# 策略级ATR止损范围(v2.9.120: 上限从2×stop_loss收紧到1.5×stop_loss)
 STRATEGY_ATR_RANGES = {
-    "halfway_chase":   (3.0, 6.0),   # 追涨: 3%-6%
-    "first_limit_up":  (3.5, 7.0),   # 首板: 3.5%-7%
-    "limit_up_open":   (4.0, 7.0),   # 炸板: 4%-7%
-    "dragon_head":     (3.0, 7.0),   # 龙头: 3%-7%
-    "limit_down_qiao": (5.0, 8.0),   # 翘板: 5%-8%(高波动, 原止损就是5%)
+    "halfway_chase":   (3.0, 4.5),   # 追涨: 3%-4.5% (原3%-6%, 收窄33%)
+    "first_limit_up":  (3.5, 5.25),  # 首板: 3.5%-5.25% (原3.5%-7%, 收窄25%)
+    "limit_up_open":   (4.0, 6.0),   # 炸板: 4%-6% (原4%-7%, 收窄14%)
+    "dragon_head":     (3.0, 4.5),   # 龙头: 3%-4.5% (原3%-7%, 收窄36%)
+    "limit_down_qiao": (5.0, 7.5),   # 翘板: 5%-7.5% (原5%-8%, 收窄6%)
 }
 
 

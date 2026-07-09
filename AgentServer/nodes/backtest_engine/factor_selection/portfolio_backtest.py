@@ -325,12 +325,16 @@ class PortfolioBacktester:
             # 利润保护 → 以close卖出,如果盘中low跌破止损,止损更保守应优先
             if early_sell_price > 0 and enable_sl and early_sell_reason == '利润保护':
                 sl_pct, _ = self._get_sl_tp_for_code(code)
+                sl_pct = self._calc_backtest_atr_stop_pct(code, trade_date, sl_pct)
                 stop_price = cost * (1 - sl_pct)
                 low_p = p.get('low', p.get('close', 0))
                 if low_p <= stop_price:
                     if open_p <= stop_price:
-                        early_sell_price = open_p
-                        early_sell_reason = '跳空止损'
+                        _gap_should, _gap_price, _gap_reason = self._check_gap_stop_with_observation(
+                            cost, open_p, stop_price, p.get('close', 0))
+                        if _gap_should:
+                            early_sell_price = _gap_price
+                            early_sell_reason = _gap_reason
                     else:
                         early_sell_price = stop_price
                         early_sell_reason = f'止损({sl_pct*100:.1f}%)'
@@ -363,14 +367,24 @@ class PortfolioBacktester:
             # === 2. 止损/止盈 ===
             if code not in forced_sell_codes_set:
                 sl_pct, tp_pct = self._get_sl_tp_for_code(code)
+                sl_pct = self._calc_backtest_atr_stop_pct(code, trade_date, sl_pct)
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
                 low_p = p.get('low', p.get('close', 0))
                 high_p = p.get('high', p.get('close', 0))
                 if enable_sl and low_p <= stop_price:
                     if open_p <= stop_price:
-                        forced_sell_prices[code] = open_p
-                        forced_sell_codes.append((code, '跳空止损'))
+                        # 【P1: 跳空止损观察期 - 对齐实盘v2.9.112】
+                        # 实盘: 跳空<5%时观察15-30分钟, 回升则取消止损
+                        # 回测: 用close近似判断 - 跳空但收盘回止损线上方=观察期修复
+                        _close_p = p.get('close', 0)
+                        gap_pct = abs((open_p - cost) / cost) if cost > 0 else 0
+                        if gap_pct < 0.05 and _close_p >= stop_price:
+                            pass  # 观察期修复, 不止损
+                        else:
+                            forced_sell_prices[code] = open_p
+                            forced_sell_codes.append((code, '跳空止损'))
+                            forced_sell_codes_set.add(code)
                     else:
                         forced_sell_prices[code] = stop_price
                         forced_sell_codes.append((code, f'止损({sl_pct*100:.1f}%)'))
@@ -404,8 +418,10 @@ class PortfolioBacktester:
                             _trailing_stop_pct = _ts_pct
                             break
                     if _trailing_stop_pct is not None and _trailing_stop_pct > 0:
+                        # 【P2: 激活阈值对齐实盘 - 最低3%】
+                        _activate_threshold = max(_trailing_stop_pct, 0.03)  # 实盘MIN_TRAILING_ACTIVATE_PCT=3.0
                         # 更新peak: 只要当前利润>=激活阈值就更新(不管hold_days)
-                        if current_profit_pct >= _trailing_stop_pct:
+                        if current_profit_pct >= _activate_threshold:
                             if not hasattr(self, '_trailing_peak_profit'):
                                 self._trailing_peak_profit = {}
                             _prev_peak = self._trailing_peak_profit.get(code, 0)
@@ -495,6 +511,26 @@ class PortfolioBacktester:
                         except (ValueError, TypeError):
                             pass
 
+            # === 3.7 【P1: 分批止盈 - 对齐实盘v2.9.118】 ===
+            # 盈利≥8%且未触发其他卖出->卖半仓锁利, 剩余继续持有
+            if code not in forced_sell_codes_set:
+                _close_p = p.get('close', 0)
+                if cost > 0 and _close_p > 0:
+                    _profit_pct = (_close_p / cost - 1) * 100
+                    if _profit_pct >= 8.0 and _profit_pct < tp_pct * 100:
+                        # 检查是否已分批过
+                        if not hasattr(self, '_partial_tp_done'):
+                            self._partial_tp_done = set()
+                        if code not in self._partial_tp_done:
+                            self._partial_tp_done.add(code)
+                            forced_sell_prices[code] = _close_p
+                            forced_sell_codes.append((code, f'分批止盈(盈{_profit_pct:.1f}%≥8%)'))
+                            forced_sell_codes_set.add(code)
+                            # 标记为半仓卖出(在执行时减半)
+                            if not hasattr(self, '_partial_sell_codes'):
+                                self._partial_sell_codes = set()
+                            self._partial_sell_codes.add(code)
+
         return forced_sell_codes, forced_sell_prices, forced_sell_codes_set
 
     async def _execute_forced_sells(self, trade_date, holdings, cash, forced_sell_codes,
@@ -520,25 +556,38 @@ class PortfolioBacktester:
             shares = holdings.get(code, 0)
             if shares <= 0:
                 continue
+            # 【P1: 分批止盈 - 半仓卖出】
+            _partial_codes = getattr(self, '_partial_sell_codes', set())
+            if code in _partial_codes:
+                lot = 200 if code.startswith('688') else 100
+                sell_shares = (shares // 2 // lot) * lot
+                if sell_shares < lot:
+                    sell_shares = shares  # 仓位太小, 全仓卖
+                _partial_codes.discard(code)
+            else:
+                sell_shares = shares
             sell_p = forced_sell_prices.get(code, _sl_tp_prices.get(code, {}).get('close', 0))
             if sell_p <= 0:
                 continue
             # 【V29:统一滑点规则】
             slippage_pct = 0 if not should_apply_slippage(reason) else self._get_slippage_for_code(code)
             sell_price_adj = sell_p * (1 - slippage_pct)
-            gross_amount = shares * sell_price_adj
+            gross_amount = sell_shares * sell_price_adj
             commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
             stamp_tax = gross_amount * self.STAMP_TAX
             net_amount = gross_amount - commission - stamp_tax
             cash += net_amount
-            del holdings[code]
-            self._cleanup_sold_position(code)
+            if sell_shares >= shares:
+                del holdings[code]
+                self._cleanup_sold_position(code)
+            else:
+                holdings[code] = shares - sell_shares
             _sell_strategy = self._get_strategy_for_stock(code)
             rebalance_records.append(RebalanceRecord(
                 date=str(trade_date), action='sell', ts_code=code,
-                shares=shares, price=sell_p, amount=net_amount,
+                shares=sell_shares, price=sell_p, amount=net_amount,
                 reason=reason, strategy_name=_sell_strategy, sentiment=''))
-            await self.log(f"   │  ⚠️  {log_prefix}强制卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
+            await self.log(f"   │  ⚠️  {log_prefix}强制卖出: {code} {sell_shares}股 @ {sell_p:.2f} ({reason})")
         return cash
 
     def _get_max_hold_for_code(self, code):
@@ -4146,6 +4195,95 @@ class PortfolioBacktester:
             return sl, tp
         return global_sl, global_tp
 
+    # ===== P1: ATR自适应止损(与实盘position_manager对齐) =====
+    _backtest_atr_cache = {}  # {trade_date: {ts_code: atr_stop_pct}}
+
+    def _calc_backtest_atr_stop_pct(self, code: str, trade_date: int,
+                                     base_sl_pct: float, strategy: str = "") -> float:
+        """回测中计算ATR自适应止损百分比, 与实盘_calc_atr_stop_pct逻辑一致
+
+        v2.9.120: 对齐实盘ATR止损
+        - 查T-1前14天high/low/pre_close计算ATR14
+        - stop_loss = min(max(strategy_min, 1.2*ATR%), strategy_max)
+        - strategy_max = 1.5×base_sl_pct (与实盘v2.9.120一致)
+        - ATR不可用时fallback到base_sl_pct
+        """
+        # 缓存检查
+        cache_date = getattr(self, '_atr_cache_date', None)
+        if cache_date != trade_date:
+            self._backtest_atr_cache = {}
+            self._atr_cache_date = trade_date
+        elif code in self._backtest_atr_cache:
+            return self._backtest_atr_cache[code]
+
+        # ATR范围: 与实盘STRATEGY_ATR_RANGES一致 (1.5×base_sl)
+        strategy_min = base_sl_pct * 100  # 如3% -> 3.0
+        strategy_max = strategy_min * 1.5  # 如3% -> 4.5%
+
+        try:
+            # 同步查MongoDB (回测在asyncio中,用run_in_executor避免阻塞)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"ts_code": code, "trade_date": {"$lt": int(trade_date)}}
+            ).sort("trade_date", -1).limit(16)
+            daily_list = loop.run_until_complete(cursor.to_list(16))
+
+            if len(daily_list) < 5:
+                self._backtest_atr_cache[code] = base_sl_pct
+                return base_sl_pct
+
+            trs = []
+            for d in daily_list:
+                h = d.get("high", 0) or 0
+                l = d.get("low", 0) or 0
+                pc = d.get("pre_close", 0) or 0
+                if h > 0 and l > 0 and pc > 0:
+                    tr = max(h - l, abs(h - pc), abs(l - pc))
+                    trs.append(tr / pc * 100)
+
+            if len(trs) < 5:
+                self._backtest_atr_cache[code] = base_sl_pct
+                return base_sl_pct
+
+            atr14 = sum(trs) / len(trs)
+            atr_stop = 1.2 * atr14
+            effective_pct = min(max(atr_stop, strategy_min), strategy_max) / 100.0
+
+            self._backtest_atr_cache[code] = effective_pct
+            return effective_pct
+
+        except Exception:
+            self._backtest_atr_cache[code] = base_sl_pct
+            return base_sl_pct
+
+    def _get_effective_sl_pct(self, code: str, trade_date: int) -> float:
+        """获取有效止损百分比(含ATR自适应) - 对齐实盘"""
+        base_sl, _ = self._get_sl_tp_for_code(code)
+        strategies = self.stock_to_strategy.get(code, [])
+        strategy_name = strategies[0] if isinstance(strategies, list) and strategies else ""
+        return self._calc_backtest_atr_stop_pct(code, trade_date, base_sl, strategy_name)
+
+    def _check_gap_stop_with_observation(self, cost: float, open_price: float,
+                                             stop_price: float, close_price: float) -> tuple:
+        """【P1】跳空止损+观察期 - 对齐实盘v2.9.112
+
+        回测用close近似判断观察期效果:
+        - 跳空>5%: 立即止损(大跳无修复可能)
+        - 跳空<5%但收盘回止损线上方: 观察期修复, 不止损
+        - 跳空<5%且收盘仍在止损线下方: 观察期后止损
+
+        Returns: (should_stop: bool, sell_price: float, reason: str)
+        """
+        if cost <= 0:
+            return True, open_price, '跳空止损'
+        gap_pct = abs((open_price - cost) / cost)
+        if gap_pct >= 0.05:
+            return True, open_price, '跳空止损'
+        if close_price >= stop_price:
+            return False, 0, ''  # 观察期修复
+        return True, open_price, '跳空止损'
+
     def _get_slippage_for_code(self, code: str):
         """获取某只股票对应的策略级滑点"""
         strategies = self.stock_to_strategy.get(code, [])
@@ -4341,6 +4479,7 @@ class PortfolioBacktester:
             low_p = p.get('low', close_p)
             high_p = p.get('high', close_p)
             code_sl, code_tp = self._get_sl_tp_for_code(code)
+            code_sl = self._calc_backtest_atr_stop_pct(code, trade_date, code_sl)
             stop_price = cost * (1 - code_sl)
             tp_price = cost * (1 + code_tp)
             _strategies = self.stock_to_strategy.get(code, [])
@@ -4355,10 +4494,19 @@ class PortfolioBacktester:
                 best_reason = early_sell_reason
             # 2. 止损: 如果low<=stop_price, 以止损价卖出(优于收盘价当收盘更差时)
             if enable_stop_loss and low_p <= stop_price:
-                sl_sell_price = open_p if open_p <= stop_price else stop_price
+                if open_p <= stop_price:
+                    _gap_should, _gap_price, _gap_reason = self._check_gap_stop_with_observation(
+                        cost, open_p, stop_price, close_p)
+                    if _gap_should:
+                        sl_sell_price = _gap_price
+                        best_reason = _gap_reason
+                    else:
+                        sl_sell_price = 0  # 观察期修复
+                else:
+                    sl_sell_price = stop_price
+                    best_reason = f'止损({code_sl*100:.1f}%)'
                 if sl_sell_price > best_price:
                     best_price = sl_sell_price
-                    best_reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.1f}%)'
             # 3. 止盈: 如果high>=tp_price, 以止盈价卖出(优于收盘价当收盘更差时)
             if enable_take_profit and high_p >= tp_price:
                 if tp_price > best_price:
@@ -4406,6 +4554,7 @@ class PortfolioBacktester:
                 if cost <= 0 or not isinstance(p, dict) or p.get('close', 0) <= 0:
                     continue
                 code_sl, code_tp = self._get_sl_tp_for_code(code)
+                code_sl = self._calc_backtest_atr_stop_pct(code, trade_date, code_sl)
                 stop_price = cost * (1 - code_sl)
                 tp_price = cost * (1 + code_tp)
                 low_p = p.get('low', p.get('close', 0))
@@ -4425,9 +4574,15 @@ class PortfolioBacktester:
                     sell_codes.append(code)
                     pos_mgr.mark_sold(code, early_sell_reason)  # V29:统一管理
                 elif enable_stop_loss and low_p <= stop_price:
-                    sell_codes.append(code)
-                    reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.1f}%)'
-                    pos_mgr.mark_sold(code, reason)
+                    if open_p <= stop_price:
+                        _gap_should, _, _gap_reason = self._check_gap_stop_with_observation(
+                            cost, open_p, stop_price, _close_p)
+                        if _gap_should:
+                            sell_codes.append(code)
+                            pos_mgr.mark_sold(code, _gap_reason)
+                    else:
+                        sell_codes.append(code)
+                        pos_mgr.mark_sold(code, f'止损({code_sl*100:.1f}%)')
                 elif enable_take_profit and high_p >= tp_price:
                     sell_codes.append(code)
                     pos_mgr.mark_sold(code, f'止盈({code_tp*100:.1f}%)')
@@ -4674,19 +4829,28 @@ class PortfolioBacktester:
                 if not early_sell_triggered:
                     # 【P0-2修复:按策略获取止损止盈参数】
                     code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
+                    code_sl = self._calc_backtest_atr_stop_pct(ts_code, trade_date, code_sl)
                     stop_price = cost_basis * (1 - code_sl)
                     profit_price = cost_basis * (1 + code_tp)
                     if enable_stop_loss and low_price <= stop_price:
-                        # 【Phase1-跳空止损】open直接跳空低于止损价,以open卖出(最差情况)
+                        # 【Phase1-跳空止损+观察期】
                         if open_price <= stop_price:
-                            sell_price = open_price
-                            sell_reason = f'跳空止损'
+                            _gap_should, _gap_price, _gap_reason = self._check_gap_stop_with_observation(
+                                cost_basis, open_price, stop_price, close_price)
+                            if _gap_should:
+                                sell_price = _gap_price
+                                sell_reason = _gap_reason
+                            else:
+                                sell_price = 0  # 观察期修复, 不卖
                         else:
                             sell_price = stop_price
                             sell_reason = f'止损({code_sl*100:.1f}%)'
                     elif enable_take_profit and high_price >= profit_price:
                         sell_price = profit_price
                         sell_reason = f'止盈({code_tp*100:.1f}%)'
+            # 观察期修复: sell_price=0 表示不卖
+            if sell_price <= 0:
+                continue
             price = sell_price
 
             # 计算卖出金额
@@ -4930,13 +5094,18 @@ class PortfolioBacktester:
 
             # 2. 止损
             code_sl, code_tp = self._get_sl_tp_for_code(code)
+            code_sl = self._calc_backtest_atr_stop_pct(code, trade_date, code_sl)
             stop_price = cost * (1 - code_sl)
             if enable_sl and low_p <= stop_price:
                 if open_p <= stop_price:
-                    result[code] = '跳空止损'
+                    _gap_should, _, _gap_reason = self._check_gap_stop_with_observation(
+                        cost, open_p, stop_price, _close_p)
+                    if _gap_should:
+                        result[code] = _gap_reason
+                        continue
                 else:
                     result[code] = f'止损({code_sl*100:.1f}%)'
-                continue
+                    continue
 
             # 3. 止盈
             if enable_tp and high_p >= cost * (1 + code_tp):
