@@ -113,7 +113,31 @@
         "L6_strategy": "str",
         "L7_ranking": "str",
         "L8_cooldown": "str",
+        "L8_ma60": "str",
         "L8_position": "str"
+      },
+      "l9_results": {
+        "000938": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "301108": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "920493": {
+          "SH": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        }
       },
       "scan_id": "str",
       "exec": {

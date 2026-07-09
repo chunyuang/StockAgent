@@ -19,7 +19,7 @@
   },
   "benchmark": {
     "name": "str",
-    "pct_chg": "float",
+    "pct_chg": "int",
     "alpha": "float"
   },
   "sentiment": {

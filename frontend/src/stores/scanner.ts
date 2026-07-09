@@ -15,13 +15,19 @@ export interface ScannerPosition {
   stock_name: string
   strategy: string
   strategy_name: string
-  avg_cost: number
+  cost_price: number  // v2.9.99: API返回cost_price(旧名avg_cost)
   current_price: number
   profit_pct: number
   available_qty: number
-  total_qty: number
+  shares: number  // v2.9.99: API返回shares(旧名total_qty)
+  profit_amount?: number
+  market_value?: number
   stop_loss_price?: number
   take_profit_price?: number
+  stop_loss_pct?: number
+  take_profit_pct?: number
+  risk_level?: string
+  buy_date?: string
 }
 
 export interface ScannerSignal {

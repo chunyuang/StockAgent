@@ -11,6 +11,11 @@
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
+    },
+    "first_limit_up": {
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "float"
     }
   },
   "behavior_drift": {
@@ -75,7 +80,7 @@
     {
       "date": "str",
       "close": "float",
-      "pct_chg": "float"
+      "pct_chg": "int"
     }
   ]
 }

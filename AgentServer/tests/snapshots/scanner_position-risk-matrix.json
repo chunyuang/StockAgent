@@ -18,7 +18,7 @@
       "take_profit_price": "float",
       "volatility": "float",
       "turnover_rate": "int",
-      "risk_score": "int",
+      "risk_score": "float",
       "risk_level": "str",
       "trailing_stop": {},
       "total_qty": "int"
@@ -31,11 +31,16 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "环境保护": "float",
-      "家用电器": "float",
-      "化工原料": "float",
+      "造纸": "float",
+      "电气设备": "float",
+      "IT设备": "float",
+      "塑料": "float",
       "生物制药": "float",
-      "通信设备": "float"
+      "家居用品": "float",
+      "区域地产": "float",
+      "半导体": "float",
+      "石油开采": "float",
+      "软件服务": "float"
     },
     "position_count": "int",
     "risk_summary": {

@@ -26,6 +26,14 @@
         "wins": "int",
         "losses": "int",
         "profit_loss_ratio": "float"
+      },
+      "冰点": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
       }
     },
     "fix": {
