@@ -926,7 +926,13 @@ class PositionChecker:
         is_st = "ST" in stock_name or "*ST" in stock_name
 
         if is_st:
-            return pct <= -4.5  # ST股±5%, 用-4.5%容差
+            # 【v2.9.120修复】ST股涨跌幅已调整为±10%(2026-07-06新规), 跌停阈值与主板对齐
+            # 旧: -4.5%(基于旧规±5%), 新: -9.5%(基于新规±10%)
+            # 注: 创业板/科创板ST仍为±20%, 北交所ST为±30%, 上方已处理
+            if ts_code.startswith(('300', '301', '688', '4', '8', '920')):
+                pass  # 创业板/科创板/北交所ST已在上方处理(±20%/±30%)
+            else:
+                return pct <= -9.5  # 主板ST新规±10%
         elif ts_code.startswith('688'):
             return pct <= -19.5  # 科创板±20%
         elif ts_code.startswith(('4', '8')) and ts_code.endswith('.BJ'):
