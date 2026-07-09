@@ -1,801 +1,451 @@
+<template>
+  <div class="scan-page">
+    <!-- 顶部状态栏 -->
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="label">状态</span>
+        <ElTag :type="archStatus.is_running ? 'success' : 'danger'" effect="dark" size="small">
+          {{ archStatus.is_running ? '🟢 运行中' : '🔴 已停止' }}
+        </ElTag>
+      </div>
+      <div class="status-item">
+        <span class="label">当前阶段</span>
+        <span class="value">{{ currentPhase?.phase || '-' }}</span>
+      </div>
+      <div class="status-item">
+        <span class="label">扫描次数</span>
+        <span class="value">{{ archStatus.scan_count ?? '-' }}</span>
+      </div>
+      <div class="status-item">
+        <span class="label">信号数</span>
+        <span class="value">{{ archStatus.active_signals ?? '-' }}</span>
+      </div>
+      <div class="status-item">
+        <span class="label">熔断器</span>
+        <ElTag :type="archStatus.circuit_breaker ? 'danger' : 'success'" size="small">
+          {{ archStatus.circuit_breaker ? '已熔断' : '正常' }}
+        </ElTag>
+      </div>
+      <div class="status-item">
+        <span class="label">情绪</span>
+        <ElTag type="warning" size="small">{{ archStatus.sentiment || '-' }}</ElTag>
+      </div>
+    </div>
+
+    <!-- 核心时间线 -->
+    <ElCard shadow="never" class="timeline-card">
+      <template #header>
+        <div class="card-header">
+          <span>📋 扫描时间线</span>
+          <span class="header-hint">一天6个阶段 · 点击查看详情</span>
+        </div>
+      </template>
+      <div class="phase-timeline">
+        <div
+          v-for="(p, i) in timingPhases"
+          :key="p.phase"
+          class="phase-block"
+          :class="{ active: p.phase === currentPhaseName, dim: !p.scan }"
+          @click="selectPhase(p)"
+        >
+          <div class="phase-connector" v-if="i > 0"></div>
+          <div class="phase-content">
+            <div class="phase-icon">{{ phaseIcon(p.phase) }}</div>
+            <div class="phase-name">{{ phaseLabel(p.phase) }}</div>
+            <div class="phase-time">{{ p.time }}</div>
+            <div class="phase-scan" v-if="p.scan">
+              <ElTag size="small" type="success">扫描中</ElTag>
+            </div>
+            <div class="phase-scan" v-else>
+              <span class="dim-text">休止</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ElCard>
+
+    <!-- 选中阶段详情 -->
+    <div class="detail-grid">
+      <!-- 阶段说明 -->
+      <ElCard shadow="never" class="detail-card">
+        <template #header><span class="card-title">{{ phaseLabel(selectedPhase?.phase) }} · 做什么</span></template>
+        <div class="detail-body" v-if="selectedPhase">
+          <p class="purpose">{{ selectedPhase.purpose }}</p>
+          <div class="op-list">
+            <div v-for="(op, i) in (selectedPhase.key_operations || [])" :key="i" class="op-item">
+              <span class="op-dot">•</span> {{ op }}
+            </div>
+          </div>
+        </div>
+        <ElEmpty v-else description="选择一个阶段" :image-size="60" />
+      </ElCard>
+
+      <!-- 扫描间隔 -->
+      <ElCard shadow="never" class="detail-card">
+        <template #header><span class="card-title">⏱️ 扫描间隔</span></template>
+        <div class="detail-body" v-if="selectedPhase?.scan">
+          <div class="interval-list">
+            <div v-for="iv in phaseIntervals" :key="iv.time_range" class="interval-row">
+              <span class="iv-time">{{ iv.time_range }}</span>
+              <span class="iv-secs">{{ iv.seconds }}秒</span>
+              <span class="iv-reason">{{ iv.reason }}</span>
+            </div>
+          </div>
+          <div class="interval-extra">
+            <div class="extra-row"><span>🌬️ 行情预取</span><span>30秒/轮</span></div>
+            <div class="extra-row"><span>🛡️ 风控循环</span><span>1秒/次</span></div>
+            <div class="extra-row"><span>🔧 错误恢复</span><span>{{ timingRecovery || '5秒/30秒' }}</span></div>
+          </div>
+        </div>
+        <ElEmpty v-else description="该阶段不扫描" :image-size="60" />
+      </ElCard>
+
+      <!-- 策略概览 -->
+      <ElCard shadow="never" class="detail-card">
+        <template #header><span class="card-title">🎯 策略概览</span></template>
+        <div class="detail-body">
+          <div v-for="s in strategyList" :key="s.name" class="strategy-row">
+            <div class="strat-header">
+              <span class="strat-name">{{ s.name_cn || s.name }}</span>
+              <ElTag size="small" :type="s.enabled ? 'success' : 'info'">{{ s.enabled ? '启用' : '停用' }}</ElTag>
+            </div>
+            <div class="strat-params">
+              <span>止损 {{ (s.risk?.stop_loss_pct * 100).toFixed(1) }}%</span>
+              <span>止盈 {{ (s.risk?.take_profit_pct * 100).toFixed(0) }}%</span>
+              <span v-if="s.risk?.trailing_stop_pct">追踪 {{ (s.risk.trailing_stop_pct * 100).toFixed(1) }}%</span>
+            </div>
+          </div>
+        </div>
+      </ElCard>
+
+      <!-- 9层管道 -->
+      <ElCard shadow="never" class="detail-card">
+        <template #header><span class="card-title">🔧 9层管道</span></template>
+        <div class="detail-body">
+          <div class="pipeline-flow">
+            <div v-for="(layer, i) in pipelineLayers" :key="i" class="pipe-step">
+              <span class="pipe-num">L{{ i + 1 }}</span>
+              <span class="pipe-name">{{ layer.name || layer.layer }}</span>
+              <span class="pipe-desc" v-if="layer.purpose">{{ layer.purpose }}</span>
+            </div>
+          </div>
+        </div>
+      </ElCard>
+    </div>
+
+    <!-- 盘前流程 -->
+    <ElCard shadow="never" class="premarket-card" v-if="timingPremarket.length">
+      <template #header><span class="card-title">🌅 盘前流程</span></template>
+      <div class="premarket-flow">
+        <div v-for="step in timingPremarket" :key="step.step" class="pm-step">
+          <div class="pm-time">{{ step.time }}</div>
+          <div class="pm-action">{{ step.action }}</div>
+          <div class="pm-detail" v-if="step.detail">{{ step.detail }}</div>
+        </div>
+      </div>
+    </ElCard>
+  </div>
+</template>
+
 <script setup lang="ts">
-/**
- * 数据扫描洞察页面 — Scanner 架构 / 管道 / 策略 / 情绪 / 信号 / 行情 / 风控 / 时序
- * 纯展示页面，不修改任何运行时逻辑
- */
 import { ref, computed, onMounted } from 'vue'
-import {
-  ElCard,
-  ElTabs,
-  ElTabPane,
-  ElTable,
-  ElTableColumn,
-  ElTag,
-  ElDescriptions,
-  ElDescriptionsItem,
-  ElProgress,
-  ElCollapse,
-  ElCollapseItem,
-  ElBadge,
-  ElTooltip,
-  ElDivider,
-  ElEmpty,
-  ElAlert,
-  ElIcon,
-} from 'element-plus'
+import { ElCard, ElTag, ElEmpty } from 'element-plus'
 import { api } from '@/api'
 
-// ==================== 状态 ====================
-
-const loading = ref(false)
-const activeTab = ref('architecture')
-
+const loading = ref(true)
 const architecture = ref<any>(null)
-const pipeline = ref<any>(null)
-const strategies = ref<any>(null)
-const emotionCycle = ref<any>(null)
-const signalLifecycle = ref<any>(null)
-const quoteManager = ref<any>(null)
-const riskSystem = ref<any>(null)
 const timing = ref<any>(null)
+const strategies = ref<any>(null)
+const pipeline = ref<any>(null)
+const selectedPhase = ref<any>(null)
 
-// ==================== 工具函数 ====================
+const archStatus = computed(() => architecture.value?.runtime || {})
+const timingPhases = computed(() => timing.value?.phases || [])
+const timingIntervals = computed(() => timing.value?.intervals || [])
+const timingPremarket = computed(() => timing.value?.premarket || [])
+const timingRecovery = computed(() => timing.value?.error_recovery || '')
+const strategyList = computed(() => strategies.value?.strategies || [])
+const pipelineLayers = computed(() => pipeline.value?.layers || [])
 
-function fmtPct(val: number | undefined | null): string {
-  if (val == null) return '-'
-  return val.toFixed(2) + '%'
+const currentPhaseName = computed(() => {
+  const now = new Date()
+  const h = now.getHours()
+  const m = now.getMinutes()
+  const hm = h * 100 + m
+  if (hm < 900) return 'PREMARKET'
+  if (hm < 925) return 'AUCTION'
+  if (hm < 1130) return 'MORNING'
+  if (hm < 1300) return 'LUNCH'
+  if (hm < 1500) return 'AFTERNOON'
+  return 'AFTER_CLOSE'
+})
+
+const currentPhase = computed(() => timingPhases.value.find(p => p.phase === currentPhaseName.value))
+
+const phaseIntervals = computed(() => {
+  if (!selectedPhase.value) return []
+  const phase = selectedPhase.value.phase
+  if (phase === 'MORNING') return timingIntervals.value.filter(iv => iv.time_range.startsWith('09:') || iv.time_range.startsWith('10:') || iv.time_range.startsWith('11:'))
+  if (phase === 'AFTERNOON') return timingIntervals.value.filter(iv => iv.time_range.startsWith('13:') || iv.time_range.startsWith('14:'))
+  return timingIntervals.value
+})
+
+function selectPhase(p: any) { selectedPhase.value = p }
+
+function phaseLabel(phase?: string) {
+  const map: Record<string, string> = {
+    PREMARKET: '盘前准备', AUCTION: '集合竞价', MORNING: '早盘',
+    LUNCH: '午休', AFTERNOON: '下午盘', AFTER_CLOSE: '盘后'
+  }
+  return map[phase || ''] || phase || ''
 }
 
-function fmtMoney(val: number | undefined | null, unit: '万' | '亿' = '万', digits = 1): string {
-  if (val == null) return '-'
-  const v = unit === '亿' ? val / 100000000 : val / 10000
-  return v.toFixed(digits) + unit
+function phaseIcon(phase: string) {
+  const map: Record<string, string> = {
+    PREMARKET: '🌅', AUCTION: '📢', MORNING: '📈',
+    LUNCH: '🍽️', AFTERNOON: '📉', AFTER_CLOSE: '📦'
+  }
+  return map[phase] || '⚪'
 }
-
-function fmtBool(val: boolean | undefined | null): string {
-  if (val == null) return '-'
-  return val ? '✅ 是' : '❌ 否'
-}
-
-function fmtNum(val: number | undefined | null, digits = 0): string {
-  if (val == null) return '-'
-  return digits > 0 ? val.toFixed(digits) : String(val)
-}
-
-// ==================== 数据加载 ====================
 
 async function loadAll() {
-  loading.value = true
   const endpoints = [
-    { key: 'architecture', ref: architecture, path: '/scan-insight/architecture' },
-    { key: 'pipeline', ref: pipeline, path: '/scan-insight/pipeline' },
-    { key: 'strategies', ref: strategies, path: '/scan-insight/strategies' },
-    { key: 'emotionCycle', ref: emotionCycle, path: '/scan-insight/emotion-cycle' },
-    { key: 'signalLifecycle', ref: signalLifecycle, path: '/scan-insight/signal-lifecycle' },
-    { key: 'quoteManager', ref: quoteManager, path: '/scan-insight/quote-manager' },
-    { key: 'riskSystem', ref: riskSystem, path: '/scan-insight/risk-system' },
-    { key: 'timing', ref: timing, path: '/scan-insight/timing' },
+    { ref: architecture, path: '/scan-insight/architecture' },
+    { ref: timing, path: '/scan-insight/timing' },
+    { ref: strategies, path: '/scan-insight/strategies' },
+    { ref: pipeline, path: '/scan-insight/pipeline' },
   ]
   await Promise.all(
     endpoints.map(e =>
       api.get(e.path)
         .then((res: any) => { e.ref.value = res?.data || res })
-        .catch((err: any) => { console.warn(`[${e.key}] 加载失败`, err) })
+        .catch(() => {})
     )
   )
   loading.value = false
+  selectedPhase.value = currentPhase.value || timingPhases.value[0]
 }
 
 onMounted(loadAll)
-
-// ==================== 计算属性 ====================
-
-const archStatus = computed(() => architecture.value?.runtime || {})
-const archModules = computed(() => architecture.value?.sub_modules || [])
-const archDataFlow = computed(() => architecture.value?.data_flow || [])
-const archCollections = computed(() => architecture.value?.mongo_collections || [])
-
-const pipelineLayers = computed(() => pipeline.value?.layers || [])
-const pipelineSummary = computed(() => pipeline.value?.latest_funnel || null)
-
-const strategyList = computed(() => strategies.value?.strategies || [])
-const globalRisk = computed(() => strategies.value?.globalRisk || {})
-
-const emotionDimensions = computed(() => emotionCycle.value?.dimensions || [])
-const emotionPhases = computed(() => emotionCycle.value?.periods || [])
-const emotionLatest = computed(() => emotionCycle.value?.latest || null)
-
-const signalStates = computed(() => signalLifecycle.value?.states || [])
-const signalTransitions = computed(() => signalLifecycle.value?.deferred_note || [])
-const signalExpiry = computed(() => signalLifecycle.value?.expiry || [])
-const signalStats = computed(() => signalLifecycle.value?.status_stats || [])
-const signalDelay = computed(() => signalLifecycle.value?.deferred_note || null)
-
-const quoteSources = computed(() => quoteManager.value?.sources || [])
-const quoteCache = computed(() => quoteManager.value?.cache || {})
-const quotePrefetch = computed(() => quoteManager.value?.prefetch || {})
-const quoteDegradation = computed(() => quoteManager.value?.degradation?.steps || [])
-const quoteRuntime = computed(() => quoteManager.value?.runtime || {})
-
-const riskStopLoss = computed(() => riskSystem.value?.stop_loss || {})
-const riskTakeProfit = computed(() => riskSystem.value?.take_profit || {})
-const riskTrailing = computed(() => riskSystem.value?.trailing_stop || {})
-const riskHoldDays = computed(() => riskSystem.value?.max_hold_days || {})
-const riskRuntime = computed(() => riskSystem.value?.runtime || {})
-
-const timingSessions = computed(() => timing.value?.phases || [])
-const timingIntervals = computed(() => {
-  const raw = timing.value?.intervals || []
-  if (!Array.isArray(raw) || !raw.length) return []
-  const maxSec = Math.max(...raw.map((v: any) => v.seconds || 0), 1)
-  return raw.map((val: any) => ({
-    phase: val.time_range || '',
-    seconds: val.seconds || 0,
-    reason: val.reason || '',
-    pct: Math.round(((val.seconds || 0) / maxSec) * 100),
-    color: (val.seconds || 0) <= 120 ? '#e6a23c' : (val.seconds || 0) <= 180 ? '#409eff' : '#67c23a'
-  }))
-})
-const timingPremarket = computed(() => timing.value?.premarket || [])
-const timingRecovery = computed(() => timing.value?.error_recovery || null)
 </script>
 
-<template>
-  <div class="scan-insight-page">
-    <div class="page-header">
-      <div class="header-left">
-        <h2>🔍 数据扫描洞察</h2>
-        <span class="header-sub">Scanner 架构全景 / 管道 / 策略 / 情绪 / 信号 / 行情 / 风控 / 时序</span>
-      </div>
-      <div class="header-right">
-        <ElTag :type="loading ? 'warning' : 'success'" size="large" effect="dark">
-          {{ loading ? '⏳ 加载中...' : '✅ 已加载' }}
-        </ElTag>
-      </div>
-    </div>
-
-    <div class="overview-bar" v-if="architecture">
-      <div class="summary-card"><div class="sc-label">运行状态</div><div class="sc-value"><ElTag :type="archStatus.is_running ? 'success' : 'danger'" effect="dark">{{ archStatus.is_running ? '🟢 运行中' : '🔴 已停止' }}</ElTag></div></div>
-      <div class="summary-card"><div class="sc-label">交易日</div><div class="sc-value">{{ archStatus.trade_date || '-' }}</div></div>
-      <div class="summary-card"><div class="sc-label">熔断器</div><div class="sc-value"><ElTag :type="archStatus.circuit_breaker ? 'danger' : 'success'" size="small">{{ archStatus.circuit_breaker ? '已熔断' : '正常' }}</ElTag></div></div>
-      <div class="summary-card"><div class="sc-label">情绪周期</div><div class="sc-value"><ElTag type="warning" size="small">{{ archStatus.sentiment || '-' }}</ElTag></div></div>
-      <div class="summary-card"><div class="sc-label">仓位比例</div><div class="sc-value">{{ fmtPct(archStatus.position_ratio) }}</div></div>
-      <div class="summary-card"><div class="sc-label">扫描错误</div><div class="sc-value"><ElBadge :value="archStatus.scan_errors || 0" :type="(archStatus.scan_errors || 0) > 0 ? 'danger' : 'info'"><span style="font-size:14px">{{ archStatus.scan_errors || 0 }}</span></ElBadge></div></div>
-    </div>
-
-    <ElTabs v-model="activeTab" type="border-card" class="main-tabs">
-
-      <!-- Tab1: 架构总览 -->
-      <ElTabPane label="🏗️ 架构总览" name="architecture">
-        <ElEmpty v-if="!architecture" description="暂无架构数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">📡 运行状态</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem label="是否运行">{{ fmtBool(archStatus.is_running) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="交易日">{{ archStatus.trade_date || '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="扫描线程">{{ fmtBool(archStatus.scan_thread) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="风控线程">{{ fmtBool(archStatus.risk_thread) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="预取线程">{{ fmtBool(archStatus.prefetch) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="熔断器"><ElTag :type="archStatus.circuit_breaker ? 'danger' : 'success'" size="small">{{ archStatus.circuit_breaker ? '已熔断' : '正常' }}</ElTag></ElDescriptionsItem>
-              <ElDescriptionsItem label="情绪周期">{{ archStatus.sentiment || '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="仓位比例">{{ fmtPct(archStatus.position_ratio) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="扫描错误">{{ archStatus.scan_errors || 0 }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🧩 子模块</span></template>
-            <div class="module-grid">
-              <div v-for="mod in archModules" :key="mod.name" class="module-card">
-                <div class="mod-name">{{ mod.name }}</div>
-                <div class="mod-file" v-if="mod.file">📄 {{ mod.file }}</div>
-                <div class="mod-purpose" v-if="mod.purpose">{{ mod.purpose }}</div>
-                <div class="mod-methods" v-if="mod.key_methods?.length">
-                  <ElTag v-for="m in mod.key_methods" :key="m" size="small" type="info" class="method-tag">{{ m }}</ElTag>
-                </div>
-              </div>
-            </div>
-          </ElCard>
-
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🔄 数据流 (7步)</span></template>
-            <div class="data-flow">
-              <template v-for="(step, idx) in archDataFlow" :key="idx">
-                <div class="flow-step"><div class="flow-num">{{ idx + 1 }}</div><div class="flow-label">{{ step }}</div></div>
-                <div v-if="idx < archDataFlow.length - 1" class="flow-arrow">→</div>
-              </template>
-            </div>
-          </ElCard>
-
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🗄️ MongoDB 集合</span></template>
-            <ElTable :data="archCollections" size="small" stripe border max-height="400">
-              <ElTableColumn prop="name" label="集合名" min-width="200" />
-              <ElTableColumn prop="purpose" label="用途" min-width="240" />
-              <ElTableColumn prop="count" label="记录数" width="100" align="right"><template #default="{ row }">{{ fmtNum(row.count) }}</template></ElTableColumn>
-            </ElTable>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab2: 9层管道 -->
-      <ElTabPane label="🔧 9层管道" name="pipeline">
-        <ElEmpty v-if="!pipeline" description="暂无管道数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card" v-if="pipelineSummary">
-            <template #header><span class="card-title">📊 最新漏斗总览</span></template>
-            <div class="funnel-bar">
-              <div class="funnel-step" v-for="(s, i) in pipelineSummary.steps || []" :key="i">
-                <div class="funnel-label">{{ s.name }}</div>
-                <ElProgress :percentage="s.pct || 0" :stroke-width="18" :color="s.color || '#409eff'" :text-inside="true" :format="() => String(s.output ?? '-')" />
-              </div>
-            </div>
-          </ElCard>
-          <div class="pipeline-layers">
-            <ElCard v-for="(layer, idx) in pipelineLayers" :key="idx" shadow="hover" class="section-card layer-card">
-              <template #header>
-                <div class="layer-header">
-                  <span class="layer-icon">{{ layer.icon || '⚙️' }}</span>
-                  <span class="layer-name">L{{ idx + 1 }}: {{ layer.name }}</span>
-                  <ElTag size="small" :type="layer.enabled !== false ? 'success' : 'info'">{{ layer.enabled !== false ? '启用' : '禁用' }}</ElTag>
-                </div>
-              </template>
-              <div class="layer-body">
-                <p class="layer-desc">{{ layer.description }}</p>
-                <div class="layer-stats" v-if="layer.input != null || layer.output != null">
-                  <span class="stat-item">📥 输入: <b>{{ fmtNum(layer.input) }}</b></span>
-                  <span class="stat-item">📤 输出: <b>{{ fmtNum(layer.output) }}</b></span>
-                  <span class="stat-item" v-if="layer.rejected != null">🚫 拒绝: <b>{{ fmtNum(layer.rejected) }}</b></span>
-                </div>
-                <ElCollapse v-if="layer.details">
-                  <ElCollapseItem title="展开条件 & 效果">
-                    <div v-if="layer.condition" class="layer-detail"><b>条件:</b> {{ layer.condition }}</div>
-                    <div v-if="layer.effect" class="layer-detail"><b>效果:</b> {{ layer.effect }}</div>
-                    <pre v-if="layer.raw" class="layer-raw">{{ layer.raw }}</pre>
-                  </ElCollapseItem>
-                </ElCollapse>
-              </div>
-            </ElCard>
-          </div>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab3: 策略配置 -->
-      <ElTabPane label="🎯 策略配置" name="strategies">
-        <ElEmpty v-if="!strategies" description="暂无策略数据" />
-        <template v-else>
-          <div class="strategy-cards">
-            <ElCard v-for="s in strategyList" :key="s.name" shadow="hover" class="section-card strategy-card">
-              <template #header>
-                <div class="strat-header">
-                  <span class="strat-name">{{ s.name }}</span>
-                  <ElTag :type="s.enabled ? 'success' : 'info'" effect="dark">{{ s.enabled ? '启用' : '禁用' }}</ElTag>
-                </div>
-              </template>
-              <div v-if="s.params?.length">
-                <div class="sub-title">筛选参数</div>
-                <ElTable :data="s.params" size="small" stripe border>
-                  <ElTableColumn prop="name" label="参数名" min-width="160" />
-                  <ElTableColumn prop="value" label="值" min-width="120"><template #default="{ row }"><code>{{ row.value }}</code></template></ElTableColumn>
-                  <ElTableColumn prop="desc" label="说明" min-width="200" />
-                </ElTable>
-              </div>
-              <div v-if="s.risk_params?.length" style="margin-top:12px">
-                <div class="sub-title">风控参数</div>
-                <ElTable :data="s.risk_params" size="small" stripe border>
-                  <ElTableColumn prop="name" label="参数名" min-width="160" />
-                  <ElTableColumn prop="value" label="值" min-width="120"><template #default="{ row }"><code>{{ row.value }}</code></template></ElTableColumn>
-                </ElTable>
-              </div>
-            </ElCard>
-          </div>
-          <ElCard shadow="hover" class="section-card" v-if="Object.keys(globalRisk).length">
-            <template #header><span class="card-title">🛡️ 全局风控参数</span></template>
-            <ElCollapse>
-              <ElCollapseItem title="展开查看全局风控参数">
-                <ElTable :data="globalRisk.params || []" size="small" stripe border>
-                  <ElTableColumn prop="name" label="参数名" min-width="180" />
-                  <ElTableColumn prop="value" label="值" min-width="140"><template #default="{ row }"><code>{{ row.value }}</code></template></ElTableColumn>
-                  <ElTableColumn prop="desc" label="说明" min-width="200" />
-                </ElTable>
-              </ElCollapseItem>
-            </ElCollapse>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab4: 情绪周期 -->
-      <ElTabPane label="🌡️ 情绪周期" name="emotion-cycle">
-        <ElEmpty v-if="!emotionCycle" description="暂无情绪数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">📊 7维评分体系</span></template>
-            <ElTable :data="emotionDimensions" size="small" stripe border>
-              <ElTableColumn prop="name" label="维度" min-width="140" />
-              <ElTableColumn prop="weight" label="权重" width="100" align="center"><template #default="{ row }">{{ fmtPct(row.weight) }}</template></ElTableColumn>
-              <ElTableColumn prop="desc" label="说明" min-width="280" />
-            </ElTable>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🎨 4阶段映射</span></template>
-            <div class="phase-bar">
-              <div v-for="p in emotionPhases" :key="p.name" class="phase-segment" :style="{ flex: p.span || 1, background: p.color || '#ccc' }">
-                <div class="phase-label">{{ p.name }}</div>
-                <div class="phase-range">[{{ p.score_min }}, {{ p.score_max }}]</div>
-                <div class="phase-position">仓位: {{ fmtPct(p.position_ratio) }}</div>
-              </div>
-            </div>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="emotionLatest">
-            <template #header><span class="card-title">🕐 最新评分</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem label="综合评分"><span class="emotion-score">{{ fmtNum(emotionLatest.score, 1) }}</span></ElDescriptionsItem>
-              <ElDescriptionsItem label="所处阶段"><ElTag type="warning">{{ emotionLatest.period || '-' }}</ElTag></ElDescriptionsItem>
-              <ElDescriptionsItem label="涨停数">{{ emotionLatest.limit_up_count ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="跌停数">{{ emotionLatest.limit_down_count ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="炸板数">{{ emotionLatest.broken_count ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="炸板率">{{ fmtPct(emotionLatest.broken_rate) }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab5: 信号生命周期 -->
-      <ElTabPane label="🔔 信号生命周期" name="signal-lifecycle">
-        <ElEmpty v-if="!signalLifecycle" description="暂无信号数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🔄 状态机</span></template>
-            <div class="state-machine">
-              <div v-for="st in signalStates" :key="st.name" class="state-node" :style="{ borderColor: st.color || '#409eff' }">
-                <div class="state-dot" :style="{ background: st.color || '#409eff' }"></div>
-                <div class="state-name">{{ st.name }}</div>
-                <div class="state-desc" v-if="st.desc">{{ st.desc }}</div>
-              </div>
-            </div>
-            <ElDivider>状态统计</ElDivider>
-            <div class="state-stats-grid">
-              <div v-for="s in signalStats" :key="s.status" class="stat-item">
-                <div class="stat-label">{{ s.status }}</div>
-                <div class="stat-value">{{ s.count }}</div>
-              </div>
-            </div>
-            <ElEmpty v-if="!signalStats.length" description="无信号统计数据" :image-size="40" />
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">⏱️ 过期策略</span></template>
-            <ElTable :data="signalExpiry" size="small" stripe border>
-              <ElTableColumn prop="strategy" label="策略" min-width="140" />
-              <ElTableColumn prop="seconds" label="过期秒数" width="120" align="right"><template #default="{ row }">{{ row.seconds }}s</template></ElTableColumn>
-              <ElTableColumn prop="desc" label="说明" min-width="280" />
-            </ElTable>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="signalDelay">
-            <template #header><span class="card-title">🐢 延退机制</span></template>
-            <ElAlert :title="signalDelay.title || '信号延退说明'" :description="signalDelay.desc || ''" type="info" show-icon :closable="false" />
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="signalStats.length">
-            <template #header><span class="card-title">📊 信号状态分布</span></template>
-            <div class="signal-stats-grid">
-              <div v-for="s in signalStats" :key="s.status" class="stat-box">
-                <ElProgress type="circle" :percentage="s.pct || 0" :width="80" :color="s.color || '#409eff'" />
-                <div class="stat-label">{{ s.status }}</div>
-                <div class="stat-count">{{ fmtNum(s.count) }} 条</div>
-              </div>
-            </div>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab6: 行情管理 -->
-      <ElTabPane label="📈 行情管理" name="quote-manager">
-        <ElEmpty v-if="!quoteManager" description="暂无行情数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">📡 数据源</span></template>
-            <ElTable :data="quoteSources" size="small" stripe border>
-              <ElTableColumn prop="name" label="名称" min-width="140" />
-              <ElTableColumn prop="priority" label="优先级" width="90" align="center" />
-              <ElTableColumn prop="purpose" label="用途" min-width="160" />
-              <ElTableColumn prop="fields" label="字段" min-width="200" />
-              <ElTableColumn prop="available" label="可用时间" min-width="160" />
-            </ElTable>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">💾 缓存机制</span></template>
-            <ElDescriptions :column="2" border size="small">
-              <ElDescriptionsItem label="最大缓存时间">{{ quoteCache.max_age ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="时间源">{{ quoteCache.time_source ?? '-' }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">⚡ 预取线程</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem label="间隔">{{ quotePrefetch.interval ?? '-' }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="强制刷新">{{ fmtBool(quotePrefetch.force) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="防重入">{{ fmtBool(quotePrefetch.anti_reentry) }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="quoteDegradation.length">
-            <template #header><span class="card-title">🔄 降级策略</span></template>
-            <div class="degradation-steps">
-              <div v-for="(step, i) in quoteDegradation" :key="i" class="degrade-step">
-                <div class="degrade-num">{{ i + 1 }}</div>
-                <div class="degrade-text">{{ step }}</div>
-              </div>
-            </div>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🖥️ 运行时状态</span></template>
-            <ElDescriptions :column="2" border size="small">
-              <ElDescriptionsItem label="缓存大小">{{ fmtNum(quoteRuntime.cache_size) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="当前数据源">{{ quoteRuntime.source ?? '-' }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab7: 风控体系 -->
-      <ElTabPane label="🛡️ 风控体系" name="risk-system">
-        <ElEmpty v-if="!riskSystem" description="暂无风控数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🛑 止损配置</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem v-for="(val, key) in riskStopLoss" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🎯 止盈配置</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem v-for="(val, key) in riskTakeProfit" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">📈 追踪止损</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem v-for="(val, key) in riskTrailing" :key="key" :label="key">{{ val }}</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">📅 最大持仓天数</span></template>
-            <ElDescriptions :column="3" border size="small">
-              <ElDescriptionsItem v-for="(val, key) in riskHoldDays" :key="key" :label="key">{{ val }}天</ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="Object.keys(riskRuntime).length">
-            <template #header><span class="card-title">🖥️ 运行时状态</span></template>
-            <ElDescriptions :column="2" border size="small">
-              <ElDescriptionsItem label="熔断器"><ElTag :type="riskRuntime.circuit_breaker ? 'danger' : 'success'" size="small">{{ riskRuntime.circuit_breaker ? '已熔断' : '正常' }}</ElTag></ElDescriptionsItem>
-              <ElDescriptionsItem label="仓位比例">{{ fmtPct(riskRuntime.position_ratio) }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="强制空仓"><ElTag :type="riskRuntime.force_empty ? 'danger' : 'success'" size="small">{{ riskRuntime.force_empty ? '是' : '否' }}</ElTag></ElDescriptionsItem>
-            </ElDescriptions>
-          </ElCard>
-        </template>
-      </ElTabPane>
-
-      <!-- Tab8: 扫描时序 -->
-      <ElTabPane label="⏱️ 扫描时序" name="timing">
-        <ElEmpty v-if="!timing" description="暂无时序数据" />
-        <template v-else>
-          <ElCard shadow="hover" class="section-card">
-            <template #header><span class="card-title">🕐 交易时段与用处</span></template>
-            <ElTable :data="timingSessions" size="small" stripe border>
-              <ElTableColumn prop="phase" label="阶段" min-width="120" />
-              <ElTableColumn prop="time" label="时间" min-width="120" />
-              <ElTableColumn prop="action" label="动作" min-width="180" />
-              <ElTableColumn label="扫描" width="80" align="center">
-                <template #default="{ row }"><ElTag :type="row.scan ? 'success' : 'info'" size="small">{{ row.scan ? '✅' : '❌' }}</ElTag></template>
-              </ElTableColumn>
-              <ElTableColumn prop="purpose" label="用途" min-width="220" />
-            </ElTable>
-            <!-- 关键操作展开 -->
-            <ElCollapse style="margin-top: 8px">
-              <ElCollapseItem v-for="p in timingSessions" :key="p.phase" :title="`${p.phase} 关键操作`" :name="p.phase">
-                <div v-for="(op, i) in (p.key_operations || [])" :key="i" class="key-op">• {{ op }}</div>
-                <ElEmpty v-if="!p.key_operations?.length" description="无" :image-size="40" />
-              </ElCollapseItem>
-            </ElCollapse>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="timingIntervals.length">
-            <template #header><span class="card-title">⚡ 动态扫描间隔</span></template>
-            <div class="interval-bars">
-              <div v-for="iv in timingIntervals" :key="iv.phase" class="interval-row">
-                <div class="iv-label">{{ iv.phase }}</div>
-                <ElProgress :percentage="iv.pct || 0" :stroke-width="22" :text-inside="true" :format="() => iv.seconds + '秒'" :color="iv.color || '#409eff'" />
-                <div class="iv-reason" v-if="iv.reason">{{ iv.reason }}</div>
-              </div>
-            </div>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="timingPremarket.length">
-            <template #header><span class="card-title">🌅 盘前流程</span></template>
-            <div class="timeline">
-              <div v-for="(step, i) in timingPremarket" :key="i" class="timeline-item">
-                <div class="tl-num">{{ i + 1 }}</div>
-                <div class="tl-content">
-                  <div class="tl-time" v-if="step.time">⏰ {{ step.time }}</div>
-                  <div class="tl-action">{{ step.action }}</div>
-                  <div class="tl-detail" v-if="step.detail">{{ step.detail }}</div>
-                </div>
-              </div>
-            </div>
-          </ElCard>
-          <ElCard shadow="hover" class="section-card" v-if="timingRecovery">
-            <template #header><span class="card-title">🔧 错误恢复</span></template>
-            <ElAlert :title="String(timingRecovery)" type="warning" show-icon :closable="false" />
-          </ElCard>
-        </template>
-      </ElTabPane>
-    </ElTabs>
-  </div>
-</template>
-
 <style lang="scss" scoped>
-.scan-insight-page {
+.scan-page {
   padding: 16px 20px;
   min-height: 100vh;
   background: var(--el-bg-color-page);
 }
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  .header-left h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-  .header-sub { font-size: 13px; color: var(--el-text-color-secondary); }
-}
-.overview-bar {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-  .summary-card {
-    background: var(--el-bg-color-overlay);
-    border-radius: 10px;
-    padding: 14px 16px;
-    border: 1px solid var(--el-border-color-lighter);
-    text-align: center;
-    .sc-label { font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 6px; }
-    .sc-value { font-size: 16px; font-weight: 600; }
-  }
-}
-.main-tabs {
-  border-radius: 10px;
-  :deep(.el-tabs__content) { padding: 12px 4px; }
-}
-.section-card {
-  margin-bottom: 16px;
-  border-radius: 10px;
-  :deep(.el-card__header) { padding: 12px 18px; }
-}
-.card-title { font-size: 15px; font-weight: 600; }
-.sub-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-regular); margin-bottom: 8px; }
 
-// Tab1: Architecture
-.module-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-  .module-card {
-    background: var(--el-fill-color-light);
-    border-radius: 8px;
-    padding: 12px 14px;
-    border: 1px solid var(--el-border-color-lighter);
-    .mod-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-    .mod-file { font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px; }
-    .mod-purpose { font-size: 12px; color: var(--el-text-color-regular); margin-bottom: 6px; }
-    .method-tag { margin: 2px 4px 2px 0; }
-  }
-}
-.data-flow {
+/* 状态栏 */
+.status-bar {
   display: flex;
+  gap: 24px;
   align-items: center;
+  padding: 12px 20px;
+  background: var(--el-bg-color-overlay);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  border: 1px solid var(--el-border-color-lighter);
   flex-wrap: wrap;
-  gap: 6px;
-  .flow-step {
+  .status-item {
     display: flex;
     align-items: center;
     gap: 6px;
-    background: var(--el-fill-color-light);
-    border-radius: 8px;
-    padding: 8px 12px;
-    border: 1px solid var(--el-border-color-lighter);
-    .flow-num {
-      width: 26px; height: 26px;
-      background: var(--el-color-primary);
-      color: #fff;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 700;
-    }
-    .flow-label { font-size: 13px; }
+    .label { font-size: 12px; color: var(--el-text-color-secondary); }
+    .value { font-size: 15px; font-weight: 600; }
   }
-  .flow-arrow { font-size: 20px; color: var(--el-text-color-secondary); font-weight: 700; }
 }
 
-// Tab2: Pipeline
-.funnel-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  .funnel-step { .funnel-label { font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px; } }
-}
-.layer-card {
-  border-left: 4px solid var(--el-color-primary);
-  .layer-header {
+/* 时间线 */
+.timeline-card {
+  margin-bottom: 16px;
+  .card-header {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 8px;
-    .layer-icon { font-size: 18px; }
-    .layer-name { font-weight: 600; font-size: 15px; }
-  }
-  .layer-body {
-    .layer-desc { font-size: 13px; color: var(--el-text-color-regular); margin: 0 0 8px; }
-    .layer-stats {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 8px;
-      .stat-item { font-size: 13px; }
-    }
-    .layer-detail { font-size: 13px; margin-bottom: 6px; }
-    .layer-raw {
-      font-size: 11px;
-      background: var(--el-fill-color);
-      padding: 8px;
-      border-radius: 6px;
-      overflow-x: auto;
-      max-height: 200px;
-    }
+    .header-hint { font-size: 12px; color: var(--el-text-color-secondary); font-weight: normal; }
   }
 }
 
-// Tab3: Strategy
-.strategy-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 16px;
+.phase-timeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
-.strat-header {
+
+.phase-block {
   display: flex;
   align-items: center;
-  gap: 10px;
-  .strat-name { font-weight: 700; font-size: 16px; }
+  cursor: pointer;
+  flex-shrink: 0;
+  &.dim { opacity: 0.5; }
+  &.active {
+    .phase-content {
+      background: var(--el-color-primary-light-9);
+      border-color: var(--el-color-primary);
+      transform: translateY(-2px);
+    }
+  }
 }
 
-// Tab4: Emotion
-.phase-bar {
+.phase-connector {
+  width: 24px;
+  height: 2px;
+  background: var(--el-border-color);
+  flex-shrink: 0;
+}
+
+.phase-content {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 16px;
+  border: 2px solid var(--el-border-color-lighter);
   border-radius: 10px;
-  overflow: hidden;
-  height: 80px;
-  .phase-segment {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-size: 12px;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.4);
-    .phase-label { font-weight: 700; font-size: 14px; }
-    .phase-range { font-size: 11px; }
-    .phase-position { font-size: 11px; }
-  }
-}
-.emotion-score { font-size: 22px; font-weight: 700; color: var(--el-color-warning); }
-
-// Tab5: Signal
-.state-machine {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-  .state-node {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    border: 2px solid;
-    border-radius: 10px;
-    padding: 10px 16px;
-    min-width: 100px;
-    .state-dot {
-      width: 14px; height: 14px;
-      border-radius: 50%;
-      margin-bottom: 6px;
-    }
-    .state-name { font-weight: 600; font-size: 13px; }
-    .state-desc { font-size: 11px; color: var(--el-text-color-secondary); }
-  }
-}
-.signal-stats-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  justify-content: center;
-  .stat-box {
-    text-align: center;
-    .stat-label { font-size: 12px; margin-top: 6px; }
-    .stat-count { font-size: 11px; color: var(--el-text-color-secondary); }
-  }
+  min-width: 100px;
+  transition: all 0.2s;
+  &:hover { border-color: var(--el-color-primary-light-5); }
+  .phase-icon { font-size: 24px; margin-bottom: 4px; }
+  .phase-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .phase-time { font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px; }
+  .phase-scan .dim-text { font-size: 12px; color: var(--el-text-color-placeholder); }
 }
 
-// Tab6: Quote
-.degradation-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  .degrade-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    .degrade-num {
-      width: 28px; height: 28px;
-      background: var(--el-color-warning);
-      color: #fff;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 700;
-      flex-shrink: 0;
-    }
-    .degrade-text { font-size: 13px; }
-  }
-}
-
-// Tab7: Risk
-.risk-grid {
+/* 详情网格 */
+.detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+  margin-bottom: 16px;
 }
-.risk-header { font-weight: 600; font-size: 15px; }
-.risk-desc { font-size: 13px; color: var(--el-text-color-regular); margin: 0 0 10px; }
 
-// Tab8: Timing
-.interval-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.detail-card {
+  .card-title { font-size: 15px; font-weight: 600; }
+}
+
+.detail-body {
+  font-size: 13px;
+  line-height: 1.7;
+  .purpose { margin: 0 0 10px; color: var(--el-text-color-primary); }
+}
+
+.op-list {
+  .op-item {
+    padding: 3px 0;
+    .op-dot { color: var(--el-color-primary); margin-right: 4px; }
+  }
+}
+
+/* 间隔列表 */
+.interval-list {
+  margin-bottom: 12px;
   .interval-row {
     display: flex;
     align-items: center;
     gap: 12px;
-    .iv-label { min-width: 100px; font-size: 13px; font-weight: 500; }
-    flex: 1;
-  }
-}
-.timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  .timeline-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    .tl-num {
-      width: 28px; height: 28px;
-      background: var(--el-color-primary);
-      color: #fff;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 700;
-      flex-shrink: 0;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--el-border-color-extra-light);
+    &:last-child { border: none; }
+    .iv-time { width: 100px; font-weight: 600; }
+    .iv-secs {
+      width: 60px;
+      text-align: center;
+      background: var(--el-color-primary-light-9);
+      color: var(--el-color-primary);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-weight: 600;
     }
-    .tl-content {
-      .tl-time { font-size: 12px; color: var(--el-text-color-secondary); }
-      .tl-action { font-size: 13px; }
-    }
+    .iv-reason { color: var(--el-text-color-secondary); font-size: 12px; }
   }
 }
 
-// Responsive
-@media (max-width: 900px) {
-  .module-grid,
-  .strategy-cards,
-  .risk-grid {
-    grid-template-columns: 1fr;
+.interval-extra {
+  padding-top: 8px;
+  border-top: 1px dashed var(--el-border-color);
+  .extra-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
   }
-  .overview-bar {
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+/* 策略 */
+.strategy-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+  &:last-child { border: none; }
+  .strat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    .strat-name { font-weight: 600; font-size: 13px; }
   }
+  .strat-params {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+/* 管道 */
+.pipeline-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  .pipe-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    .pipe-num {
+      width: 32px;
+      height: 24px;
+      line-height: 24px;
+      text-align: center;
+      background: var(--el-color-primary-light-9);
+      color: var(--el-color-primary);
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .pipe-name { font-weight: 600; font-size: 13px; white-space: nowrap; }
+    .pipe-desc { color: var(--el-text-color-secondary); font-size: 12px; }
+  }
+}
+
+/* 盘前流程 */
+.premarket-card {
+  .card-title { font-size: 15px; font-weight: 600; }
+}
+
+.premarket-flow {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  .pm-step {
+    flex-shrink: 0;
+    min-width: 160px;
+    padding: 10px 14px;
+    background: var(--el-fill-color-light);
+    border-radius: 8px;
+    border-left: 3px solid var(--el-color-primary);
+    .pm-time { font-size: 12px; color: var(--el-color-primary); font-weight: 600; margin-bottom: 4px; }
+    .pm-action { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .pm-detail { font-size: 12px; color: var(--el-text-color-secondary); }
+  }
+}
+
+@media (max-width: 768px) {
+  .detail-grid { grid-template-columns: 1fr; }
 }
 </style>
