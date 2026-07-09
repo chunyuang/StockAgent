@@ -1,0 +1,24 @@
+[
+ {
+  "_id": "6a3ad2b0154ab55099647006",
+  "account_id": "default",
+  "available_cash": 466233.35750000086,
+  "frozen_cash": 0.0,
+  "market_value": 334475.0,
+  "today_profit": 0,
+  "total_assets": 800708.3575000009,
+  "total_profit": -199291.64249999914,
+  "updated_at": "2026-07-09T15:06:07.046203"
+ },
+ {
+  "_id": "6a4f004f59ff7ab43126f315",
+  "account_id": "test_account",
+  "available_cash": 925771.7382,
+  "frozen_cash": 0.0,
+  "market_value": 74950.0,
+  "today_profit": 0.0,
+  "total_assets": 1000721.7382,
+  "total_profit": 721.7382000000216,
+  "updated_at": "2026-07-09T10:05:00.827008"
+ }
+]

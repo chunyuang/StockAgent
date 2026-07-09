@@ -26,7 +26,7 @@ async def main():
     issues = []  # (severity, name, expected, actual, detail)
 
     # === 1. broker_orders.profit_pct 全0检查 ===
-    sells = list(db["broker_orders"].find({"status": "filled", "side": "sell"}))
+    sells = list(db["broker_orders"].find({"status": "filled", "side": "sell", "account_id": "default"}))
     zero_pct_count = sum(1 for s in sells if (s.get("profit_pct") or 0) == 0 and (s.get("profit_amount") or 0) == 0)
     if sells and zero_pct_count == len(sells):
         issues.append(("P0", "broker_orders.profit_pct全0",
@@ -39,7 +39,7 @@ async def main():
 
     # === 2. KPI vs Account 交叉验证 ===
     # 从broker_orders算KPI
-    buys = list(db["broker_orders"].find({"status": "filled", "side": "buy"}))
+    buys = list(db["broker_orders"].find({"status": "filled", "side": "buy", "account_id": "default"}))
     buy_cost_map = {b.get("ts_code", ""): b.get("filled_price", 0) for b in buys}
 
     realized_profit = 0
@@ -169,9 +169,9 @@ async def main():
 
     try:
         # 从equity_curve集合读取(含浮盈浮亏), 而非从API daily_detail累计profit推算
-        ec_last = db["equity_curve"].find_one(sort=[("date", -1)])
+        ec_last = db["equity_curve"].find_one({"trade_date": {"$ne": None}}, sort=[("trade_date", -1)])
         if ec_last:
-            equity_final = ec_last.get("equity", 0)
+            equity_final = ec_last.get("total_assets", 0) or ec_last.get("equity", 0)
             acct_total = db["broker_accounts"].find_one({"account_id": "default"}, {"total_assets": 1})
             acct_total = acct_total.get("total_assets", 0) if acct_total else 0
             if acct_total > 0 and equity_final > 0 and abs(equity_final - acct_total) / acct_total > 0.01:
