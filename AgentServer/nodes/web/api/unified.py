@@ -607,6 +607,90 @@ async def query_trade_one(
     return await db["broker_orders"].find_one(query, sort=sort or [("_id", -1)])
 
 
+async def fetch_unified_account(account_id: str = "default") -> dict:
+    """获取账户信息(资金/持仓/盈亏) — 单一计算源
+
+    从 broker_accounts 读取 available_cash,
+    从 broker_positions 实时计算市值/浮盈浮亏,
+    从 broker_orders 实时计算已实现盈亏。
+
+    不再信任 broker_accounts 的 market_value/total_profit 等缓存字段。
+
+    Returns:
+        dict with keys: account_id, total_assets, available_cash, market_value,
+                        today_profit, total_profit, position_count, position_ratio,
+                        realized_pnl, unrealized_pnl
+    """
+    db = await _get_db()
+    if db is None:
+        return {"account_id": account_id, "total_assets": 0, "available_cash": 0,
+                "market_value": 0, "today_profit": 0, "total_profit": 0,
+                "position_count": 0, "position_ratio": 0,
+                "realized_pnl": 0, "unrealized_pnl": 0}
+
+    # 1. available_cash from broker_accounts (唯一准确来源)
+    acct_doc = await db["broker_accounts"].find_one({"account_id": account_id})
+    available_cash = float(acct_doc.get("available_cash", 0)) if acct_doc else 0
+
+    # 2. 从 broker_positions 实时计算市值和浮盈浮亏
+    market_value = 0.0
+    pos_count = 0
+    unrealized_pnl = 0.0
+    async for p in db["broker_positions"].find({"account_id": account_id, "total_qty": {"$gt": 0}}):
+        qty = p.get("total_qty", 0)
+        price = float(p.get("current_price") or p.get("avg_cost") or 0)
+        avg_cost = float(p.get("avg_cost") or 0)
+        if qty > 0 and price > 0:
+            market_value += qty * price
+            pos_count += 1
+            if avg_cost > 0:
+                unrealized_pnl += (price - avg_cost) * qty
+
+    # 3. 从 broker_orders 实时计算已实现盈亏
+    realized_pnl = 0.0
+    async for o in db["broker_orders"].find(
+        {"account_id": account_id, "side": "sell", "status": "filled"},
+        {"profit_amount": 1}
+    ):
+        realized_pnl += float(o.get("profit_amount") or 0)
+
+    # 4. 总盈亏 = 已实现 + 浮盈浮亏
+    total_profit = realized_pnl + unrealized_pnl
+    total_assets = available_cash + market_value
+
+    # 5. today_profit: 当日已实现 + 今日买入浮盈浮亏
+    today_str = datetime.now().strftime("%Y%m%d")
+    today_int = int(today_str)
+    today_realized = 0.0
+    async for o in db["broker_orders"].find({
+        "account_id": account_id, "side": "sell", "status": "filled",
+        "trade_date": {"$in": [today_int, today_str]}
+    }, {"profit_amount": 1}):
+        today_realized += float(o.get("profit_amount") or 0)
+
+    today_unrealized = 0.0
+    async for p in db["broker_positions"].find({"account_id": account_id, "today_buy_qty": {"$gt": 0}}):
+        today_qty = p.get("today_buy_qty", 0)
+        price = float(p.get("current_price") or 0)
+        avg_cost = float(p.get("avg_cost") or 0)
+        if today_qty > 0 and price > 0 and avg_cost > 0:
+            today_unrealized += (price - avg_cost) * today_qty
+    today_profit = today_realized + today_unrealized
+
+    return {
+        "account_id": account_id,
+        "total_assets": round(total_assets, 2),
+        "available_cash": round(available_cash, 2),
+        "market_value": round(market_value, 2),
+        "today_profit": round(today_profit, 2),
+        "total_profit": round(total_profit, 2),
+        "position_count": pos_count,
+        "position_ratio": round(market_value / max(total_assets, 1) * 100, 1),
+        "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+    }
+
+
 async def aggregate_trades(
     db,
     pipeline: list,

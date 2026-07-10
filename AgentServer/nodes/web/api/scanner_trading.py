@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
+from nodes.web.api.unified import query_trades, query_trade_one
 from nodes.web.api.scanner_shared import (
     _get_scanner, _get_scanner_instance, _clean_mongo,
     _fill_stock_names, _safe_read_shared, logger,

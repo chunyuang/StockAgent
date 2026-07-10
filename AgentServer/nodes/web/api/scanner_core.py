@@ -125,18 +125,21 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                 try:
                     today_int_v = int(datetime.now().strftime('%Y%m%d'))
                     # 1. 找今天所有 filled 卖出
-                    today_sells = await mongo_manager.db["broker_orders"].find(
-                        {"account_id": account_id, "trade_date": {"$in": [today_int_v, str(today_int_v)]}, "status": "filled", "side": {"$in": ["sell", "SELL"]}}
-                    ).sort("create_time", 1).to_list(500)
+                    from nodes.web.api.unified import query_trades, query_trade_one
+                    today_sells = await query_trades(
+                        mongo_manager.db, account_id=account_id, side="sell",
+                        date=today_int_v, status="filled",
+                        sort=[("create_time", 1)], limit=500)
                     for sell in today_sells:
                         tc = sell.get("ts_code", "")
                         if not tc:
                             continue
                         # 2. 找对应的买入记录 (按 ts_code, trade_date <= today, side=buy, 最近一次)
-                        buy = await mongo_manager.db["broker_orders"].find_one(
-                            {"account_id": account_id, "ts_code": tc, "trade_date": {"$lte": today_int_v}, "status": "filled", "side": {"$in": ["buy", "BUY"]}},
-                            sort=[("trade_date", -1), ("create_time", -1)]
-                        )
+                        buy = await query_trade_one(
+                            mongo_manager.db, account_id=account_id,
+                            ts_code=tc, side="buy",
+                            date_lte=today_int_v, status="filled",
+                            sort=[("trade_date", -1), ("create_time", -1)])
                         # 【v2.9.99-r3】broker 不填 profit_pct/profit_amount → 自己用 buy/sell 算
                         buy_price = float(buy.get("filled_price") or buy.get("price") or 0) if buy else 0
                         buy_qty = int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0
@@ -653,78 +656,18 @@ async def get_timeline_history(date: str = None, days: int = 7, source: str = "r
 
 @router.get("/account")
 async def get_account():
-    """获取账户信息(资金/持仓/盈亏)"""
+    """获取账户信息(资金/持仓/盈亏) — 通过unified层"""
     scanner = await _get_scanner()
-    # 【v2.9.97f】账户信息统一从 broker_positions + broker_orders 实时计算
-    # 不再信任 broker_accounts 缓存(可能过时)
+    # 【v2.9.110】统一走unified层, 消除6次MongoDB直查
     try:
-        from core.managers import mongo_manager
-        if mongo_manager.is_initialized:
-            db = mongo_manager.db
-            acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
-            
-            # 从 broker_positions 实时计算市值和持仓数
-            market_value = 0.0
-            pos_count = 0
-            unrealized_pnl = 0.0  # 【v2.9.99-r9 fix】持仓浮盈浮亏
-            async for p in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}):
-                qty = p.get("total_qty", 0)
-                price = float(p.get("current_price") or p.get("avg_cost") or 0)
-                avg_cost = float(p.get("avg_cost") or 0)
-                if qty > 0 and price > 0:
-                    market_value += qty * price
-                    pos_count += 1
-                    if avg_cost > 0:
-                        unrealized_pnl += (price - avg_cost) * qty
-            
-            # 从 broker_orders 实时计算已实现盈亏
-            realized_pnl = 0.0
-            async for o in db["broker_orders"].find({"account_id": "default", "side": "sell", "status": "filled"}, {"profit_amount": 1}):
-                realized_pnl += float(o.get("profit_amount") or 0)
-            
-            # 【v2.9.99-r9 fix】总盈亏 = 已实现 + 浮盈浮亏
-            total_profit = realized_pnl + unrealized_pnl
-            
-            # available_cash 从 broker_accounts 读(这是唯一准确的来源)
-            available_cash = float(acct_doc.get("available_cash", 0)) if acct_doc else 0
-            total_assets = available_cash + market_value
-            
-            # today_profit: 当日已实现盈亏 + 今日买入持仓的浮盈浮亏
-            # 【v2.9.99-r9 fix】A股T+1, 今日买入不能当日卖, 但价格变动也应该体现今日盈亏
-            today_str = datetime.now().strftime("%Y%m%d")
-            today_realized = 0.0
-            async for o in db["broker_orders"].find({
-                "account_id": "default", "side": "sell", "status": "filled",
-                "trade_date": {"$in": [int(today_str), today_str]}
-            }, {"profit_amount": 1}):
-                today_realized += float(o.get("profit_amount") or 0)
-            # 今日买入的持仓浮盈浮亏(today_buy_qty>0的部分)
-            today_unrealized = 0.0
-            async for p in db["broker_positions"].find({"account_id": "default", "today_buy_qty": {"$gt": 0}}):
-                today_qty = p.get("today_buy_qty", 0)
-                price = float(p.get("current_price") or 0)
-                avg_cost = float(p.get("avg_cost") or 0)
-                if today_qty > 0 and price > 0 and avg_cost > 0:
-                    today_unrealized += (price - avg_cost) * today_qty
-            today_profit = today_realized + today_unrealized
-            
-            return {
-                "success": True,
-                "data": {
-                    "account_id": "default",
-                    "total_assets": round(total_assets, 2),
-                    "available_cash": round(available_cash, 2),
-                    "market_value": round(market_value, 2),
-                    "today_profit": round(today_profit, 2),
-                    "total_profit": round(total_profit, 2),
-                    "position_count": pos_count,
-                    "position_ratio": round(market_value / max(total_assets, 1) * 100, 1),
-                },
-            }
+        from .unified import fetch_unified_account
+        data = await fetch_unified_account(account_id="default")
+        if data.get("total_assets", 0) > 0:
+            return {"success": True, "data": data}
     except Exception as e:
         from loguru import logger
         import traceback
-        logger.error(f"[ACCOUNT] MongoDB 计算帐户失败, 回退到内存: {e}\n{traceback.format_exc()}")
+        logger.error(f"[ACCOUNT] unified层失败, 回退到内存: {e}\n{traceback.format_exc()}")
     
     # Fallback: scanner运行中时从内存读
     if scanner._broker:
@@ -1413,7 +1356,11 @@ async def get_position_risk_matrix(date: str = None):
             db = mongo_manager.db
             
             # 读账户
-            acct_doc = await db["broker_accounts"].find_one({"account_id": "default"})
+            # 【v2.9.110】统一通过unified层获取账户数据
+            from nodes.web.api.unified import fetch_unified_account
+            acct_unified = await fetch_unified_account(account_id="default")
+            # 构造兼容acct_doc的结构(后续代码读available_cash)
+            acct_doc = {"available_cash": acct_unified.get("available_cash", 0)} if acct_unified else None
             if not acct_doc:
                 return {"success": True, "data": {"positions": [], "global": {}}}
             
@@ -1657,9 +1604,10 @@ async def get_position_risk_matrix(date: str = None):
                     "risk_level": risk_level, "risk_score": round(risk_score, 0),
                     "trailing_stop": None, "total_qty": qty,
                 })
-            # 获取账户信息计算position_pct
-            acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
-            total_assets = (acct_doc.get("available_cash", 0) if acct_doc else 0) + total_mv
+            # 【v2.9.110】获取账户信息计算position_pct — 通过unified层
+            from nodes.web.api.unified import fetch_unified_account
+            _acct_u = await fetch_unified_account(account_id="default")
+            total_assets = (_acct_u.get("available_cash", 0) if _acct_u else 0) + total_mv
             for m in matrix:
                 m["position_pct"] = round(m["market_value"] / max(total_assets, 1) * 100, 1)
                 max_single_pct = max(max_single_pct, m["position_pct"])
@@ -1711,7 +1659,10 @@ async def get_position_risk_matrix(date: str = None):
                                 )
                                 positions.append(pos)
                     # 重建account数据(从MongoDB)
-                    acct_doc = await mongo_manager.db["broker_accounts"].find_one({"account_id": "default"})
+                    # 【v2.9.110】通过unified层
+                    from nodes.web.api.unified import fetch_unified_account as _fua2
+                    _acct_u2 = await _fua2(account_id="default")
+                    acct_doc = {"available_cash": _acct_u2.get("available_cash", 0)} if _acct_u2 else None
                     if acct_doc:
                         mv = sum(doc.get("current_price", 0) * doc.get("total_qty", 0) for doc in positions_data if doc.get("total_qty", 0) > 0)
                         cash = acct_doc.get("available_cash", 0)
