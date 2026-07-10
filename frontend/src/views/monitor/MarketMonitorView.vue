@@ -6,7 +6,8 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide, defineAsyncComponent, ref } from 'vue'
+import { provide, defineAsyncComponent, ref, h } from 'vue'
+import { ElEmpty } from 'element-plus'
 import { useScannerMonitor } from './useScannerMonitor'
 import { useViewHelpers } from './useViewHelpers'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
@@ -14,8 +15,15 @@ import { useScannerStore } from '@/stores/scanner'
 import { useThemeStore } from '@/stores/theme'
 // 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
-// 【v2.9.98】异步组件统一错误处理: 加载失败时显示错误占位而非白屏
-const asyncOpts = { onError: (err: Error) => console.error('[AsyncComponent] load failed:', err) }
+// 【v2.9.120】异步组件加载失败/超时降级UI, 避免白屏
+const AsyncErrorComp = { render: () => h(ElEmpty, { description: '组件加载失败,请刷新页面重试' }) }
+const AsyncLoadingComp = { render: () => h('div', { style: 'padding:40px;text-align:center;color:#999' }, '加载中...') }
+const asyncOpts = {
+  onError: (err: Error) => console.error('[AsyncComponent] load failed:', err),
+  errorComponent: AsyncErrorComp,
+  loadingComponent: AsyncLoadingComp,
+  timeout: 15000,
+}
 const ReviewTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./ReviewTab.vue') })
 const OpsTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./OpsTab.vue') })
 const PremarketTab = defineAsyncComponent({ ...asyncOpts, loader: () => import('./PremarketTab.vue') })
