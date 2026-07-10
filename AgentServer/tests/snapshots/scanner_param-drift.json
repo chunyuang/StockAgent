@@ -6,7 +6,7 @@
       "level": "str",
       "key": "str",
       "old": "NoneType",
-      "new": "float",
+      "new": "int",
       "severity": "str"
     }
   ],

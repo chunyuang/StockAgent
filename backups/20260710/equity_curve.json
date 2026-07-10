@@ -1,0 +1,13 @@
+[
+ {
+  "_id": "6a4f5fa1154846788bb9ad39",
+  "trade_date": 20260709,
+  "timestamp": "2026-07-09T16:45:21.650024",
+  "total_assets": 959320.0,
+  "available_cash": 624845.0,
+  "market_value": 334475.0,
+  "total_profit": -40680.0,
+  "source": "post_market_snapshot",
+  "realized_pnl": -39954.16
+ }
+]

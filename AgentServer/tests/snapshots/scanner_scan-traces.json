@@ -112,26 +112,74 @@
         "L5_auction": "str",
         "L6_strategy": "str",
         "L7_ranking": "str",
-        "L8_cooldown": "str",
         "L8_ma60": "str",
         "L8_position": "str"
       },
       "l9_results": {
-        "000938": {
+        "000908": {
           "SZ": {
             "passed": "bool",
             "status": "str",
             "reason": "str"
           }
         },
-        "301108": {
+        "002409": {
           "SZ": {
             "passed": "bool",
             "status": "str",
             "reason": "str"
           }
         },
-        "920493": {
+        "002536": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "002851": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "002975": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "002979": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "300580": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "300684": {
+          "SZ": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "600584": {
+          "SH": {
+            "passed": "bool",
+            "status": "str",
+            "reason": "str"
+          }
+        },
+        "688311": {
           "SH": {
             "passed": "bool",
             "status": "str",

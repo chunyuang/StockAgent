@@ -178,7 +178,7 @@ class FactorImpactAuditor:
             ('rsi_24', 0, 100, 'RSI24'),
             ('turnover_rate', 0, 100, '换手率%'),
             ('volume_ratio', 0, 50, '量比倍'),
-            ('pct_chg', -30, 30, '涨跌幅%'),  # 北交所±30%
+            ('pct_chg', -30, 30, '涨跌幅%(排除新股/北交所920)'),  # 北交所±30%, 新股首日无限制
             ('opening_pct_chg', -100, 1000, '竞价涨跌幅%(新股/退市可超30%)'),
             ('boll_upper', 0, 100000, 'BOLL上轨'),
             ('fear_greed_index', 2.0, 8.0, '恐贪指数(实为rsi_score)'),
@@ -186,10 +186,29 @@ class FactorImpactAuditor:
 
         for field, lo, hi, desc in range_checks:
             # 检查超范围数量
-            oob_lo = self.db['stock_daily_ak_full'].count_documents(
-                {'trade_date': trade_date, field: {'$lt': lo}})
-            oob_hi = self.db['stock_daily_ak_full'].count_documents(
-                {'trade_date': trade_date, field: {'$gt': hi}})
+            if field == 'pct_chg':
+                # 排除新股首日(上市日期=当日)和北交所920xxx(首日无涨跌幅限制)
+                query_lo = {'trade_date': trade_date, field: {'$lt': lo},
+                            'ts_code': {'$not': {'$regex': '^920'}}}
+                query_hi = {'trade_date': trade_date, field: {'$gt': hi},
+                            'ts_code': {'$not': {'$regex': '^920'}}}
+                # 排除上市首日(pct_chg>100%的基本都是新股)
+                query_hi['pct_chg'] = {'$gt': hi, '$lt': 1000}  # 超过1000%可能是数据错误
+            else:
+                query_lo = {'trade_date': trade_date, field: {'$lt': lo}}
+                query_hi = {'trade_date': trade_date, field: {'$gt': hi}}
+
+            oob_lo = self.db['stock_daily_ak_full'].count_documents(query_lo)
+            oob_hi = self.db['stock_daily_ak_full'].count_documents(query_hi)
+
+            # 对于pct_chg: 新股首日无涨跌幅限制, >30%不算异常
+            if field == 'pct_chg':
+                # 检查超范围的是否都是新股/北交所
+                oob_docs = list(self.db['stock_daily_ak_full'].find(
+                    query_hi, {'ts_code': 1, 'pct_chg': 1, '_id': 0}).limit(5))
+                all_new_stock = all(d['pct_chg'] > 44 for d in oob_docs)  # 新股首日通常>44%
+                if all_new_stock and len(oob_docs) <= 3:
+                    continue  # 都是新股首日, 不算异常
 
             if oob_lo > 0 or oob_hi > 0:
                 severity = "P0" if (oob_lo + oob_hi) > 10 else "P1"
@@ -272,7 +291,15 @@ class FactorImpactAuditor:
                            "首板打板策略候选池被严重缩减")
 
         # 错误的首板(不是首板但DB里=1)
-        false_flu = flu_in_db - expected_flu
+        # 注意: 昨天停牌的票今天涨停也是首板, 但lu_prev里没有(停牌≠涨停)
+        # 所以需要排除昨天停牌的票(ak_full没记录=停牌)
+        all_prev_ts = set(d['ts_code'] for d in self.db['stock_daily_ak_full'].find(
+            {'trade_date': prev_date}, {'ts_code': 1, '_id': 0}))
+        # 昨天有数据但没涨停 → 不是首板
+        prev_not_lu = all_prev_ts - lu_prev
+        # 昨天没数据 → 可能停牌, 不算误报
+        false_flu = flu_in_db - expected_flu - (flu_in_db - all_prev_ts)
+        false_flu = false_flu - (flu_in_db - all_prev_ts)  # 排除昨天停牌的
         if false_flu and len(false_flu) > 5:
             self.add_issue("P1", category, "first_limit_up误报",
                            f"{len(expected_flu)}只首板", f"DB多{len(false_flu)}只",
@@ -437,14 +464,24 @@ class FactorImpactAuditor:
         broken = doc.get('broken', 0)
         broken_rate = doc.get('broken_rate', 0)
         lu = doc.get('limit_up', 0)
+        data_source = doc.get('data_source', '')
 
-        # 如果有涨停但broken=0, 可能是open_times没推算
-        if lu > 0 and broken == 0:
+        # 交叉验证: 从limit_list的open_times>0推算实际炸板数
+        actual_broken = self.db['limit_list'].count_documents(
+            {'trade_date': trade_date, 'open_times': {'$gt': 0}, 'limit': 'U'})
+
+        # 如果sentiment broken=0 但limit_list有open_times>0的数据
+        if broken == 0 and actual_broken > 0:
             self.add_issue("P1", category, "broken始终=0",
+                           f">0 (limit_list有{actual_broken}只open_times>0)", "0",
+                           f"intraday_sentiment计算bug: 盘中封住的炸板票(open_times>0但pct>=lu_thresh)未被计入broken. data_source={data_source}")
+        elif lu > 0 and broken == 0 and actual_broken == 0:
+            # limit_list的open_times也全是0 → 可能是数据源问题
+            self.add_issue("P2", category, "open_times全=0",
                            f">0 (涨停{lu}只应有一定炸板)", "0",
                            "limit_list.open_times全=0, 需从ak_full推算")
 
-        # broken_rate通常在20%-80%, =0或=100%都异常
+        # broken_rate通常在20%-80%, =100%都异常
         if broken_rate == 100 and lu > 5:
             self.add_issue("P1", category, "炸板率=100%",
                            "20-80%", "100%",

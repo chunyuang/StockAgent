@@ -138,7 +138,21 @@ async def main():
             (s.get("filled_price",0) or 0) * (s.get("filled_qty",0) or s.get("quantity",0))
             for s in sells
         )
-        correct_cash = 1000000 - buy_cost_total + sell_income_total
+        # 【v2.9.110修复】加入佣金+印花税估算, 与broker._calc_cash_from_mongo_orders对齐
+        # 买入成本含佣金(万3, 最低5元), 卖出收入扣佣金(万3)+印花税(千1)
+        COMMISSION_RATE = 0.0003
+        MIN_COMMISSION = 5.0
+        STAMP_DUTY_RATE = 0.001
+        buy_commission = sum(
+            max((b.get("filled_price",0) or 0) * (b.get("filled_qty",0) or b.get("quantity",0)) * COMMISSION_RATE, MIN_COMMISSION)
+            for b in buys
+        )
+        sell_commission_stamp = sum(
+            max((s.get("filled_price",0) or 0) * (s.get("filled_qty",0) or s.get("quantity",0)) * COMMISSION_RATE, MIN_COMMISSION)
+            + (s.get("filled_price",0) or 0) * (s.get("filled_qty",0) or s.get("quantity",0)) * STAMP_DUTY_RATE
+            for s in sells
+        )
+        correct_cash = 1000000 - (buy_cost_total + buy_commission) + (sell_income_total - sell_commission_stamp)
         acct_cash = acct.get("available_cash", 0) or 0
         if abs(acct_cash - correct_cash) / max(abs(correct_cash), 1) > 0.01:
             issues.append(("P0", "available_cash不匹配(从orders推算)",

@@ -64,11 +64,11 @@ def main():
     # 4. risk_decisions字段完整性(最近5条)
     recent_rds = list(db.risk_decisions.find().sort('timestamp', -1).limit(5))
     profit_loss_none = sum(1 for rd in recent_rds if rd.get('profit_loss') is None and rd.get('profit_amount') is None)
-    reason_none = sum(1 for rd in recent_rds if rd.get('reason') is None)
+    reason_none = sum(1 for rd in recent_rds if rd.get('reason') is None and rd.get('trigger_reason') is None)
     if profit_loss_none == len(recent_rds) and len(recent_rds) > 0:
         issues.append(('P1', f'risk_decisions最近{len(recent_rds)}条profit_loss/profit_amount全=None'))
     if reason_none > 2:
-        issues.append(('P2', f'risk_decisions最近{len(recent_rds)}条reason None={reason_none}'))
+        issues.append(('P2', f'risk_decisions最近{len(recent_rds)}条reason/trigger_reason None={reason_none}'))
     
     # 5. sell orders avg_cost非空
     ac_none = db.broker_orders.count_documents({'side': 'sell', 'status': 'filled', 'avg_cost': None})

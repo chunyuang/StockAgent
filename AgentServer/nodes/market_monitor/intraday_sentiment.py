@@ -92,8 +92,9 @@ class IntradaySentimentCalculator:
         # 1. 涨停/跌停/炸板计数
         limit_up = 0
         limit_down = 0
-        broken = 0  # 曾涨停但当前已开板(pct在0~9.5%之间)
+        broken = 0  # 盘中曾经炸板(open_times>0), 不管最终是否封住
         limit_up_codes = []  # 当前仍在涨停的股票
+        broken_codes = []  # 炸板股代码(用于统计)
         for code, data in realtime_data.items():
             pct = data.get("pct_chg", 0)
             if not isinstance(pct, (int, float)):
@@ -104,21 +105,32 @@ class IntradaySentimentCalculator:
             thresh = get_limit_threshold(code)
             lu_thresh, ld_thresh = thresh, -thresh
 
+            # 【v2.9.110修复】炸板判断: open_times>0表示盘中炸过板
+            # 不管最终是否封住(pct>=lu_thresh), 只要open_times>0就算炸板
+            ll = limit_list_data.get(code) if limit_list_data else None
+            is_broken_by_open_times = (ll and ll.get('open_times', 0) > 0
+                                        and (ll.get('limit') == 'U' or ll.get('limit_type') == 'U'))
+
             if pct >= lu_thresh:
                 limit_up += 1
                 limit_up_codes.append(code)
+                # 盘中炸过板但最终封住: 也算broken
+                if is_broken_by_open_times:
+                    broken += 1
+                    broken_codes.append(code)
             elif pct <= ld_thresh:
                 limit_down += 1
             elif 0 < pct < lu_thresh:
-                # 曾涨停但开板: 优先用limit_list的open_times判断
-                ll = limit_list_data.get(code) if limit_list_data else None
-                if ll and ll.get('open_times', 0) > 0 and ll.get('limit') == 'U':
+                # 曾涨停但当前已开板
+                if is_broken_by_open_times:
                     broken += 1
+                    broken_codes.append(code)
                 else:
                     # fallback: 用盘中最高价判断(limit_list无此股或无open_times)
                     high_pct = data.get("high_pct", pct)
                     if high_pct >= lu_thresh:
                         broken += 1
+                        broken_codes.append(code)
 
         # 2. 涨跌家数比
         up_count = sum(1 for d in realtime_data.values()
