@@ -390,6 +390,11 @@ class LiveFilterPipeline:
             f"总仓位上限={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 硬上限{max_position_ratio:.0%}), "
             f"单票上限={max_per_stock:.0%} | 仓位系数=min(情绪仓位, 特殊时期, 硬上限)"
         )
+        # 【v2.9.121修复】L8正常路径也需标记trace_candidates, 否则_build_trace_summary中
+        # L8: passed=0, rejected=0, input=N, output=N — 前端漏斗图缺失L8通过数据
+        for t in result.trace_candidates:
+            if t.final_status != "rejected":
+                t.layer_results["L8_position"] = {"passed": True}
 
         # 【V50.1】最终标记通过 + 构建汇总
         self._finalize_traces(result)
