@@ -222,7 +222,7 @@ const closedStats = computed(() => {
           <span class="ht-title">📜 交易历史</span>
           <span v-if="historyData.length" class="ht-badge">{{ historyDate }} 回放 · {{ historyData.length }}条</span>
           <span v-else-if="timeline.length" class="ht-badge">{{ hasHistoricalFallback ? '历史回放' : '今日' }} · 成交{{ tlStats.buy + tlStats.sell }}·拦截{{ tlStats.blocked }}</span>
-          <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" class="ht-pnl">{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
+          <span v-if="cumulativePnl != null" :class="cumulativePnl >= 0 ? 'up' : 'down'" class="ht-pnl">{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ Number(cumulativePnl || 0).toFixed(0) }}</span>
         </div>
         <div class="ht-toolbar-right">
           <UnifiedDateBar @change="(_d: string) => { historyDate = _d }" />

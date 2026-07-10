@@ -1563,6 +1563,7 @@ async def get_position_risk_matrix(date: str = None):
                     "top_industry_concentration": round(top_industry_pct, 1),
                     "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in industry_exp.items()},
                     "position_count": len(matrix),
+                    "stop_loss_exec_rate": 0,  # MongoDB回退模式无此数据
                     "risk_summary": {"normal": normal, "warning": warning, "critical": critical},
                     "risk_score": round(min(sum(m["risk_score"] for m in matrix) / max(len(matrix), 1), 100), 0),
                     "risk_level": "critical" if critical > 0 else ("warning" if warning > 0 else "normal"),
@@ -1677,6 +1678,7 @@ async def get_position_risk_matrix(date: str = None):
                     "top_industry_concentration": round(top_industry_pct, 1),
                     "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in industry_exp.items()},
                     "position_count": len(matrix),
+                    "stop_loss_exec_rate": 0,  # 历史回退模式无此数据
                     "risk_summary": {"normal": normal, "warning": warning, "critical": critical},
                 },
                 "_fallback": True, "_historical": True,
@@ -1855,6 +1857,19 @@ async def get_position_risk_matrix(date: str = None):
         top_ind = max(industry_exp.values()) / max(total_mv, 1) * 100 if industry_exp else 0
         cash_ratio = acct.available_cash / max(acct.total_assets, 1) * 100
 
+        # 【v2.9.120】止损执行率: 亏损卖出中走止损的占比
+        sl_exec_rate = 0
+        try:
+            loss_sells = await mongo_manager.db["broker_orders"].count_documents(
+                {"account_id": "default", "side": "sell", "profit_pct": {"$lt": 0}}
+            )
+            sl_sells = await mongo_manager.db["broker_orders"].count_documents(
+                {"account_id": "default", "side": "sell", "profit_pct": {"$lt": 0}, "reason": {"$regex": "止损"}}
+            )
+            sl_exec_rate = round(sl_sells / max(loss_sells, 1) * 100, 0) if loss_sells > 0 else 0
+        except Exception:
+            pass
+
         return _sanitize({"success": True, "data": {
             "positions": sorted(matrix, key=lambda x: -x["risk_score"]),
             "global": {
@@ -1864,6 +1879,7 @@ async def get_position_risk_matrix(date: str = None):
                 "top_industry_concentration": round(top_ind, 1),
                 "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in sorted(industry_exp.items(), key=lambda x: -x[1])},
                 "position_count": len(positions),
+                "stop_loss_exec_rate": sl_exec_rate,
                 "risk_score": round(min(sum(m["risk_score"] for m in matrix) / max(len(matrix), 1), 100), 0),
                 "risk_level": "critical" if any(m.get("risk_level") == "critical" for m in matrix) else ("warning" if any(m.get("risk_level") == "warning" for m in matrix) else "normal"),
                 "risk_summary": {

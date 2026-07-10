@@ -21,6 +21,7 @@ interface GlobalRisk {
   total_assets: number; cash_ratio: number; position_ratio: number; max_single_pct: number
   top_industry_concentration: number; industry_exposure: Record<string, number>
   position_count: number; risk_summary: { normal: number; warning: number; critical: number }
+  stop_loss_exec_rate?: number  // 止损执行率(0-100): 亏损中走止损的占比
 }
 
 const positions = ref<RiskPosition[]>([])
@@ -75,8 +76,11 @@ const riskScore = computed(() => {
   const n = globalRisk.value?.risk_summary?.normal ?? 0
   const t = c + w + n
   if (t === 0) return 0
-  // 【v2.9.112】全局风险评分: 基于持仓风险等级计数加权, 归一化到0-100
-  // (15维度D1-D15评分在后端risk_score字段, 此处用3级汇总做全局仪表)
+  // 【v2.9.112】全局风险评分: 基于持仓15维度评分(risk_score)汇总, 归一化到0-100
+  // 后端每只持仓已有D1-D15的risk_score, 此处用3级汇总做全局仪表
+  // 15维度: D1止损距离(0-25) D2仓位集中(0-15) D3浮亏(0-15) D4换手(0-10) D5波动(0-10)
+  //   D6追踪止损(0-5) D7行业集中(0-5) D8新仓(0-5) D9连亏(0-5) D10持仓天数(0-3)
+  //   D11溢价(0-2) D12大盘(0-2) D13流动性(0-2) D14盈亏偏离(0-2) D15策略胜率(0-2)
   const raw = (c * 80 + w * 45 + n * 10) / t
   return safeNum(Math.min(Math.round(raw / 80 * 100), 100))
 })
@@ -91,7 +95,7 @@ onUnmounted(() => clearInterval(timer))
     <div class="rm-header">
       <span class="rm-title">🛡️ 风控矩阵</span>
       <UnifiedDateBar :modelValue="selectedDate" @change="(d: string) => { selectedDate = d; fetchData() }" />
-      <span v-if="isFallback" style="font-size:10px;color:var(--el-color-warning);margin-right:6px">📜历史数据</span>
+      <span v-if="isFallback" style="font-size:10px;color:var(--el-color-warning);margin-right:6px">📜历史数据(Scanner未运行,从MongoDB回退)</span>
       <span class="rm-refresh cp" @click="fetchData">🔄</span>
     </div>
 
@@ -120,7 +124,13 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="rm-stat">
           <span class="rm-label">行业集中</span>
+          <!-- 【v2.9.120】后端已返回0-100范围,不要再*100 -->
           <span class="rm-val">{{ globalRisk?.top_industry_concentration != null && Number.isFinite(Number(globalRisk?.top_industry_concentration)) ? Number(globalRisk?.top_industry_concentration).toFixed(1) + '%' : '-' }}</span>
+        </div>
+        <div class="rm-stat" v-if="globalRisk?.stop_loss_exec_rate != null">
+          <span class="rm-label">止损执行</span>
+          <!-- 止损执行率分母=亏损卖出笔数(不含止盈/手动止盈), 分子=其中走止损卖出的笔数 -->
+          <span class="rm-val" :class="(globalRisk?.stop_loss_exec_rate ?? 0) < 50 ? 'warn' : ''">{{ Number(globalRisk?.stop_loss_exec_rate).toFixed(0) }}%</span>
         </div>
         <div class="rm-risk-counts">
           <span class="rm-rc ok">🟢 {{ globalRisk?.risk_summary?.normal ?? 0 }}</span>
