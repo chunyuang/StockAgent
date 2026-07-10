@@ -1454,6 +1454,21 @@ async def get_position_risk_matrix(date: str = None):
                 if cost <= 0 or qty <= 0:
                     continue
                 
+                # 【v2.9.120】current_price=0时从ak_full补取最近收盘价
+                if cur <= 0:
+                    ak_doc = await db["stock_daily_ak_full"].find_one(
+                        {"ts_code": ts_code},
+                        {"close": 1, "trade_date": 1},
+                        sort=[("trade_date", -1)]
+                    )
+                    if ak_doc and ak_doc.get("close", 0) > 0:
+                        cur = float(ak_doc["close"])
+                        # 同步更新MongoDB
+                        await db["broker_positions"].update_one(
+                            {"_id": pos_doc["_id"]},
+                            {"$set": {"current_price": cur}}
+                        )
+                
                 mv = cur * qty
                 total_mv += mv
                 
@@ -1517,11 +1532,18 @@ async def get_position_risk_matrix(date: str = None):
                     "trailing_stop": None,
                 })
             
-            # Fill position_pct
+            # Fill position_pct and recalc risk scores with correct values
             total_assets = acct_doc.get("available_cash", 0) + total_mv
             for m in matrix:
                 m["position_pct"] = round(m["market_value"] / max(total_assets, 1) * 100, 1)
                 max_single_pct = max(max_single_pct, m["position_pct"])
+                # 【v2.9.120】重算依赖position_pct的风险维度
+                d2_pos = min(m["position_pct"] / 2, 15)
+                d7_industry = min(industry_exp.get(m.get("industry", ""), 0) / max(total_mv, 1) * 100 / 2, 5) if m.get("industry") else 0
+                # 重算risk_score
+                old_score = m["risk_score"]
+                # d2_pos原来=0, d7_industry原来=0, 差值加上
+                m["risk_score"] = round(min(old_score + d2_pos + d7_industry, 100), 0)
             
             top_industry = max(industry_exp, key=industry_exp.get) if industry_exp else "无"
             top_industry_pct = industry_exp.get(top_industry, 0) / max(total_assets, 1) * 100 if industry_exp else 0
@@ -1534,6 +1556,7 @@ async def get_position_risk_matrix(date: str = None):
                 "positions": matrix,
                 "global": {
                     "total_assets": round(total_assets, 0),
+                    "total_market_value": round(total_mv, 0),
                     "cash_ratio": round(acct_doc.get("available_cash", 0) / max(total_assets, 1) * 100, 1),
                     "position_ratio": round(total_mv / max(total_assets, 1) * 100, 1),
                     "max_single_pct": round(max_single_pct, 1),
@@ -1541,6 +1564,8 @@ async def get_position_risk_matrix(date: str = None):
                     "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in industry_exp.items()},
                     "position_count": len(matrix),
                     "risk_summary": {"normal": normal, "warning": warning, "critical": critical},
+                    "risk_score": round(min(sum(m["risk_score"] for m in matrix) / max(len(matrix), 1), 100), 0),
+                    "risk_level": "critical" if critical > 0 else ("warning" if warning > 0 else "normal"),
                 },
                 "_fallback": True,
             }}
@@ -1833,11 +1858,14 @@ async def get_position_risk_matrix(date: str = None):
         return _sanitize({"success": True, "data": {
             "positions": sorted(matrix, key=lambda x: -x["risk_score"]),
             "global": {
-                "total_assets": round(acct.total_assets, 2), "cash_ratio": round(cash_ratio, 1),
+                "total_assets": round(acct.total_assets, 2), "total_market_value": round(total_mv, 0),
+                "cash_ratio": round(cash_ratio, 1),
                 "position_ratio": round(100 - cash_ratio, 1), "max_single_pct": round(max_single_pct, 1),
                 "top_industry_concentration": round(top_ind, 1),
                 "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in sorted(industry_exp.items(), key=lambda x: -x[1])},
                 "position_count": len(positions),
+                "risk_score": round(min(sum(m["risk_score"] for m in matrix) / max(len(matrix), 1), 100), 0),
+                "risk_level": "critical" if any(m.get("risk_level") == "critical" for m in matrix) else ("warning" if any(m.get("risk_level") == "warning" for m in matrix) else "normal"),
                 "risk_summary": {
                     "normal": sum(1 for m in matrix if m.get("risk_level") == "normal"),
                     "warning": sum(1 for m in matrix if m.get("risk_level") == "warning"),
