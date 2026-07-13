@@ -218,10 +218,10 @@
           <el-table-column prop="filled_price" label="卖出价" width="80" align="right" />
           <el-table-column prop="filled_qty" label="数量" width="70" align="right" />
           <el-table-column prop="profit_pct" label="盈亏%" width="80" align="right">
-            <template #default="{ row }"><span :style="{ color: row.profit_pct >= 0 ? '#f56c6c' : '#67c23a', fontWeight: 'bold' }">{{ row.profit_pct > 0 ? '+' : '' }}{{ row.profit_pct.toFixed(1) }}%</span></template>
+            <template #default="{ row }"><span :style="{ color: (row.profit_pct||0) >= 0 ? '#f56c6c' : '#67c23a', fontWeight: 'bold' }">{{ (row.profit_pct||0) > 0 ? '+' : '' }}{{ (row.profit_pct||0).toFixed(1) }}%</span></template>
           </el-table-column>
           <el-table-column prop="profit_amount" label="盈亏额" width="90" align="right">
-            <template #default="{ row }"><span :style="{ color: row.profit_amount >= 0 ? '#f56c6c' : '#67c23a' }">{{ row.profit_amount > 0 ? '+' : '' }}{{ row.profit_amount.toFixed(0) }}</span></template>
+            <template #default="{ row }"><span :style="{ color: (row.profit_amount||0) >= 0 ? '#f56c6c' : '#67c23a' }">{{ (row.profit_amount||0) > 0 ? '+' : '' }}{{ (row.profit_amount||0).toFixed(0) }}</span></template>
           </el-table-column>
           <el-table-column prop="reason" label="卖出原因" min-width="200" show-overflow-tooltip />
         </el-table>
@@ -232,7 +232,7 @@
         <div v-if="statsData" class="stats-container">
           <el-row :gutter="16" class="stats-overview">
             <el-col :span="6"><el-card shadow="hover"><div class="stat-card"><div class="stat-value">{{ statsData.total_sells }}</div><div class="stat-label">总卖出笔数</div></div></el-card></el-col>
-            <el-col :span="6"><el-card shadow="hover"><div class="stat-card"><div class="stat-value" :style="{ color: statsData.total_pnl >= 0 ? '#f56c6c' : '#67c23a' }">{{ statsData.total_pnl > 0 ? '+' : '' }}{{ statsData.total_pnl.toFixed(0) }}</div><div class="stat-label">总盈亏(元)</div></div></el-card></el-col>
+            <el-col :span="6"><el-card shadow="hover"><div class="stat-card"><div class="stat-value" :style="{ color: (statsData.total_pnl||0) >= 0 ? '#f56c6c' : '#67c23a' }">{{ (statsData.total_pnl||0) > 0 ? '+' : '' }}{{ (statsData.total_pnl||0).toFixed(0) }}</div><div class="stat-label">总盈亏(元)</div></div></el-card></el-col>
             <el-col :span="6"><el-card shadow="hover"><div class="stat-card"><div class="stat-value">{{ statsData.win_rate }}%</div><div class="stat-label">胜率</div></div></el-card></el-col>
             <el-col :span="6"><el-card shadow="hover"><div class="stat-card"><div class="stat-value">{{ statsData.by_type.length }}</div><div class="stat-label">卖出类型数</div></div></el-card></el-col>
           </el-row>
@@ -241,7 +241,7 @@
             <el-table :data="statsData.by_type" stripe border>
               <el-table-column prop="sell_type" label="卖出类型" width="120"><template #default="{ row }"><el-tag :type="sellTypeTag(row.sell_type)" size="small">{{ row.sell_type }}</el-tag></template></el-table-column>
               <el-table-column prop="count" label="笔数" width="80" align="right" />
-              <el-table-column prop="total_pnl" label="总盈亏(元)" width="120" align="right"><template #default="{ row }"><span :style="{ color: row.total_pnl >= 0 ? '#f56c6c' : '#67c23a', fontWeight: 'bold' }">{{ row.total_pnl > 0 ? '+' : '' }}{{ row.total_pnl.toFixed(0) }}</span></template></el-table-column>
+              <el-table-column prop="total_pnl" label="总盈亏(元)" width="120" align="right"><template #default="{ row }"><span :style="{ color: (row.total_pnl||0) >= 0 ? '#f56c6c' : '#67c23a', fontWeight: 'bold' }">{{ (row.total_pnl||0) > 0 ? '+' : '' }}{{ (row.total_pnl||0).toFixed(0) }}</span></template></el-table-column>
               <el-table-column prop="win_rate" label="胜率" width="80" align="right"><template #default="{ row }">{{ row.win_rate }}%</template></el-table-column>
               <el-table-column prop="avg_pct" label="平均盈亏%" width="100" align="right"><template #default="{ row }"><span :style="{ color: row.avg_pct >= 0 ? '#f56c6c' : '#67c23a' }">{{ row.avg_pct > 0 ? '+' : '' }}{{ row.avg_pct }}%</span></template></el-table-column>
             </el-table>

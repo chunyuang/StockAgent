@@ -18,7 +18,7 @@ from core.managers import mongo_manager
 
 
 async def fill_simple_factors(trade_dates: list[int]):
-    """从daily_basic同步turnover_rate/volume_ratio/circ_mv到stock_daily_ak_full"""
+    """从daily_basic同步turnover_rate/volume_ratio/circ_mv/pe_ttm/pb到stock_daily_ak_full"""
     await mongo_manager.initialize()
     db = mongo_manager.db
     
@@ -27,7 +27,8 @@ async def fill_simple_factors(trade_dates: list[int]):
         
         # Step 1: 从daily_basic同步基础因子
         basic_cursor = db['daily_basic'].find({'trade_date': td}, {
-            'ts_code': 1, 'turnover_rate': 1, 'volume_ratio': 1, 'circ_mv': 1, 'total_mv': 1, '_id': 0
+            'ts_code': 1, 'turnover_rate': 1, 'volume_ratio': 1, 'circ_mv': 1, 'total_mv': 1,
+            'pe_ttm': 1, 'pb': 1, '_id': 0
         })
         basic_map = {}
         async for doc in basic_cursor:
@@ -39,9 +40,14 @@ async def fill_simple_factors(trade_dates: list[int]):
         ops = []
         for ts_code, basic in basic_map.items():
             update = {}
-            for k in ['turnover_rate', 'volume_ratio']:
+            for k in ['turnover_rate', 'volume_ratio', 'pe_ttm', 'pb']:
                 if k in basic and basic[k] is not None:
-                    update[k] = basic[k]
+                    try:
+                        v = float(basic[k])
+                        if v == v:  # 非NaN
+                            update[k] = v
+                    except (ValueError, TypeError):
+                        pass
             # circ_mv/total_mv: 亿元→万元(×10000)
             for k in ['circ_mv', 'total_mv']:
                 if k in basic and basic[k] is not None and basic[k] > 0:

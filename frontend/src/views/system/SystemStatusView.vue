@@ -286,7 +286,7 @@ onMounted(() => {
             :step="0.01"
             style="width: 150px"
           />
-          <span class="unit ml-2">{{ (riskControlConfig.enhanced_stop_loss_pct * 100).toFixed(0) }}%</span>
+          <span class="unit ml-2">{{ ((riskControlConfig.enhanced_stop_loss_pct || 0) * 100).toFixed(0) }}%</span>
         </ElFormItem>
 
         <ElFormItem label="启用动态止盈">
@@ -304,7 +304,7 @@ onMounted(() => {
             :step="0.01"
             style="width: 150px"
           />
-          <span class="unit ml-2">{{ (riskControlConfig.dynamic_take_profit_pct * 100).toFixed(0) }}%</span>
+          <span class="unit ml-2">{{ ((riskControlConfig.dynamic_take_profit_pct || 0) * 100).toFixed(0) }}%</span>
         </ElFormItem>
 
         <ElFormItem label="启用 MA60 过滤">
