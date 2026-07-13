@@ -8,7 +8,7 @@ import { useChartColors } from './useChartColors'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import UnifiedDateBar from './components/UnifiedDateBar.vue'
 import { ElButton, ElEmpty, ElDialog } from 'element-plus'
-import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent, h } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 import VChart from 'vue-echarts'
@@ -19,7 +19,8 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZ
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 const c = useChartColors().value
-const StrategyPerfBoard = defineAsyncComponent(() => import('./StrategyPerfBoard.vue'))
+const StrategyPerfBoard = defineAsyncComponent({ loader: () => import('./StrategyPerfBoard.vue'), errorComponent: { render: () => h('div', { style: 'padding:20px;text-align:center;color:#f56c6c' }, '加载失败') }, loadingComponent: { render: () => h('div', { style: 'padding:20px;text-align:center;color:#999' }, '加载中...') }, timeout: 15000 })
+
 
 const m = useScannerMonitorInject()
 const { activeTab } = m

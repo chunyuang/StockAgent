@@ -1,0 +1,26 @@
+[
+ {
+  "_id": "6a4f5fa1154846788bb9ad39",
+  "trade_date": 20260709,
+  "timestamp": "2026-07-09T16:45:21.650024",
+  "total_assets": 959320.0,
+  "available_cash": 624845.0,
+  "market_value": 334475.0,
+  "total_profit": -40680.0,
+  "source": "post_market_snapshot",
+  "realized_pnl": -39954.16
+ },
+ {
+  "_id": "6a50b12131b2735ff70d8aa0",
+  "trade_date": 20260710,
+  "timestamp": "2026-07-10T16:45:21.790139",
+  "total_assets": 948925.7584000002,
+  "available_cash": 550920.7584000002,
+  "market_value": 398005.0,
+  "total_profit": -51074.241599999834,
+  "source": "post_market_snapshot",
+  "cash": 550920.7584000002,
+  "equity": 948925.7584000002,
+  "realized_pnl": -51074.241599999834
+ }
+]

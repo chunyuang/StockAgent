@@ -637,6 +637,10 @@ class EmotionCycleManager:
         """分批执行情绪调仓卖出【v2.9.61:从handle_emotion_phase_change提取】"""
         import asyncio
         from datetime import datetime
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_continuous_auction():
+            logger.warning(f"[EMOTION] 非连续竞价时段，跳过情绪调仓卖出")
+            return 0
         trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
         batch_size = 2
         for i in range(0, len(to_sell), batch_size):

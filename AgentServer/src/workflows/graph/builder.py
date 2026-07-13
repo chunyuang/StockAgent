@@ -35,7 +35,7 @@ class GraphBuilder:
         graph = builder.compile()
         
         # 运行
-        result = await graph.ainvoke({"trade_date": "20260305"})
+        result = await graph.ainvoke({"trade_date": 20260305})
     """
     
     def __init__(self, state_class: Type):

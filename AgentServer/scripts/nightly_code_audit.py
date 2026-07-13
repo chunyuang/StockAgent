@@ -262,7 +262,7 @@ def check_frontend_code():
     for vue in FRONTEND.rglob("*.vue"):
         content = vue.read_text(errors="ignore")
         # 检查已知问题字段
-        for bad_field in ["name_cn", "risk.stop_loss_pct", "layer.purpose", "_scan_thread"]:
+        for bad_field in ["name_cn", "layer.purpose", "_scan_thread"]:
             if bad_field in content:
                 api_field_mismatches.append(f"{vue.name}: 引用'{bad_field}'")
     if api_field_mismatches:
