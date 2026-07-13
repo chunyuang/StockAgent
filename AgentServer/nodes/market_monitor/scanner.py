@@ -430,8 +430,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         await self.premarket_prepare(trade_date)
         
         # 【v2.9.51】记录日内起始资产(供RiskWatchdog日内回撤检查)
-        account = self._broker.get_account()
-        self._daily_start_asset = account.total_assets
+        account = self._broker.get_account() if self._broker else None
+        self._daily_start_asset = account.total_assets if account else 0
         
         # 【Phase3.4+v2.9.4】审计日志TTL索引+恢复pending_sells
         await self._restore_start_state()
