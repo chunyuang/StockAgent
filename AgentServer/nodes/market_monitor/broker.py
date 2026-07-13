@@ -1165,10 +1165,48 @@ class SimulatedBroker:
             )
 
     def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> None:
-        """执行卖出"""
+        """执行卖出
+        
+        【v2.9.121修复】position不存在时的兜底路径增加持仓存在性校验:
+        - 先查MongoDB broker_positions,如果该position已被清仓(total_qty=0或不存在),
+          说明是强制空仓/紧急平仓等已执行卖出, 本笔是重复卖出, 应拒绝。
+        - 根因: 强制空仓(09:30:11)和风控止损/止盈(09:30:12+)对同一股票并发执行,
+          第一笔清仓删除了内存position, 第二笔走兜底路径仍收回资金→虚增cash。
+        - 修复: 兜底路径先确认position仍有持仓才收回资金, 否则将order标记为REJECTED。
+        """
         pos = self.positions.get(order.ts_code)
         if not pos:
-            # 【v2.9.109修复】position不在内存时,从MongoDB同步查avg_cost
+            # 【v2.9.121】先检查position是否已被清仓(防止双重卖出虚增资金)
+            position_already_cleared = False
+            try:
+                if self._ensure_sync_mongo():
+                    pos_doc = self._sync_mongo_db["broker_positions"].find_one(
+                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                    )
+                    if not pos_doc or pos_doc.get("total_qty", 0) <= 0:
+                        position_already_cleared = True
+                        logger.warning(
+                            f"[BROKER] ⚠️ 卖出{order.ts_code}时position已清仓(可能被强制空仓/紧急平仓先执行),"
+                            f"拒绝重复卖出防止虚增资金"
+                        )
+            except Exception as e:
+                logger.error(f"[BROKER] ❌ 检查position存在性失败: {e}")
+                # 查询失败时保守处理: 不拒绝(避免阻断正常卖出)
+
+            if position_already_cleared:
+                # 将order标记为rejected(不是filled), 不收回资金
+                order.status = OrderStatus.REJECTED
+                order.reason = f"持仓已清仓(重复卖出防护)"
+                # 不收回资金, 不追加到orders(通过_reject_order处理)
+                reject_key = f"{order.ts_code}:sell"
+                if reject_key not in self._today_rejected:
+                    self._today_rejected.add(reject_key)
+                    self.orders.append(order)
+                logger.info(f"[BROKER] 重复卖出已拦截: {order.ts_code} qty={order.quantity}@{fill_price:.2f}")
+                return
+
+            # position不在内存但MongoDB中仍有持仓(重启后丢失场景)
+            # 【v2.9.109修复】从MongoDB同步查avg_cost
             logger.warning(f"[BROKER] ⚠️ 卖出{order.ts_code}时position不在内存, 从MongoDB兜底")
             avg_cost = 0
             try:
