@@ -164,7 +164,8 @@ export function useScanTraceMonitor() {
     scanHourCollapse.value = {}
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}&mode=${dataMode}&include_debug=true`, { timeout: 15000 })
+      const debugParam = scanTraceDebugMode.value ? '&include_debug=true' : ''
+      const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}&mode=${dataMode}${debugParam}`, { timeout: 15000 })
       const p = parseResponse(r)
       if (p.success && p.data?.length) {
         scanHistory.value = p.data
@@ -183,7 +184,7 @@ export function useScanTraceMonitor() {
     scanTraceFilter.value = 'passed'
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}&include_debug=true`, { timeout: 10000 })
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50&mode=${dataMode}${scanTraceDebugMode.value ? '&include_debug=true' : ''}`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success) scanTraceDetail.value = p.data
     } catch (e) { console.error('[useScanTraceMonitor]', e) }
@@ -200,7 +201,7 @@ export function useScanTraceMonitor() {
     scanTraceDetail.value = { ...scanTraceDetail.value, candidates: [], rejected_layer_stats: undefined }
     try {
       const dataMode = scanTraceDebugMode.value ? 'debug' : 'production'
-      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}&include_debug=true`, { timeout: 10000 })
+      const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50&mode=${dataMode}${scanTraceDebugMode.value ? '&include_debug=true' : ''}`, { timeout: 10000 })
       const p = parseResponse(r)
       if (p.success && p.data) {
         scanTraceDetail.value = { ...scanTraceDetail.value, candidates: p.data.candidates || [], _pagination: p.data._pagination, rejected_layer_stats: p.data.rejected_layer_stats }
