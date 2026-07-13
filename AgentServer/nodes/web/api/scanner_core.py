@@ -1890,3 +1890,82 @@ async def refresh_close_prices_standalone():
         return {"success": True, "data": {"updated": updated, "date": today_int}}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+@router.post("/reload-positions")
+async def reload_positions_standalone():
+    """重新从MongoDB加载持仓到scanner内存(盘中修复持仓丢失)
+    
+    场景: scanner进程未重启但内存中持仓不完整(如幻影卖出删除了position)
+    逻辑: 从MongoDB broker_positions读取所有total_qty>0的记录, 补充到broker内存
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        scanner = await _get_scanner()
+        if not scanner or not scanner._broker:
+            return {"success": False, "message": "scanner未运行"}
+        
+        broker = scanner._broker
+        before = set(broker.positions.keys())
+        
+        # 从MongoDB加载所有持仓
+        from nodes.market_monitor.broker import Position
+        added = 0
+        updated = 0
+        async for doc in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}):
+            tc = doc.get("ts_code", "")
+            if not tc:
+                continue
+            if tc in broker.positions:
+                # 已在内存中, 更新current_price
+                broker.positions[tc].current_price = float(doc.get("current_price", 0) or 0)
+                broker.positions[tc].total_qty = int(doc.get("total_qty", 0) or 0)
+                broker.positions[tc].available_qty = int(doc.get("available_qty", 0) or 0)
+                updated += 1
+            else:
+                # 缺失的, 重新创建
+                broker.positions[tc] = Position(
+                    ts_code=tc,
+                    stock_name=doc.get("stock_name", ""),
+                    total_qty=int(doc.get("total_qty", 0) or 0),
+                    available_qty=int(doc.get("available_qty", 0) or 0),
+                    avg_cost=float(doc.get("avg_cost", 0) or 0),
+                    current_price=float(doc.get("current_price", 0) or 0),
+                    profit_pct=float(doc.get("profit_pct", 0) or 0),
+                    today_buy_qty=int(doc.get("today_buy_qty", 0) or 0),
+                    strategy=doc.get("strategy", "halfway_chase"),
+                    buy_date=doc.get("buy_date", ""),
+                )
+                added += 1
+        
+        # 删除MongoDB中不存在的position(已清仓但内存残留)
+        removed = 0
+        mongo_codes = set()
+        async for doc in db["broker_positions"].find({"account_id": "default", "total_qty": {"$gt": 0}}, {"ts_code": 1}):
+            mongo_codes.add(doc.get("ts_code", ""))
+        for tc in list(broker.positions.keys()):
+            if tc not in mongo_codes and broker.positions[tc].total_qty <= 0:
+                del broker.positions[tc]
+                removed += 1
+        
+        # 重算账户
+        broker._recalc_account()
+        after = set(broker.positions.keys())
+        
+        return {
+            "success": True, 
+            "data": {
+                "before": list(sorted(before)), 
+                "after": list(sorted(after)), 
+                "added": added, 
+                "updated": updated, 
+                "removed": removed,
+                "total": len(after),
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
