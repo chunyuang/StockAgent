@@ -134,6 +134,10 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                         tc = sell.get("ts_code", "")
                         if not tc:
                             continue
+                        # 【v2.9.120】跳过 filled_amount=0 的空订单(强制空仓但持仓已被其他原因卖出)
+                        sell_qty_check = int(sell.get("filled_qty") or sell.get("quantity") or 0)
+                        if sell_qty_check <= 0:
+                            continue
                         # 2. 找对应的买入记录 (按 ts_code, trade_date <= today, side=buy, 最近一次)
                         buy = await query_trade_one(
                             mongo_manager.db, account_id=account_id,
