@@ -363,13 +363,15 @@ class TestEmotionRebalanceDelegation:
         pos1 = MockPosition(ts_code='600036.SH', avg_cost=10.0, current_price=10.1, profit_pct=1.0, available_qty=100)
         scanner._broker.get_positions.return_value = [pos1]
 
-        # 模拟冰点降级(rising→bearish: 低利润清仓)
-        # 【v2.9.24: _handle_emotion_phase_change已提取到EmotionCycleManager】
-        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
-        await EmotionCycleManager.handle_emotion_phase_change(scanner, 'rising', 'bearish')
+        # Mock is_continuous_auction to return True (非交易时间会跳过卖出)
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
+            # 模拟冰点降级(rising→bearish: 低利润清仓)
+            # 【v2.9.24: _handle_emotion_phase_change已提取到EmotionCycleManager】
+            from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+            await EmotionCycleManager.handle_emotion_phase_change(scanner, 'rising', 'bearish')
 
-        # 验证委托到PositionChecker
-        checker._execute_sell_list.assert_called()
+            # 验证委托到PositionChecker
+            checker._execute_sell_list.assert_called()
 
 
 class TestRiskSellStateLock:

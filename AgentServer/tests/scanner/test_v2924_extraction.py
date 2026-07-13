@@ -109,9 +109,11 @@ class TestEmotionPhaseChangeDelegation:
         scanner._broker.get_positions.return_value = [mock_pos]
         # 返回卖出列表
         scanner._build_emotion_sell_list = MagicMock(return_value=[(mock_pos, "降级", 10.1, {})])
-        await scanner._handle_emotion_phase_change('rising', 'bearish')
-        scanner._build_emotion_sell_list.assert_called_once()
-        scanner._position_checker.execute_sell_list.assert_called_once()
+        # Mock is_continuous_auction to return True (非交易时间会跳过卖出)
+        with patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True):
+            await scanner._handle_emotion_phase_change('rising', 'bearish')
+            scanner._build_emotion_sell_list.assert_called_once()
+            scanner._position_checker.execute_sell_list.assert_called_once()
 
     def test_emotion_in_delegate_map(self):
         """_handle_emotion_phase_change在DELEGATE_MAP中正确注册"""

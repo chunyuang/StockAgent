@@ -67,37 +67,12 @@
         "str"
       ],
       "event_bus_stats": {
-        "scan_completed": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
-        "signal_generated": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
-        "position_changed": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
-        "risk_sell_executed": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
         "quote_warning": {
           "emitted": "int",
           "handled": "int",
           "errors": "int"
         },
         "daily_settled": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        },
-        "scanner_error": {
           "emitted": "int",
           "handled": "int",
           "errors": "int"

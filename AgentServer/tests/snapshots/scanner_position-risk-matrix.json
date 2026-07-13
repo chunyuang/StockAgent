@@ -38,18 +38,17 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "化学制药": "float",
-      "建筑工程": "float",
-      "家用电器": "float",
-      "电气设备": "float",
-      "小金属": "float",
-      "IT设备": "float",
-      "生物制药": "float",
-      "电器仪表": "float",
       "半导体": "float",
-      "通信设备": "float"
+      "通信设备": "float",
+      "元器件": "float",
+      "医疗保健": "float",
+      "生物制药": "float",
+      "化工原料": "float",
+      "汽车配件": "float",
+      "电气设备": "float"
     },
     "position_count": "int",
+    "stop_loss_exec_rate": "float",
     "risk_score": "float",
     "risk_level": "str",
     "risk_summary": {

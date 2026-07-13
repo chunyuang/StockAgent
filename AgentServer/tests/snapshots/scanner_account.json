@@ -6,5 +6,7 @@
   "today_profit": "float",
   "total_profit": "float",
   "position_count": "int",
-  "position_ratio": "float"
+  "position_ratio": "float",
+  "realized_pnl": "float",
+  "unrealized_pnl": "float"
 }
