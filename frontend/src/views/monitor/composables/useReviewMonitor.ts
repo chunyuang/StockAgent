@@ -159,7 +159,7 @@ export function useReviewMonitor() {
       const p = parseResponse(r)
       if (p.success) ElMessage.success('回测已启动')
       else ElMessage.error(String(p.data?.message || '启动失败'))
-    } catch (e: any) { ElMessage.error('回测启动失败') }
+    } catch (e: any) { console.error('[useReviewMonitor] runBacktest failed:', e); ElMessage.error('回测启动失败') }
     finally { backtestRunning.value = false }
   }
 
@@ -168,7 +168,7 @@ export function useReviewMonitor() {
       const r = await api.post(`${scannerApi}/backtest-same-period`, {})
       const p = parseResponse(r)
       if (p.success) ElMessage.success('同区间回测已启动')
-    } catch (e: any) { ElMessage.error('回测启动失败') }
+    } catch (e: any) { console.error('[useReviewMonitor] runSamePeriodBacktest failed:', e); ElMessage.error('回测启动失败') }
   }
 
   async function saveParamSnapshot() {

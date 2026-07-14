@@ -88,7 +88,8 @@ export function useUnifiedDateBar() {
         dateAvailability.value = p.data
       }
     } catch (e) {
-      // 非关键, 忽略
+      // 非关键, 但记录warning便于排查
+      console.warn('[useUnifiedDateBar] load availability failed:', e)
     } finally {
       availabilityLoading.value = false
     }

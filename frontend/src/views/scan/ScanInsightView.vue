@@ -212,7 +212,9 @@ function riskLabel(name: string) {
 }
 function fmtRiskVal(name: string, val: string) {
   if (name === 'max_hold_days') return val + '天'
-  return (parseFloat(val) * 100).toFixed(1) + '%'
+  const n = parseFloat(val)
+  if (isNaN(n)) return '-'
+  return (n * 100).toFixed(1) + '%'
 }
 
 function phaseLabel(phase?: string) {
