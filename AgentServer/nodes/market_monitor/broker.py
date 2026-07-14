@@ -15,6 +15,7 @@ SimulatedBroker — 仿真撮合引擎
 """
 import asyncio
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
@@ -140,6 +141,8 @@ class SimulatedBroker:
         self._sync_mongo_client = None  # 【v2.9.97f】同步MongoDB客户端(用于关键写入,不依赖事件循环)
         self._sync_mongo_db = None      # 同步MongoDB数据库句柄
         self._today_rejected: set = set()  # 【v2.9.95f】当日已拒绝的ts_code去重缓存，避免同一股同日重复下单
+        self._today_sold: set = set()  # 【v2.9.122】当日已成交卖出的ts_code去重，防止多路径并发重复卖出
+        self._sell_lock = threading.Lock()  # 【v2.9.122】卖出串行化锁，防止并发重复卖出
         self._need_reconciliation: bool = False  # 【v2.9.108】load_state后一致性标记，行情首次更新后强制recalc
 
     # ==================== 持久化 ====================
@@ -1002,6 +1005,9 @@ class SimulatedBroker:
             order.avg_cost = (fill_price * quantity + total_cost) / quantity
         else:
             self._execute_sell(order, fill_price, total_cost)
+            # 【v2.9.122】检查_execute_sell是否将order标记为REJECTED(重复卖出防护)
+            if order.status == OrderStatus.REJECTED:
+                return False, order.reason, order
 
         self.orders.append(order)
         self._recalc_account()
@@ -1167,123 +1173,139 @@ class SimulatedBroker:
     def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> None:
         """执行卖出
         
-        【v2.9.121修复】position不存在时的兜底路径增加持仓存在性校验:
-        - 先查MongoDB broker_positions,如果该position已被清仓(total_qty=0或不存在),
-          说明是强制空仓/紧急平仓等已执行卖出, 本笔是重复卖出, 应拒绝。
-        - 根因: 强制空仓(09:30:11)和风控止损/止盈(09:30:12+)对同一股票并发执行,
-          第一笔清仓删除了内存position, 第二笔走兜底路径仍收回资金→虚增cash。
-        - 修复: 兜底路径先确认position仍有持仓才收回资金, 否则将order标记为REJECTED。
+        【v2.9.122修复】多路径并发重复卖出根因:
+        - 风控线程(risk_thread)、position_checker、强制空仓三个路径并发执行
+        - v2.9.121只保护了pos不存在时的兜底路径，但pos存在时三路径都走正常路径
+        - 修复: 正常路径也加锁+_today_sold去重，同一ts_code当日只允许一次成交卖出
         """
-        pos = self.positions.get(order.ts_code)
-        if not pos:
-            # 【v2.9.121】先检查position是否已被清仓(防止双重卖出虚增资金)
-            position_already_cleared = False
-            try:
-                if self._ensure_sync_mongo():
-                    pos_doc = self._sync_mongo_db["broker_positions"].find_one(
-                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
-                    )
-                    if not pos_doc or pos_doc.get("total_qty", 0) <= 0:
-                        position_already_cleared = True
-                        logger.warning(
-                            f"[BROKER] ⚠️ 卖出{order.ts_code}时position已清仓(可能被强制空仓/紧急平仓先执行),"
-                            f"拒绝重复卖出防止虚增资金"
-                        )
-            except Exception as e:
-                logger.error(f"[BROKER] ❌ 检查position存在性失败: {e}")
-                # 查询失败时保守处理: 不拒绝(避免阻断正常卖出)
-
-            if position_already_cleared:
-                # 将order标记为rejected(不是filled), 不收回资金
+        # 【v2.9.122】卖出串行化锁+当日已卖去重，防止多路径并发重复卖出
+        with self._sell_lock:
+            if order.ts_code in self._today_sold:
                 order.status = OrderStatus.REJECTED
-                order.reason = f"持仓已清仓(重复卖出防护)"
-                # 不收回资金, 不追加到orders(通过_reject_order处理)
+                order.reason = f"当日已卖出(重复卖出防护v2.9.122)"
                 reject_key = f"{order.ts_code}:sell"
                 if reject_key not in self._today_rejected:
                     self._today_rejected.add(reject_key)
                     self.orders.append(order)
-                logger.info(f"[BROKER] 重复卖出已拦截: {order.ts_code} qty={order.quantity}@{fill_price:.2f}")
+                logger.warning(
+                    f"[BROKER] 🚫 重复卖出拦截(正常路径): {order.ts_code} "
+                    f"qty={order.quantity}@{fill_price:.2f}, 当日已成交卖出"
+                )
+                return
+            
+            pos = self.positions.get(order.ts_code)
+            if not pos:
+                # 【v2.9.121】先检查position是否已被清仓(防止双重卖出虚增资金)
+                position_already_cleared = False
+                try:
+                    if self._ensure_sync_mongo():
+                        pos_doc = self._sync_mongo_db["broker_positions"].find_one(
+                            {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                        )
+                        if not pos_doc or pos_doc.get("total_qty", 0) <= 0:
+                            position_already_cleared = True
+                            logger.warning(
+                                f"[BROKER] ⚠️ 卖出{order.ts_code}时position已清仓(可能被强制空仓/紧急平仓先执行),"
+                                f"拒绝重复卖出防止虚增资金"
+                            )
+                except Exception as e:
+                    logger.error(f"[BROKER] ❌ 检查position存在性失败: {e}")
+                    # 查询失败时保守处理: 不拒绝(避免阻断正常卖出)
+
+                if position_already_cleared:
+                    # 将order标记为rejected(不是filled), 不收回资金
+                    order.status = OrderStatus.REJECTED
+                    order.reason = f"持仓已清仓(重复卖出防护)"
+                    reject_key = f"{order.ts_code}:sell"
+                    if reject_key not in self._today_rejected:
+                        self._today_rejected.add(reject_key)
+                        self.orders.append(order)
+                    logger.info(f"[BROKER] 重复卖出已拦截: {order.ts_code} qty={order.quantity}@{fill_price:.2f}")
+                    return
+
+                # position不在内存但MongoDB中仍有持仓(重启后丢失场景)
+                # 【v2.9.109修复】从MongoDB同步查avg_cost
+                logger.warning(f"[BROKER] ⚠️ 卖出{order.ts_code}时position不在内存, 从MongoDB兜底")
+                avg_cost = 0
+                try:
+                    if self._ensure_sync_mongo():
+                        pos_doc = self._sync_mongo_db["broker_positions"].find_one(
+                            {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                        )
+                        if pos_doc:
+                            avg_cost = pos_doc.get("avg_cost", 0)
+                        else:
+                            # 最后兜底: 从broker_orders查最近一笔买入
+                            buy_doc = self._sync_mongo_db["broker_orders"].find_one(
+                                {"account_id": self.account.account_id, "ts_code": order.ts_code,
+                                 "side": "buy", "status": "filled"},
+                                sort=[("trade_date", -1)]
+                            )
+                            if buy_doc:
+                                avg_cost = buy_doc.get("filled_price", 0)
+                                logger.warning(f"[BROKER] ⚠️ 从orders兜底 avg_cost={avg_cost} for {order.ts_code}")
+                except Exception as e:
+                    logger.error(f"[BROKER] ❌ 兜底查avg_cost失败: {e}")
+                
+                if avg_cost <= 0:
+                    logger.error(f"[BROKER] ❌ 无法找到{order.ts_code}的avg_cost, profit将=0")
+                else:
+                    # 用兜底avg_cost计算盈亏
+                    profit = (fill_price - avg_cost) * order.quantity - total_cost
+                    profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost * order.quantity > 0 else 0
+                    order.profit_pct = round(profit_pct, 2)
+                    order.profit_amount = round(profit, 2)
+                    order.avg_cost = avg_cost
+                    self.account.today_profit += profit
+                    logger.info(f"[BROKER] 盈亏计算(兜底): {order.ts_code} fill_price={fill_price} avg_cost={avg_cost} qty={order.quantity} profit={profit:+.0f} pct={profit_pct:+.2f}%")
+
+                # 收回资金(无论avg_cost是否找到)
+                amount = fill_price * order.quantity - total_cost
+                self.account.available_cash += amount
+                
+                # 从MongoDB删除已清仓的position
+                try:
+                    if self._ensure_sync_mongo():
+                        self._sync_mongo_db["broker_positions"].delete_one(
+                            {"account_id": self.account.account_id, "ts_code": order.ts_code}
+                        )
+                        logger.info(f"[BROKER] 已从MongoDB删除清仓position: {order.ts_code}")
+                except Exception as e:
+                    logger.error(f"[BROKER] ❌ 删除position失败: {e}")
+                
+                # 必须return! 否则pos=None会在下方pos.avg_cost崩溃, 且盈亏/资金会双重计算
+                # 【v2.9.122】标记当日已卖出(兜底路径同样需标记)
+                self._today_sold.add(order.ts_code)
                 return
 
-            # position不在内存但MongoDB中仍有持仓(重启后丢失场景)
-            # 【v2.9.109修复】从MongoDB同步查avg_cost
-            logger.warning(f"[BROKER] ⚠️ 卖出{order.ts_code}时position不在内存, 从MongoDB兜底")
-            avg_cost = 0
-            try:
-                if self._ensure_sync_mongo():
-                    pos_doc = self._sync_mongo_db["broker_positions"].find_one(
-                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
-                    )
-                    if pos_doc:
-                        avg_cost = pos_doc.get("avg_cost", 0)
-                    else:
-                        # 最后兜底: 从broker_orders查最近一笔买入
-                        buy_doc = self._sync_mongo_db["broker_orders"].find_one(
-                            {"account_id": self.account.account_id, "ts_code": order.ts_code,
-                             "side": "buy", "status": "filled"},
-                            sort=[("trade_date", -1)]
-                        )
-                        if buy_doc:
-                            avg_cost = buy_doc.get("filled_price", 0)
-                            logger.warning(f"[BROKER] ⚠️ 从orders兜底 avg_cost={avg_cost} for {order.ts_code}")
-            except Exception as e:
-                logger.error(f"[BROKER] ❌ 兜底查avg_cost失败: {e}")
-            
-            if avg_cost <= 0:
-                logger.error(f"[BROKER] ❌ 无法找到{order.ts_code}的avg_cost, profit将=0")
-            else:
-                # 用兜底avg_cost计算盈亏
-                profit = (fill_price - avg_cost) * order.quantity - total_cost
-                profit_pct = (profit / (avg_cost * order.quantity) * 100) if avg_cost * order.quantity > 0 else 0
-                order.profit_pct = round(profit_pct, 2)
-                order.profit_amount = round(profit, 2)
-                order.avg_cost = avg_cost
-                # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
-                self.account.today_profit += profit
-                logger.info(f"[BROKER] 盈亏计算(兜底): {order.ts_code} fill_price={fill_price} avg_cost={avg_cost} qty={order.quantity} profit={profit:+.0f} pct={profit_pct:+.2f}%")
+            # 计算本笔盈亏
+            profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
+            # 【v2.9.91修复】profit_pct含佣金,与profit_amount对齐
+            profit_pct = (profit / (pos.avg_cost * order.quantity) * 100) if pos.avg_cost > 0 and order.quantity > 0 else 0
+            profit_amount = profit
+            # [v2.9.41] write pnl to order for broker_orders
+            order.profit_pct = round(profit_pct, 2)
+            order.profit_amount = round(profit_amount, 2)
+            # 【v2.9.98f】记录avg_cost到order, 供MongoDB和analysis查询使用
+            order.avg_cost = pos.avg_cost
+            logger.info(f"[BROKER] 盈亏计算: {order.ts_code} fill_price={fill_price} avg_cost={pos.avg_cost} qty={order.quantity} profit={profit_amount:+.0f} pct={profit_pct:+.2f}%")
+            # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
+            self.account.today_profit += profit  # 【v2.9.88修复】今日盈亏需同步累加
 
-            # 收回资金(无论avg_cost是否找到)
+            # 收回资金
             amount = fill_price * order.quantity - total_cost
             self.account.available_cash += amount
-            
-            # 从MongoDB删除已清仓的position
-            try:
-                if self._ensure_sync_mongo():
-                    self._sync_mongo_db["broker_positions"].delete_one(
-                        {"account_id": self.account.account_id, "ts_code": order.ts_code}
-                    )
-                    logger.info(f"[BROKER] 已从MongoDB删除清仓position: {order.ts_code}")
-            except Exception as e:
-                logger.error(f"[BROKER] ❌ 删除position失败: {e}")
-            
-            # 必须return! 否则pos=None会在下方pos.avg_cost崩溃, 且盈亏/资金会双重计算
-            return
 
-        # 计算本笔盈亏
-        profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
-        # 【v2.9.91修复】profit_pct含佣金,与profit_amount对齐
-        profit_pct = (profit / (pos.avg_cost * order.quantity) * 100) if pos.avg_cost > 0 and order.quantity > 0 else 0
-        profit_amount = profit
-        # [v2.9.41] write pnl to order for broker_orders
-        order.profit_pct = round(profit_pct, 2)
-        order.profit_amount = round(profit_amount, 2)
-        # 【v2.9.98f】记录avg_cost到order, 供MongoDB和analysis查询使用
-        order.avg_cost = pos.avg_cost
-        logger.info(f"[BROKER] 盈亏计算: {order.ts_code} fill_price={fill_price} avg_cost={pos.avg_cost} qty={order.quantity} profit={profit_amount:+.0f} pct={profit_pct:+.2f}%")
-        # today_profit累加今日已实现盈亏; total_profit在保存时从total_assets重算
-        self.account.today_profit += profit  # 【v2.9.88修复】今日盈亏需同步累加
+            # 更新持仓
+            pos.available_qty -= order.quantity
+            pos.total_qty -= order.quantity
 
-        # 收回资金
-        amount = fill_price * order.quantity - total_cost
-        self.account.available_cash += amount
+            # 【v2.9.122】标记当日已卖出，防止其他路径重复卖出同一标的
+            self._today_sold.add(order.ts_code)
 
-        # 更新持仓
-        pos.available_qty -= order.quantity
-        pos.total_qty -= order.quantity
-
-        if pos.total_qty <= 0:
-            del self.positions[order.ts_code]
-        # 部分卖出: 盈亏已在上方计入total_profit
+            if pos.total_qty <= 0:
+                del self.positions[order.ts_code]
+            # 部分卖出: 盈亏已在上方计入total_profit
 
     def daily_settlement(self, trade_date: str = None) -> None:
         """
@@ -1298,6 +1320,8 @@ class SimulatedBroker:
 
         # 【v2.9.95f】重置当日拒绝缓存，允许次日重新尝试
         self._today_rejected.clear()
+        # 【v2.9.122】重置当日已卖缓存
+        self._today_sold.clear()
 
         # 重算账户
         self._recalc_account()

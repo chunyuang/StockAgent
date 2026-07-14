@@ -1,23 +1,5 @@
 {
   "matrix": {
-    "dragon_head": {
-      "未知": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      },
-      "冰点": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      }
-    },
     "halfway_chase": {
       "未知": {
         "count": "int",
@@ -56,6 +38,34 @@
     },
     "fix": {
       "未知": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      }
+    },
+    "dragon_head": {
+      "冰点": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      },
+      "未知": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      }
+    },
+    "test": {
+      "震荡": {
         "count": "int",
         "win_rate": "float",
         "total_pnl": "int",
@@ -66,19 +76,13 @@
     }
   },
   "strategy_names": {
-    "dragon_head": "str",
     "halfway_chase": "str",
     "first_limit_up": "str",
-    "fix": "str"
+    "fix": "str",
+    "dragon_head": "str",
+    "test": "str"
   },
   "strategy_totals": {
-    "dragon_head": {
-      "count": "int",
-      "wins": "int",
-      "losses": "int",
-      "win_rate": "float",
-      "total_pnl": "int"
-    },
     "halfway_chase": {
       "count": "int",
       "wins": "int",
@@ -94,6 +98,20 @@
       "total_pnl": "int"
     },
     "fix": {
+      "count": "int",
+      "wins": "int",
+      "losses": "int",
+      "win_rate": "float",
+      "total_pnl": "int"
+    },
+    "dragon_head": {
+      "count": "int",
+      "wins": "int",
+      "losses": "int",
+      "win_rate": "float",
+      "total_pnl": "int"
+    },
+    "test": {
       "count": "int",
       "wins": "int",
       "losses": "int",

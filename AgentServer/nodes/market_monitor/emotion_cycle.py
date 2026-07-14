@@ -810,6 +810,23 @@ class EmotionCycleManager:
         max_lb = max((item.get("limit_times", 1) for item in limit_pools.get("limit_up", [])), default=1) if lu > 0 else 1
 
         data_source = "scanner_realtime"
+        # 【v2.9.121修复】scanner_realtime(必盈API)跌停数据严重不全:
+        # 必盈只返回"封死跌停"的票, 遗漏"曾触及跌停但打开"的票。
+        # 大跌日差异巨大(7/13: 79 vs 172)。
+        # 解决: 即使realtime有数据也用limit_list交叉校验, 取较大值。
+        # 注: 不用count_limits(口径偏宽,会把接近跌停但未触及的也算入)
+        if lu > 0 or ld > 0:
+            from nodes.web.api.scanner_system import _trade_date_match
+            ld_limit_list = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td_int), "limit": "D"})
+            lu_limit_list = await db["limit_list"].count_documents({"trade_date": _trade_date_match(td_int), "limit": "U"})
+            # 跌停: limit_list更全(含盘中触及但收盘打开的), 取max
+            if ld_limit_list > ld:
+                ld = ld_limit_list
+                data_source = "scanner_realtime+xref"
+            # 涨停: realtime涨停数据较准, limit_list做下限校验
+            if lu_limit_list > lu:
+                lu = lu_limit_list
+                data_source = "scanner_realtime+xref"
         if lu == 0 and ld == 0:
             from nodes.web.api.scanner_system import _enrich_limit_times_from_history, _trade_date_match
             limit_ups = await db["limit_list"].find(

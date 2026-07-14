@@ -531,6 +531,7 @@ class PositionManager:
     def _check_gap_stop_with_tiered_observation(
         self, ts_code: str, avg_cost: float, today_open: float,
         stop_loss_price: float, current_price: float,
+        pre_close: float = 0,
     ) -> str:
         """【v2.9.112】分级跳空止损观察期
 
@@ -538,6 +539,10 @@ class PositionManager:
         - 微跳(<3%): 4笔中3笔收盘回到止损线上 → 观察期有效
         - 中跳(3-5%): 8笔混合 → 短观察期
         - 大跳(>5%): 6笔全部全天下跌 → 立即止损
+
+        【v2.9.123修复】gap_pct基准从avg_cost改为pre_close(昨收)
+        - 旧逻辑: gap_pct = |open - avg_cost| / avg_cost -> 已亏损股永远被判定为大跳空
+        - 新逻辑: gap_pct = |open - pre_close| / pre_close -> 真实跳空幅度
 
         Returns:
             "execute"  — 立即执行跳空止损
@@ -547,8 +552,14 @@ class PositionManager:
         from datetime import datetime as _dt
         now = _dt.now()
 
-        # 跳空幅度: 相对买入价
-        gap_pct = abs((today_open - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
+        # 跳空幅度: 相对昨收(真实跳空), fallback到avg_cost
+        if pre_close and pre_close > 0:
+            gap_pct = abs((today_open - pre_close) / pre_close * 100)
+        elif avg_cost > 0:
+            # fallback: 无pre_close时用avg_cost(不理想但比崩溃好)
+            gap_pct = abs((today_open - avg_cost) / avg_cost * 100)
+        else:
+            gap_pct = 0
 
         # 分级阈值
         TIER_LARGE = 5.0    # >5% 立即止损
@@ -636,6 +647,7 @@ class PositionManager:
                 action = self._check_gap_stop_with_tiered_observation(
                     pos.ts_code, pos.avg_cost, today_open,
                     stop_loss_price, pos.current_price,
+                    pre_close=rt.get("pre_close", 0) if rt else 0,
                 )
                 if action == "observe":
                     sell_reason = None  # 观察期内暂不止损
@@ -643,10 +655,12 @@ class PositionManager:
                     sell_reason = None  # 价格回升,取消止损
                 else:
                     # 立即执行或观察期结束: 正常跳空止损
-                    gap_pct = ((today_open - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+                    _pc = rt.get("pre_close", 0) if rt else 0
+                    _base = _pc if _pc > 0 else pos.avg_cost
+                    gap_pct = ((today_open - _base) / _base * 100) if _base > 0 else 0
                     sell_reason = (
                         f"跳空止损·开{today_open:.2f}<止损{stop_loss_price:.2f} "
-                        f"成本{pos.avg_cost:.2f} 跳空{gap_pct:+.1f}% "
+                        f"昨收{_pc:.2f} 跳空{gap_pct:+.1f}% "
                         f"浮亏{pos.profit_pct:+.1f}%"
                     )
                     sell_price = today_open
@@ -913,13 +927,16 @@ class PositionManager:
                 action = self._check_gap_stop_with_tiered_observation(
                     pos.ts_code, pos.avg_cost, today_open,
                     stop_loss_price, current_price,
+                    pre_close=rt.get("pre_close", 0) if rt else 0,
                 )
                 if action == "observe":
                     return None  # 观察期内暂不止损
                 elif action == "cancel":
                     return None  # 价格回升,取消止损
                 else:
-                    return (pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open, risk)
+                    _pc = rt.get("pre_close", 0) if rt else 0
+                    _gap_str = f"跳空{((today_open - _pc) / _pc * 100):+.1f}%" if _pc > 0 else f"浮亏{check_profit_pct:+.1f}%"
+                    return (pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f} {_gap_str})", today_open, risk)
             else:
                 return (pos, f"止损 {check_profit_pct:.1f}%", current_price, risk)
         

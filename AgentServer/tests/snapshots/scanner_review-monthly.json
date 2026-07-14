@@ -7,12 +7,12 @@
     "pnl": "float"
   },
   "strategy_stats": {
-    "dragon_head": {
+    "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
     },
-    "halfway_chase": {
+    "dragon_head": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
