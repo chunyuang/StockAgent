@@ -24,8 +24,9 @@ const props = defineProps<{
   reviewHero: any
   reviewForward: any
   dailyReportData: any
-  weeklyReportData: any
-  weeklyReviewData: any
+  // ⚠️ 命名区分: weeklyReportData=周报弹窗(/weekly-report API), weeklyReviewData=周复盘内容(/review-weekly API)
+  weeklyReportData: any    // 周报弹窗数据: account/totals/strategy_summary/daily_stats
+  weeklyReviewData: any   // 周复盘审查数据: summary/strategy_stats/daily_breakdown/weekly_trend
   monthlyReviewData: any
   deviationData: any
   closedLoopData: any

@@ -41,7 +41,7 @@ const SLOT_DEFS = [
   { key: 'postmarket',label: '🌙 盘后',     timeRange: '15:00+',     order: 4 },
   { key: 'no_time',   label: '⚠️ 无时间',   timeRange: '',            order: 5 },
 ]
-const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
+// (SLOT_ORDER removed: unused, slot ordering is implicit by SLOT_DEFS array index)
 
 function getTimeSlotKey(timeStr: string): string {
   if (!timeStr || timeStr.length < 5) return 'no_time'

@@ -49,7 +49,7 @@ const overviewChart = computed(() => {
   const dates = d.map((x: any) => x.date.slice(5))
   const values = d.map((x: any) => { cumPnl += x.profit || 0; return initial + cumPnl })
   const returns = values.map((v: number) => ((v / initial) - 1) * 100)
-  const drawdowns = d.map((x: any, i: number) => {
+  const drawdowns = d.map((_: any, i: number) => {
     const eq = values[i]; peak = Math.max(peak, eq)
     const ddVal = ((eq / peak) - 1) * 100
     if (ddVal < maxDD) { maxDD = ddVal; maxDDEnd = i; maxDDStart = ddStart }
@@ -339,8 +339,8 @@ const metricGroups = computed(() => {
           <span class="ct-code">{{ t.ts_code?.slice(0,6) }}</span>
           <span class="ct-name">{{ t.stock_name }}</span>
           <span class="ct-strat">{{ t.strategy?.slice(0,4) }}</span>
-          <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price != null ? t.buy_price.toFixed(2) : '-' }}</span>
-          <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price != null ? t.sell_price.toFixed(2) : '-' }}</span>
+          <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price != null ? Number(t.buy_price || 0).toFixed(2) : '-' }}</span>
+          <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price != null ? Number(t.sell_price || 0).toFixed(2) : '-' }}</span>
           <span class="ct-qty">{{ t.qty }}</span>
           <span class="ct-hold">{{ t.hold_days!=null?t.hold_days+'天':'-' }}</span>
           <span :class="['ct-pnl', cls(t.profit_amount||0)]">{{ fmtPnl(t.profit_amount||0) }}</span>

@@ -41,7 +41,7 @@ export function useScanTraceMonitor() {
     { key: 'postmarket',label: '盘后',     icon: '🌙', timeRange: '15:00+',     isTrading: false, isDebug: true,  order: 4 },
     { key: 'no_time',   label: '无时间',   icon: '⚠️', timeRange: '缺失scan_time', isTrading: false, isDebug: false, order: 5 },
   ]
-  const SLOT_ORDER: Record<string, number> = Object.fromEntries(SLOT_DEFS.map(s => [s.key, s.order]))
+  // (SLOT_ORDER removed: unused, slot ordering is implicit by SLOT_DEFS array index)
 
   function getTimeSlotKey(scanTime: string): string {
     if (!scanTime || scanTime.length <= 11) return 'no_time'
