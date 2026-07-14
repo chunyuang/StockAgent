@@ -747,68 +747,7 @@ onMounted(async () => {
 .sc-phase-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .ss-mini { font-size: 10px; font-weight: 500; }
 .ss-risk-tag { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 3px; background: rgba(245,108,108,0.12); }
-/* 盘前竞价汇总面板 */
-.pm-summary-panel { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; background: rgba(64,158,255,0.04); border: 1px solid rgba(64,158,255,0.12); display: flex; flex-direction: column; gap: 6px; }
-.pm-funnel { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; }
-.pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
-.pm-funnel-step { padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.04); font-size: 11px; }
-.pm-funnel-step b { font-weight: 700; }
-.pm-funnel-step b.has-buy { color: #67c23a; }
-.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
-.pm-funnel-empty { font-size: 11px; color: var(--el-color-info); margin-left: 4px; }
-.pm-pos-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
-.pm-pos-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
-.pm-pos-stat { padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.04); font-size: 11px; }
-.pm-pos-stat.red { background: rgba(245,108,108,0.1); color: #f56c6c; }
-.pm-pos-stat.weak { background: rgba(230,162,60,0.1); color: #e6a23c; }
-.pm-risk-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
-.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
-.pm-weak-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
-.pm-weak-item { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(245,108,108,0.08); border: 1px solid rgba(245,108,108,0.2); display: inline-flex; align-items: center; gap: 3px; }
-.pm-weak-pct { font-weight: 700; }
-.pm-weak-auct { font-size: 10px; color: var(--text-tertiary); }
-.pm-pos-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(0,0,0,0.06); }
-.pm-pos-item { font-size: 11px; padding: 2px 5px; border-radius: 3px; background: rgba(0,0,0,0.03); display: inline-flex; align-items: center; gap: 3px; }
-.pm-pos-item.weak { background: rgba(245,108,108,0.08); }
-.pm-pos-item.red { background: rgba(245,108,108,0.12); }
-.pm-pos-name { font-weight: 600; }
-.pm-pos-pct { font-weight: 700; font-size: 10px; }
-.pm-pos-auct { font-size: 9px; color: var(--text-tertiary); }
-.up { color: #f56c6c; }
-.down { color: #67c23a; }
-/* 盘前竞价汇总面板 */
-.pm-summary-panel { margin: 6px 0 4px 8px; padding: 6px 8px; border-radius: 7px; background: rgba(64,158,255,0.04); border: 1px solid rgba(64,158,255,0.12); display: flex; flex-direction: column; gap: 4px; }
-.pm-funnel { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; }
-.pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
-.pm-funnel-step { color: var(--text-secondary); }
-.pm-funnel-step b { color: var(--text-primary); font-weight: 700; }
-.pm-funnel-step b.has-buy { color: #67c23a; }
-.pm-funnel-arrow { color: var(--text-tertiary); font-size: 10px; }
-.pm-funnel-empty { color: #909399; font-size: 10px; margin-left: 4px; }
-.pm-pos-risk { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
-.pm-pos-title { font-weight: 700; color: var(--text-primary); margin-right: 2px; }
-.pm-pos-stat { color: var(--text-secondary); }
-.pm-pos-stat b { font-weight: 700; }
-.pm-pos-stat.red b { color: #f56c6c; }
-.pm-pos-stat.weak b { color: #e6a23c; }
-.pm-risk-tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
-.pm-risk-tag.red { background: rgba(245,108,108,0.15); color: #f56c6c; }
-.pm-risk-tag.orange { background: rgba(230,162,60,0.15); color: #e6a23c; }
-.pm-weak-list { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
-.pm-weak-item { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(230,162,60,0.1); color: #e6a23c; display: inline-flex; gap: 3px; align-items: center; }
-.pm-weak-pct { font-weight: 700; }
-.pm-weak-auct { font-size: 9px; opacity: 0.8; }
-.pm-pos-list { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
-.pm-pos-item { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(64,158,255,0.06); display: inline-flex; gap: 3px; align-items: center; }
-.pm-pos-item.weak { background: rgba(230,162,60,0.1); }
-.pm-pos-item.red { background: rgba(245,108,108,0.1); }
-.pm-pos-name { color: var(--text-primary); font-weight: 600; }
-.pm-pos-pct { font-weight: 700; }
-.pm-pos-auct { font-size: 9px; opacity: 0.7; }
-/* 盘前竞价汇总面板 */
-.pm-summary-panel { margin: 6px 0 10px 14px; display: flex; flex-direction: column; gap: 6px; }
-.pm-funnel { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-radius: 7px; background: rgba(64,158,255,0.05); border: 1px solid rgba(64,158,255,0.12); font-size: 11px; }
+/* 盘前竞价汇总面板 (最终版) */
 .pm-funnel-title { font-weight: 700; color: var(--text-primary); margin-right: 4px; }
 .pm-funnel-step { color: var(--text-secondary); }
 .pm-funnel-step b { color: var(--text-primary); font-weight: 700; }
