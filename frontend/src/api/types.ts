@@ -204,11 +204,11 @@ export interface StockBasic {
   ts_code: string
   symbol: string
   name: string
-  area: string
-  industry: string
-  market: string
+  area: string | null
+  industry: string | null
+  market: string | null
   list_date: string
-  list_status: 'L' | 'D' | 'P'
+  list_status?: 'L' | 'D' | 'P'
 }
 
 export interface StockDaily {

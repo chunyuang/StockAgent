@@ -3,12 +3,36 @@
 """
 
 from typing import Optional, List
+import math
 
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from core.constants import C
 from core.managers import mongo_manager
+
+
+def _safe_str(val, default=None):
+    """Convert NaN/None to safe string for Pydantic models"""
+    if val is None:
+        return default
+    if isinstance(val, float) and math.isnan(val):
+        return default
+    return str(val)
+
+
+def _build_stock_basic(s: dict) -> "StockBasic":
+    """Build StockBasic from MongoDB doc, handling NaN values"""
+    return StockBasic(
+        ts_code=s["ts_code"],
+        symbol=s.get("symbol", ""),
+        name=s.get("name", ""),
+        area=_safe_str(s.get("area")),
+        industry=_safe_str(s.get("industry")),
+        market=_safe_str(s.get("market")),
+        list_date=_safe_str(s.get("list_date"), ""),
+        list_status=s.get("list_status", "L"),
+    )
 
 
 router = APIRouter()
@@ -26,6 +50,7 @@ class StockBasic(BaseModel):
     industry: Optional[str]
     market: Optional[str]
     list_date: Optional[str]
+    list_status: Optional[str] = "L"
 
 
 class StockDaily(BaseModel):
@@ -86,18 +111,7 @@ async def search_stocks(
         limit=limit,
     )
     
-    return [
-        StockBasic(
-            ts_code=s["ts_code"],
-            symbol=s.get("symbol", ""),
-            name=s.get("name", ""),
-            area=s.get("area"),
-            industry=s.get("industry"),
-            market=s.get("market"),
-            list_date=str(s.get("list_date", "")),
-        )
-        for s in stocks
-    ]
+    return [_build_stock_basic(s) for s in stocks]
 
 
 @router.get("/{ts_code}/basic", response_model=StockBasic)
@@ -111,15 +125,7 @@ async def get_stock_basic(ts_code: str):
     if not stock:
         raise HTTPException(status_code=404, detail="股票不存在")
     
-    return StockBasic(
-        ts_code=stock["ts_code"],
-        symbol=stock.get("symbol", ""),
-        name=stock.get("name", ""),
-        area=stock.get("area"),
-        industry=stock.get("industry"),
-        market=stock.get("market"),
-        list_date=str(stock.get("list_date", "")),
-    )
+    return _build_stock_basic(stock)
 
 
 @router.get("/{ts_code}/daily", response_model=List[StockDaily])
@@ -212,7 +218,7 @@ async def get_industries():
     industries = await mongo_manager.aggregate(
         C.STOCK_BASIC,
         [
-            {"$match": {"list_status": "L", "industry": {"$ne": None}}},
+            {"$match": {"list_status": "L", "industry": {"$nin": [None, float("nan")], "$exists": True}}},
             {"$group": {"_id": "$industry"}},
             {"$sort": {"_id": 1}},
         ],
@@ -233,15 +239,4 @@ async def get_stocks_by_industry(
         limit=limit,
     )
     
-    return [
-        StockBasic(
-            ts_code=s["ts_code"],
-            symbol=s.get("symbol", ""),
-            name=s.get("name", ""),
-            area=s.get("area"),
-            industry=s.get("industry"),
-            market=s.get("market"),
-            list_date=str(s.get("list_date", "")),
-        )
-        for s in stocks
-    ]
+    return [_build_stock_basic(s) for s in stocks]
