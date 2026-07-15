@@ -18,8 +18,6 @@
       "status": "str",
       "create_time": "str",
       "fill_time": "str",
-      "profit_pct": "float",
-      "profit_amount": "float",
       "decision_trace": {
         "version": "str",
         "trace_quality": "str",
@@ -39,8 +37,27 @@
           "is_limit_up": "bool",
           "limit_up_count": "NoneType"
         },
-        "selection_params": {},
-        "risk_params": {},
+        "selection_params": {
+          "min_rise_pct": "float",
+          "max_rise_pct": "float",
+          "min_volume_ratio": "float",
+          "max_volume_ratio": "float",
+          "min_close_rise_pct": "float",
+          "max_open_rise_pct": "float",
+          "allow_after_10am": "bool",
+          "next_day_open_sell_pct": "float",
+          "pullback_mid_fallback_pct": "float",
+          "pullback_high_threshold": "float",
+          "pullback_profit_lock_threshold": "float"
+        },
+        "risk_params": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "max_hold_days": "int",
+          "hold_protection_threshold": "float",
+          "slippage_pct": "float",
+          "trailing_stop_pct": "float"
+        },
         "account_context": {
           "buy_amount": "float",
           "buy_shares": "int",

@@ -3,7 +3,7 @@
   "health": {
     "overall_status": "str",
     "uptime_seconds": "float",
-    "scanner_heartbeat_age": "int",
+    "scanner_heartbeat_age": "float",
     "alert_count": "int",
     "checks": {
       "halfway_chase": {
@@ -29,6 +29,24 @@
         "value": "str",
         "threshold": "str",
         "message": "str"
+      },
+      "datasource_eastmoney": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      },
+      "datasource_sina": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      },
+      "datasource_biying": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
       }
     },
     "circuit_breaker": {
@@ -45,12 +63,18 @@
       "max_consecutive_losses": "int"
     },
     "data_sources": [
-      "<empty_list>"
+      {
+        "name": "str",
+        "available": "bool",
+        "stocks": "int",
+        "calls": "int",
+        "limit": "int"
+      }
     ],
     "health_score": "int",
     "data_freshness": "str",
-    "scan_lag_seconds": "int",
-    "risk_check_lag_seconds": "int",
+    "scan_lag_seconds": "float",
+    "risk_check_lag_seconds": "float",
     "warnings": [
       "str"
     ],
@@ -58,15 +82,46 @@
     "scanner_health": {
       "status": "str",
       "is_healthy": "bool",
-      "scan_lag_seconds": "int",
-      "risk_check_lag_seconds": "int",
+      "scan_lag_seconds": "float",
+      "risk_check_lag_seconds": "float",
       "quote_staleness_seconds": "float",
       "risk_thread_alive": "bool",
       "risk_thread_restarts": "int",
       "warnings": [
         "str"
       ],
-      "event_bus_stats": {}
+      "event_bus_stats": {
+        "scan_completed": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        },
+        "signal_generated": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        },
+        "risk_sell_executed": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        },
+        "position_changed": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        },
+        "quote_warning": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        },
+        "daily_settled": {
+          "emitted": "int",
+          "handled": "int",
+          "errors": "int"
+        }
+      }
     },
     "pending_sells_detail": [
       "<empty_list>"

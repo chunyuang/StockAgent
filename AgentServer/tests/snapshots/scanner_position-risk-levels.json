@@ -18,10 +18,16 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "int",
+        "turnover_rate": "float",
         "risk_score": "float",
         "risk_level": "str",
-        "trailing_stop": {},
+        "trailing_stop": {
+          "high_price": "float",
+          "trailing_stop_pct": "float",
+          "activated": "bool",
+          "activated_at": "str",
+          "stop_price": "float"
+        },
         "total_qty": "int"
       }
     ],
@@ -43,10 +49,16 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "int",
+        "turnover_rate": "float",
         "risk_score": "float",
         "risk_level": "str",
-        "trailing_stop": {},
+        "trailing_stop": {
+          "high_price": "float",
+          "trailing_stop_pct": "float",
+          "activated": "bool",
+          "activated_at": "NoneType",
+          "stop_price": "float"
+        },
         "total_qty": "int"
       }
     ],
@@ -68,10 +80,16 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "int",
+        "turnover_rate": "float",
         "risk_score": "float",
         "risk_level": "str",
-        "trailing_stop": {},
+        "trailing_stop": {
+          "high_price": "float",
+          "trailing_stop_pct": "float",
+          "activated": "bool",
+          "activated_at": "NoneType",
+          "stop_price": "float"
+        },
         "total_qty": "int"
       }
     ]
