@@ -127,6 +127,16 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
             except Exception:
                 risk_monitor_desc = "无法获取风控状态"
 
+            # 【v2.9.99-r9 fix】注入 trailing_stop 数据(前端 pos.trailing_stop?.activated 依赖)
+            trailing_stop = None
+            try:
+                from nodes.web.api.scanner_shared import _scanner_instance, _safe_read_shared
+                if _scanner_instance and _scanner_instance._is_running:
+                    trailing_stops = _safe_read_shared(_scanner_instance, '_trailing_stops')
+                    trailing_stop = trailing_stops.get(tc)
+            except Exception:
+                pass
+
             # 【v2.9.97h-v7】补全前端需要的字段，与unified/scanner_utils保持一致
             strategy_name_cn = strat_cfg.get("display_name", strategy) if strat_cfg else strategy
             risk_lvl = "high" if stop_loss_status == "broken" else ("elevated" if stop_loss_status == "near" else "normal")
@@ -154,6 +164,7 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
                 "risk_monitor_active": risk_monitor_active,
                 "risk_monitor_desc": risk_monitor_desc,
                 "buy_date": p.get("buy_date", ""),
+                "trailing_stop": trailing_stop,
                 # 【v2.9.97h-v19 恢复】注入今日买入时间 + 今日卖出记录 (06-23 03:51 cron auto-merge 覆盖, 手动恢复)
                 "buy_time": order_map.get(tc, {}).get("buy_time", ""),
                 "recent_sells": order_map.get(tc, {}).get("sells", []),
