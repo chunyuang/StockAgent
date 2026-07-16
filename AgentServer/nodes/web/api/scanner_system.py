@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
 """Scanner API - 系统健康/守护/Stream"""
-import asyncio
-import logging
-import math
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, List, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner, _get_scanner_instance,
 )
 
 router = APIRouter(prefix="/scanner", tags=["系统健康/守护/Stream"])

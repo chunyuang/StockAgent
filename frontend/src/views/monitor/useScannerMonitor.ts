@@ -281,8 +281,8 @@ export function useScannerMonitor() {
   const tradeDetailData = ref<any>(null)
   const tradeAuditVisible = ref(false)
   const tradeAuditData = ref<any[]>([])
-  async function openTradeDetail(ts_code: string) { try { const r = await api.get(`${scannerApi}/trade-detail/${ts_code}`); const p = parseResponse(r); if (p.success) { tradeDetailData.value = p.data; tradeDetailVisible.value = true } } catch (e: any) { ElMessage.error('获取详情失败') } }
-  async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); const p = parseResponse(r); if (p.success) { tradeAuditData.value = p.data; tradeAuditVisible.value = true } } catch (e: any) { ElMessage.error('获取审查失败') } }
+  async function openTradeDetail(ts_code: string) { try { const r = await api.get(`${scannerApi}/trade-detail/${ts_code}`); const p = parseResponse(r); if (p.success) { tradeDetailData.value = p.data; tradeDetailVisible.value = true } } catch (e: any) { console.error('[useScannerMonitor] openTradeDetail failed:', e); ElMessage.error('获取详情失败') } }
+  async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); const p = parseResponse(r); if (p.success) { tradeAuditData.value = p.data; tradeAuditVisible.value = true } } catch (e: any) { console.error('[useScannerMonitor] openTradeAudit failed:', e); ElMessage.error('获取审查失败') } }
 
   // ==================== 📌 追踪止损 ====================
   async function setTrailingStop(ts_code: string, activated: boolean) {
@@ -292,7 +292,7 @@ export function useScannerMonitor() {
       const p = parseResponse(r)
       if (p.success) { ElMessage.success(`${activated ? '激活' : '取消'}追踪止损`); core.fetchScanner() }
       else ElMessage.error('设置失败')
-    } catch (e: any) { ElMessage.error('设置失败') }
+    } catch (e: any) { console.error('[useScannerMonitor] setTrailingStop failed:', e); ElMessage.error('设置失败') }
     finally { trailSaving.value = false }
   }
 
@@ -315,7 +315,7 @@ export function useScannerMonitor() {
       try {
         const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' })
         const p = parseResponse(r); if (p.success) { ElMessage.success(`${p.data.side === 'buy' ? '买入' : '卖出'} ${p.data.ts_code} ${p.data.filled_qty ?? '?'}股@${p.data.filled_price ?? '市价'}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; core.fetchAll(true) } else ElMessage.error('下单失败')
-      } catch (e: any) { ElMessage.error('下单失败') }
+      } catch (e: any) { console.error('[useScannerMonitor] manual trade failed:', e); ElMessage.error('下单失败') }
     })
   }
 

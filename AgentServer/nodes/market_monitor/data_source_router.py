@@ -14,9 +14,8 @@
   - qmt:       QMT实盘(需要券商开户)
 """
 
-import asyncio
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum

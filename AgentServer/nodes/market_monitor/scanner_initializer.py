@@ -185,7 +185,7 @@ class ScannerInitializer:
     def _init_signal_and_risk(self) -> None:
         """初始化信号分发器+参数中心+风控看门狗【v2.9.25提取】"""
         from nodes.market_monitor.signal_dispatcher import (
-            SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
+            SignalDispatcher, redis_channel_handler, log_channel_handler
         )
         self._signal_dispatcher = SignalDispatcher(scanner=self)
         self._signal_dispatcher.register_channel("log", log_channel_handler)

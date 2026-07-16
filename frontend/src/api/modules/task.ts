@@ -18,7 +18,7 @@ export const taskApi = {
 
   /** 取消任务 */
   async cancelTask(taskId: string) {
-    return await api.post<{ success: boolean }>(`/tasks/${taskId}/cancel`)
+    return await api.delete<{ success: boolean }>(`/tasks/${taskId}`)
   },
 }
 export default taskApi

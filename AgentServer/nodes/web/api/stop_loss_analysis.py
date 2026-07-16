@@ -5,7 +5,7 @@
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from core.managers import mongo_manager
 

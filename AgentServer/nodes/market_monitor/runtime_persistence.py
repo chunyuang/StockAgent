@@ -73,7 +73,7 @@ class RuntimePersistence:
             logger.info(f"[SNAPSHOT] 快照日期={snapshot_date}, 今日={today}, 跳过日期相关状态恢复")
         
         self._restore_snapshot_data(doc, is_same_day)
-        logger.info(f"[SNAPSHOT] 加载运行时快照成功")
+        logger.info("[SNAPSHOT] 加载运行时快照成功")
     
     async def _load_snapshot_doc(self) -> Optional[dict]:
         """从MongoDB或本地文件加载快照文档【v2.9.45提取, v2.9.106:优先当天, fallback最近一天】
@@ -453,7 +453,7 @@ class RuntimePersistence:
                         {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
                         upsert=True
                     )
-            except Exception:
+            except Exception as _e:
                 pass  # 非关键, 不影响主流程
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
         except Exception as e:
@@ -507,7 +507,7 @@ class RuntimePersistence:
         # 【v2.9.104】记录全量扫描股票数 (5529 只)
         try:
             total_stocks = len(getattr(self._scanner, "_realtime_cache", {}) or {})
-        except Exception:
+        except Exception as _e:
             total_stocks = 0
         trace_doc = {
             "trade_date": today_int,
@@ -842,12 +842,20 @@ class RuntimePersistence:
 
         # 推送到飞书(如果有webhook)
         try:
-            from nodes.market_monitor.signal_dispatcher import SignalDispatcher
-            dispatcher = SignalDispatcher.get_instance()
-            if dispatcher:
-                await dispatcher.push_message(summary, channel="feishu")
-        except ImportError:
-            pass  # signal_dispatcher模块不存在时静默跳过
+            from core.managers.notification_manager import notification_manager
+            if hasattr(notification_manager, '_webhook_url') and notification_manager._webhook_url:
+                import aiohttp
+                payload = {
+                    "msg_type": "interactive",
+                    "card": {
+                        "header": {"title": {"tag": "plain_text", "content": "📊 每日结算"}},
+                        "elements": [{"tag": "markdown", "content": summary}],
+                    },
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(notification_manager._webhook_url, json=payload) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"[DAILY] 飞书日报推送HTTP {resp.status}")
         except Exception as _e:
             logger.warning(f"[DAILY] 飞书日报推送失败: {_e}")
         logger.info(f"[DAILY] {summary}")
@@ -1027,7 +1035,6 @@ class RuntimePersistence:
 
     async def restore_start_state(self) -> None:
         """启动时恢复状态(审计索引+pending_sells)【v2.9.32从scanner提取】"""
-        scanner = self._scanner
 
         # 审计日志TTL索引(90天自动过期)
         try:
@@ -1180,7 +1187,7 @@ class RuntimePersistence:
                     if restored_count > 0:
                         _pos_count = restored_count
                         logger.warning(f"[SCANNER] ⚠️ 持仓丢失检测：从broker_orders恢复了{restored_count}只持仓！")
-                        logger.warning(f"[SCANNER] 原因：进程崩溃时save_state()未执行，导致broker_positions为空")
+                        logger.warning("[SCANNER] 原因：进程崩溃时save_state()未执行，导致broker_positions为空")
             except Exception as e:
                 logger.warning(f"[SCANNER] 持仓丢失检测失败: {e}")
         
@@ -1193,7 +1200,6 @@ class RuntimePersistence:
         将scanner内存中的涨跌停/行情数据
         批量写入MongoDB, 供情绪计算和历史回测使用。
         """
-        from pymongo.operations import UpdateOne
         try:
             from core.managers import mongo_manager
         except ImportError:
@@ -1350,6 +1356,12 @@ class RuntimePersistence:
         # 1. Broker日终结算+状态持久化
         if self.broker:
             self.broker.daily_settlement(trade_date)
+        
+        # 【v2.9.113】清理PositionManager当日状态(快速跌幅触发记录等)
+        if hasattr(self._scanner, '_position_manager') and self._scanner._position_manager:
+            pm = self._scanner._position_manager
+            if hasattr(pm, '_rapid_drop_triggered'):
+                pm._rapid_drop_triggered.clear()
         _tm = self._scanner._trade_mode if hasattr(self._scanner, '_trade_mode') else ''
         is_virtual = _tm in ('replay', 'dry_run')
         try:

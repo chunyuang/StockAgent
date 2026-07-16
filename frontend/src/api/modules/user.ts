@@ -11,13 +11,13 @@ export const userApi = {
   async updatePreferences(_prefs?: Record<string, unknown>) { return { success: true } },
 
   /** 获取完整用户信息(含watchlist) */
-  async getCurrentUser() { return await api.get<UserInfo>('/user/me') },
+  async getCurrentUser() { return await api.get<UserInfo>('/users/me') },
 
   /** 添加自选股 */
-  async addToWatchlist(tsCode: string) { return await api.post<{ success: boolean }>('/user/watchlist', { ts_code: tsCode }) },
+  async addToWatchlist(tsCode: string) { return await api.post<{ success: boolean }>('/users/me/watchlist', { ts_code: tsCode }) },
 
   /** 移除自选股 */
-  async removeFromWatchlist(tsCode: string) { return await api.delete<{ success: boolean }>(`/user/watchlist/${tsCode}`) },
+  async removeFromWatchlist(tsCode: string) { return await api.delete<{ success: boolean }>(`/users/me/watchlist/${tsCode}`) },
 }
 
 export default userApi

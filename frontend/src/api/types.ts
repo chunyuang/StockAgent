@@ -191,6 +191,8 @@ export type WSMessage =
   | TaskResultMessage 
   | AgentThoughtMessage
   | { type: 'connected'; user_id: string }
+  | { type: 'auth_ok'; user_id: string }
+  | { type: 'auth_failed'; reason: string }
   | { type: 'pong' }
   | { type: 'subscribed'; task_id: string }
   | { type: 'scanner_signal'; signals?: any[]; item?: any; _stream_id?: string }

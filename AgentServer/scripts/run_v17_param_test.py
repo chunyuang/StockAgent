@@ -1,5 +1,9 @@
 """V17参数测试 - 紧凑输出"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -77,7 +81,7 @@ def make_params(close_pct=None, open_max_pct=None, sl=None, tp=None, strategies=
 async def main():
     await mongo_manager.initialize()
     
-    print(f"\n📊 V17参数测试 | 2策略 | 20260105-20260320")
+    print("\n📊 V17参数测试 | 2策略 | 20260105-20260320")
     print(f"{'='*130}")
     print(f"  {'测试项':32s} | {'收益':>8s} | {'胜率':>5s} | {'回撤':>6s} | {'夏普':>6s} | {'盈亏比':>5s} | {'笔数':>4s} | {'卖出原因':40s} | {'耗时':>4s}")
     print(f"{'-'*130}")

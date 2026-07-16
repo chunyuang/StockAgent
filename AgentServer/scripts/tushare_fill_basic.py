@@ -4,7 +4,6 @@ import tushare as ts
 import pandas as pd
 from pymongo import MongoClient
 import time
-import sys
 
 TOKEN = '2876ea85cb005fb5fa17c809a98174f2d5aae8b1f830110a5ead6211'
 pro = ts.pro_api(TOKEN)

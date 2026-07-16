@@ -14,9 +14,7 @@
 import sys
 import os
 import re
-import json
 import asyncio
-import importlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -399,11 +397,11 @@ async def main():
         print(f"❌ 发现 {len(all_issues)} 个问题:")
         for i, issue in enumerate(all_issues, 1):
             print(f"  {i}. {issue}")
-        print(f"\n退出码: 1")
+        print("\n退出码: 1")
         sys.exit(1)
     else:
         print("✅ 全部检查通过, 前后端字段一致")
-        print(f"\n退出码: 0")
+        print("\n退出码: 0")
         sys.exit(0)
 
 

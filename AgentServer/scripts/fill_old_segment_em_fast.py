@@ -6,12 +6,10 @@ push2his接口: 每只0.3秒, 3136只≈16分钟
 
 字段格式: 日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
 """
-import sys
 import time
 import argparse
 import requests
 from pymongo import MongoClient, UpdateOne
-from datetime import datetime
 
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "stock_agent"
@@ -187,7 +185,7 @@ def main():
             total_days += len(updates)
             print(f"✅ {len(updates)}天")
         else:
-            print(f"⚠️ 0天(无有效数据)")
+            print("⚠️ 0天(无有效数据)")
         
         time.sleep(0.5)  # 限速
     

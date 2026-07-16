@@ -52,7 +52,7 @@ Collections & Indexes:
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 from core.constants import C
 from core.managers import mongo_manager

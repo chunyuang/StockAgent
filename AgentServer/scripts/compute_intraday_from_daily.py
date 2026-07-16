@@ -43,7 +43,7 @@ def compute_intraday_from_daily(doc, prev_close):
     low = doc.get('low', 0)
     close = doc.get('close', 0)
     amount = doc.get('amount', 0)  # 千元
-    pct_chg = doc.get('pct_chg', 0)
+    doc.get('pct_chg', 0)
     
     if prev_close <= 0 or close <= 0:
         return {}

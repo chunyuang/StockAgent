@@ -44,6 +44,7 @@ export interface UnifiedPosition {
   shares: number
   available_qty: number
   today_buy_qty: number
+  today_buy?: number  // alias for today_buy_qty (backend returns both)
   cost_price: number
   current_price: number
   profit_pct: number
@@ -55,8 +56,11 @@ export interface UnifiedPosition {
   take_profit_pct: number
   stop_loss_status: 'safe' | 'near' | 'broken'
   stop_loss_desc: string
+  risk_monitor_active?: boolean
   risk_monitor_desc?: string
   buy_date: string
+  buy_time?: string
+  recent_sells?: Array<{ time: string; qty: number; price: number; profit_pct: number; profit_amount: number }>
 }
 
 export interface PositionSummary {
@@ -141,6 +145,7 @@ export function useUnifiedData(initialDate?: Ref<string> | string) {
         trades.value = []
       }
     } catch (e: any) {
+      console.error('[useUnifiedData] fetch trades failed:', e)
       lastError.value = e?.message || 'fetch trades failed'
       trades.value = []
     } finally {
@@ -168,6 +173,7 @@ export function useUnifiedData(initialDate?: Ref<string> | string) {
         positions.value = []
       }
     } catch (e: any) {
+      console.error('[useUnifiedData] fetch positions failed:', e)
       lastError.value = e?.message || 'fetch positions failed'
       positions.value = []
     } finally {

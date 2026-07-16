@@ -12,20 +12,20 @@
 - nav_history/{account_id}_nav.json — 每日净值序列
 - monthly_stats/{account_id}_monthly.json — 月度收益统计
 """
-import sys
 import logging
 
 logger = logging.getLogger(__name__)
 import os
 import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict, field
+from datetime import datetime
+from typing import Dict, List, Optional
+from dataclasses import dataclass, asdict
 
 
 
-from core.managers.live.paper_trading_compat import PaperTradingEngine, PaperAccount
-from position_manager import PositionManager
+from core.managers.live.paper_trading_compat import PaperTradingEngine
+
+REAL_TRADING_DIR = os.environ.get("REAL_TRADING_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "real_trading"))
 
 
 # 【V61修复:定义缺失的路径常量,从real_trading/nav_tracker.py同步】
@@ -280,7 +280,7 @@ class NavTracker:
             trading_days = len(records)
             win_days = len([r for r in records if r.daily_return > 0])
             loss_days = len([r for r in records if r.daily_return < 0])
-            flat_days = trading_days - win_days - loss_days
+            trading_days - win_days - loss_days
             win_day_rate = win_days / trading_days * 100 if trading_days > 0 else 0
             
             total_trades = trade_count_by_month.get(month, 0)
@@ -517,7 +517,7 @@ class NavTracker:
             with open(self.nav_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, list):
-                logger.error(f"⚠️  净值数据格式异常，初始化空")
+                logger.error("⚠️  净值数据格式异常，初始化空")
                 return []
             records = []
             for item in data:

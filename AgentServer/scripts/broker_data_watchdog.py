@@ -38,7 +38,6 @@ D. 内存 vs MongoDB drift: scanner._timeline 长度 vs MongoDB scanner_timeline
 """
 import argparse
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime

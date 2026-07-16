@@ -134,7 +134,6 @@ async def run_one(params, combo_id, total):
 
 async def main():
     await mongo_manager.initialize()
-    from nodes.backtest_engine.ultra_short import execute_ultra_short_backtest
     
     combos = gen_combos()
     print(f"📊 网格搜索: {len(combos)} 组合")

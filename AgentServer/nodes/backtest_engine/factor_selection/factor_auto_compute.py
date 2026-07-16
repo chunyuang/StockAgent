@@ -11,8 +11,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from core.constants import C
 from core.managers import mongo_manager
@@ -108,7 +107,7 @@ async def auto_compute_factors(
     except Exception as e:
         logger.exception(f"因子自动计算失败: {e}")
         await log(f"   ❌ 因子自动计算失败: {e}")
-        await log(f"   💡 请手动运行: python scripts/lightweight_factor_fill.py (或等待自动补算)")
+        await log("   💡 请手动运行: python scripts/lightweight_factor_fill.py (或等待自动补算)")
         return {"computed": False, "fields_computed": [], "records_updated": 0, "error": str(e)}
 
 
@@ -460,7 +459,7 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
         close_arr = group['close'].values.astype(float)
         high_arr = group['high'].values.astype(float)
         low_arr = group['low'].values.astype(float)
-        vol_arr = group['vol'].values.astype(float)
+        group['vol'].values.astype(float)
 
         # EMA
         group['ema12'] = talib.EMA(close_arr, timeperiod=12)

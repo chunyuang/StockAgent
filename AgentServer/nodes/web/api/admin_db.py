@@ -191,8 +191,7 @@ async def get_database_stats():
             max_date = max_date_result[0]["max_date"] if max_date_result else None
             
             # 统计不重复股票数
-            stock_cursor = coll.distinct("ts_code")
-            stock_count = len(await stock_cursor.to_list(length=None))
+            stock_count = len(coll.distinct("ts_code"))
             
             # 最后更新时间（近似，用最新日期推算）
             last_update = datetime.now(timezone.utc).isoformat()

@@ -64,7 +64,6 @@ class BaostockManager(BaseManager):
                 self._bs.logout()
             except Exception as e:
                 print(f"⚠️ baostock logout failed: {e}")
-                pass
         self._initialized = False
         self._logged_in = False
     

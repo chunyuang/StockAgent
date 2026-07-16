@@ -10,16 +10,12 @@ MarketScanner — 超短量化市场扫描器
 """
 import asyncio
 import logging
-import os
 import threading
 import time
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
-import pandas as pd
-
-from nodes.market_monitor.quote_manager import QuoteManager
 from nodes.market_monitor.scanner_event_bus import ScannerEventBus, ScannerEvents
 from nodes.market_monitor.scanner_initializer import ScannerInitializer
 from nodes.market_monitor.scan_loop_runner import ScanLoopRunner
@@ -168,14 +164,16 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     POSITION_CHECK_FAST = 10      # 持仓快速检查(秒): 接近止损位10秒级
     POSITION_CHECK_CRITICAL = 5   # 持仓紧急检查(秒): 已触及止损区5秒级
     BATCH_SIZE = 100    # 批量行情每批处理数
-    MAX_POSITIONS = 10  # 最大持仓数(基准, 实际按情绪动态调整)
+    MAX_POSITIONS = 8  # v2.9.124: 从10->8, 留余量应对黑天鹅
     # 【动态持仓上限】情绪越高, 允许持仓越多, 抓住行情好的时候多买
     # 高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
     DYNAMIC_MAX_POSITIONS = {
-        "euphoria": 12,   # 高潮: 行情好, 多抓机会
-        "differentiation": 10,  # 分化: 标准上限
-        "chaos": 8,       # 震荡: 适当收紧
-        "frozen": 5,      # 冰点: 大幅收紧
+        # sentiment_scores period (中文) - 盘后情绪得分集合的key
+        "高潮": 10, "分化": 8, "震荡": 6, "冰点": 4,
+        # sentiment_live_log phase (英文) - 盘中实时情绪日志的key
+        "rising": 10, "differentiation": 8, "chaos": 6, "bearish": 4,
+        # 兼容别名(历史遗留)
+        "divergence": 8, "euphoria": 10, "frozen": 4,
     }
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
@@ -367,9 +365,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 for doc in docs:
                     if doc.get("ts_code") and doc.get("name"):
                         self._stock_name_map[doc["ts_code"]] = doc["name"]
-                pass
-            except Exception as _e:
-                logger.debug(f"[GUARD] scanner: {_e}")
+            except Exception as e:
+                logger.debug(f"[GUARD] scanner: {e}")
         # 补全空stock_name
         for t in result:
             if not t.get("stock_name"):
@@ -500,7 +497,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         await self._stop_cleanup(sell_all)
         
         logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
-        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
+        return {"success": True, "message": "扫描器已停止" + ("并清仓" if sell_all else "")}
 
     async def _stop_cleanup(self, sell_all: bool) -> None:
         """停止后清理(清仓+持久化+数据源关闭)【v2.9.55从stop()提取】"""
@@ -569,7 +566,6 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         【v2.9.79】增强: 当_name_map为空时, 从MongoDB stock_basic加载全量名称映射
         """
         # 首次调用时从MongoDB加载全量名称映射(非阻塞同步fallback)
-        names_loaded = False
         if not self._stock_name_map:
             try:
                 from pymongo import MongoClient
@@ -580,18 +576,15 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 for doc in docs:
                     if doc.get("ts_code") and doc.get("name"):
                         self._stock_name_map[doc["ts_code"]] = doc["name"]
-                names_loaded = len(self._stock_name_map) > 0
                 logger.info(f"[SCANNER] 从stock_basic加载{len(self._stock_name_map)}只股票名称映射")
             except Exception as e:
                 logger.warning(f"[SCANNER] 从stock_basic加载名称映射失败: {e}")
         
         # 从实时行情补充名称(优先级更高)
-        updated = False
         for ts_code, rt in realtime_data.items():
             name = rt.get("name", "")
             if name and ts_code not in self._stock_name_map:
                 self._stock_name_map[ts_code] = name
-                updated = True
         # 同步名称映射到strategy_scorer(每次scan都同步, 确保scorer名称映射最新)
         if self._strategy_scorer:
             self._strategy_scorer.update_name_map(self._stock_name_map)
@@ -756,8 +749,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             logger.debug(traceback.format_exc())
             try:
                 await self._save_premarket_snapshot(trade_date, datetime.now().isoformat(), note=f"扫描异常: {e}")
-            except Exception as _e:
-                logger.debug(f"[GUARD] scanner: {_e}")
+            except Exception as e:
+                logger.debug(f"[GUARD] scanner: {e}")
             return 0
 
     async def _save_premarket_snapshot(self, trade_date: str, scan_time_iso: str, realtime_data: Dict = None,
@@ -1203,8 +1196,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                                 getattr(dropped_sig, 'strategy_name', ''),
                                 f"同行业「{ind}」已选{remaining_slots}只信号,本只被集中度过滤剔除",
                                 dropped_sig)
-                        except Exception as _e:
-                            logger.debug(f"[GUARD] scanner: {_e}")
+                        except Exception as e:
+                            logger.debug(f"[GUARD] scanner: {e}")
             
             if removed > 0:
                 logger.info(f"[FILTER] 板块集中度: 移除{removed}只同行业过多信号(每行业≤{sector_top_n}只)")
@@ -1320,8 +1313,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             try:
                 pct = float(v.get("pct_chg", v.get("auction_pct", 0)) or 0)
                 pcts.append(pct)
-            except Exception as _e:
-                logger.debug(f"[GUARD] scanner: {_e}")
+            except Exception as e:
+                logger.debug(f"[GUARD] scanner: {e}")
                 continue
             # 按板块区分涨跌停阈值
             prefix = code.split(".")[0][:3] if "." in code else code[:3]
@@ -1575,8 +1568,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         async def emit_quote_event(event_name: str, data: dict) -> None:
             try:
                 await scanner._event_bus.emit(event_name, data)
-            except Exception as _e:
-                logger.debug(f"[QUOTE] 行情事件发射失败({event_name}): {_e}")
+            except Exception as e:
+                logger.debug(f"[QUOTE] 行情事件发射失败({event_name}): {e}")
         return emit_quote_event
 
     def _is_limit_down(self, ts_code: str) -> bool:

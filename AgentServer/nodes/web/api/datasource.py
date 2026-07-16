@@ -5,9 +5,8 @@
 提供数据源切换、状态监控、券商管理的接口。
 """
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 logger = logging.getLogger("api.datasource")
 
@@ -161,7 +160,6 @@ async def get_data_source_comparison():
 @router.get("/brokers")
 async def list_brokers():
     """列出所有券商及状态"""
-    from nodes.market_monitor.data_source_router import BrokerType
 
     brokers = [
         {

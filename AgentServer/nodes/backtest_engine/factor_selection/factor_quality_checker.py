@@ -4,8 +4,7 @@
 在回测前检查因子数据质量，防止因数据缺失导致回测结果异常。
 """
 
-import math
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 

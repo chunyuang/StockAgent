@@ -1,7 +1,9 @@
 """Phase2 快速验证脚本 - 测试新因子计算是否正确"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
 import pandas as pd
-import numpy as np
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -21,7 +23,7 @@ async def test_new_factors():
     await mongo_manager.initialize()
     
     # 创建因子引擎实例
-    factor_engine = FactorEngine()
+    FactorEngine()
     
     # 测试日期
     test_date = "20260506"

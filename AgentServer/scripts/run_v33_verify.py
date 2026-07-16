@@ -73,7 +73,7 @@ async def main():
     r2, s2, d2 = await run_period("20260105", "20260320", "2026Q1")
     
     print(f"\n{'='*50}")
-    print(f"V33验证总结")
+    print("V33验证总结")
     print(f"{'='*50}")
     print(f"  2025Q4: 收益{r1:.2f}%/夏普{s1:.2f}/回撤{d1:.2f}%")
     print(f"  2026Q1: 收益{r2:.2f}%/夏普{s2:.2f}/回撤{d2:.2f}%")

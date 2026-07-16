@@ -6,7 +6,7 @@
 
 import re
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from dataclasses import dataclass
 
 
@@ -92,14 +92,14 @@ class BacktestValidator:
         if not start_date or not self.DATE_PATTERN.match(str(start_date)):
             errors.append(ValidationError(
                 "start_date",
-                f"开始日期格式错误，应为YYYYMMDD格式",
+                "开始日期格式错误，应为YYYYMMDD格式",
                 start_date
             ))
         
         if not end_date or not self.DATE_PATTERN.match(str(end_date)):
             errors.append(ValidationError(
                 "end_date",
-                f"结束日期格式错误，应为YYYYMMDD格式",
+                "结束日期格式错误，应为YYYYMMDD格式",
                 end_date
             ))
         
@@ -123,14 +123,14 @@ class BacktestValidator:
                 if start_dt < min_date:
                     errors.append(ValidationError(
                         "start_date",
-                        f"开始日期不能早于2020-01-01",
+                        "开始日期不能早于2020-01-01",
                         start_date
                     ))
                 
                 if end_dt > max_date:
                     errors.append(ValidationError(
                         "end_date",
-                        f"结束日期不能晚于今天",
+                        "结束日期不能晚于今天",
                         end_date
                     ))
                 
@@ -163,7 +163,7 @@ class BacktestValidator:
             if not isinstance(initial_cash, (int, float)):
                 errors.append(ValidationError(
                     "initial_cash",
-                    f"初始资金应为数字",
+                    "初始资金应为数字",
                     initial_cash
                 ))
             elif initial_cash < min_val or initial_cash > max_val:
@@ -257,7 +257,7 @@ class BacktestValidator:
             if ndos is not None and (ndos < 0 or ndos > 0.1):
                 errors.append(ValidationError(
                     "halfway_chase.params.next_day_open_sell_pct",
-                    f"次日高开即卖阈值应在0%~10%之间",
+                    "次日高开即卖阈值应在0%~10%之间",
                     ndos
                 ))
         
@@ -277,7 +277,7 @@ class BacktestValidator:
                 if prob is not None and (prob < 0 or prob > 1):
                     errors.append(ValidationError(
                         f"first_limit_up.params.{prob_key}",
-                        f"成交概率应在0~1之间",
+                        "成交概率应在0~1之间",
                         prob
                     ))
             # 校验换手率范围
@@ -294,7 +294,7 @@ class BacktestValidator:
             if ndos is not None and (ndos < 0 or ndos > 0.1):
                 errors.append(ValidationError(
                     "first_limit_up.params.next_day_open_sell_pct",
-                    f"次日高开即卖阈值应在0%~10%之间",
+                    "次日高开即卖阈值应在0%~10%之间",
                     ndos
                 ))
         
@@ -322,7 +322,7 @@ class BacktestValidator:
             if ndos is not None and (ndos < 0 or ndos > 0.1):
                 errors.append(ValidationError(
                     "dragon_head.params.next_day_open_sell_pct",
-                    f"次日高开即卖阈值应在0%~10%之间",
+                    "次日高开即卖阈值应在0%~10%之间",
                     ndos
                 ))
         
@@ -339,14 +339,14 @@ class BacktestValidator:
             if ndos is not None and (ndos < 0 or ndos > 0.1):
                 errors.append(ValidationError(
                     "limit_down_qiao.params.next_day_open_sell_pct",
-                    f"次日高开即卖阈值应在0%~10%之间",
+                    "次日高开即卖阈值应在0%~10%之间",
                     ndos
                 ))
             pb = params.get("pullback_mid_fallback_pct")
             if pb is not None and (pb < 0 or pb > 0.05):
                 errors.append(ValidationError(
                     "limit_down_qiao.params.pullback_mid_fallback_pct",
-                    f"冲高回落阈值应在0%~5%之间",
+                    "冲高回落阈值应在0%~5%之间",
                     pb
                 ))
         

@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 class SpecialPeriod:
     """特殊时期配置"""
     name: str
-    period_type: str  # holiday, conference, month_end, quarter_end, year_end
+    period_type: str  # holiday, conference, month_end, quarter_end, year_end, futures_expiry, option_expiry, earnings_period
     position_ratio: float  # 仓位系数 (0.0-1.0)
     start_date: Optional[str] = None  # YYYYMMDD, 固定日期用
     end_date: Optional[str] = None  # YYYYMMDD, 固定日期用
@@ -151,6 +151,38 @@ class SpecialPeriodFilter:
             end_date="20251024"
         ),
         
+        # ========== 股指期货交割日（每月第三个周五） ==========
+        # 影响：交割日尾盘集中交割放大波动，当月合约到期日效应
+        # 设计：交割日当天0.8，前1天0.9（相对日期，每年自动适用）
+        SpecialPeriod(
+            name="股指期货交割日",
+            period_type="futures_expiry",
+            position_ratio=0.8,
+        ),
+        SpecialPeriod(
+            name="股指期货交割日前1天",
+            period_type="futures_expiry",
+            position_ratio=0.9,
+        ),
+        
+        # ========== ETF期权交割日（每月第四个周三） ==========
+        # 影响：50ETF/300ETF期权交割，对大盘蓝筹有压制
+        SpecialPeriod(
+            name="ETF期权交割日",
+            period_type="option_expiry",
+            position_ratio=0.9,
+        ),
+        
+        # ========== 财报密集披露期（相对日期，每年适用） ==========
+        # 影响：1月(年报预告)/4月(年报+一季报)/7月(中报预告)/10月(三季报)截止日前3天
+        # 业绩雷集中爆发，超短策略持仓容易被个股暴雷拖累
+        # 设计：披露截止日前3天仓位0.6
+        SpecialPeriod(
+            name="财报披露截止期",
+            period_type="earnings_period",
+            position_ratio=0.6,
+        ),
+        
         # ========== 月末/季末/年末（相对日期，每年都适用） ==========
         # 月末：每月最后3个交易日
         SpecialPeriod(
@@ -224,17 +256,35 @@ class SpecialPeriodFilter:
                 if start_int <= date_int <= end_int:
                     active_periods.append(period)
         
-        # 2. 检查月末（每月最后N个交易日）
+        # 2. 检查股指期货交割日（每月第三个周五±1天）
+        futures_periods = [p for p in self.config if p.period_type == "futures_expiry"]
+        for fp in futures_periods:
+            if self._is_futures_expiry(dt, fp):
+                active_periods.append(fp)
+        
+        # 3. 检查ETF期权交割日（每月第四个周三）
+        option_periods = [p for p in self.config if p.period_type == "option_expiry"]
+        for op in option_periods:
+            if self._is_option_expiry(dt):
+                active_periods.append(op)
+        
+        # 4. 检查财报披露期
+        earnings_periods = [p for p in self.config if p.period_type == "earnings_period"]
+        for ep in earnings_periods:
+            if self._is_earnings_period(dt):
+                active_periods.append(ep)
+        
+        # 5. 检查月末
         month_end_period = next((p for p in self.config if p.period_type == "month_end"), None)
         if month_end_period and self._is_month_end(dt, month_end_period.days_in_period or 3):
             active_periods.append(month_end_period)
         
-        # 3. 检查季末（每季度最后N个交易日）
+        # 6. 检查季末
         quarter_end_period = next((p for p in self.config if p.period_type == "quarter_end"), None)
         if quarter_end_period and self._is_quarter_end(dt, quarter_end_period.days_in_period or 5):
             active_periods.append(quarter_end_period)
         
-        # 4. 检查年末（每年最后N个交易日）
+        # 7. 检查年末
         year_end_period = next((p for p in self.config if p.period_type == "year_end"), None)
         if year_end_period and self._is_year_end(dt, year_end_period.days_in_period or 7):
             active_periods.append(year_end_period)
@@ -270,6 +320,21 @@ class SpecialPeriodFilter:
                 if start_int <= date_int <= end_int:
                     active_periods.append(period)
         
+        # 检查股指期货交割日
+        for fp in [p for p in self.config if p.period_type == "futures_expiry"]:
+            if self._is_futures_expiry(dt, fp):
+                active_periods.append(fp)
+        
+        # 检查ETF期权交割日
+        for op in [p for p in self.config if p.period_type == "option_expiry"]:
+            if self._is_option_expiry(dt):
+                active_periods.append(op)
+        
+        # 检查财报披露期
+        for ep in [p for p in self.config if p.period_type == "earnings_period"]:
+            if self._is_earnings_period(dt):
+                active_periods.append(ep)
+        
         # 检查月末
         month_end_period = next((p for p in self.config if p.period_type == "month_end"), None)
         if month_end_period and self._is_month_end(dt, month_end_period.days_in_period or 3):
@@ -286,6 +351,97 @@ class SpecialPeriodFilter:
             active_periods.append(year_end_period)
         
         return active_periods
+    
+    def _is_futures_expiry(self, dt: datetime, period: SpecialPeriod) -> bool:
+        """判断是否为股指期货交割日（每月第三个周五）或前1天
+        
+        中国金融期货交易所规定：股指期货交割日为每月第三个周五
+        遇法定节假日顺延，但极少发生（2026年无此情况）
+        
+        Args:
+            dt: 日期
+            period: 交割日配置（通过position_ratio区分当天0.8和前1天0.9）
+        Returns:
+            bool
+        """
+        if dt.weekday() != 4:  # 不是周五
+            # 检查是否是交割日前1天（周四）
+            if dt.weekday() != 3:
+                return False
+            # 前一天配置才生效（position_ratio=0.9的是前1天）
+            if period.position_ratio > 0.85:
+                # 找当月第三个周五
+                third_friday = self._get_third_friday(dt.year, dt.month)
+                if third_friday is None:
+                    return False
+                # 当前是周四，检查明天是否是第三个周五
+                return (third_friday - dt).days == 1
+            return False
+        
+        # 是周五，检查是否是第三个周五
+        third_friday = self._get_third_friday(dt.year, dt.month)
+        if third_friday is None:
+            return False
+        
+        is_expiry_day = dt.date() == third_friday.date()
+        # position_ratio<=0.85的是交割日当天(0.8)
+        if period.position_ratio <= 0.85:
+            return is_expiry_day
+        # position_ratio>0.85的是前1天(0.9)，但前1天已在上面处理
+        return False
+    
+    @staticmethod
+    def _get_third_friday(year: int, month: int) -> Optional[datetime]:
+        """获取指定月份的第三个周五"""
+        d = datetime(year, month, 1)
+        fridays = []
+        while d.month == month:
+            if d.weekday() == 4:
+                fridays.append(d)
+            d += timedelta(days=1)
+        return fridays[2] if len(fridays) >= 3 else None
+    
+    @staticmethod
+    def _is_option_expiry(dt: datetime) -> bool:
+        """判断是否为ETF期权交割日（每月第四个周三）
+        
+        上交所/深交所规定：ETF期权交割日为每月第四个周三
+        """
+        if dt.weekday() != 2:  # 不是周三
+            return False
+        # 计算是本月第几个周三
+        d = datetime(dt.year, dt.month, 1)
+        wed_count = 0
+        while d <= dt:
+            if d.weekday() == 2:
+                wed_count += 1
+            d += timedelta(days=1)
+        return wed_count == 4
+    
+    @staticmethod
+    def _is_earnings_period(dt: datetime) -> bool:
+        """判断是否为财报密集披露期
+        
+        A股法定披露时间窗口：
+        - 年报预告：1月31日前（截止日前3天=1/29-1/31）
+        - 年报+一季报：4月30日前（截止日前3天=4/28-4/30）
+        - 中报预告：7月15日前（截止日前3天=7/13-7/15）
+        - 三季报：10月31日前（截止日前3天=10/29-10/31）
+        """
+        m, d = dt.month, dt.day
+        # 1月底（年报预告截止）
+        if m == 1 and d >= 29:
+            return True
+        # 4月底（年报+一季报截止）
+        if m == 4 and d >= 28:
+            return True
+        # 7月中（中报预告截止7/15）
+        if m == 7 and 13 <= d <= 15:
+            return True
+        # 10月底（三季报截止）
+        if m == 10 and d >= 29:
+            return True
+        return False
     
     def _is_month_end(self, dt: datetime, n_days: int = 3) -> bool:
         """

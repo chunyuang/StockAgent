@@ -23,12 +23,12 @@ v2.9.38: _run_checker_on_positions提取(消除checker/compare重复遍历)
 """
 
 import logging
-import os
 import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from nodes.market_monitor.market_phase import MarketPhase  # 【v2.9.113修复】缺失import导致NameError
 
 logger = logging.getLogger("position_checker")
 
@@ -407,7 +407,6 @@ class PositionChecker:
 
     async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38+v2.9.70重构】"""
-        scanner = self._scanner
 
         # 并行运行legacy+checker
         legacy_sell, checker_results, legacy_codes, checker_codes = \

@@ -1,5 +1,8 @@
 """V26参数扫描 - 禁用首板打板"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)

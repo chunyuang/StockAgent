@@ -10,9 +10,8 @@
 频率限制: 1分钟120次, IP上限2个
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-import time
 import asyncio
 
 from core.base import BaseCollector
@@ -171,7 +170,7 @@ class LiangMaiLimitUpCollector(BaseCollector):
     async def collect(self) -> Dict[str, Any]:
         client = await self._get_client()
         
-        today_display = datetime.now().strftime("%Y-%m-%d")
+        datetime.now().strftime("%Y-%m-%d")
         today_int = datetime.now().strftime("%Y%m%d")
         
         # 检查是否已同步

@@ -1,5 +1,9 @@
 """V73-P0v3 回测验证 - P0-1(slow 0.65) + P0-2(半路hold_prot 3%)"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -104,13 +108,13 @@ async def main():
     srs = result.get('sell_reason_stats', {})
     if srs:
         total_sells = sum(srs.values())
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for k, v in sorted(srs.items(), key=lambda x: -x[1]):
             if v > 0:
                 print(f"    {k}: {v} ({v/total_sells*100:.1f}%)")
     
     print(f"\n{'='*65}")
-    print(f"📊 V73基线→P0v3对比")
+    print("📊 V73基线→P0v3对比")
     print(f"{'='*65}")
     v73 = {'tr': 325.41, 'md': 3.29, 'sr': 14.54, 'wr': 83.1, 'plr': 3.12, 'tt': 118}
     print(f"  收益:   {v73['tr']:.2f}% → {tr:.2f}% ({tr-v73['tr']:+.2f}%)")

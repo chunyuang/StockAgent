@@ -102,8 +102,8 @@ async def run():
         }
     }
     
-    print(f"\n🚀 V30全新完整回测: 半路追涨+龙头低吸+跌停翘板 | 20260105-20260520")
-    print(f"   半路: SL5%/TP12%/3天 | 龙头: SL5%/TP15%/4天 | 翘板: SL4%/TP25%/3天\n")
+    print("\n🚀 V30全新完整回测: 半路追涨+龙头低吸+跌停翘板 | 20260105-20260520")
+    print("   半路: SL5%/TP12%/3天 | 龙头: SL5%/TP15%/4天 | 翘板: SL4%/TP25%/3天\n")
     
     t0 = time.time()
     result = await execute_ultra_short_backtest(
@@ -144,7 +144,7 @@ async def run():
     print(f"  平均持仓:  {avg_hold:.1f}天" if avg_hold else "")
     
     # V29基线对比
-    print(f"\n  V29基线:   658.83%/7.80夏普/6.69%回撤/71.54%胜率/1.75盈亏比")
+    print("\n  V29基线:   658.83%/7.80夏普/6.69%回撤/71.54%胜率/1.75盈亏比")
     
     # 保存完整结果
     out = os.path.join(BASE, 'backtest_v30_full.json')
@@ -162,7 +162,7 @@ async def run():
     # 卖出原因统计
     sell_reasons = t.get('sell_reason_stats', {})
     if sell_reasons:
-        print(f"\n📋 卖出原因分布:")
+        print("\n📋 卖出原因分布:")
         for reason, count in sorted(sell_reasons.items(), key=lambda x: -x[1]) if isinstance(sell_reasons, dict) else []:
             print(f"  {reason}: {count}")
     

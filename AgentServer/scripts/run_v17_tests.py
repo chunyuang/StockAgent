@@ -29,7 +29,7 @@ async def run_test(label, params, mongo_mgr):
     r = m.get('returns', {})
     k = m.get('risk', {})
     t = m.get('trades', {})
-    p = m.get('performance', {})
+    m.get('performance', {})
     
     ret = r.get('total_return_pct', 0)
     wr = k.get('win_rate_pct', 0)
@@ -77,7 +77,7 @@ async def main():
         }
     }
     
-    print(f"\n📊 V17参数测试 | 2策略(半路追涨+跌停翘板) | 20260105-20260320")
+    print("\n📊 V17参数测试 | 2策略(半路追涨+跌停翘板) | 20260105-20260320")
     print(f"{'='*130}")
     print(f"  {'测试项':30s} | {'收益':>7s} | {'胜率':>5s} | {'回撤':>5s} | {'夏普':>5s} | {'盈亏':>4s} | {'笔数':>3s} | {'卖出原因':50s} | {'耗时':>4s}")
     print(f"{'-'*130}")

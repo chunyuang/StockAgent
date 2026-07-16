@@ -255,8 +255,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { api } from '@/api/client'
 
-const API_BASE = '/api/v1/stop-loss-analysis'
 const activeTab = ref('flow')
 const liveVersion = ref<'post' | 'pre'>('post') // 默认优化后
 const filterDate = ref('')
@@ -266,20 +266,20 @@ const configData = ref<any[]>([])
 const executionData = ref<any[]>([])
 const statsData = ref<any>(null)
 
-function sellTypeTag(type: string) {
-  const map: Record<string, string> = { '止盈': 'danger', '分批止盈': 'danger', '追踪止损': 'warning', '固定止损': 'danger', '跳空止损': 'danger', '冲高回落': 'warning', '强制空仓': 'info', '超时强卖': 'info', '其他': '' }
-  return map[type] || ''
+function sellTypeTag(type: string): 'danger' | 'warning' | 'info' | 'primary' | 'success' | undefined {
+  const map: Record<string, 'danger' | 'warning' | 'info'> = { '止盈': 'danger', '分批止盈': 'danger', '追踪止损': 'warning', '固定止损': 'danger', '跳空止损': 'danger', '冲高回落': 'warning', '强制空仓': 'info', '超时强卖': 'info' }
+  return map[type] || undefined
 }
 
 async function loadFlow() {
   try {
     const [liveRes, btRes] = await Promise.all([
-      fetch(`${API_BASE}/flow/live?version=${liveVersion.value}`),
-      fetch(`${API_BASE}/flow/backtest`)
+      api.get<any>(`/stop-loss-analysis/flow/live?version=${liveVersion.value}`),
+      api.get<any>('/stop-loss-analysis/flow/backtest'),
     ])
-    liveFlow.value = await liveRes.json()
-    backtestFlow.value = await btRes.json()
-  } catch (e: any) { ElMessage.error('加载流程数据失败: ' + e.message) }
+    liveFlow.value = liveRes
+    backtestFlow.value = btRes
+  } catch (e: any) { console.error('[StopLossAnalysis] loadFlow failed:', e); ElMessage.error('加载流程数据失败: ' + (e?.message || '未知错误')) }
 }
 
 function onVersionChange() {
@@ -287,21 +287,19 @@ function onVersionChange() {
 }
 
 async function loadConfig() {
-  try { const res = await fetch(`${API_BASE}/config`); configData.value = await res.json() }
-  catch (e: any) { ElMessage.error('加载配置数据失败: ' + e.message) }
+  try { configData.value = await api.get<any[]>('/stop-loss-analysis/config') }
+  catch (e: any) { console.error('[StopLossAnalysis] loadConfig failed:', e); ElMessage.error('加载配置数据失败: ' + (e?.message || '未知错误')) }
 }
 async function loadExecutions() {
   try {
-    const params = new URLSearchParams()
-    if (filterDate.value) params.set('trade_date', filterDate.value)
-    params.set('limit', '200')
-    const res = await fetch(`${API_BASE}/executions?${params}`)
-    executionData.value = await res.json()
-  } catch (e: any) { ElMessage.error('加载执行记录失败: ' + e.message) }
+    const params: Record<string, string> = { limit: '200' }
+    if (filterDate.value) params.trade_date = filterDate.value
+    executionData.value = await api.get<any[]>('/stop-loss-analysis/executions', { params })
+  } catch (e: any) { console.error('[StopLossAnalysis] loadExecutions failed:', e); ElMessage.error('加载执行记录失败: ' + (e?.message || '未知错误')) }
 }
 async function loadStats() {
-  try { const res = await fetch(`${API_BASE}/stats`); statsData.value = await res.json() }
-  catch (e: any) { ElMessage.error('加载统计数据失败: ' + e.message) }
+  try { statsData.value = await api.get<any>('/stop-loss-analysis/stats') }
+  catch (e: any) { console.error('[StopLossAnalysis] loadStats failed:', e); ElMessage.error('加载统计数据失败: ' + (e?.message || '未知错误')) }
 }
 
 onMounted(() => { loadFlow(); loadConfig(); loadExecutions(); loadStats() })

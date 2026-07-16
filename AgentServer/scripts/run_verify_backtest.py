@@ -60,7 +60,7 @@ async def run_backtest():
     
     p = params['params']
     print(f"\n🚀 半路追涨回测 | {p['start_date']}~{p['end_date']} | 55个交易日")
-    print(f"   量比≥2.0 | 涨幅2-5% | 2日持仓 | SL-2% | TP7%\n")
+    print("   量比≥2.0 | 涨幅2-5% | 2日持仓 | SL-2% | TP7%\n")
     
     t0 = time.time()
     result = await execute_ultra_short_backtest(
@@ -99,7 +99,7 @@ async def run_backtest():
     print(f"  交易:        {trades.get('total_trades', 0)} (赢{trades.get('winning_trades',0)}/亏{trades.get('losing_trades',0)})")
     
     # 验证
-    print(f"\n🔍 数据补充后验证")
+    print("\n🔍 数据补充后验证")
     print(f"  {'✅' if br!=0 else '❌'} 基准收益率: {br:+.2f}% (应为非0)")
     print(f"  {'✅' if tr > 50 else '⚠️'} 策略收益: {tr:+.2f}% (之前55日+79.7%)")
     

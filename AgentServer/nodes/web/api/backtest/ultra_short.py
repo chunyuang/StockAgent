@@ -15,18 +15,15 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import ValidationError
 
 from core.managers import mongo_manager
-from ..auth import get_current_user_id
 from .common import (
     logger,
     mock_tasks,
     get_optional_user_id,
-    oauth2_scheme_optional,
     cleanup_expired_mock_tasks,
 )
 from .models import (
     BacktestTaskResponse,
     UltraShortBacktestRequest,
-    strategy_name_map,
     strategy_name_map_reverse,
 )
 from .defaults import get_ultra_short_defaults
@@ -41,7 +38,7 @@ router = APIRouter(tags=["UltraShort"])  # 不设prefix，由父router提供/bac
 _backtest_node = BacktestNode()
 
 
-@router.post("/ultra-short", response_model=BacktestTaskResponse)
+@router.post("/ultra-short")
 async def submit_ultra_short_backtest(
     raw_request: Request,
     user_id: str = Depends(get_optional_user_id),
@@ -157,8 +154,8 @@ async def submit_ultra_short_backtest(
     # 【P1-3/P1-4修复：透传forceEmpty/sentimentCycle/auctionFilter/globalFilter细粒度参数】
     # 提取前端细粒度配置（从前端提交的原始body中读取，不经过Pydantic过滤）
     force_empty_config = body.get("forceEmpty", {})
-    sentiment_cycle_config = body.get("sentimentCycle", {})
-    auction_filter_config = body.get("auctionFilter", {})
+    body.get("sentimentCycle", {})
+    body.get("auctionFilter", {})
     global_filter_config = body.get("globalFilter", {})
 
     task_info = {
@@ -306,11 +303,11 @@ async def submit_ultra_short_backtest(
     # 启动异步回测任务（不阻塞HTTP请求）
     asyncio.create_task(run_backtest_async())
 
-    return BacktestTaskResponse(
+    return {"success": True, "data": BacktestTaskResponse(
         task_id=task_id,
         status="running",
         message="回测任务提交成功，正在执行"
-    )
+    ).model_dump()}
 
 
 @router.get("/ultra-short/defaults")
@@ -399,8 +396,8 @@ async def get_ultra_short_history(
         items.append(item)
 
     return {
-        "total": total,
-        "items": items,
+        "success": True,
+        "data": {"total": total, "items": items},
     }
 
 
@@ -655,7 +652,10 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
         results.append(r)
 
     return {
-        "sweep_param": sweep_param,
-        "sweep_values": sweep_values,
-        "results": list(results),
+        "success": True,
+        "data": {
+            "sweep_param": sweep_param,
+            "sweep_values": sweep_values,
+            "results": list(results),
+        }
     }

@@ -15,6 +15,7 @@ import { useScannerStore } from '@/stores/scanner'
 import { useThemeStore } from '@/stores/theme'
 // 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
+import DataGuardBanner from './DataGuardBanner.vue'
 // 【v2.9.120】异步组件加载失败/超时降级UI, 避免白屏
 const AsyncErrorComp = { render: () => h(ElEmpty, { description: '组件加载失败,请刷新页面重试' }) }
 const AsyncLoadingComp = { render: () => h('div', { style: 'padding:40px;text-align:center;color:#999' }, '加载中...') }
@@ -124,6 +125,8 @@ const {
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">
+    <!-- 数据运行时告警 -->
+    <DataGuardBanner />
     <!-- 顶部状态栏(一行: 风控+状态+资产+操作) -->
     <div class="mm-header">
       <div class="hh-left">

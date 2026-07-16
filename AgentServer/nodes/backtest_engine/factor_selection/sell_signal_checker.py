@@ -307,7 +307,7 @@ def check_intraday_profit_lock(holding, market_data, params):
     注意: 此信号与止盈不冲突——止盈是high触达止盈价(无论收盘如何),
     利润锁定是high远离止盈价但close回吐太多利润。
     """
-    open_price = market_data.get('open', 0)
+    market_data.get('open', 0)
     close_price = market_data.get('close', 0)
     high_price = market_data.get('high', 0)
     cost = holding.get('cost', 0)

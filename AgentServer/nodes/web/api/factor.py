@@ -12,7 +12,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query
 
 from core.constants import C
 from core.managers import mongo_manager
@@ -664,7 +664,6 @@ async def get_update_status():
     ]
 
     try:
-        from nodes.market_monitor.data_source_router import DataSourceRouter  # noqa: F401
         data_sources.append({"name": "eastmoney_api", "available": True})
     except Exception:
         data_sources.append({"name": "eastmoney_api", "available": False})

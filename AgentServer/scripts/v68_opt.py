@@ -116,14 +116,14 @@ async def main():
     # Sell reason stats
     srs = result.get('sell_reason_stats', {})
     if srs:
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for k, v in sorted(srs.items(), key=lambda x: -x[1]):
             if v > 0:
                 print(f"    {k}: {v}")
     
     # V67 baseline comparison
     print(f"\n{'='*65}")
-    print(f"📊 V67→V68 对比")
+    print("📊 V67→V68 对比")
     print(f"{'='*65}")
     v67 = {'tr': 315.10, 'md': 3.45, 'sr': 14.10, 'wr': 82.9, 'plr': 3.05, 'tt': 117}
     print(f"  收益:   {v67['tr']:.2f}% → {tr:.2f}% ({tr-v67['tr']:+.2f}%)")
@@ -146,6 +146,6 @@ async def main():
             'elapsed': elapsed, 'strategy_results': strategy_results,
             'sell_reason_stats': srs,
         }, f, indent=2)
-    print(f"\n📁 结果已保存")
+    print("\n📁 结果已保存")
 
 asyncio.run(main())

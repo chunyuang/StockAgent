@@ -181,7 +181,6 @@ class PerformanceReportGenerator:
             losing_trades = 0
             total_profit = 0.0
             total_loss = 0.0
-            daily_returns = []
             
             for trade in trades:
                 if trade["direction"] == "sell":

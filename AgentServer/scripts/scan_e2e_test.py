@@ -12,10 +12,7 @@
 
 import sys
 import os
-import time
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -111,7 +108,7 @@ def test_e2e_scan():
     
     scorer = StrategyScorer(scanner=MockScanner())
     merged = scorer.merge_factors(realtime_data)
-    print(f"\n  === merge_factors结果 ===")
+    print("\n  === merge_factors结果 ===")
     print(f"  输出: {len(merged)}只, {len(merged.columns)}个字段")
     
     # 6. 检查关键字段
@@ -120,14 +117,14 @@ def test_e2e_scan():
         'pullback_days': (merged['pullback_days'] != 0).sum(),
         'limit_up_count': (merged['limit_up_count'] != 0).sum(),
     }
-    print(f"\n  关键字段非0统计:")
+    print("\n  关键字段非0统计:")
     for field, count in fields_check.items():
         print(f"    {field}: {count}/{len(merged)} ({count/len(merged)*100:.1f}%)")
     
     # 7. 策略筛选
     try:
         signals = scorer.apply_strategies(merged)
-        print(f"\n  === 策略筛选结果 ===")
+        print("\n  === 策略筛选结果 ===")
         if signals:
             strategy_counts = {}
             for sig in signals:
@@ -141,7 +138,7 @@ def test_e2e_scan():
         print(f"    策略筛选异常: {e}")
     
     # 8. 验证dragon_head条件可满足性
-    print(f"\n  === dragon_head条件可满足性 ===")
+    print("\n  === dragon_head条件可满足性 ===")
     if len(merged) > 0:
         # 条件逐项统计
         conditions = {
@@ -167,7 +164,7 @@ def test_e2e_scan():
         ).sum()
         print(f"\n    🐉 dragon_head全部条件通过: {all_pass}只")
         if all_pass > 0:
-            print(f"    ✅ dragon_head策略可产出信号!")
+            print("    ✅ dragon_head策略可产出信号!")
             # 打印通过的股票
             passed = merged[
                 (merged.get('circ_mv_prev', pd.Series(0)) >= 300000) &
@@ -181,7 +178,7 @@ def test_e2e_scan():
                 print(f"      {row.get('ts_code','?')} pullback_pct={row.get('pullback_pct',0):.4f} "
                       f"luc={row.get('limit_up_count',0)} circ_mv_prev={row.get('circ_mv_prev',0)/10000:.0f}亿")
         else:
-            print(f"    ⚠️ 50只样本中无dragon_head候选(正常, 需更大样本)")
+            print("    ⚠️ 50只样本中无dragon_head候选(正常, 需更大样本)")
     
     return True
 

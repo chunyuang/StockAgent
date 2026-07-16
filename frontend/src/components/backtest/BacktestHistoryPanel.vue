@@ -174,7 +174,7 @@ async function handleDelete(item: BacktestHistoryItem) {
   try { await ElMessageBox.confirm(`确定删除 ${item.start_date||'?'}~${item.end_date||'?'} 的回测记录？`, '删除确认', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }) }
   catch (e) { console.debug('[BacktestHistory] delete confirm cancelled'); return }
   try { await deleteBacktestHistory(item.task_id); ElMessage.success('已删除'); await loadHistory() }
-  catch (e: any) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+  catch (e: any) { console.error('[BacktestHistory] delete failed:', e); ElMessage.error(e?.response?.data?.detail || '删除失败') }
 }
 
 // 格式化

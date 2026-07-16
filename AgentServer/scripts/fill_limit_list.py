@@ -3,11 +3,9 @@
 
 用法: python3 fill_limit_list.py [--start 20251009] [--end 20260508]
 """
-import sys
 import time
 import argparse
-from pymongo import MongoClient, UpdateOne
-from datetime import datetime
+from pymongo import MongoClient
 
 import akshare as ak
 
@@ -239,7 +237,7 @@ def supplement_bj_from_ak_full(db, start=None, end=None):
                 db.limit_list.insert_many(docs, ordered=False)
                 total_added += len(docs)
                 print(f"  {td}: 补充{len(docs)}只北交所涨停")
-            except Exception as e:
+            except Exception:
                 # 可能重复插入，跳过
                 pass
     
@@ -281,7 +279,7 @@ def main():
         if zt_df is not None and len(zt_df) > 0:
             docs = process_zt_df(zt_df, td)
             if docs:
-                result = db.limit_list.insert_many(docs, ordered=False)
+                db.limit_list.insert_many(docs, ordered=False)
                 zt_count = len(docs)
                 total_zt += zt_count
         elif "no_data" in str(status):
@@ -296,7 +294,7 @@ def main():
         if dt_df is not None and len(dt_df) > 0:
             docs = process_dt_df(dt_df, td)
             if docs:
-                result = db.limit_list.insert_many(docs, ordered=False)
+                db.limit_list.insert_many(docs, ordered=False)
                 dt_count = len(docs)
                 total_dt += dt_count
         elif "no_data" in str(status):
@@ -312,7 +310,7 @@ def main():
         print(f"⚠️ 失败{len(failed)}天: {failed}")
     
     # 补充北交所涨停(必盈API不覆盖)
-    print(f"\n=== 补充北交所涨停(ak_full→limit_list) ===")
+    print("\n=== 补充北交所涨停(ak_full→limit_list) ===")
     supplement_bj_from_ak_full(db, args.start, args.end)
 
 

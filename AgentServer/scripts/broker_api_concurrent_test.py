@@ -11,11 +11,8 @@
 import sys
 import os
 import json
-import time
 import threading
 import pymongo
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 

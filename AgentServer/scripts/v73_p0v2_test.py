@@ -81,8 +81,8 @@ async def main():
     tt = perf.get('total_trades', 0)
     wt = perf.get('winning_trades', 0)
     lt = perf.get('losing_trades', 0)
-    alpha = perf.get('alpha', 0)
-    sortino = perf.get('sortino_ratio', 0)
+    perf.get('alpha', 0)
+    perf.get('sortino_ratio', 0)
     
     print(f"\n{'='*65}")
     print(f"📊 V73-P0v2 结果 ({elapsed:.1f}s)")
@@ -106,14 +106,14 @@ async def main():
     srs = result.get('sell_reason_stats', {})
     if srs:
         total_sells = sum(srs.values())
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for k, v in sorted(srs.items(), key=lambda x: -x[1]):
             if v > 0:
                 print(f"    {k}: {v} ({v/total_sells*100:.1f}%)")
     
     # Comparison
     print(f"\n{'='*65}")
-    print(f"📊 V73基线→P0v2对比 (P0-1:slow 0.55→0.65, P0-2:半路hold_prot 4%→3%, P0-3:lock_min_high 6%→5.5%)")
+    print("📊 V73基线→P0v2对比 (P0-1:slow 0.55→0.65, P0-2:半路hold_prot 4%→3%, P0-3:lock_min_high 6%→5.5%)")
     print(f"{'='*65}")
     v73 = {'tr': 325.41, 'md': 3.29, 'sr': 14.54, 'wr': 83.1, 'plr': 3.12, 'tt': 118}
     print(f"  收益:   {v73['tr']:.2f}% → {tr:.2f}% ({tr-v73['tr']:+.2f}%)")

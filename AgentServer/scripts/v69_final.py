@@ -109,14 +109,14 @@ async def main():
     
     srs = result.get('sell_reason_stats', {})
     if srs:
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for k, v in sorted(srs.items(), key=lambda x: -x[1]):
             if v > 0:
                 print(f"    {k}: {v}")
     
     # V68 baseline comparison
     print(f"\n{'='*65}")
-    print(f"📊 V68→V69 最终对比")
+    print("📊 V68→V69 最终对比")
     print(f"{'='*65}")
     v68 = {'tr': 315.52, 'md': 3.46, 'sr': 14.14, 'wr': 83.1, 'plr': 3.13, 'tt': 118}
     v68_sr = {'跌停翘板': (317.80, 10.30, 3.42), '龙头低吸': (307.89, 3.16, 3.43), '半路追涨': (162.43, 3.67, 2.58), '首板打板': (85.51, 5.58, 2.51)}
@@ -136,6 +136,6 @@ async def main():
     
     with open(os.path.join(BASE, 'V69_final_result.json'), 'w') as f:
         json.dump(result, f, default=str, indent=2, ensure_ascii=False)
-    print(f"\n📁 结果已保存")
+    print("\n📁 结果已保存")
 
 asyncio.run(main())

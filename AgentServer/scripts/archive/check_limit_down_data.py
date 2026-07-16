@@ -64,7 +64,7 @@ async def check_limit_down_data():
     
     if result:
         stats = result[0]
-        print(f'\n3. 20260105 跌停统计:')
+        print('\n3. 20260105 跌停统计:')
         print(f'   总股票数: {stats.get("total_stocks", 0)}')
         print(f'   跌停数量: {stats.get("limit_down_count", 0)}')
         print(f'   跌停比例: {stats.get("limit_down_count", 0)/stats.get("total_stocks", 1)*100:.2f}%')

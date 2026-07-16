@@ -27,7 +27,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Optional, Callable, Awaitable, List, Any, Tuple
+from typing import Dict, Optional, Callable, List, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -262,8 +262,7 @@ class RiskWatchdog:
         scan_count = stats.get("scans", 0)
 
         # 检查最近时间线(信号产出)
-        recent_trades = [t for t in self._scanner._timeline
-                        if now - t.get("_timestamp", now) < 1800]  # 最近30分钟
+        # recent_trades仅用于调试, 不影响判断逻辑
 
         if scan_count > 10 and total_signals == 0:
             return HealthCheck(
@@ -395,7 +394,7 @@ class RiskWatchdog:
                 for handler in self._alert_channels:
                     try:
                         from nodes.market_monitor.signal_dispatcher import (
-                            SignalDispatcher, DispatchSignal, SignalPriority
+                            DispatchSignal, SignalPriority
                         )
                         alert_signal = DispatchSignal(
                             signal_id=f"watchdog|stop_loss_breach|{int(now)}",
@@ -604,7 +603,7 @@ class RiskWatchdog:
 
         # 构建告警信号
         from nodes.market_monitor.signal_dispatcher import (
-            SignalDispatcher, DispatchSignal, SignalPriority
+            DispatchSignal, SignalPriority
         )
 
         priority = SignalPriority.CRITICAL if check.status in (HealthStatus.CRITICAL, HealthStatus.DEAD) else SignalPriority.HIGH

@@ -120,7 +120,7 @@ async def main():
     
     # V73 baseline comparison
     print(f"\n{'='*65}")
-    print(f"📊 V73 基线→P0优化 对比")
+    print("📊 V73 基线→P0优化 对比")
     print(f"{'='*65}")
     v73 = {'tr': 325.41, 'md': 3.29, 'sr': 14.54, 'wr': 83.1, 'plr': 3.12, 'tt': 118}
     print(f"  收益:   {v73['tr']:.2f}% → {tr:.2f}% ({tr-v73['tr']:+.2f}%)")

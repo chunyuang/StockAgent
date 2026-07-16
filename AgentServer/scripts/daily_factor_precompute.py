@@ -11,7 +11,6 @@ import sys
 import os
 import time
 import argparse
-from datetime import datetime, timedelta
 
 # 添加项目路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -60,7 +59,7 @@ def precompute_factors(trade_date: int):
     
     raw = list(db.stock_daily_ak_full.aggregate(pipeline, allowDiskUse=True))
     if not raw:
-        print(f"  ⚠️ 无数据")
+        print("  ⚠️ 无数据")
         return 0
     
     df = pd.DataFrame(raw)
@@ -101,7 +100,7 @@ def precompute_factors(trade_date: int):
                     update[name] = round(ma, 2)
         
         # 涨跌停判断
-        close = float(row.get('close', 0))
+        float(row.get('close', 0))
         pre_close = float(row.get('pre_close', 0))
         pct_chg = float(row.get('pct_chg', 0)) if pd.notna(row.get('pct_chg')) else 0
         

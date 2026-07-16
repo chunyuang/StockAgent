@@ -1,26 +1,17 @@
 #!/usr/bin/env python3
 """Scanner API - 日报/周报/历史复盘"""
-import asyncio
-import logging
-import math
-from nodes.web.api.unified import query_trades, query_latest_trade
+from nodes.web.api.unified import query_trades
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter
 
-from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 【v2.9.88】统一日期规范化函数
 from nodes.web.api.scanner_review import _normalize_date
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner, _clean_mongo, logger,
     prod_scan_query, normalize_data_mode, is_debug_scan_doc,
 )
 
@@ -411,7 +402,7 @@ async def get_historical_review(date: str = None, mode: str = "production", incl
                     timeout=15.0  # 最多15秒
                 )
             except _asyncio.TimeoutError:
-                logger.warning(f"historical-review: sub-module aggregation timed out (15s), returning partial data")
+                logger.warning("historical-review: sub-module aggregation timed out (15s), returning partial data")
                 _results = [_sub_data[k] for k in ["trade_attributions", "discipline_check", "execution_quality", "forward_advice"]]
             _keys = ["trade_attributions", "discipline_check", "execution_quality", "forward_advice"]
             for i, key in enumerate(_keys):

@@ -127,7 +127,7 @@ async def main():
     # Monthly profit
     mp = perf.get('monthly_profit', {})
     if mp:
-        print(f"\n  月度盈亏:")
+        print("\n  月度盈亏:")
         for k, v in sorted(mp.items()):
             print(f"    {k}: {v:.2f}%")
     

@@ -39,7 +39,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable, Awaitable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger("scanner.tiered")
 

@@ -115,7 +115,7 @@ def fill_missing_dates():
     tencent_codes = [ts_code_to_tencent(c) for c in all_codes]
     
     # 批量获取行情
-    print(f'\n获取全市场行情...')
+    print('\n获取全市场行情...')
     quotes = get_batch_quotes(tencent_codes, batch_size=50)
     print(f'获取到 {len(quotes)} 只股票行情')
     

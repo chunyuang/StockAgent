@@ -2,7 +2,6 @@
 重算is_limit_up/is_limit_down及衍生因子
 基于pct_chg阈值而非前复权价格匹配
 """
-import sys
 from pymongo import MongoClient
 from collections import defaultdict
 

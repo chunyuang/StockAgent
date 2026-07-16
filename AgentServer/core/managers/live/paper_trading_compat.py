@@ -12,8 +12,7 @@
 保留 PaperTradingEngine 接口签名, 内部调用 SimTradingEngine
 """
 import logging
-from typing import Dict, List, Optional, Any
-from datetime import datetime
+from typing import Dict, List
 
 from core.managers.sim_trading_engine import SimTradingEngine
 

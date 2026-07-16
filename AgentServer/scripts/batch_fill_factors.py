@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """独立补算5/15和5/19缺失的因子（无需导入backtest_engine模块）"""
-import asyncio
 import sys
 import os
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'nodes'))
 
 import pandas as pd
-import numpy as np
 from pymongo import MongoClient, UpdateOne
 
 db = MongoClient('localhost', 27017)['stock_agent']
@@ -108,7 +105,7 @@ def compute_strategy_factors(td):
     for doc in cursor:
         update = {}
         pct = doc.get('pct_chg') or 0
-        close = doc.get('close') or 0
+        doc.get('close') or 0
         pre_close = doc.get('pre_close') or 0
         open_price = doc.get('open') or 0
         
@@ -168,8 +165,8 @@ def compute_technical_factors(td):
         close_arr = df['close'].fillna(0).values.astype(float)
         high_arr = df['high'].fillna(0).values.astype(float)
         low_arr = df['low'].fillna(0).values.astype(float)
-        open_arr = df['open'].fillna(0).values.astype(float)
-        vol_arr = df['vol'].fillna(0).values.astype(float)
+        df['open'].fillna(0).values.astype(float)
+        df['vol'].fillna(0).values.astype(float)
         
         update = {}
         try:

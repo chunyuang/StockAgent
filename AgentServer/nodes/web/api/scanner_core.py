@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """Scanner API - 核心状态/控制/持仓/信号"""
 import asyncio
-import logging
-import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
-    mark_timeline_session, normalize_data_mode,
+    _get_scanner, _get_scanner_instance, _fill_stock_names,
+    _safe_read_shared, logger, ScannerStartRequest,
+    StopScannerRequest, mark_timeline_session, normalize_data_mode,
 )
 
 router = APIRouter(prefix="/scanner", tags=["核心状态/控制/持仓/信号"])
@@ -172,7 +167,7 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                         }
                         today_closed.append(entry)
                     today_closed.sort(key=lambda x: x.get("sell_time") or "")
-                except Exception as _e:
+                except Exception:
                     today_closed = []
                 # 用scanner内存补充实时字段
                 if scanner._broker:
@@ -499,8 +494,22 @@ async def start_scanner(req: ScannerStartRequest):
         scanner_shared._scanner_instance = MarketScanner(account_id=req.account_id, config=config)
 
     scanner = scanner_shared._scanner_instance
+    # 【v2.9.113修复】假运行检测: _is_running=True但scan_loop没跑(start/stop不对称导致)
+    # 之前: if _is_running -> 直接返回"已在运行中", 不检查scan_loop是否真的在跑
+    # 现在: 检查_is_running + (scan_count>0 或 _task存活), 否则清除假状态并重启
     if scanner._is_running:
-        return {"success": True, "data": {"message": "已在运行中"}}
+        # 检查scan_loop是否真的在跑
+        task_alive = scanner._task is not None and not scanner._task.done()
+        has_scanned = scanner._scan_count > 0 or scanner._last_scan_time
+        if task_alive or has_scanned:
+            return {"success": True, "data": {"message": "已在运行中"}}
+        # 假运行! _is_running=True但scan_loop已死
+        logger.warning("[SCANNER] 检测到假运行: _is_running=True但scan_loop未运行, 正在重启...")
+        scanner._is_running = False
+        scanner._risk_running = False
+        if scanner._task:
+            scanner._task.cancel()
+            scanner._task = None
     
     # 后台启动(用run_in_executor避免阻塞事件循环)
     loop = asyncio.get_event_loop()
@@ -508,11 +517,6 @@ async def start_scanner(req: ScannerStartRequest):
     effective_trade_date = req.trade_date or req.replay_date
     loop.create_task(scanner.start(trade_date=effective_trade_date))
     return {"success": True, "data": {"message": "扫描器启动中..."}}
-
-
-class StopScannerRequest(BaseModel):
-    sell_all: bool = False  # 是否清仓所有持仓
-
 
 
 @router.post("/stop")
@@ -730,7 +734,6 @@ async def get_limit_pools():
     async def _build_result():
         scanner = await _get_scanner()
         try:
-            from core.settings import settings
             now = datetime.now()
             is_trading = (now.hour >= 9 and now.hour < 15) or (now.hour == 9 and now.minute >= 15)
             
@@ -905,8 +908,6 @@ async def reset_account(request: Request):
     2. 记录完整审计日志 (调用时间/IP/被删数量/UA)
     3. 删除前自动备份 broker_orders / broker_positions / broker_accounts 到备份集合
     """
-    from fastapi import Request as _Req  # noqa: F401
-    import json as _json
     from datetime import datetime as _dt
     
     # 【防护1】二次确认
@@ -1521,7 +1522,7 @@ async def get_position_risk_matrix(date: str = None):
                 },
                 "_fallback": True,
             }}
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return {"success": True, "data": {"positions": [], "global": {}}}
@@ -1744,7 +1745,6 @@ async def get_position_risk_matrix(date: str = None):
             # D10: 持仓天数 (0-3分) — 持仓越久不确定性越高
             d10_holding_days = 0
             try:
-                from nodes.web.api.unified import _normalize_date as _nd2
                 buy_date_int = getattr(pos, 'buy_date_int', 0) or 0
                 if buy_date_int > 0:
                     import datetime as _dt3
@@ -1787,7 +1787,7 @@ async def get_position_risk_matrix(date: str = None):
             try:
                 _strat = pos.strategy or "unknown"
                 if hasattr(scanner, '_stats') and scanner._stats:
-                    strat_key = _norm_strat(_strat) if 'norm_strat' in dir() else _strat
+                    strat_key = _strat  # _norm_strat可能未定义,直接用原名
                     # 从scanner._stats取策略胜率(粗略)
                     _s_wr = scanner._stats.get(f"{strat_key}_win_rate", 0)
                     if _s_wr and _s_wr < 30: d15_strategy_wr = 2

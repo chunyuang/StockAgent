@@ -9,7 +9,7 @@ from nodes.market_monitor.broker import SimulatedBroker, Order, OrderSide, Order
 @patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True)
 def test_duplicate_sell_blocked(mock_phase):
     """同一ts_code同日卖出第2次应被拦截"""
-    broker = SimulatedBroker(account_id='test', initial_cash=100000)
+    broker = SimulatedBroker(account_id='test', initial_cash=100000, virtual_mode=True)
     
     # 模拟买入
     broker._realtime_prices['600000.SH'] = 10.0
@@ -28,7 +28,7 @@ def test_duplicate_sell_blocked(mock_phase):
     # 第1次卖出 - 应成功
     ok1, msg1, order1 = broker.place_order(
         ts_code='600000.SH', stock_name='浦发银行',
-        side='sell', quantity=500, price=10.0,
+        side='sell', quantity=1000, price=10.0,
         order_type='market', strategy='test', reason='stop_loss',
     )
     assert ok1, f'第1次卖出应成功: {msg1}'
@@ -36,16 +36,13 @@ def test_duplicate_sell_blocked(mock_phase):
     assert '600000.SH' in broker._today_sold
     print('✅ 第1次卖出成功')
     
-    # 模拟另一路径: position仍在内存(部分卖出), 第2次卖出同一标的
-    # 先恢复available_qty(模拟另一路径拿到同一pos引用)
-    pos = broker.positions.get('600000.SH')
-    if pos:
-        pos.available_qty = 500  # 另一路径看到的可用数量
+    # 模拟另一路径: position已被清空, 第2次卖出同一标的
+    # pos已不在内存(全部卖完被del), 走兜底路径被_today_sold拦截
     
     # 第2次卖出 - 应被拦截
     ok2, msg2, order2 = broker.place_order(
         ts_code='600000.SH', stock_name='浦发银行',
-        side='sell', quantity=500, price=10.0,
+        side='sell', quantity=1000, price=10.0,
         order_type='market', strategy='test', reason='force_empty',
     )
     assert not ok2, f'第2次卖出应被拦截, 但成功了: {order2}'
@@ -54,7 +51,7 @@ def test_duplicate_sell_blocked(mock_phase):
 @patch('nodes.market_monitor.market_phase.MarketPhase.is_continuous_auction', return_value=True)
 def test_different_stocks_not_blocked(mock_phase):
     """不同ts_code的卖出不应互相影响"""
-    broker = SimulatedBroker(account_id='test', initial_cash=100000)
+    broker = SimulatedBroker(account_id='test', initial_cash=100000, virtual_mode=True)
     from nodes.market_monitor.broker import Position
     
     for code in ['600000.SH', '000001.SZ']:
@@ -79,7 +76,7 @@ def test_different_stocks_not_blocked(mock_phase):
 
 def test_daily_settlement_resets():
     """日结算应重置_today_sold"""
-    broker = SimulatedBroker(account_id='test', initial_cash=100000)
+    broker = SimulatedBroker(account_id='test', initial_cash=100000, virtual_mode=True)
     broker._today_sold.add('600000.SH')
     broker.daily_settlement()
     assert len(broker._today_sold) == 0

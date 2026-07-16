@@ -11,7 +11,7 @@
 import asyncio
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from core.managers import mongo_manager
@@ -20,7 +20,7 @@ from pymongo import UpdateOne
 
 async def compute_sentiment(trade_date: int, db) -> dict:
     """计算单个交易日的情绪得分"""
-    td_str = str(trade_date)
+    str(trade_date)
     
     # 1. 从limit_list获取涨跌停(最准确)
     lu = await db["limit_list"].count_documents({"trade_date": trade_date, "limit": "U"})

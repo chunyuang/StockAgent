@@ -190,22 +190,22 @@ export interface FactorListResponse {
 /**
  * 提交回测任务
  */
-export async function submitBacktest(request: BacktestRequest): Promise<BacktestTaskResponse> {
-  return api.post<BacktestTaskResponse>('/backtest/submit', request)
+export async function submitBacktest(request: BacktestRequest): Promise<{success: boolean, data: BacktestTaskResponse}> {
+  return api.post<{success: boolean, data: BacktestTaskResponse}>('/backtest/submit', request)
 }
 
 /**
  * 查询回测任务状态
  */
 export async function getBacktestStatus(taskId: string): Promise<{success: boolean, data: BacktestStatus}> {
-  return api.get(`/backtest/status/${taskId}`)
+  return api.get<{success: boolean, data: BacktestStatus}>(`/backtest/status/${taskId}`)
 }
 
 /**
  * 获取回测结果
  */
 export async function getBacktestResult(taskId: string): Promise<{success: boolean, data: BacktestResult}> {
-  return api.get(`/backtest/result/${taskId}`)
+  return api.get<{success: boolean, data: BacktestResult}>(`/backtest/result/${taskId}`)
 }
 
 /**
@@ -216,12 +216,12 @@ export async function getBacktestHistory(
   limit: number = 20,
   offset: number = 0,
   taskType?: 'single' | 'factor_selection'
-): Promise<{ total: number; items: BacktestHistoryItem[] }> {
+): Promise<{success: boolean, data: {total: number, items: BacktestHistoryItem[]}}> {
   const params: Record<string, unknown> = { limit, offset }
   if (taskType) {
     params.task_type = taskType
   }
-  return api.get<{ total: number; items: BacktestHistoryItem[] }>(
+  return api.get<{success: boolean, data: {total: number, items: BacktestHistoryItem[]}}>(
     '/backtest/history',
     { params }
   )
@@ -230,15 +230,15 @@ export async function getBacktestHistory(
 /**
  * 取消回测任务
  */
-export async function cancelBacktest(taskId: string): Promise<{ task_id: string; status: string }> {
-  return api.delete<{ task_id: string; status: string }>(`/backtest/${taskId}`)
+export async function cancelBacktest(taskId: string): Promise<{success: boolean, data: {task_id: string, status: string}}> {
+  return api.delete<{success: boolean, data: {task_id: string, status: string}}>(`/backtest/${taskId}`)
 }
 
 /**
  * 获取可用因子列表
  */
-export async function getFactors(): Promise<FactorListResponse> {
-  return api.get<FactorListResponse>('/backtest/factors')
+export async function getFactors(): Promise<{success: boolean, data: FactorListResponse}> {
+  return api.get<{success: boolean, data: FactorListResponse}>('/backtest/factors')
 }
 
 /**
@@ -297,23 +297,23 @@ export interface UltraShortBacktestRequest {
 /**
  * 提交超短策略回测
  */
-export async function submitUltraShort(request: UltraShortBacktestRequest): Promise<BacktestTaskResponse> {
-  return api.post<BacktestTaskResponse>('/backtest/ultra-short', request)
+export async function submitUltraShort(request: UltraShortBacktestRequest): Promise<{success: boolean, data: BacktestTaskResponse}> {
+  return api.post<{success: boolean, data: BacktestTaskResponse}>('/backtest/ultra-short', request)
 }
 
 /**
  * 提交因子选股回测
  */
-export async function submitFactorSelection(request: FactorSelectionRequest): Promise<BacktestTaskResponse> {
-  return api.post<BacktestTaskResponse>('/backtest/factor-selection', request)
+export async function submitFactorSelection(request: FactorSelectionRequest): Promise<{success: boolean, data: BacktestTaskResponse}> {
+  return api.post<{success: boolean, data: BacktestTaskResponse}>('/backtest/factor-selection', request)
 }
 
 /**
  * 获取超短策略回测默认配置
  * 从后端环境变量/.env读取，返回给前端用于初始化
  */
-export async function getUltraShortDefaults(): Promise<any> {
-  return api.get<any>('/backtest/ultra-short/defaults')
+export async function getUltraShortDefaults(): Promise<{success: boolean, data: any}> {
+  return api.get<{success: boolean, data: any}>('/backtest/ultra-short/defaults')
 }
 
 // ==================== 回测日志 API ====================
@@ -364,15 +364,15 @@ export interface BacktestLogParams {
 export async function getBacktestLogs(
   taskId: string,
   params?: BacktestLogParams
-): Promise<BacktestLogsResponse> {
-  return api.get<BacktestLogsResponse>(`/backtest/logs/${taskId}`, { params })
+): Promise<{success: boolean, data: BacktestLogsResponse}> {
+  return api.get<{success: boolean, data: BacktestLogsResponse}>(`/backtest/logs/${taskId}`, { params })
 }
 
 /**
  * 获取回测日志摘要
  */
-export async function getBacktestLogSummary(taskId: string): Promise<any> {
-  return api.get<any>(`/backtest/logs/${taskId}/summary`)
+export async function getBacktestLogSummary(taskId: string): Promise<{success: boolean, data: any}> {
+  return api.get<{success: boolean, data: any}>(`/backtest/logs/${taskId}/summary`)
 }
 
 // ==================== 回测历史 API ====================
@@ -389,15 +389,15 @@ export async function getUltraShortHistory(params?: {
   limit?: number
   offset?: number
   status?: string
-}): Promise<BacktestHistoryResponse> {
-  return api.get<BacktestHistoryResponse>('/backtest/ultra-short/history', { params })
+}): Promise<{success: boolean, data: BacktestHistoryResponse}> {
+  return api.get<{success: boolean, data: BacktestHistoryResponse}>('/backtest/ultra-short/history', { params })
 }
 
 /**
  * 删除回测历史记录
  */
-export async function deleteBacktestHistory(taskId: string): Promise<{ task_id: string; status: string; message: string }> {
-  return api.delete<{ task_id: string; status: string; message: string }>(`/backtest/history/${taskId}`)
+export async function deleteBacktestHistory(taskId: string): Promise<{success: boolean, data: {task_id: string, status: string, message: string}}> {
+  return api.delete<{success: boolean, data: {task_id: string, status: string, message: string}}>(`/backtest/history/${taskId}`)
 }
 
 // ==================== 参数扫描 API ====================
@@ -423,8 +423,8 @@ export async function submitSweepBacktest(request: UltraShortBacktestRequest & {
   sweep_start: number
   sweep_end: number
   sweep_step: number
-}): Promise<SweepResult> {
-  return api.post<SweepResult>('/backtest/ultra-short/sweep', request)
+}): Promise<{success: boolean, data: SweepResult}> {
+  return api.post<{success: boolean, data: SweepResult}>('/backtest/ultra-short/sweep', request)
 }
 
 export default {
@@ -456,6 +456,6 @@ export interface HealthCheckResult {
 /**
  * 系统健康检查（一键服务检查）
  */
-export async function systemHealthCheck(): Promise<HealthCheckResult> {
-  return api.get<HealthCheckResult>('/system/health')
+export async function systemHealthCheck(): Promise<{success: boolean, data: HealthCheckResult}> {
+  return api.get<{success: boolean, data: HealthCheckResult}>('/system/health')
 }

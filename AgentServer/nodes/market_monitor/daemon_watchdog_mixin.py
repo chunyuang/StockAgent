@@ -14,8 +14,7 @@ import json
 import logging
 import multiprocessing
 import time
-from dataclasses import asdict
-from typing import Optional
+import asyncio
 
 logger = logging.getLogger("scanner.daemon")
 

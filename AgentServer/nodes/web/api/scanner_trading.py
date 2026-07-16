@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 """Scanner API - 交易/买卖/熔断/结算"""
-import asyncio
-import logging
-import math
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 
-from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
-from nodes.web.api.unified import query_trades, query_trade_one
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner, _get_scanner_instance, _fill_stock_names,
+    logger, ManualTradeRequest, PartialSellRequest,
+    ScanOnceRequest, PauseRequest,
 )
 
 router = APIRouter(prefix="/scanner", tags=["交易/买卖/熔断/结算"])
@@ -225,10 +218,6 @@ async def reset_circuit_breaker():
         raise HTTPException(400, "扫描器不支持熔断重置")
 
 
-class PauseRequest(BaseModel):
-    reason: str = "手动暂停"
-
-
 
 @router.post("/circuit-breaker/pause")
 async def pause_circuit_breaker(req: PauseRequest = None):
@@ -240,12 +229,6 @@ async def pause_circuit_breaker(req: PauseRequest = None):
     scanner._circuit_breaker["trading_paused"] = True
     scanner._circuit_breaker["pause_reason"] = reason
     return {"success": True, "data": {"message": f"交易已暂停: {reason}"}}
-
-
-class ScanOnceRequest(BaseModel):
-    force: bool = False
-    replay_date: Optional[str] = None  # 回放日期, 设置后使用历史数据
-
 
 
 @router.post("/scan-once")
@@ -427,7 +410,6 @@ async def get_trade_detail(ts_code: str, date: str = None):
     # 当前scanner的trade_date
     scanner_date = getattr(scanner, '_trade_date', '') or ''
     target_date = date or scanner_date
-    date_label = target_date[4:] if len(target_date) == 8 else target_date  # MMDD格式
     
     detail = {
         "ts_code": ts_code,
@@ -478,8 +460,9 @@ async def get_trade_detail(ts_code: str, date: str = None):
                     if not sell_pct and not sell_amt:
                         try:
                             from nodes.web.api.pnl_helper import build_buy_price_index, fallback_pnl
+                            _db = scanner._broker._mongo_db or mongo_manager.db
                             buy_index = await build_buy_price_index(
-                                db, account_id=scanner._broker.account.account_id
+                                _db, account_id=scanner._broker.account.account_id
                             )
                             sell_pct, sell_amt = fallback_pnl(doc, buy_index)
                         except Exception:
@@ -787,13 +770,7 @@ async def export_trade_log():
                 pct_val = doc.get("profit_pct", "")
                 amt_val = doc.get("profit_amount", "")
                 if doc.get("side") in ("sell", "SELL"):
-                    try:
-                        from nodes.web.api.pnl_helper import fallback_pnl
-                        # buy_index 在循环外构建一次
-                        if 'buy_index_export' not in dir():
-                            pass
-                    except Exception:
-                        pass
+                    pass  # sell pnl在前面已处理
                 rows.append({
                     "time": doc.get("fill_time", "") or doc.get("create_time", ""),
                     "action": doc.get("side", ""),
@@ -1010,7 +987,25 @@ async def sell_position(req: PartialSellRequest):
     if sell_qty <= 0:
         raise HTTPException(400, "卖出数量不足1手")
     
-    # 熔断检查(卖出允许, 但记录)
+    # 实时行情获取(确保卖出价格准确)
+    if not scanner._broker._realtime_prices.get(req.ts_code, 0) > 0:
+        try:
+            if scanner._data_router:
+                biying = scanner._data_router._sources.get("biying")
+                if biying:
+                    quote = await biying.get_realtime_quote(req.ts_code)
+                    if quote:
+                        price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
+                        pre_close = float(quote.get("pre_close", 0) if isinstance(quote, dict) else getattr(quote, 'pre_close', 0))
+                        if price > 0:
+                            scanner._broker.update_realtime(req.ts_code, price, pre_close=pre_close)
+                            logger.info(f"[SELL] 自动获取 {req.ts_code} 行情: {price}")
+        except Exception as e:
+            logger.warning(f"[SELL] 自动获取行情失败: {e}")
+    
+    # 使用实时价格或持仓当前价格
+    sell_price = scanner._broker._realtime_prices.get(req.ts_code, 0) or pos.current_price
+    
     reason = req.reason or f"手动卖出{sell_qty}股"
     
     ok, msg, order = scanner._broker.place_order(
@@ -1018,7 +1013,7 @@ async def sell_position(req: PartialSellRequest):
         stock_name=pos.stock_name,
         side="sell",
         quantity=sell_qty,
-        price=pos.current_price,
+        price=sell_price,
         order_type="market",
         strategy=pos.strategy,
         reason=reason,

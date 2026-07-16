@@ -20,13 +20,12 @@ Redis Pub/Sub → WebSocket 日志推送桥接服务
 import json
 import asyncio
 import logging
-from typing import Dict, Set, Optional, Any, List
-from datetime import datetime
+from typing import Dict, Optional, Any
 
 from redis.asyncio.client import PubSub
 from redis.exceptions import ResponseError as redis_exceptions_ResponseError
 
-from core.managers import redis_manager, mongo_manager
+from core.managers import redis_manager
 
 
 logger = logging.getLogger("ws_bridge")
@@ -105,7 +104,7 @@ class RedisWSBridge:
                 CHANNEL_SCANNER_TIMELINE,
                 CHANNEL_SCANNER_STATUS,
             )
-            logger.info(f"Subscribed to Redis channels: backtest+scheduler+scanner")
+            logger.info("Subscribed to Redis channels: backtest+scheduler+scanner")
         except Exception as e:
             logger.error(f"Failed to subscribe to Redis: {e}")
             # Redis订阅失败不阻塞启动，降级为仅MongoDB模式
@@ -147,7 +146,6 @@ class RedisWSBridge:
                 await self._pubsub.close()
             except Exception as e:
                 logger.warning(f"WebSocket error: {e}")
-                pass
             self._pubsub = None
 
         # 【修复风险4：不再停止MongoDB writer】
@@ -234,7 +232,7 @@ class RedisWSBridge:
             except (redis_exceptions_ResponseError, OSError):
                 pass  # 消费组已存在(BUSYGROUP)
         
-        logger.info(f"Stream consumer groups created for signal/position")
+        logger.info("Stream consumer groups created for signal/position")
         
         while self._running:
             try:

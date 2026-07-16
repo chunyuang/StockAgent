@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
 """Scanner API - 策略参数/绩效/快照"""
-import asyncio
-import logging
-import math
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Request
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner, _get_scanner_instance,
 )
 
 router = APIRouter(prefix="/scanner", tags=["策略参数/绩效/快照"])
@@ -40,7 +32,7 @@ async def save_performance_snapshot():
         
         acct = scanner._broker.get_account()
         positions = scanner._broker.get_positions()
-        name_map = getattr(scanner, '_stock_name_map', {})
+        getattr(scanner, '_stock_name_map', {})
         
         snapshot = {
             "account_id": scanner._broker.account.account_id,
@@ -272,7 +264,7 @@ async def get_strategy_performance():
 
         # 1. 从broker_positions读当前持仓
         import datetime as _dt
-        today_str = _dt.datetime.now().strftime("%Y%m%d")
+        _dt.datetime.now().strftime("%Y%m%d")
         positions = await db["broker_positions"].find({}).to_list(1000)
         for pos in positions:
             key = pos.get("strategy") or "manual"

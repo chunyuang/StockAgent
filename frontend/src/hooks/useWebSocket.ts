@@ -230,6 +230,20 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           if (__DEV__) console.log('[WebSocket] Server confirmed connection', message.user_id)
           break
           
+        case 'auth_ok':
+          if (__DEV__) console.log('[WebSocket] Auth confirmed', message.user_id)
+          break
+          
+        case 'auth_failed':
+          console.error('[WebSocket] Auth failed:', message.reason)
+          status.value = 'disconnected'
+          stopHeartbeat()
+          if (wsInstance) {
+            wsInstance.close(1000, 'Auth failed')
+            wsInstance = null
+          }
+          break
+          
         // 【v2.9.49】P1修复: Scanner事件类型映射
         // Bridge发送scanner_signal/position/timeline/status, Store期望signal/position/timeline/status
         case 'scanner_signal':

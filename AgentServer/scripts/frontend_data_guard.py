@@ -19,7 +19,6 @@
 退出码: 0=健康, 1=有问题
 """
 import sys
-import json
 import requests
 from datetime import datetime, timedelta
 from pymongo import MongoClient
@@ -76,7 +75,7 @@ def check_limit_list_fields(db):
     has_limit = sum(1 for d in sample if d.get("limit") in ("U", "D"))
     if has_limit == 0 and len(sample) > 0:
         issues.append(f"limit_list: {len(sample)}条数据中无limit字段(U/D)")
-        print(f"  🔴 limit字段: 0条有值(应有U/D)")
+        print("  🔴 limit字段: 0条有值(应有U/D)")
     else:
         print(f"  ✅ limit字段: {has_limit}/{len(sample)}条有值")
     
@@ -174,7 +173,7 @@ def check_timeline_trade_date_type(db):
         issues.append(f"scanner_timeline: {str_count}条trade_date为string")
         print(f"  🔴 trade_date类型: {dict(types)}")
     else:
-        print(f"  ✅ trade_date类型: 全部int")
+        print("  ✅ trade_date类型: 全部int")
     
     return issues
 
@@ -260,7 +259,7 @@ def check_broker_data_consistency(db):
         issues.append(f"broker_orders: {len(dups)}个重复order_id")
         print(f"  🔴 重复order_id: {len(dups)}个")
     else:
-        print(f"  ✅ 无重复order_id")
+        print("  ✅ 无重复order_id")
     
     # 5b. 检查卖出有无对应买入(只检查今天的, 历史可能缺buy记录)
     today_int = int(datetime.now().strftime("%Y%m%d"))
@@ -274,9 +273,9 @@ def check_broker_data_consistency(db):
             issues.append(f"broker_orders: 今日{len(orphan_sells)}笔卖出无对应买入: {codes}")
             print(f"  🔴 今日无买入的卖出: {len(orphan_sells)}笔 ({codes})")
         else:
-            print(f"  ✅ 今日买卖记录配对完整")
+            print("  ✅ 今日买卖记录配对完整")
     else:
-        print(f"  ✅ 今日无卖出记录")
+        print("  ✅ 今日无卖出记录")
     
     return issues
 
@@ -304,7 +303,7 @@ def check_frontend_api_field_types():
                         issues.append(f"sentiment API: score={score}但zu=0(高分应有涨停)")
                         print(f"  🔴 score={score} zu={zu} → 数据不一致")
         if not issues:
-            print(f"  ✅ sentiment API数据合理")
+            print("  ✅ sentiment API数据合理")
     except Exception as e:
         print(f"  ⚪ sentiment API检查失败: {e}")
     

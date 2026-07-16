@@ -54,7 +54,7 @@ async def main():
         }
     }
     
-    print(f"🚀 V17基线回测 | 2策略(半路追涨+跌停翘板) | 20260105-20260320 | SL5%/TP10%/3天")
+    print("🚀 V17基线回测 | 2策略(半路追涨+跌停翘板) | 20260105-20260320 | SL5%/TP10%/3天")
     t0 = time.time()
     result = await execute_ultra_short_backtest(
         params=params, push_log_fn=push_log, node_logger=None, task_id=task_id,

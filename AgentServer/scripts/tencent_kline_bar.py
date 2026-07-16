@@ -51,7 +51,7 @@ def fetch_kline(qq_code, start_date, end_date):
             if isinstance(v, dict) and 'qfqday' in v:
                 return v['qfqday']
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 def main():
@@ -121,7 +121,7 @@ def main():
                         upsert=True
                     ))
                     total_fetched += 1
-                except (ValueError, IndexError) as e:
+                except (ValueError, IndexError):
                     errors += 1
         
         if ops:

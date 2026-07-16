@@ -23,14 +23,12 @@ import json
 import logging
 import multiprocessing
 import os
-import signal
 import sys
 import time
 import traceback
-import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, Optional, Callable
 
 from nodes.market_monitor.daemon_command_mixin import DaemonCommandMixin  # 【v2.9.68提取到mixin】
 from nodes.market_monitor.daemon_subscription_mixin import DaemonSubscriptionMixin  # 【v2.9.68提取到mixin】
@@ -120,7 +118,7 @@ def _scanner_subprocess_main(config_dict: dict) -> None:
     # 运行 asyncio 事件循环
     try:
         asyncio.run(_subprocess_async_main(config))
-    except Exception as _e:
+    except Exception:
         logger.critical(f"Scanner subprocess crashed:\n{traceback.format_exc()}")
         sys.exit(1)
 
@@ -284,7 +282,7 @@ class _SubprocessRuntime:
             except Exception as e:
                 logger.error(f"Update params failed: {e}")
         else:
-            logger.warning(f"Cannot update params: no scanner instance")
+            logger.warning("Cannot update params: no scanner instance")
 
     async def _cmd_scan(self, params: dict, cmd_id: str) -> None:
         """手动触发一次扫描"""
@@ -295,7 +293,7 @@ class _SubprocessRuntime:
                 # 【v2.9.50:修复方法名run_once→scan_once, 移除hasattr防御】
                 from datetime import datetime
                 trade_date = datetime.now().strftime("%Y%m%d")
-                result = await self.scanner.scan_once(trade_date=trade_date, force=True)
+                await self.scanner.scan_once(trade_date=trade_date, force=True)
                 await self.pub(self.signal_channel, {
                     "event": "manual_scan",
                     "ts": time.time(),
@@ -384,7 +382,6 @@ class _SubprocessRuntime:
     async def _init_ipc_channels(self) -> None:
         """【v2.9.57提取】初始化Redis IPC频道"""
         import redis.asyncio as aioredis
-        from core.managers import redis_manager
         from core.settings import settings as app_settings
 
         self._redis_client = aioredis.from_url(

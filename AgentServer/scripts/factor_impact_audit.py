@@ -32,8 +32,6 @@ import json
 import sys
 import os
 import numpy as np
-from datetime import datetime, timedelta
-from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -125,7 +123,7 @@ class FactorImpactAuditor:
                 if diff > threshold:
                     self.add_issue("P1", category, f"{field}偏差",
                                    f"≈{calc_val:.4f}", f"{db_val:.4f}(差{diff:.4f})",
-                                   f"可能是复权价导致(MA60偏差大)")
+                                   "可能是复权价导致(MA60偏差大)")
 
         # 1b. RSI值域检查
         for field in ['rsi_6', 'rsi_12', 'rsi_24']:
@@ -296,7 +294,7 @@ class FactorImpactAuditor:
         all_prev_ts = set(d['ts_code'] for d in self.db['stock_daily_ak_full'].find(
             {'trade_date': prev_date}, {'ts_code': 1, '_id': 0}))
         # 昨天有数据但没涨停 → 不是首板
-        prev_not_lu = all_prev_ts - lu_prev
+        all_prev_ts - lu_prev
         # 昨天没数据 → 可能停牌, 不算误报
         false_flu = flu_in_db - expected_flu - (flu_in_db - all_prev_ts)
         false_flu = false_flu - (flu_in_db - all_prev_ts)  # 排除昨天停牌的
@@ -328,7 +326,7 @@ class FactorImpactAuditor:
         # limit_list是涨停(含连板), intraday_lu是盘中触涨停(含炸板)
         # 两者应该高度重叠
         if intraday_lu and limit_list_ll:
-            overlap = intraday_lu & limit_list_ll
+            intraday_lu & limit_list_ll
             only_intraday = intraday_lu - limit_list_ll
             only_list = limit_list_ll - intraday_lu
 
@@ -407,7 +405,7 @@ class FactorImpactAuditor:
                     diff_pct = abs(ak_val - basic_val) / basic_val * 100
                     if diff_pct > 5:
                         self.add_issue("P1", category, f"{code} {field}不一致",
-                                       f"≤5%差异", f"ak={ak_val:.2f} basic={basic_val:.2f} 差{diff_pct:.1f}%")
+                                       "≤5%差异", f"ak={ak_val:.2f} basic={basic_val:.2f} 差{diff_pct:.1f}%")
 
             # circ_mv跨集合比率应为10000
             ak_circ = ak.get('circ_mv', 0)
@@ -416,7 +414,7 @@ class FactorImpactAuditor:
                 ratio = ak_circ / basic_circ
                 if abs(ratio - 10000) > 1000:  # 允许10%误差
                     self.add_issue("P0", category, f"{code} circ_mv单位不一致",
-                                   f"比率≈10000", f"比率={ratio:.0f}(ak={ak_circ} basic={basic_circ})",
+                                   "比率≈10000", f"比率={ratio:.0f}(ak={ak_circ} basic={basic_circ})",
                                    "ak_full=万元, daily_basic=亿元, 比率应为10000")
 
     # ============================================================
@@ -438,7 +436,7 @@ class FactorImpactAuditor:
                            "first_limit_up全部=0, 策略完全失效!")
         elif lu > 10 and flu < lu * 0.2:
             self.add_issue("P1", category, "首板比例异常低",
-                           f"≥30%涨停是首板", f"首板{flu}/{lu}={flu/lu*100:.0f}%",
+                           "≥30%涨停是首板", f"首板{flu}/{lu}={flu/lu*100:.0f}%",
                            "first_limit_up可能计算错误")
 
         # 涨停数合理性检查(正常A股每天30-200只涨停)

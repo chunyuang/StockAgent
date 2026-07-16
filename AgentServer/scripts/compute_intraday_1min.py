@@ -46,7 +46,7 @@ def compute_intraday_factors(bars, pre_close, ts_code):
         h = bar.get('h', 0)
         l = bar.get('l', 0)
         c = bar.get('c', 0)
-        v = bar.get('v', 0)
+        bar.get('v', 0)
         amount = bar.get('a', 0)
         
         # Parse time

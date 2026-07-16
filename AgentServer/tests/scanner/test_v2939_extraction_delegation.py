@@ -60,7 +60,7 @@ class TestScanLoopSettlementDelegation:
         source = _read(_RP)
         idx = source.find("async def daily_settlement")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "broker.daily_settlement" in method_code
         assert "broker.save_state" in method_code
 
@@ -69,7 +69,7 @@ class TestScanLoopSettlementDelegation:
         source = _read(_RP)
         idx = source.find("async def daily_settlement")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "ScannerEvents.DAILY_SETTLED" in method_code
 
     def test_daily_settlement_has_timeline(self):
@@ -77,7 +77,7 @@ class TestScanLoopSettlementDelegation:
         source = _read(_RP)
         idx = source.find("async def daily_settlement")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "_save_timeline" in method_code
 
     def test_daily_settlement_has_sentiment(self):
@@ -85,7 +85,7 @@ class TestScanLoopSettlementDelegation:
         source = _read(_RP)
         idx = source.find("async def daily_settlement")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "_update_sentiment_score" in method_code
 
     def test_daily_settlement_has_close_sync(self):
@@ -93,7 +93,7 @@ class TestScanLoopSettlementDelegation:
         source = _read(_RP)
         idx = source.find("async def daily_settlement")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "_sync_close_data_to_mongo" in method_code
 
 
@@ -149,7 +149,7 @@ class TestEmitRiskThreadErrorDelegation:
         source = read_all_scanner_sources()
         idx = source.find("def _risk_loop_sync")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+4000]
         assert "_emit_risk_thread_error" in method_code
 
 

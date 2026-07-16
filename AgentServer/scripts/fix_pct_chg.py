@@ -11,7 +11,6 @@
 用法: python3 fix_pct_chg.py
 """
 
-import time
 from pymongo import MongoClient, UpdateOne
 
 MONGO_URI = "mongodb://localhost:27017"
@@ -28,7 +27,7 @@ def main():
         {"$sort": {"_id": 1}}
     ]
     all_dates = [d["_id"] for d in col.aggregate(pipeline) if d["_id"]]
-    date_set = set(all_dates)
+    set(all_dates)
     sorted_dates = sorted(all_dates)
     
     # 建立日期→前一交易日的映射
@@ -113,7 +112,7 @@ def main():
     if batch:
         col.bulk_write(batch, ordered=False)
     
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
     print(f"补全: {total_fixed}条")
     print(f"失败: {total_failed}条")
     

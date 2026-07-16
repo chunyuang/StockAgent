@@ -113,7 +113,7 @@ async def precompute_month(year, month):
             for u in updates:
                 try:
                     await coll.update_one(u["filter"], u["update"], upsert=False)
-                except Exception as e:
+                except Exception:
                     pass
             records_updated += len(updates)
             updates = []

@@ -109,7 +109,7 @@ async def main():
     srs = result.get('sell_reason_stats', {})
     total_sell = sum(srs.values()) if srs else 0
     if total_sell > 0:
-        print(f"\n  卖出原因分布:")
+        print("\n  卖出原因分布:")
         for reason, cnt in sorted(srs.items(), key=lambda x: -x[1]):
             print(f"    {reason}: {cnt}笔 ({cnt/total_sell*100:.0f}%)")
     

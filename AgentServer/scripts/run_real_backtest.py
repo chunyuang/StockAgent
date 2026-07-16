@@ -102,7 +102,7 @@ async def run_backtest():
     print(f"\n📁 {out}")
     
     # 验证
-    print(f"\n🔍 修复验证")
+    print("\n🔍 修复验证")
     print(f"  {'✅' if br!=0 else '❌'} 基准收益率: {br:+.2f}% (应为非0)")
     ct = trades.get('total_trades', 0)
     wt = trades.get('winning_trades', 0)

@@ -23,8 +23,6 @@ from nodes.base import BaseNode
 from common.utils import convert_numpy_types
 from core.protocols import NodeType
 from core.managers import redis_manager, mongo_manager, tushare_manager
-from core.utils.logger import logger
-from core.managers import baostock_manager, akshare_manager
 
 # 导入拆分后的执行器
 from .ultra_short import execute_ultra_short_backtest
@@ -564,7 +562,6 @@ class BacktestNode(BaseNode):
 async def main():
     """回测节点启动入口"""
     import logging
-    from core.utils.logger import logger as _logger_instance
     _logger = logging.getLogger("backtest_node")
 
     node = BacktestNode()

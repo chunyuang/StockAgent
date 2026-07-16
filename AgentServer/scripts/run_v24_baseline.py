@@ -68,8 +68,8 @@ async def run():
         }
     }
     
-    print(f"\n🚀 V24基线回测: 半路追涨+跌停翘板 | 20260105-20260506")
-    print(f"   半路: SL5%/TP12%/3天 | 翘板: SL7%/TP20%/3天\n")
+    print("\n🚀 V24基线回测: 半路追涨+跌停翘板 | 20260105-20260506")
+    print("   半路: SL5%/TP12%/3天 | 翘板: SL7%/TP20%/3天\n")
     
     t0 = time.time()
     result = await execute_ultra_short_backtest(
@@ -104,7 +104,7 @@ async def run():
     print(f"  最大回撤:  {dd:.2f}%")
     print(f"  夏普:      {sharpe:.2f}")
     print(f"  交易:      {trades}")
-    print(f"  V23对比:   113.92%/11.38夏普/2.26%回撤/75.63%胜率/2.38盈亏比/119笔")
+    print("  V23对比:   113.92%/11.38夏普/2.26%回撤/75.63%胜率/2.38盈亏比/119笔")
     
     # 保存完整结果
     out = os.path.join(BASE, 'backtest_v24_baseline.json')

@@ -1,5 +1,9 @@
 """V76全量2年回测 - 验证所有P0修复"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -103,7 +107,7 @@ async def main():
 
     # 策略分解
     sr = result.get('strategy_results', {})
-    print(f"\n  策略分解:")
+    print("\n  策略分解:")
     for sname, sdata in sr.items():
         sn = sdata.get('strategy_name', sname)
         wr = sdata.get('win_rate', 0)

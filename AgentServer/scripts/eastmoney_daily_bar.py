@@ -9,9 +9,6 @@
 """
 import requests
 import time
-import sys
-import os
-from datetime import datetime
 from pymongo import MongoClient, UpdateOne
 
 MONGO_URI = "mongodb://localhost:27017"
@@ -149,7 +146,7 @@ def write_daily_bar(trade_date=None):
         if not code:
             continue
         ts_code = code_to_ts_code(code)
-        name = item.get('f14', '')
+        item.get('f14', '')
         
         open_price = safe_float(item.get('f17'))
         high = safe_float(item.get('f15'))
@@ -245,7 +242,7 @@ def write_daily_bar(trade_date=None):
         tr = check.get('turnover_rate', 0)
         if tr and tr > 100:
             print(f"⚠️ 警告: turnover_rate={tr}% >100%! 可能被×100了, 跳过写入!")
-            print(f"  标准单位: 百分数(如5.31表示5.31%), 不是531")
+            print("  标准单位: 百分数(如5.31表示5.31%), 不是531")
             return
         
         circ = check.get('circ_mv', 0)

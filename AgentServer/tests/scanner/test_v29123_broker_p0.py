@@ -222,10 +222,10 @@ class TestExecuteSell:
         from nodes.market_monitor.broker import Order, OrderSide, OrderStatus, OrderType, Position
         broker.positions["600036.SH"] = Position(
             ts_code="600036.SH", stock_name="招商银行",
-            total_qty=2000, available_qty=2000, avg_cost=10.0,
+            total_qty=1000, available_qty=1000, avg_cost=10.0,
             current_price=11.0, strategy="halfway_chase", buy_date="20260713",
         )
-        # 第一次卖出
+        # 第一次卖出(全部卖完)
         order1 = Order(
             order_id="TEST008A", account_id="test", ts_code="600036.SH",
             stock_name="招商银行", side=OrderSide.SELL, order_type=OrderType.MARKET,

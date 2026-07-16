@@ -1,6 +1,5 @@
 """分析交易频率高的原因及优化方案"""
 import json
-from datetime import datetime
 
 def analyze_phase2_results():
     """分析Phase2测试结果"""

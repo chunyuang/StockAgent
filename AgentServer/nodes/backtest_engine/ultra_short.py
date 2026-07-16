@@ -425,7 +425,7 @@ async def execute_ultra_short_backtest(
 
         raw_trades = performance_data.get('all_trades', result.get('all_trades', []))
         merged_trades = performance_data.get('merged_trades', result.get('merged_trades', []))
-        rebalance_records = performance_data.get('rebalance_records', result.get('rebalance_records', []))
+        performance_data.get('rebalance_records', result.get('rebalance_records', []))
         stock_names = performance_data.get('stock_names', result.get('stock_names', {}))
         net_value_series = positions_data.get('net_value_series', result.get('net_value_series', []))
         drawdown_series = positions_data.get('drawdown_series', result.get('drawdown_series', []))

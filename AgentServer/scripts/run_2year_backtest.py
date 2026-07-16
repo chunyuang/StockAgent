@@ -105,7 +105,7 @@ async def run_backtest():
     
     # 按策略看
     if strategy_results:
-        print(f"\n  策略明细:")
+        print("\n  策略明细:")
         for sid, sdata in strategy_results.items():
             s_metrics = sdata.get('metrics', {})
             s_returns = s_metrics.get('returns', {})

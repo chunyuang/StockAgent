@@ -18,7 +18,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
@@ -115,7 +115,7 @@ class SimulatedBroker:
     # 【v2.9.92w】从strategy_defaults读取，不硬编码(与回测对齐)
     MAX_POSITION_RATIO = GLOBAL_RISK.get("max_position_per_stock", 0.35)  # 单票最大仓位(回测35%)
     MAX_TOTAL_RATIO = GLOBAL_RISK.get("max_total_position", 0.75)       # 总仓位上限(回测75%)
-    MAX_POSITIONS = GLOBAL_RISK.get("max_positions", 10)                # 最大持仓数(基准, 实际由scanner动态调整)
+    MAX_POSITIONS = GLOBAL_RISK.get("max_positions", 8)                # 最大持仓数(基准, 实际由scanner动态调整)
     _dynamic_max_positions = None  # 【动态持仓上限】由scanner实时设置
 
     # 涨跌停比例
@@ -143,6 +143,7 @@ class SimulatedBroker:
         self._today_rejected: set = set()  # 【v2.9.95f】当日已拒绝的ts_code去重缓存，避免同一股同日重复下单
         self._today_sold: set = set()  # 【v2.9.122】当日已成交卖出的ts_code去重，防止多路径并发重复卖出
         self._sell_lock = threading.Lock()  # 【v2.9.122】卖出串行化锁，防止并发重复卖出
+        self._buy_lock = threading.Lock()   # 【v2.9.125】买入串行化锁，防止并发加仓avg_cost计算错误
         self._need_reconciliation: bool = False  # 【v2.9.108】load_state后一致性标记，行情首次更新后强制recalc
 
     # ==================== 持久化 ====================
@@ -835,12 +836,13 @@ class SimulatedBroker:
             pass
 
         # 【v2.9.111】持仓数量上限检查(防止超过MAX_POSITIONS只)
+        # 【v2.9.112修复】动态上限有硬天花板, min(dynamic, MAX_POSITIONS)
         current_positions = len([p for p in self.positions.values() if p.total_qty > 0])
         existing = self.positions.get(ts_code)
         is_new_position = existing is None or existing.total_qty <= 0
-        if is_new_position and current_positions >= (self._dynamic_max_positions or self.MAX_POSITIONS):
-            limit = self._dynamic_max_positions or self.MAX_POSITIONS
-            return False, f"持仓数已达上限{limit}只", 0
+        effective_limit = min(self._dynamic_max_positions or self.MAX_POSITIONS, self.MAX_POSITIONS)
+        if is_new_position and current_positions >= effective_limit:
+            return False, f"持仓数已达上限{effective_limit}只", 0
 
         # 仓位检查(【v2.9.84修复】估算金额含佣金, 避免扣费后资金不足)
         est_amount = quantity * current_price * (1 + self.COMMISSION_RATE)
@@ -1022,7 +1024,7 @@ class SimulatedBroker:
         sync_ok = self._sync_save_order_and_position(order, pos)
         if not sync_ok:
             # 同步写入失败时仍走异步(降级, 但不会block交易)
-            logger.warning(f"[BROKER] 同步写入失败, 降级到异步save_state")
+            logger.warning("[BROKER] 同步写入失败, 降级到异步save_state")
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self.save_state(force=True))
@@ -1141,34 +1143,38 @@ class SimulatedBroker:
         return slippage
 
     def _execute_buy(self, order: Order, fill_price: float, total_cost: float) -> None:
-        """执行买入"""
-        # 买入成本含佣金, 计入avg_cost
-        amount = fill_price * order.quantity + total_cost
-        self.account.available_cash -= amount
+        """执行买入
+        
+        【v2.9.125】加_buy_lock防止并发加仓avg_cost计算错误
+        """
+        with self._buy_lock:
+            # 买入成本含佣金, 计入avg_cost
+            amount = fill_price * order.quantity + total_cost
+            self.account.available_cash -= amount
 
-        if order.ts_code in self.positions:
-            pos = self.positions[order.ts_code]
-            # 加仓: 重算均价(含佣金)
-            total_cost_base = pos.avg_cost * pos.total_qty + fill_price * order.quantity + total_cost
-            pos.total_qty += order.quantity
-            pos.today_buy_qty += order.quantity  # T+1: 今日买入不可卖
-            pos.avg_cost = total_cost_base / pos.total_qty
-            pos.current_price = fill_price
-            pos.strategy = order.strategy
-        else:
-            # 新仓: avg_cost含佣金
-            avg_cost_with_fee = (fill_price * order.quantity + total_cost) / order.quantity
-            self.positions[order.ts_code] = Position(
-                ts_code=order.ts_code,
-                stock_name=order.stock_name,
-                total_qty=order.quantity,
-                available_qty=0,  # T+1: 今日买入不可卖
-                avg_cost=avg_cost_with_fee,
-                current_price=fill_price,
-                today_buy_qty=order.quantity,
-                strategy=order.strategy,
-                buy_date=order.trade_date,
-            )
+            if order.ts_code in self.positions:
+                pos = self.positions[order.ts_code]
+                # 加仓: 重算均价(含佣金)
+                total_cost_base = pos.avg_cost * pos.total_qty + fill_price * order.quantity + total_cost
+                pos.total_qty += order.quantity
+                pos.today_buy_qty += order.quantity  # T+1: 今日买入不可卖
+                pos.avg_cost = total_cost_base / pos.total_qty
+                pos.current_price = fill_price
+                pos.strategy = order.strategy
+            else:
+                # 新仓: avg_cost含佣金
+                avg_cost_with_fee = (fill_price * order.quantity + total_cost) / order.quantity
+                self.positions[order.ts_code] = Position(
+                    ts_code=order.ts_code,
+                    stock_name=order.stock_name,
+                    total_qty=order.quantity,
+                    available_qty=0,  # T+1: 今日买入不可卖
+                    avg_cost=avg_cost_with_fee,
+                    current_price=fill_price,
+                    today_buy_qty=order.quantity,
+                    strategy=order.strategy,
+                    buy_date=order.trade_date,
+                )
 
     def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> None:
         """执行卖出
@@ -1182,7 +1188,7 @@ class SimulatedBroker:
         with self._sell_lock:
             if order.ts_code in self._today_sold:
                 order.status = OrderStatus.REJECTED
-                order.reason = f"当日已卖出(重复卖出防护v2.9.122)"
+                order.reason = "当日已卖出(重复卖出防护v2.9.122)"
                 reject_key = f"{order.ts_code}:sell"
                 if reject_key not in self._today_rejected:
                     self._today_rejected.add(reject_key)
@@ -1215,7 +1221,7 @@ class SimulatedBroker:
                 if position_already_cleared:
                     # 将order标记为rejected(不是filled), 不收回资金
                     order.status = OrderStatus.REJECTED
-                    order.reason = f"持仓已清仓(重复卖出防护)"
+                    order.reason = "持仓已清仓(重复卖出防护)"
                     reject_key = f"{order.ts_code}:sell"
                     if reject_key not in self._today_rejected:
                         self._today_rejected.add(reject_key)
@@ -1274,6 +1280,12 @@ class SimulatedBroker:
                     logger.error(f"[BROKER] ❌ 删除position失败: {e}")
                 
                 # 必须return! 否则pos=None会在下方pos.avg_cost崩溃, 且盈亏/资金会双重计算
+                # 【v2.9.124修复】兜底路径也需同步写入订单到MongoDB, 防止止损执行但订单丢失
+                order.status = OrderStatus.FILLED
+                order.filled_qty = order.quantity
+                order.filled_price = fill_price
+                self._sync_save_order_and_position(order, None)  # position=None, 只写order
+                logger.info(f"[BROKER] ✅ 兜底卖出订单已持久化: {order.ts_code} qty={order.quantity}@{fill_price:.2f}")
                 # 【v2.9.122】标记当日已卖出(兜底路径同样需标记)
                 self._today_sold.add(order.ts_code)
                 return
@@ -1300,12 +1312,12 @@ class SimulatedBroker:
             pos.available_qty -= order.quantity
             pos.total_qty -= order.quantity
 
-            # 【v2.9.122】标记当日已卖出，防止其他路径重复卖出同一标的
-            self._today_sold.add(order.ts_code)
-
+            # 【v2.9.113修复】只有全部卖完才标记_today_sold, 部分卖出允许后续继续卖
+            # 之前: 无论全部/部分都add -> 部分卖出后剩余持仓无法再卖(7946次循环bug)
             if pos.total_qty <= 0:
                 del self.positions[order.ts_code]
-            # 部分卖出: 盈亏已在上方计入total_profit
+                self._today_sold.add(order.ts_code)
+            # 部分卖出: 不标记_today_sold, 允许后续继续卖出剩余持仓
 
     def daily_settlement(self, trade_date: str = None) -> None:
         """

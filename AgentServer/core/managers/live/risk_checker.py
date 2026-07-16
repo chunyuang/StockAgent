@@ -11,14 +11,14 @@
 
 返回结果：包含是否允许交易和明确拒绝原因
 """
-import sys
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 from dataclasses import dataclass, asdict
 
 
@@ -543,7 +543,7 @@ class PreBuyRiskChecker:
             )
             if latest and latest.get('pre_close', 0) > 0:
                 close = latest.get('close', 0)
-                pre_close = latest.get('pre_close', 0)
+                latest.get('pre_close', 0)
                 pct = latest.get('pct_chg', 0)
                 # 判断涨跌停(主板≥9.8%, 创业板/科创板≥19.8%)
                 is_limit_up = pct >= 9.8 if not ts_code.startswith(('300', '688')) else pct >= 19.8

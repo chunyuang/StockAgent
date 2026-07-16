@@ -9,9 +9,6 @@
 """
 import requests
 import time
-import sys
-import os
-from datetime import datetime
 from pymongo import MongoClient, UpdateOne
 
 MONGO_URI = "mongodb://localhost:27017"

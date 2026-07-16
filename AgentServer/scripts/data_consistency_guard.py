@@ -2,13 +2,13 @@
 """
 数据一致性守卫 v1.0 (2026-06-27)
 
-核心思想：不再只检查"字段存不存在"，而是检查"数据之间是否一致"。
-同一指标在不同地方独立计算，结果应该相同。
+核心思想:不再只检查"字段存不存在",而是检查"数据之间是否一致"。
+同一指标在不同地方独立计算,结果应该相同。
 
-检查项：
+检查项:
 1. KPI vs Account: 已实现/未实现/总盈亏
-2. broker_orders.profit_pct全0告警（根因）
-3. broker_accounts.market_value vs 实际市值（成本价代市价）
+2. broker_orders.profit_pct全0告警(根因)
+3. broker_accounts.market_value vs 实际市值(成本价代市价)
 4. deviation-attribution胜率 vs KPI胜率
 5. review-hero连亏 vs 实际连亏
 6. equityCurve终值 vs account.total_assets
@@ -45,7 +45,7 @@ async def main():
     realized_profit = 0
     wins = 0
     for s in sells:
-        # 优先用order自带的profit_amount(broker用avg_cost计算，比分批买入的last_buy_price准确)
+        # 优先用order自带的profit_amount(broker用avg_cost计算,比分批买入的last_buy_price准确)
         pa = s.get("profit_amount", 0) or 0
         if pa != 0:
             realized_profit += pa
@@ -87,7 +87,6 @@ async def main():
     # vs broker_accounts
     acct = db["broker_accounts"].find_one({"account_id": "default"})
     if acct:
-        acct_total_profit = acct.get("total_profit", 0) or 0  # 旧逻辑: total_assets - 1000000
         acct_market_value = acct.get("market_value", 0) or 0
 
         # 2a. broker_accounts.market_value vs 实际市值
@@ -97,11 +96,11 @@ async def main():
                            f"差额¥{acct_market_value-total_market:,.0f}, 可能是成本价代市价"))
 
         # 2b. 账户等式检查: cash + market_value = total_assets (唯一可靠的交叉验证)
-        # 旧逻辑用"推算的realized+unrealized"与total_profit比较，但推算不可靠:
-        #   - buy_cost_map只记最后一笔买入价，分批买入avg_cost不准
+        # 旧逻辑用"推算的realized+unrealized"与total_profit比较,但推算不可靠:
+        #   - buy_cost_map只记最后一笔买入价,分批买入avg_cost不准
         #   - 幽灵订单(买没卖)导致realized漏算
         #   - 佣金未计入
-        # 账户等式 cash+mv=total_assets 是broker实时维护的，偏差=0才正确
+        # 账户等式 cash+mv=total_assets 是broker实时维护的,偏差=0才正确
         acct_cash = acct.get("available_cash", 0) or 0
         acct_mv = acct.get("market_value", 0) or 0
         acct_ta = acct.get("total_assets", 0) or 0
@@ -128,7 +127,7 @@ async def main():
 
     # === 3. 胜率交叉验证 ===
     actual_win_rate = round(wins / len(sells) * 100, 1) if sells else 0
-    # deviation-attribution用profit_pct>=0算胜率，如果profit_pct全0则胜率=100%
+    # deviation-attribution用profit_pct>=0算胜率,如果profit_pct全0则胜率=100%
     naive_win_rate = round(sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0) / max(len(sells), 1) * 100, 1)
     if sells and naive_win_rate == 100 and actual_win_rate < 100:
         issues.append(("P0", "deviation-attribution胜率虚高",
@@ -146,7 +145,7 @@ async def main():
         if n_days < 30 and abs(cum_return) > 100:
             issues.append(("P1", f"年化收益率不合理(交易仅{n_days}天)",
                            f"累计{cum_return_fixed:.1f}%", f"年化{cum_return:.1f}%",
-                           "短期数据年化放大，应显示累计收益率"))
+                           "短期数据年化放大,应显示累计收益率"))
 
     # === 5. available_cash交叉验证 ===
     if acct:
@@ -190,7 +189,7 @@ async def main():
                            f"差额¥{acct_cash-correct_cash:,.0f}(幽灵订单/佣金差异)"))
 
     # === 5. equityCurve终值 vs account.total_assets ===
-    # 【v2.9.107】补充检查 — 持久化完整性
+    # 【v2.9.107】补充检查 - 持久化完整性
     today_int = int(datetime.now().strftime("%Y%m%d"))
 
     # === 5a. performance_snapshots 最近交易日应有一条 ===
@@ -257,16 +256,15 @@ async def main():
         pass  # equity_curve不可用时跳过
 
     # === 输出 ===
-    p0 = [i for i in issues if i[0] == "P0"]
-    p1 = [i for i in issues if i[1] != "P0"]
-    p2 = [i for i in issues if i[0] == "P2"]
+    p0_issues = [i for i in issues if i[0] == "P0"]
+    p2_issues = [i for i in issues if i[0] == "P2"]
 
-    print(f"数据一致性守卫 — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"检查项: 8 | P0: {len(p0)} | P1: {len([i for i in issues if i[0]=='P1'])} | P2: {len(p2)}")
+    print(f"数据一致性守卫 - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"检查项: 8 | P0: {len(p0_issues)} | P1: {len([i for i in issues if i[0]=='P1'])} | P2: {len(p2_issues)}")
     print()
 
     if not issues:
-        print("✅ 全部通过 — 所有数据之间一致性校验OK")
+        print("✅ 全部通过 - 所有数据之间一致性校验OK")
         return 0
 
     for sev, name, expected, actual, detail in issues:
@@ -276,7 +274,7 @@ async def main():
         print(f"   {detail}")
         print()
 
-    return 1 if p0 else 0
+    return 1 if p0_issues else 0
 
 
 if __name__ == "__main__":

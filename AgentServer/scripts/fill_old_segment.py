@@ -6,13 +6,8 @@ ARKCLAW finance_history 1只/次, 支持批量拉取整个日期范围
 
 策略: 逐只拉取, 每只拉完整的103天, upsert到MongoDB
 """
-import sys
 import time
-import json
-import requests
 from pymongo import MongoClient, UpdateOne
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "stock_agent"
@@ -49,7 +44,6 @@ def fetch_finance_history(code):
     # 这里直接用MongoDB的已有的新段数据推算, 或者调finance_history
     # 但finance_history只能通过ARKCLAW agent调, 不能直接HTTP
     # 所以用AKShare/东方财富API
-    pass
 
 
 def fetch_via_akshare(code, start_date, end_date):

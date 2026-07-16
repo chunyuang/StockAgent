@@ -1,6 +1,5 @@
 """数据扫描详情 API — 扫描体系全链路可视化"""
 import logging
-from typing import Dict
 
 from fastapi import APIRouter, Query
 

@@ -69,6 +69,7 @@ async function saveConfig() {
       ElMessage.success('推送配置已保存到本地（服务器暂不可用）')
     }
   } catch (e: any) {
+    console.error('[PushConfigPanel] save failed:', e)
     ElMessage.error(`保存失败: ${e.message || '未知错误'}`)
   } finally {
     saving.value = false
@@ -92,6 +93,7 @@ async function testPush() {
       ElMessage.warning('测试推送接口暂不可用，请手动验证配置')
     }
   } catch (e: any) {
+    console.error('[PushConfigPanel] test failed:', e)
     ElMessage.error(`测试失败: ${e.message || '未知错误'}`)
   } finally {
     testing.value = false

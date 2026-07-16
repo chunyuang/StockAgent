@@ -10,7 +10,6 @@
 退出码: 0=健康, 1=有问题
 """
 import sys
-import json
 from collections import Counter
 from pymongo import MongoClient
 
@@ -168,7 +167,7 @@ def main():
                     print(f"  ⚠️  {td}: 仅 {cnt} 条数据 (<4000)")
                     warnings.append(f"{td}: 仅{cnt}条数据")
             if not missing_days and not low_days:
-                print(f"  ✅ 最近10个交易日数据完整")
+                print("  ✅ 最近10个交易日数据完整")
     except Exception as e:
         print(f"  ⚪ 交易日连续性检查失败: {e}")
     

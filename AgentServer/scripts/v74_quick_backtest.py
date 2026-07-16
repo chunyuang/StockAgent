@@ -1,5 +1,9 @@
 """V74快速验证回测 - 3个月,验证策略分解+收益"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -89,7 +93,7 @@ async def main():
 
     # 策略分解（直接从result.strategy_results读取）
     sr = result.get('strategy_results', {})
-    print(f"\n  策略分解:")
+    print("\n  策略分解:")
     for sname, sdata in sr.items():
         sn = sdata.get('strategy_name', sname)
         wr = sdata.get('win_rate', 0)
@@ -101,7 +105,7 @@ async def main():
     # 卖出原因
     sell_stats = result.get('sell_reason_stats', {})
     if sell_stats:
-        print(f"\n  卖出原因:")
+        print("\n  卖出原因:")
         for reason, count in sorted(sell_stats.items(), key=lambda x: -x[1]):
             if count > 0:
                 print(f"    {reason}: {count}")

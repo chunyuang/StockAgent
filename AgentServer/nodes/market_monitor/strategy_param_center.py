@@ -253,7 +253,7 @@ class StrategyParamCenter:
                 doc.pop("_id", None)
                 result.append(doc)
             return result
-        except Exception as _e:
+        except Exception:
             return []
     
     def set_on_update_callback(self, callback: Callable[[str, Dict], Awaitable[None]]) -> None:
@@ -561,7 +561,7 @@ class StrategyParamCenter:
                 doc.pop("_id", None)
                 result.append(doc)
             return result
-        except Exception as _e:
+        except Exception:
             return []
 
     # ==================== Scanner配置管理辅助(静态方法) ====================
@@ -630,7 +630,7 @@ class StrategyParamCenter:
                 {"$set": {"data": overrides, "updated_at": dt.now().isoformat()}},
                 upsert=True,
             )
-            logger.info(f"[SCANNER] 策略参数已持久化到MongoDB")
+            logger.info("[SCANNER] 策略参数已持久化到MongoDB")
         except Exception as e:
             logger.warning(f"[SCANNER] 策略参数持久化失败(非关键): {e}")
 
@@ -680,7 +680,6 @@ class StrategyParamCenter:
         
         流程: 记录旧值→更新config→EventBus事件→持久化(非阻塞)
         """
-        import asyncio as _asyncio
         
         # 1. 记录旧值(审计)
         old_values = {}

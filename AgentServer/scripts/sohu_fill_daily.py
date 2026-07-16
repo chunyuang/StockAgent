@@ -8,8 +8,6 @@
 """
 import requests
 import time
-import sys
-import json
 from pymongo import MongoClient, UpdateOne
 from datetime import datetime
 
@@ -49,7 +47,7 @@ def sohu_to_ts_code(sohu_code):
 def fetch_batch(sohu_codes, date_str):
     """批量获取日线数据"""
     code_param = ",".join(sohu_codes)
-    url = f"https://q.stock.sohu.com/hisHq"
+    url = "https://q.stock.sohu.com/hisHq"
     params = {
         "code": code_param,
         "start": date_str,
@@ -89,7 +87,7 @@ def parse_sohu_data(data, trade_date_int):
             open_price = float(row[1]) if row[1] else 0
             close = float(row[2]) if row[2] else 0
             chg = float(row[3]) if row[3] else 0
-            pct_chg_str = str(row[4]).replace("%", "").replace("-", "")
+            str(row[4]).replace("%", "").replace("-", "")
             pct_chg = float(row[4].replace("%", "")) if "%" in str(row[4]) else 0
             low = float(row[5]) if row[5] else 0
             high = float(row[6]) if row[6] else 0
@@ -121,7 +119,7 @@ def parse_sohu_data(data, trade_date_int):
                 "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             docs.append(doc)
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError):
             continue
     
     return docs

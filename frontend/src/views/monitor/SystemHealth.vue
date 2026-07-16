@@ -27,7 +27,7 @@ async function fetchData() {
 }
 
 function uptimeFmt(s: number): string {
-  if (s == null || isNaN(s)) return '-'
+  if (s == null || isNaN(s) || !Number.isFinite(s)) return '-'
   if (s < 60) return `${Math.round(s)}s`
   if (s < 3600) return `${Math.round(s / 60)}m`
   return `${(s / 3600).toFixed(1)}h`

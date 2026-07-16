@@ -150,7 +150,7 @@ def main():
             try:
                 result = col.bulk_write(batch, ordered=False)
                 total_upserted += result.upserted_count + result.modified_count
-            except Exception as e:
+            except Exception:
                 total_errors += len(batch)
             batch = []
             gc.collect()
@@ -173,12 +173,12 @@ def main():
             total_errors += len(batch)
     
     elapsed = time.time() - start_time
-    log.info(f"=== 完成 ===")
+    log.info("=== 完成 ===")
     log.info(f"写入: {total_upserted}条, 行: {total_rows}, 错误: {total_errors}")
     log.info(f"耗时: {elapsed/60:.1f}分钟")
     
     # 验证
-    log.info(f"=== 验证 ===")
+    log.info("=== 验证 ===")
     for dt in sorted(INCOMPLETE_DATES):
         cnt = col.count_documents({"trade_date": dt})
         status = "✅" if cnt >= 4500 else "⚠️"

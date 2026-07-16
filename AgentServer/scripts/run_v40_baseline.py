@@ -89,14 +89,14 @@ async def main():
         # 策略分解
         sr = result.get('strategy_results', {})
         if sr:
-            print(f"\n  策略分解:")
+            print("\n  策略分解:")
             for sname, sm in sr.items():
                 print(f"    {sname}: {sm.get('trades_count',0)}笔 胜率{sm.get('win_rate',0):.1f}% 收益{sm.get('total_return',0):.2f}% 盈亏比{sm.get('profit_loss_ratio',0):.2f}")
         
         # 卖出原因
         srs = result.get('sell_reason_stats', {})
         if srs:
-            print(f"\n  卖出原因:")
+            print("\n  卖出原因:")
             for reason, cnt in sorted(srs.items(), key=lambda x: x[1], reverse=True):
                 print(f"    {reason}: {cnt}")
         

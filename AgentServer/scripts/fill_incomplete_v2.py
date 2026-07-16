@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """补全不完整交易日 - 稳健版(小批量+GC)"""
-import sys
 import gc
 import time
 import logging

@@ -118,7 +118,7 @@ class StrategyScorer:
         创业板/科创板ST仍为20%，北交所*ST仍为30%。
         """
         code = (ts_code or "").split(".")[0]
-        name = stock_name or ""
+        stock_name or ""
         # 2026-07-06新规: 主板ST涨跌幅与普通股一致(10%), 不再需要ST特殊处理
         # 创业板/科创板ST仍为20%, 北交所*ST仍为30%
         if code.startswith(("300", "301", "688")):

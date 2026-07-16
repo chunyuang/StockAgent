@@ -31,9 +31,7 @@ ExecutionQuality — 交易执行质量模块
 """
 
 import logging
-import math
-from datetime import datetime
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Dict
 
 logger = logging.getLogger("execution.quality")
 
@@ -92,7 +90,7 @@ class PreTradeChecker:
         if stock_name and self._is_st_stock(stock_name):
             return False, f"ST股: {stock_name}"
         if self._is_at_limit_up(ts_code, price):
-            return False, f"涨停价不可买入(排板不确定性)"
+            return False, "涨停价不可买入(排板不确定性)"
         if self._is_suspended(ts_code):
             return False, f"停牌: {ts_code}"
         return True, "通过"
@@ -135,7 +133,7 @@ class PreTradeChecker:
         """卖出前检查"""
         # 1. 跌停不可卖出
         if self._is_at_limit_down(ts_code, price):
-            return False, f"跌停价不可卖出(挂单无法成交)"
+            return False, "跌停价不可卖出(挂单无法成交)"
         
         # 2. 停牌
         if self._is_suspended(ts_code):

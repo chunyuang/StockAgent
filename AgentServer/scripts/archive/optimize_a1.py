@@ -58,8 +58,8 @@ async def run_optimization_a1():
     print("=" * 60)
     print(f"时间区间: {params['start_date']}~{params['end_date']}")
     print(f"初始资金: ¥{params['initial_cash']:,.0f}")
-    print(f"优化内容: 量比阈值从1.0提高到1.5")
-    print(f"筛选条件: 盘中最高≥2% 且 开盘≤5% 且 量比≥1.5")
+    print("优化内容: 量比阈值从1.0提高到1.5")
+    print("筛选条件: 盘中最高≥2% 且 开盘≤5% 且 量比≥1.5")
     print("=" * 60)
     
     t0 = time.time()
@@ -114,7 +114,7 @@ async def run_optimization_a1():
         print(f"{'='*60}")
         print("Phase2 (量比1.0):")
         print(f"  收益: {phase2_return:+.2f}% | 胜率: {phase2_win_rate:.1f}% | 回撤: {phase2_drawdown:.2f}% | 夏普: {phase2_sharpe:.2f} | 交易: {phase2_trades}笔")
-        print(f"\n优化A1 (量比1.5):")
+        print("\n优化A1 (量比1.5):")
         print(f"  收益: {tr:+.2f}% | 胜率: {risk.get('win_rate_pct', 0):.1f}% | 回撤: {risk.get('max_drawdown_pct', 0):.2f}% | 夏普: {risk.get('sharpe_ratio', 0):.2f} | 交易: {trades.get('total_trades', 0)}笔")
         
         # 计算变化
@@ -130,7 +130,7 @@ async def run_optimization_a1():
         if trade_reduction > 20 and tr > 0:
             print(f"✅ 优化成功：交易频率降低{trade_reduction:.1f}%，仍保持正收益")
         elif tr <= 0:
-            print(f"❌ 优化过度：收益转负，需要调整参数")
+            print("❌ 优化过度：收益转负，需要调整参数")
         else:
             print(f"⚠️  优化效果一般：交易减少{trade_reduction:.1f}%，但收益变化{return_change:+.2f}%")
         

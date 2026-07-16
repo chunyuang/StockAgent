@@ -87,6 +87,7 @@ async function saveConfig() {
       ElMessage.success('日志配置已保存到本地（服务器暂不可用）')
     }
   } catch (e: any) {
+    console.error('[LogLevelPanel] save failed:', e)
     ElMessage.error(`保存失败: ${e.message || '未知错误'}`)
   } finally {
     saving.value = false

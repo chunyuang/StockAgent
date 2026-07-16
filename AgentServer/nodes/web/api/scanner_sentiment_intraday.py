@@ -10,11 +10,9 @@ v2.9.95: 重构数据解析, 优先读取L3_sentiment_data结构化字段
   - 旧数据: 从L1_force_empty文本+L3_sentiment文本正则解析
 """
 
-import asyncio
 import re
-import math
 from collections import OrderedDict
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from nodes.web.api.unified import query_trades
 from nodes.web.api.scanner_shared import prod_scan_query, is_debug_scan_doc
 

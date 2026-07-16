@@ -17,7 +17,6 @@
 import argparse
 import sys
 import os
-from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -214,7 +213,7 @@ def print_report(trade_dates, issues):
     warns = [i for i in issues if i['level'] == 'WARN']
     
     print(f"\n{'='*60}")
-    print(f"数据单位验证报告")
+    print("数据单位验证报告")
     print(f"验证日期: {trade_dates[0]}-{trade_dates[-1]} ({len(trade_dates)}天)")
     print(f"{'='*60}")
     

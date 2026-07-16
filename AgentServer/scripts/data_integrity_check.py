@@ -123,8 +123,8 @@ def main():
             # 检查是否有持仓 — 100万+0持仓可能是被覆盖
             pos_count = db['broker_positions'].count_documents({"account_id": "default"})
             if pos_count == 0:
-                issues.append(f"🟡 总资产=100万且0持仓 — 可能被replay覆盖")
-                print(f"  🟡 总资产=100万且0持仓 — 可能被replay覆盖")
+                issues.append("🟡 总资产=100万且0持仓 — 可能被replay覆盖")
+                print("  🟡 总资产=100万且0持仓 — 可能被replay覆盖")
             else:
                 print(f"  ✅ 总资产¥{total:,.0f}, 持仓{pos_count}只")
         else:
@@ -195,7 +195,7 @@ def main():
                     {'$set': {'pending_sells': items}}
                 )
                 fixed.append(f"✅ 清理过时pending_sells: {len(stale)}只")
-                print(f"  ✅ 已清理")
+                print("  ✅ 已清理")
         else:
             print(f"  ✅ pending_sells都在持仓中 ({len(pending_codes)}只)")
     else:
@@ -233,7 +233,7 @@ def main():
     latest_basic = db['daily_basic'].find_one(sort=[("trade_date", -1)])
     latest_limit = db['limit_list'].find_one(sort=[("trade_date", -1)])
     
-    today = datetime.now().strftime("%Y%m%d")
+    datetime.now().strftime("%Y%m%d")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
     
     for name, doc in [("stock_daily_ak_full", latest_daily), ("daily_basic", latest_basic), ("limit_list", latest_limit)]:

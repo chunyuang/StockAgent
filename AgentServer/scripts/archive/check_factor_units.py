@@ -1,5 +1,8 @@
 """检查因子单位一致性"""
-import asyncio, sys, os, types, json
+import asyncio
+import sys
+import os
+import types
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -101,9 +104,9 @@ async def check_other_factors():
         # 根据值范围推断单位
         if factor == 'rise_after_limit_down':
             if abs(avg) < 1:  # 可能是小数
-                print(f'    ⚠️  可能存小数，但策略用百分比筛选')
+                print('    ⚠️  可能存小数，但策略用百分比筛选')
             else:  # 可能是百分比
-                print(f'    ✅ 可能存百分比')
+                print('    ✅ 可能存百分比')
 
 async def main():
     await mongo_manager.initialize()

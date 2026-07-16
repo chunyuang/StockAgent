@@ -1,0 +1,29 @@
+[
+ {
+  "_id": "6a3ad2b0154ab55099647006",
+  "account_id": "default",
+  "available_cash": 546541.6621999983,
+  "frozen_cash": 0.0,
+  "market_value": 317996.0,
+  "today_profit": 0,
+  "total_assets": 864537.6621999983,
+  "total_profit": -135462.33780000173,
+  "updated_at": "2026-07-15T15:06:04.063417",
+  "v2": {
+   "9": {
+    "122_fix_note": "从全量filled订单重算"
+   }
+  }
+ },
+ {
+  "_id": "6a559b0559ff7ab43136142a",
+  "account_id": "test",
+  "available_cash": 373975.56999999995,
+  "frozen_cash": 0.0,
+  "market_value": 0,
+  "today_profit": -69.95999999999916,
+  "total_assets": 373975.56999999995,
+  "total_profit": 273975.56999999995,
+  "updated_at": "2026-07-15T08:31:22.688582"
+ }
+]

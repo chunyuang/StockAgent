@@ -85,6 +85,7 @@ async function runPremarketScan() {
       ElMessage.warning(r?.data?.message || '扫描失败')
     }
   } catch (e: any) {
+    console.error('[PremarketTab] scan failed:', e)
     ElMessage.error('扫描异常: ' + (e?.message || e))
   } finally {
     premarketScanRunning.value = false

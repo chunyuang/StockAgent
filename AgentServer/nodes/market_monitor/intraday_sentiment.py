@@ -137,8 +137,6 @@ class IntradaySentimentCalculator:
                        if isinstance(d.get("pct_chg"), (int, float)) and d["pct_chg"] > 0)
         down_count = sum(1 for d in realtime_data.values()
                          if isinstance(d.get("pct_chg"), (int, float)) and d["pct_chg"] < 0)
-        flat_count = sum(1 for d in realtime_data.values()
-                         if isinstance(d.get("pct_chg"), (int, float)) and d["pct_chg"] == 0)
         total_active = up_count + down_count
         up_down_ratio = up_count / max(total_active, 1)
 
@@ -416,6 +414,7 @@ class IntradaySentimentCalculator:
 
     async def _fetch_zt_premium(self, trade_date: str) -> float:
         """获取昨日涨停溢价(首次从MongoDB读, 后续用缓存)"""
+        from core.managers import mongo_manager
         try:
             from .emotion_cycle import EmotionCycleManager
             return await EmotionCycleManager._fetch_zt_premium_for_update(
@@ -427,7 +426,6 @@ class IntradaySentimentCalculator:
 
         # Fallback: 直接读sentiment_scores的zt_premium
         try:
-            from core.managers import mongo_manager
             if mongo_manager.is_initialized:
                 doc = await mongo_manager.db["sentiment_scores"].find_one(
                     {"trade_date": int(trade_date)},

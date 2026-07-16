@@ -5,10 +5,7 @@
 
 用法: python3 finance_history_supplement.py [--start 2026-05-06] [--end 2026-05-08]
 """
-import sys
-import os
 import time
-import json
 import requests
 from datetime import datetime
 from pymongo import MongoClient, UpdateOne
@@ -44,7 +41,7 @@ def fetch_one(code, start_date, end_date, indicators=None):
         d = r.json()
         if d.get("errorcode") == 0 and d.get("tables"):
             return d["tables"][0]
-    except Exception as e:
+    except Exception:
         return None
     return None
 
@@ -170,7 +167,7 @@ def main():
             print(f"  bulk_write error: {e}")
     
     elapsed = time.time() - t0
-    print(f"\n===== 补数据完成 =====")
+    print("\n===== 补数据完成 =====")
     print(f"股票: {len(codes_to_fetch)}只, 成功{len(codes_to_fetch)-len(failed_codes)}只, 失败{len(failed_codes)}只")
     print(f"记录: 拉取{total_fetched}条, 写入{total_written}条")
     print(f"耗时: {elapsed:.1f}s")

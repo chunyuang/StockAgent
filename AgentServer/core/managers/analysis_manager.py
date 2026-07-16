@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from .base import BaseManager
+from core.constants import C
 
 
 class MarketCycle(str, Enum):
@@ -405,6 +406,7 @@ class AnalysisManager(BaseManager):
         broken = self._safe_float(stats.get("broken_limit_count"))
         limit_up = self._safe_float(stats.get("limit_up_count"))
         total_amount = self._safe_float(stats.get("total_amount"))
+        prev_height = self._safe_float(prev_stats.get("max_limit_height")) if prev_stats else 0.0
         
         # 提取 MA 基准 (None 表示无历史数据，使用当日数据作为基准)
         avg_limit_up = baseline.get("avg_limit_up_30d")
@@ -550,9 +552,8 @@ class AnalysisManager(BaseManager):
         
         amount_yi = total_amount / 1e8
         
-        prev_height = 0.0
         if prev_stats:
-            prev_height = self._safe_float(prev_stats.get("max_limit_height"))
+            self._safe_float(prev_stats.get("max_limit_height"))
         
         # 简化的周期判定
         if max_height <= 2 and sentiment < 30 and limit_down > 15:

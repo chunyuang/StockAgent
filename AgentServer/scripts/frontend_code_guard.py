@@ -14,9 +14,7 @@
 退出码: 0=健康, 1=有问题
 """
 import re
-import os
 import sys
-import json
 import requests
 from pathlib import Path
 

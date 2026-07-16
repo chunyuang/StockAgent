@@ -177,7 +177,7 @@ def fill_stock_daily(dates):
 
 def sync_basic_to_daily():
     """同步daily_basic因子到stock_daily_ak_full"""
-    print(f'\n=== 同步 daily_basic → stock_daily_ak_full ===')
+    print('\n=== 同步 daily_basic → stock_daily_ak_full ===')
     
     # 只同步2024-05之后的新数据
     dates = sorted(db.daily_basic.distinct('trade_date', {'trade_date': {'$gte': 20240501}}))

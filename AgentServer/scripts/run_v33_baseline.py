@@ -1,5 +1,9 @@
 """V33基线回测 - 3策略默认参数(含策略级风控), 20260105~20260320"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -88,21 +92,21 @@ async def main():
         # 策略分解
         sr = result.get('strategy_results', {})
         if sr:
-            print(f"\n  策略分解:")
+            print("\n  策略分解:")
             for sname, sm in sr.items():
                 print(f"    {sname}: {sm.get('trades_count',0)}笔 胜率{sm.get('win_rate',0):.1f}% 收益{sm.get('total_return',0):.2f}% 盈亏比{sm.get('profit_loss_ratio',0):.2f}")
         
         # 卖出原因
         srs = result.get('sell_reason_stats', {})
         if srs:
-            print(f"\n  卖出原因:")
+            print("\n  卖出原因:")
             for reason, cnt in sorted(srs.items(), key=lambda x: x[1], reverse=True):
                 print(f"    {reason}: {cnt}")
         
         # 月度收益
         mp = result.get('monthly_profit', {})
         if mp:
-            print(f"\n  月度收益:")
+            print("\n  月度收益:")
             for k2, v2 in mp.items():
                 print(f"    {k2}: {v2:.2f}%")
 

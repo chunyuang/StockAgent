@@ -4,7 +4,7 @@
 """
 import logging
 import asyncio
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from typing import Optional
 
 logger = logging.getLogger("factor_update_engine")

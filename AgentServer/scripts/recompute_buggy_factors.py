@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 from pymongo import MongoClient, UpdateOne
-from core.constants import C
 
 def recompute_factors(start_date: int, end_date: int):
     client = MongoClient('localhost', 27017)

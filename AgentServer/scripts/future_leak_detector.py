@@ -155,15 +155,15 @@ async def detect_future_leaks():
     total_checked = leak_count + no_leak_count
     if total_checked > 0:
         leak_pct = leak_count / total_checked * 100
-        print(f"\n  📊 半路追涨未来函数统计:")
+        print("\n  📊 半路追涨未来函数统计:")
         print(f"  检查交易数: {total_checked}")
         print(f"  未来函数交易: {leak_count}笔 ({leak_pct:.1f}%)")
         print(f"  非未来函数交易: {no_leak_count}笔 ({100-leak_pct:.1f}%)")
 
         if leak_pct > 30:
             print(f"  🔴 严重：{leak_pct:.0f}%的半路追涨交易存在未来函数！")
-            print(f"  → 实盘中这些交易不会被选中（9:30看不到收盘涨幅）")
-            print(f"  → 回测收益可能高估")
+            print("  → 实盘中这些交易不会被选中（9:30看不到收盘涨幅）")
+            print("  → 回测收益可能高估")
         elif leak_pct > 10:
             print(f"  🟡 中等：{leak_pct:.0f}%的半路追涨交易存在未来函数")
         else:
@@ -245,7 +245,7 @@ async def detect_future_leaks():
             {'ts_code': ts_code, 'trade_date': int(buy_date)}
         )
         if daily:
-            low = daily.get('low', 0)
+            daily.get('low', 0)
             close = daily.get('close', 0)
             pre_close = daily.get('pre_close', 0)
             if pre_close > 0:
@@ -259,7 +259,7 @@ async def detect_future_leaks():
     if unreasonable > 0:
         print(f"  买入价≈跌停价: {unreasonable}笔 (可能买不到)")
     else:
-        print(f"  ✅ 买入价均>跌停价，翘板买入合理")
+        print("  ✅ 买入价均>跌停价，翘板买入合理")
 
     # ============================================================
     # 总结

@@ -22,7 +22,7 @@ from core.managers import (
     mongo_manager,
 )
 
-from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scanner_router, strategy_config_router, datasource_router, factor_router, trading_archive_router, stop_loss_analysis_router, scan_insight_router
+from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scanner_router, strategy_config_router, datasource_router, trading_archive_router, stop_loss_analysis_router, scan_insight_router
 from .websocket import websocket_router
 
 
@@ -94,10 +94,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await redis_manager.shutdown()
 
 
-import math
-import json as json_lib
-
-
 from nodes.web.api.utils import sanitize_nan as _sanitize_nan
 
 
@@ -158,8 +154,6 @@ def create_app() -> FastAPI:
             # 检查是否是前端路由（无文件扩展名）
             path = request.url.path
             if "." not in path.split("/")[-1]:
-                # 返回index.html让前端路由处理
-                from starlette.responses import FileResponse
                 # 前端SPA fallback: 返回index.html让前端路由处理
                 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../frontend/dist")
                 index_path = os.path.join(static_dir, "index.html")
@@ -232,7 +226,6 @@ def create_app() -> FastAPI:
     app.include_router(scanner_router, prefix="/api/v1", tags=["市场监听"])
     app.include_router(strategy_config_router, tags=["策略配置"])
     app.include_router(datasource_router, prefix="/api/v1", tags=["数据源管理"])
-    app.include_router(factor_router, prefix="/api/v1", tags=["因子管理"])
     app.include_router(trading_archive_router, prefix="/api/v1", tags=["交易归档"])
     app.include_router(stop_loss_analysis_router, prefix="/api/v1", tags=["止损止盈分析"])
     app.include_router(scan_insight_router, prefix="/api/v1", tags=["数据扫描"])

@@ -19,7 +19,7 @@ import pandas as pd
 from core.constants import C
 from core.managers import mongo_manager, redis_manager
 
-from .factor_library import FactorCategory, FactorDefinition, FactorLibrary
+from .factor_library import FactorDefinition, FactorLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -262,18 +262,18 @@ class FactorEngine:
                 if "open" in result.columns and "pre_close" in result.columns:
                     safe_pc = result["pre_close"].replace(0, np.nan)
                     result["opening_pct_chg"] = ((result["open"] - result["pre_close"]) / safe_pc * 100).fillna(0)
-                    logger.debug(f"FACTOR_ENGINE: [V74] opening_pct_chg从open/pre_close动态补算")
+                    logger.debug("FACTOR_ENGINE: [V74] opening_pct_chg从open/pre_close动态补算")
                 else:
                     result["opening_pct_chg"] = 0.0
-                    logger.debug(f"FACTOR_ENGINE: [V74] opening_pct_chg无法计算(缺open/pre_close),设为0")
+                    logger.debug("FACTOR_ENGINE: [V74] opening_pct_chg无法计算(缺open/pre_close),设为0")
 
             if "pullback_pct" not in result.columns:
                 result["pullback_pct"] = 0.0
-                logger.debug(f"FACTOR_ENGINE: [V74] pullback_pct缺失,设为0(龙头低吸将跳过无回调数据股)")
+                logger.debug("FACTOR_ENGINE: [V74] pullback_pct缺失,设为0(龙头低吸将跳过无回调数据股)")
 
             if "pullback_days" not in result.columns:
                 result["pullback_days"] = 0.0
-                logger.debug(f"FACTOR_ENGINE: [V74] pullback_days缺失,设为0(龙头低吸将跳过无回调数据股)")
+                logger.debug("FACTOR_ENGINE: [V74] pullback_days缺失,设为0(龙头低吸将跳过无回调数据股)")
             # ========= V74动态补算结束 =========
 
             # ========= 【V18未来函数修复】：查询T-1数据，生成_prev后缀因子 =========

@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 """Scanner API - 复盘/归因/偏差/参数漂移"""
-import asyncio
-import logging
-import math
 from nodes.web.api.unified import query_trades, query_latest_trade, query_trade_one
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Request
 
-from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner_instance, _clean_mongo, logger,
 )
 
 router = APIRouter(prefix="/scanner", tags=["复盘/归因/偏差/参数漂移"])
@@ -504,7 +496,7 @@ async def get_review_hero(date: str = None):
         unrealized_pct = None
         if buys and not sells:
             try:
-                today_int = _normalize_date(date) or int(datetime.now().strftime("%Y%m%d"))
+                _normalize_date(date) or int(datetime.now().strftime("%Y%m%d"))
                 buy_codes = set(b.get("ts_code", "") for b in buys)
                 total_cost = 0
                 total_market = 0
@@ -1271,7 +1263,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             ct = buy.get("create_time","")  # 格式 HH:MM:SS
             if isinstance(ct, str) and ":" in ct:
                 try:
-                    h, m = int(ct.split(":")[0]), int(ct.split(":")[1])
+                    h, _ = int(ct.split(":")[0]), int(ct.split(":")[1])
                     # 10:00前算正常, 10:00后算延迟(半路追涨不应10点后买)
                     if h >= 10 and buy.get("strategy") == "halfway_chase":
                         late_count += 1
@@ -1822,7 +1814,6 @@ async def factor_effectiveness(date: str = None):
 
         # 2. 加载scan_traces候选(含因子数据)
         factor_stats = {}  # factor_name -> {period -> {total, wins, avg_pnl}}
-        factor_names = ["量比", "涨幅", "换手率", "连板数"]
 
         # 用scan_traces中passed的候选和对应实盘结果
         trace_dates = set()
@@ -1840,7 +1831,7 @@ async def factor_effectiveness(date: str = None):
 
                 # 提取因子值(粗略用pct_chg和价格区间)
                 pct_chg = c.get("pct_chg", 0) or 0
-                price = c.get("price", 0) or 0
+                c.get("price", 0) or 0
                 strategy = c.get("strategy", "")
 
                 # 因子分组(v2.9.84增强: 新增换手率/量比因子)
@@ -1864,8 +1855,8 @@ async def factor_effectiveness(date: str = None):
                     factor_stats[fname][period][bucket]["total"] += 1
 
         # 【v2.9.88修复】scan_traces.trade_date已统一为int
-        start_int = _normalize_date(start_date)
-        end_int = _normalize_date(end_date)
+        _normalize_date(start_date)
+        _normalize_date(end_date)
 
         # 3. 用broker_orders的买入和后续卖出结果来补充胜率
         # 简化: 用scan_traces候选的pct_chg作为近似
@@ -1905,7 +1896,7 @@ async def factor_effectiveness(date: str = None):
                     continue
 
                 strat = info.get("strategy", "") or "unknown"
-                price = info.get("price", 0)
+                info.get("price", 0)
 
                 # 因子分组
                 for fname, bucket in [("策略", strat)]:
@@ -2255,7 +2246,7 @@ async def review_closed_loop(date: str = None):
 
                 # 关联因子效果: 对比快照前后的因子胜率
                 snap_int = int(snap_date) if snap_date.isdigit() else 0
-                if snap_int > 0 and len(factor_stats) > 0 if 'factor_stats' in dir() else False:
+                if snap_int > 0 and len(locals().get('factor_stats', [])) > 0:
                     # 注: factor_stats来自factor_effectiveness的计算,这里简化处理
                     # 对比快照日期前3天和后3天的因子表现
                     pre_start = snap_int - 3

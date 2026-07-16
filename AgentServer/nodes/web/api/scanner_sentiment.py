@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 """Scanner API - 市场情绪/情绪矩阵"""
-import asyncio
-import logging
-import math
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from datetime import datetime
+from typing import Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
-    normalize_data_mode,
+    _get_scanner, logger, normalize_data_mode,
 )
 
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
@@ -80,7 +72,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily", data_mod
         if not mongo_manager.is_initialized:
             return {"success": True, "data": {"points": [], "trades": []}}
         db = mongo_manager.db
-        import datetime as _dt, re
+        import datetime as _dt
         if not date:
             date = _dt.datetime.now().strftime("%Y%m%d")
         
@@ -626,7 +618,7 @@ async def get_sentiment_live_log(limit: int = 50, date: Optional[str] = None):
     2. 内存为空(进程刚重启 / scanner 未运行) -> 回查 MongoDB sentiment_live_log
     3. 可选 date 参数: YYYYMMDD / YYYY-MM-DD 过滤指定交易日
     """
-    scanner = await _get_scanner()
+    await _get_scanner()
     try:
         from core.managers import mongo_manager
         from datetime import datetime, timezone, timedelta

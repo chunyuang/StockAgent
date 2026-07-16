@@ -246,8 +246,8 @@ onMounted(async () => {
   if (!loaded) {
     try {
       const res = await backtestApi.getUltraShortDefaults()
-      if (res.data?.success && res.data?.data) {
-        const defaults = res.data.data
+      if (res?.success && res?.data) {
+        const defaults = res.data
         Object.assign(form.dataSource, defaults.dataSource || {})
         Object.assign(form.base, defaults.base || {})
         Object.assign(form.globalFilter, defaults.globalFilter || {})
@@ -271,7 +271,8 @@ onMounted(async () => {
   try {
     const res = await fetch('/api/v1/backtest/ultra-short/history')
     if (res.ok) {
-      const data = await res.json()
+      const body = await res.json()
+      const data = body?.data || body
       historyCount.value = data.total || 0
       // 自动加载最近一次回测结果，避免打开时空白
       if (data.items?.length && !backtestResult.value) {
@@ -311,16 +312,18 @@ const runHealthCheck = async () => {
   healthLoading.value = true; healthStatus.value = ''; healthDetail.value = null
   try {
     const res = await systemHealthCheck()
-    healthDetail.value = res; healthStatus.value = res.status || 'ok'
-    if (res.status === 'ok') ElMessage.success('✅ 所有服务运行正常')
-    else if (res.status === 'warning') {
-      const w = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='warning').map(([_k,v]:any)=>v.message).join('; ')
+    const hd = res?.data || res
+    healthDetail.value = hd; healthStatus.value = hd.status || 'ok'
+    if (hd.status === 'ok') ElMessage.success('✅ 所有服务运行正常')
+    else if (hd.status === 'warning') {
+      const w = Object.entries(hd.checks||{}).filter(([_,v]:any)=>v.status==='warning').map(([_k,v]:any)=>v.message).join('; ')
       ElMessage.warning('⚠️ 部分服务异常: '+w)
     } else {
-      const e2 = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='error').map(([_k,v]:any)=>v.message).join('; ')
+      const e2 = Object.entries(hd.checks||{}).filter(([_,v]:any)=>v.status==='error').map(([_k,v]:any)=>v.message).join('; ')
       ElMessage.error('❌ 服务异常: '+e2)
     }
   } catch(e:any) {
+    console.error('[UltraShortBacktest] health check failed:', e)
     healthStatus.value = 'error'
     ElMessage.error(e.message==='Network Error'?'❌ 后端服务未运行！请先启动服务 (restart_all.sh)':'❌ 健康检查失败: '+e.message)
   } finally { healthLoading.value = false }
@@ -428,11 +431,11 @@ const submitBacktest = async () => {
       },
     })
 
-    if (!res || !res.task_id) {
+    if (!res || !res?.data?.task_id) {
       throw new Error(`接口返回异常：${JSON.stringify(res || '无返回数据')}`)
     }
 
-    backtestState.task_id = res.task_id
+    backtestState.task_id = res.data.task_id
     addLog(`✅ 任务提交成功，任务ID：${backtestState.task_id}`)
 
     // WebSocket 连接
@@ -514,6 +517,7 @@ const submitBacktest = async () => {
                 clearInterval(pollInterval)
               }
             } catch (e: any) {
+              console.error('[UltraShort] poll error:', e)
               addLog(`⚠️ 轮询异常：${e.message || '未知错误'}`)
             }
           }, 1000)
@@ -539,6 +543,7 @@ const submitBacktest = async () => {
       tryReconnect()
     }
   } catch (e: any) {
+    console.error('[UltraShortBacktest] submit failed:', e)
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
     // 提取后端实际错误消息，而非axios默认消息
     let errorMsg = e.message || '未知错误'
@@ -634,9 +639,10 @@ const submitSweepBacktest = async () => {
       sweep_end: form.sweep.end,
       sweep_step: form.sweep.step,
     })
-    sweepResult.value = res
+    sweepResult.value = res?.data || res
     ElMessage.success('参数扫描完成！')
   } catch (e: any) {
+    console.error('[UltraShortBacktest] sweep failed:', e)
     let errorMsg = e.response?.data?.detail?.message || e.response?.data?.message || e.message || '未知错误'
     if (e.message === 'Network Error') errorMsg = '网络连接失败，请检查后端服务是否运行'
     ElMessage.error(`参数扫描失败：${errorMsg}`)
@@ -836,7 +842,8 @@ function onViewResult(task: BacktestHistoryItem) {
     } else {
       ElMessage.warning('该回测无结果数据')
     }
-  }).catch(() => {
+  }).catch((e) => {
+    console.error('[UltraShortBacktest] load result failed:', e)
     ElMessage.error('加载结果失败')
   })
 }

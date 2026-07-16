@@ -282,7 +282,7 @@ def fix_eastmoney_circ_mv(db, trade_date, dry_run=False):
         if circ > 1e10:  # >100亿万元=1万亿? 不对, 应该是171692507万元
             log.info(f"  {trade_date} circ_mv单位检查: 600519.SH={circ} → {circ/10000:.2f}亿")
             if circ / 10000 > 10000:  # 亿元>1万亿? 
-                log.warning(f"  ⚠️ circ_mv可能存的是元而非万元!")
+                log.warning("  ⚠️ circ_mv可能存的是元而非万元!")
 
 
 def validate_data_quality(db):

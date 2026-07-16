@@ -41,7 +41,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from typing import Dict, List, Any, Callable, Awaitable, Optional
+from typing import Dict, List, Any, Callable, Optional
 
 logger = logging.getLogger("scanner.event_bus")
 

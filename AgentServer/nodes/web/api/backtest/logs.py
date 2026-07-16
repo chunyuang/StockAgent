@@ -38,7 +38,8 @@ async def get_backtest_logs(
     if not os.path.exists(jsonl_path):
         log_path = os.path.join(LOG_DIR, f"{task_id}.log")
         if os.path.exists(log_path):
-            return await _parse_log_file(log_path, task_id, day, strategy, section, search, offset, limit, tail)
+            result = await _parse_log_file(log_path, task_id, day, strategy, section, search, offset, limit, tail)
+            return {"success": True, "data": result}
         raise HTTPException(status_code=404, detail=f"任务 {task_id} 无日志记录")
 
     # 读取JSONL
@@ -119,15 +120,18 @@ async def get_backtest_logs(
         }
 
     return {
-        "task_id": task_id,
-        "total_lines": len(records),
-        "filtered_total": total,
-        "days": days_info,
-        "strategies": list(set(r.get("strategy") for r in records if r.get("strategy"))),
-        "sections": list(set(r.get("section") for r in records if r.get("section"))),
-        "offset": offset if tail is None else None,
-        "limit": limit,
-        "logs": result_logs,
+        "success": True,
+        "data": {
+            "task_id": task_id,
+            "total_lines": len(records),
+            "filtered_total": total,
+            "days": days_info,
+            "strategies": list(set(r.get("strategy") for r in records if r.get("strategy"))),
+            "sections": list(set(r.get("section") for r in records if r.get("section"))),
+            "offset": offset if tail is None else None,
+            "limit": limit,
+            "logs": result_logs,
+        }
     }
 
 
@@ -248,15 +252,18 @@ async def _parse_log_file(log_path: str, task_id: str, day: str, strategy: str,
         result_logs = filtered[offset:offset + limit]
 
     return {
-        "task_id": task_id,
-        "total_lines": len(records),
-        "filtered_total": total,
-        "days": days_info,
-        "strategies": list(set(r.get("strategy") for r in records if r.get("strategy"))),
-        "sections": list(set(r.get("section") for r in records if r.get("section"))),
-        "offset": offset if tail is None else None,
-        "limit": limit,
-        "logs": result_logs,
+        "success": True,
+        "data": {
+            "task_id": task_id,
+            "total_lines": len(records),
+            "filtered_total": total,
+            "days": days_info,
+            "strategies": list(set(r.get("strategy") for r in records if r.get("strategy"))),
+            "sections": list(set(r.get("section") for r in records if r.get("section"))),
+            "offset": offset if tail is None else None,
+            "limit": limit,
+            "logs": result_logs,
+        }
     }
 
 
@@ -303,19 +310,25 @@ async def get_backtest_log_summary(task_id: str):
 
         days_info = [{"day": d, "date": dt} for d, dt in sorted(days_set.items())]
         return {
-            "task_id": task_id,
-            "total_lines": total,
-            "days": days_info,
-            "strategies": sorted(strategies_set),
-            "sections": sorted(sections_set),
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "total_lines": total,
+                "days": days_info,
+                "strategies": sorted(strategies_set),
+                "sections": sorted(sections_set),
+            }
         }
     else:
         # .log文件：解析提取结构化摘要
         result = await _parse_log_file(log_path, task_id, "all", None, None, None, 0, 1, None)
         return {
-            "task_id": result["task_id"],
-            "total_lines": result["total_lines"],
-            "days": result["days"],
-            "strategies": result["strategies"],
-            "sections": result["sections"],
+            "success": True,
+            "data": {
+                "task_id": result["task_id"],
+                "total_lines": result["total_lines"],
+                "days": result["days"],
+                "strategies": result["strategies"],
+                "sections": result["sections"],
+            }
         }

@@ -66,7 +66,7 @@ def count_limits(stock_data: dict) -> tuple:
     return lu, ld
 
 
-async def count_limits(db, td_int: int) -> tuple:
+async def count_limits_async(db, td_int: int) -> tuple:
     """从MongoDB统计当日涨跌停数量(按板块阈值)
 
     Args:

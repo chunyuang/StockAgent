@@ -13,7 +13,8 @@ from pathlib import Path
 - limit_down_yesterday: 昨日跌停
 - open_above_limit_down: 开盘高于跌停价
 """
-import asyncio, sys, time
+import asyncio
+import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.data_fetchers.liangmai_client import LiangMaiClient
@@ -68,7 +69,7 @@ def compute_intraday_factors(bars, pre_close, ts_code):
         high = bar.get('h', 0)
         low = bar.get('l', 0)
         close = bar.get('c', 0)
-        vol = bar.get('v', 0)
+        bar.get('v', 0)
         amount = bar.get('a', 0)
         
         # 解析时间 (格式: '2026-03-20 09:30:00' 或类似)

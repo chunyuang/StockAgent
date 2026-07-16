@@ -13,6 +13,9 @@ from typing import Optional, Any, Callable
 from datetime import datetime
 import json
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 import uuid
 
 import redis.asyncio as aioredis

@@ -13,7 +13,6 @@
 import tushare as ts
 import pandas as pd
 from pymongo import MongoClient
-from datetime import datetime, timedelta
 import time
 import sys
 

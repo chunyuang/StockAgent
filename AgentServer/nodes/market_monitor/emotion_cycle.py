@@ -384,8 +384,8 @@ class EmotionCycleManager:
             if not prev_trade_date_doc:
                 return None
             return str(prev_trade_date_doc["trade_date"])
-        except Exception as _e:
-            from datetime import timedelta
+        except Exception:
+            from datetime import datetime, timedelta
             date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
             return (date_obj - timedelta(days=1)).strftime("%Y%m%d")
 
@@ -619,7 +619,7 @@ class EmotionCycleManager:
         to_sell = scanner._build_emotion_sell_list(positions, rule, old_phase, new_phase)
 
         if not to_sell:
-            logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
+            logger.info("[EMOTION] phase降级无需调仓(无符合条件持仓)")
             return
 
         # 分批执行卖出+事件推送
@@ -639,7 +639,7 @@ class EmotionCycleManager:
         from datetime import datetime
         from nodes.market_monitor.market_phase import MarketPhase
         if not MarketPhase.is_continuous_auction():
-            logger.warning(f"[EMOTION] 非连续竞价时段，跳过情绪调仓卖出")
+            logger.warning("[EMOTION] 非连续竞价时段，跳过情绪调仓卖出")
             return 0
         trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
         batch_size = 2
@@ -803,7 +803,7 @@ class EmotionCycleManager:
         注意: daily_basic没有pct_chg字段,不能用于涨跌停统计!
         注意: tushare_stk_limit只有up_limit/down_limit价格,没有limit标记!
         """
-        from nodes.market_monitor.utils.board_limit import count_limits
+        from nodes.market_monitor.utils.board_limit import count_limits_async
         limit_pools = getattr(scanner, '_limit_pools', None) or {}
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
@@ -840,7 +840,7 @@ class EmotionCycleManager:
             data_source = "limit_list"
             # 【v2.9.115修复】limit_list跌停数据不全(只采集涨停池中的跌停),
             # 用日线按板块阈值交叉校验跌停数,取较大值
-            lu_daily, ld_daily = await count_limits(db, td_int)
+            lu_daily, ld_daily = await count_limits_async(db, td_int)
             if ld_daily > ld_limit_list:
                 ld = ld_daily
                 data_source = "limit_list+daily_xref"
@@ -859,7 +859,7 @@ class EmotionCycleManager:
             data_source = "stock_daily_ak_full"
         if lu == 0 and ld == 0:
             # 最后降级: 用board_limit按板块阈值精确统计
-            lu, ld = await count_limits(db, td_int)
+            lu, ld = await count_limits_async(db, td_int)
             max_lb = 1
             data_source = "stock_daily_ak_full_pct"
         return lu, ld, max_lb, data_source

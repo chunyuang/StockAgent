@@ -112,7 +112,7 @@ async def main():
         logs.append(msg)
 
     t0 = time.time()
-    print(f"🚀 V41基准回测: 3策略组合 20260105~20260320 ¥1M")
+    print("🚀 V41基准回测: 3策略组合 20260105~20260320 ¥1M")
     print("=" * 70)
 
     result = await execute_ultra_short_backtest(
@@ -138,7 +138,7 @@ async def main():
     plr = k.get('profit_loss_ratio', result.get('profit_loss_ratio', perf.get('profit_loss_ratio', 0)))
     avg_hold = t.get('average_hold_days', perf.get('average_hold_days', 0))
     sell_stats = perf.get('sell_reason_stats', {})
-    exec_ms = perf.get('execution_time_ms', int(elapsed * 1000))
+    perf.get('execution_time_ms', int(elapsed * 1000))
 
     print(f"\n📊 V41基准结果 (耗时{elapsed:.1f}s):")
     print(f"  累计收益率: {ret:+.2f}%")
@@ -163,7 +163,7 @@ async def main():
     print(f"\n📁 完整结果: {out_path}")
 
     # 打印关键基线值，供后续对比
-    print(f"\n📊 基线数值(供V41优化对比):")
+    print("\n📊 基线数值(供V41优化对比):")
     print(f"  ret={ret:.2f} alpha={alpha_val:.2f} wr={wr:.1f} dd={dd:.2f} sharpe={sharpe:.2f} calmar={calmar:.2f} trades={trades}")
 
 

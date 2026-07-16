@@ -1,5 +1,9 @@
 """V26基线回测 - V25同参数(全局SL3%/TP7%)"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -15,7 +19,7 @@ from core.constants import C
 async def main():
     await mongo_manager.initialize()
     
-    from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES, GLOBAL_RISK, STRATEGY_CONFIGS
+    from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES, STRATEGY_CONFIGS
     from nodes.backtest_engine.factor_selection import PortfolioBacktester
     from nodes.backtest_engine.factor_selection.universe import UniverseManager, ExcludeRule
     from nodes.backtest_engine.factor_selection.factor_engine import FactorEngine
@@ -74,7 +78,7 @@ async def main():
         rk = m.get('risk', {})
         td = m.get('trades', {})
         
-        print(f'\n=== V26 BASELINE (V25同参数=策略默认) ===')
+        print('\n=== V26 BASELINE (V25同参数=策略默认) ===')
         print(f'收益: {rd.get("total_return", 0):.2f}%')
         print(f'夏普: {rk.get("sharpe_ratio", 0):.2f}')
         print(f'回撤: {rk.get("max_drawdown", 0):.2f}%')

@@ -8,7 +8,7 @@ Single Source of Truth: strategy_defaults.py
 import logging
 from typing import Dict, List, Optional, Any
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from nodes.backtest_engine.strategy_defaults import (

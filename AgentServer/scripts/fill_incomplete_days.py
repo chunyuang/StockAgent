@@ -14,7 +14,6 @@ import time
 import logging
 import argparse
 from pymongo import MongoClient, UpdateOne
-from datetime import datetime, timedelta
 
 try:
     import akshare as ak

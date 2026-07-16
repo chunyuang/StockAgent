@@ -1016,7 +1016,7 @@ class HotNewsCollector(BaseCollector):
         Returns:
             保存的数量
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
         
         # 构建文档
         documents = []

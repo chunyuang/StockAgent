@@ -2,7 +2,7 @@
 从MongoDB聚合多日交易数据，计算KPI、策略贡献、卖出原因、月度收益等
 """
 from fastapi import APIRouter
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 router = APIRouter(prefix="/scanner", tags=["analysis"])
 

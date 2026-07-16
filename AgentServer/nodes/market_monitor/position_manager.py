@@ -828,7 +828,11 @@ class PositionManager:
             rt = realtime_data.get(ts_code, {})
             current_price = rt.get("price", pos.current_price)
             
+            # 【v2.9.125】显式跳过停牌股(price=0或broker标记为suspended)
             if current_price <= 0:
+                continue
+            # 检查broker是否标记为停牌
+            if hasattr(self.broker, '_suspended') and ts_code in self.broker._suspended:
                 continue
             
             # 【v2.9.82修复】用实时价格重算profit_pct, 避免pos.profit_pct基于过期current_price
@@ -843,6 +847,12 @@ class PositionManager:
             if sell_item:
                 to_sell.append(sell_item)
             if handled:
+                continue
+            
+            # 【v2.9.124新增】快速跌幅紧急止损(闪崩保护)
+            sell_item = self._check_rapid_drop_stop(pos, rt, current_price, realtime_profit_pct)
+            if sell_item:
+                to_sell.append(sell_item)
                 continue
             
             # 固定止损+追踪止损
@@ -883,6 +893,56 @@ class PositionManager:
                 return True, (pos, reason, price, risk)
         
         return False, None
+    
+    def _check_rapid_drop_stop(self, pos, rt: Dict, current_price: float, realtime_profit_pct: float = None) -> Optional[Tuple]:
+        """【v2.9.124新增】快速跌幅紧急止损: 盘中5分钟内跌幅>5%立即卖出
+        
+        场景: 7/13长盈通从160跌到125.28(跌停), 固定止损3%无法覆盖这种闪崩。
+        检测: 用今日开盘价vs当前价, 如果跌幅>5%且持仓亏损, 立即卖出不等固定止损触发。
+        
+        【v2.9.113修复】当日已触发过的ts_code不重复触发, 避免每秒循环(7946次bug)
+        
+        Args:
+            pos: 持仓对象
+            rt: 实时行情dict
+            current_price: 实时价格
+            realtime_profit_pct: 实时盈亏百分比
+        Returns: (pos, reason, price, risk) or None
+        """
+        ts_code = pos.ts_code
+        
+        # 【v2.9.113】当日已触发过的快速跌幅不重复触发
+        # 之前: 卖出被_today_sold拦截后, 每秒重新检测->每秒触发->每秒被拦截(7946次循环)
+        # 现在: 第一次触发后就标记, 当日不再重复
+        if not hasattr(self, '_rapid_drop_triggered'):
+            self._rapid_drop_triggered = set()
+        if ts_code in self._rapid_drop_triggered:
+            return None
+        today_open = rt.get("open", 0)
+        if not today_open or today_open <= 0:
+            today_open = self._get_open_price(ts_code) or 0
+        if not today_open or today_open <= 0:
+            return None
+        
+        # 计算今日跌幅(从开盘到现在)
+        intraday_drop_pct = (current_price / today_open - 1) * 100
+        
+        # 只在亏损持仓上触发(盈利持仓的快速下跌不紧急止损)
+        check_profit_pct = realtime_profit_pct if realtime_profit_pct is not None else pos.profit_pct
+        if check_profit_pct is not None and check_profit_pct >= 0:
+            return None
+        
+        # 5分钟内跌幅>5% -> 紧急止损
+        # 用intraday_drop_pct作为近似(无法精确5分钟, 但开盘后任意时刻跌>5%已是危险信号)
+        RAPID_DROP_THRESHOLD = -5.0  # 从开盘跌5%
+        if intraday_drop_pct <= RAPID_DROP_THRESHOLD:
+            risk = self._get_risk_with_overrides(pos)
+            reason = f"快速跌幅紧急止损·开盘{today_open:.2f}->现{current_price:.2f}({intraday_drop_pct:+.1f}%)"
+            logger.warning(f"[RISK] ⚡ {ts_code} {reason}")
+            self._rapid_drop_triggered.add(ts_code)  # 【v2.9.113】标记当日已触发
+            return (pos, reason, current_price, risk)
+        
+        return None
     
     def _check_quick_stop_loss(self, pos, rt: Dict, current_price: float, realtime_profit_pct: float = None) -> Optional[Tuple]:
         """快速止损检查: 固定止损+追踪止损【v2.9.45提取, v2.9.82:realtime_profit_pct参数】
@@ -1087,7 +1147,7 @@ class PositionManager:
             # 线程安全读取覆盖参数
             with self.state_lock:
                 pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
-            sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
+            pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
             
             # 【v2.9.89修复】移动止损(保本)逻辑: 盈利曾>2倍止损但回撤至亏损区
             # 旧bug: 条件 `profit_pct/100 > sl_pct*2 and profit_pct < 0` 永远为False
@@ -1260,7 +1320,7 @@ class PositionManager:
         for ts_code in expired_codes:
             try:
                 self._scanner._add_timeline_log("blocked", ts_code, "",
-                    "", f"跌停挂起超时清除(保留持仓)", None)
+                    "", "跌停挂起超时清除(保留持仓)", None)
             except Exception as _e:
                 logger.debug(f"operation failed: {_e}")
         
@@ -1419,9 +1479,7 @@ class PositionManager:
 
         trace_id = f"risk-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
         # 【v2.9.82修复】不再用pos.profit_pct预估值,卖出后从order取实际盈亏
-        # 旧代码: sell_profit_pct = pos.profit_pct / sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
-        # 问题: pos.current_price可能与实际成交价(fill_price)不同, 导致timeline/EventBus记录的盈亏不准
-        sell_profit_pct = None  # 占位, 卖出成功后从order填充
+        # sell_profit_pct从order填充, 这里先初始化
         sell_profit_amount = None
 
         try:
@@ -1481,7 +1539,7 @@ class PositionManager:
                 if self._is_limit_down(p.ts_code):
                     with self.state_lock:
                         self.pending_sells[p.ts_code] = {
-                            "reason": f"强制空仓跌停挂起",
+                            "reason": "强制空仓跌停挂起",
                             "price": p.current_price,
                             "added_at": time.time(),
                             "source": "force_empty",
@@ -1496,7 +1554,7 @@ class PositionManager:
             trace_id = f"liq-{p.ts_code}-{uuid.uuid4().hex[:8]}"
             try:
                 scanner._broker.update_realtime(p.ts_code, p.current_price)
-                profit_pct = p.profit_pct
+                p.profit_pct
                 profit_amount = (p.current_price - p.avg_cost) * p.available_qty
                 ok, msg, order = scanner._broker.place_order(
                     ts_code=p.ts_code,

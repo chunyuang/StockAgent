@@ -106,7 +106,7 @@ async def main():
     # 卖出原因统计
     sell_stats = result.get('sell_reason_stats', {})
     if sell_stats:
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for reason, count in sorted(sell_stats.items(), key=lambda x: -x[1]):
             print(f"    {reason}: {count}")
 

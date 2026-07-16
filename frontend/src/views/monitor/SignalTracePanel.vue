@@ -196,9 +196,9 @@ function getStrategyColor(strategy) {
 async function loadTraces() {
   loading.value = true
   try {
-    const { data } = await api.get('/scanner/scan-traces', { params: { limit: 20 } })
-    if (data?.success) {
-      traceList.value = data.data || []
+    const r = await api.get<any>('/scanner/scan-traces', { params: { limit: 20 } })
+    if (r?.success) {
+      traceList.value = r.data || []
       if (traceList.value.length > 0 && !selectedTraceId.value) {
         selectedTraceId.value = traceId(traceList.value[0])
         await loadTraceDetail()
@@ -216,19 +216,19 @@ async function loadTraceDetail() {
   loading.value = true
   try {
     // 先加载passed候选(用于管道流图)
-    const { data } = await api.get(`/scanner/scan-traces/${selectedTraceId.value}?status=passed&limit=50`)
-    if (data?.success) {
-      currentTrace.value = data.data
+    const r = await api.get<any>(`/scanner/scan-traces/${selectedTraceId.value}?status=passed&limit=50`)
+    if (r?.success) {
+      currentTrace.value = r.data
       // 异步加载rejected候选(用于“淘汰原因”tab)
       try {
-        const r = await api.get(`/scanner/scan-traces/${selectedTraceId.value}?status=rejected&limit=200`)
-        if (r.data?.success && r.data.data?.candidates) {
+        const r2 = await api.get<any>(`/scanner/scan-traces/${selectedTraceId.value}?status=rejected&limit=200`)
+        if (r2?.success && r2.data?.candidates) {
           // 合并rejected候选到candidates列表(前端通过final_status区分)
           const existing = currentTrace.value?.candidates || []
           currentTrace.value = {
             ...currentTrace.value,
-            candidates: [...existing, ...r.data.data.candidates],
-            rejected_layer_stats: r.data.data.rejected_layer_stats,
+            candidates: [...existing, ...r2.data.candidates],
+            rejected_layer_stats: r2.data.rejected_layer_stats,
           }
         }
       } catch (e2) {

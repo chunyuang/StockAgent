@@ -5,7 +5,7 @@
 用法: python3 fill_limit_list_from_daily.py [--start 20240506] [--end 20251231]
 """
 import argparse
-from pymongo import MongoClient, UpdateOne
+from pymongo import MongoClient
 
 
 def main():

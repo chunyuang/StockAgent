@@ -31,7 +31,7 @@ def check_global_risk():
     # 检查broker.py中的仓位限制
     try:
         from nodes.market_monitor.broker import SimulatedBroker
-        b = SimulatedBroker.__new__(SimulatedBroker)
+        SimulatedBroker.__new__(SimulatedBroker)
         # 读取类变量
         max_pos = getattr(SimulatedBroker, 'MAX_POSITION_RATIO', None)
         max_total = getattr(SimulatedBroker, 'MAX_TOTAL_RATIO', None)
@@ -159,7 +159,7 @@ def check_selection_filters():
     hc = STRATEGY_CONFIGS.get('halfway_chase', {})
     hc_params = hc.get('params', {})
     if 'allow_after_10am' not in hc_params:
-        issues.append(f"[半路追涨] allow_after_10am在params中缺失")
+        issues.append("[半路追涨] allow_after_10am在params中缺失")
     elif hc_params['allow_after_10am'] != False:
         issues.append(f"[半路追涨] allow_after_10am={hc_params['allow_after_10am']}, 回测为False")
     
@@ -174,7 +174,7 @@ def check_selection_filters():
     ldq = STRATEGY_CONFIGS.get('limit_down_qiao', {})
     ldq_params = ldq.get('params', {})
     if 'min_turnover_rate' not in ldq_params:
-        issues.append(f"[跌停翘板] min_turnover_rate在params中缺失")
+        issues.append("[跌停翘板] min_turnover_rate在params中缺失")
     
     return issues
 
@@ -263,6 +263,108 @@ def check_hardcoded_values():
     
     return issues
 
+def check_logic_consistency():
+    """检查回测vs实盘的计算逻辑一致性(不只是参数值, 还包括公式)"""
+    issues = []
+    
+    import re
+    
+    # 1. 止损价公式一致性
+    # 回测: stop_loss_price = avg_cost * (1 - stop_loss_pct)
+    # 实盘: 应该相同
+    pm_path = os.path.join(os.path.dirname(__file__), '..', 'nodes', 'market_monitor', 'position_manager.py')
+    if os.path.exists(pm_path):
+        with open(pm_path) as f:
+            pm_src = f.read()
+        
+        # 实盘止损价: 检查公式
+        # position_manager: stop_loss_price = round(pos.avg_cost * (1 - stop_loss_pct), 2)
+        # 但position_manager中stop_loss_pct可能是小数(0.03)或百分比(-3.0)
+        # 回测portfolio_backtest: stop_loss_price = avg_cost * (1 - stop_loss_pct)
+        # 检查单位是否一致
+        pm_sl = re.findall(r'avg_cost.*\(1.*stop_loss', pm_src)
+        if pm_sl:
+            # 检查stop_loss_pct在小数还是百分比
+            sl_sign = re.findall(r'stop_loss_pct\s*=\s*([^;\n]+)', pm_src)
+            for s in sl_sign[:3]:
+                if '* 100' in s or '/ 100' in s:
+                    info_msg = f"position_manager stop_loss_pct有*100转换: {s.strip()}"
+                    print(f"   ℹ️  {info_msg}")
+    
+    # 2. 佣金/印花税一致性
+    # 回测: commission = max(amount * 0.0003, 5.0), stamp_duty = amount * 0.001 (sell only)
+    # 实盘: 应该相同
+    broker_path = os.path.join(os.path.dirname(__file__), '..', 'nodes', 'market_monitor', 'broker.py')
+    if os.path.exists(broker_path):
+        with open(broker_path) as f:
+            bk_src = f.read()
+        
+        # 实盘佣金
+        broker_comm = re.findall(r'commission.*=.*max.*0\.0003|commission.*=.*amount.*0\.0003', bk_src)
+        if not broker_comm:
+            # 也检查_calc_commission方法
+            broker_comm2 = re.findall(r'0\.0003|万3|万分之3', bk_src)
+            if not broker_comm2:
+                issues.append("broker.py: 未找到万3佣金率(0.0003), 可能与回测不一致")
+        
+        broker_stamp = re.findall(r'stamp_duty.*=.*0\.001|stamp.*千1|印花税.*0\.001|STAMP_DUTY_RATE.*=.*0\.001', bk_src, re.IGNORECASE)
+        if not broker_stamp:
+            issues.append("broker.py: 未找到千1印花税率(0.001), 可能与回测不一致")
+    
+    # 3. T+1规则一致性
+    # 回测: available_qty = total_qty - today_buy_qty
+    # 实盘: available_qty=0 for new positions, daily_settlement解锁
+    if os.path.exists(broker_path):
+        with open(broker_path) as f:
+            bk_src = f.read()
+        
+        if 'available_qty=0' in bk_src or 'available_qty = 0' in bk_src:
+            pass  # T+1锁定存在
+        else:
+            issues.append("broker.py: 新仓available_qty未设0, T+1可能不一致")
+    
+    # 4. 成交概率模型一致性
+    # 回测: 涨停股用概率模型, 跌停不可买
+    # 实盘: 应该相同
+    bt_path = os.path.join(os.path.dirname(__file__), '..', 'nodes', 'backtest_engine', 'portfolio_backtest.py')
+    if os.path.exists(bt_path):
+        with open(bt_path) as f:
+            bt_src = f.read()
+        
+        # 回测中的涨停概率
+        bt_limit = re.findall(r'limit_up.*prob|涨停.*概率|hit_prob', bt_src)
+        # 实盘中的涨停概率
+        bk_limit = re.findall(r'limit_up.*prob|涨停.*概率|hit_prob', bk_src)
+        
+        if bt_limit and not bk_limit:
+            issues.append("回测有涨停成交概率模型, 实盘可能缺失")
+        elif not bt_limit and not bk_limit:
+            info_msg = "回测和实盘都未找到涨停成交概率模型"
+            print(f"   ℹ️  {info_msg}")
+    
+    # 5. circ_mv单位一致性
+    # 回测: 参数×10000 = 万元 -> 亿元转换
+    # 实盘: circ_mv_raw / 10000 if >= 10000
+    bt_circ = re.findall(r'circ_mv.*10000|circulation_market_cap.*10000', bt_src) if os.path.exists(bt_path) else []
+    sm_path = os.path.join(os.path.dirname(__file__), '..', 'nodes', 'market_monitor', 'signal_manager.py')
+    if os.path.exists(sm_path):
+        with open(sm_path) as f:
+            sm_src = f.read()
+        sm_circ = re.findall(r'circ_mv.*10000|circulation_market_cap.*10000', sm_src)
+        
+        if bt_circ and sm_circ:
+            pass  # 两边都有转换
+        elif bt_circ and not sm_circ:
+            issues.append("回测有circ_mv×10000转换, 实盘signal_manager可能缺失")
+        elif not bt_circ and sm_circ:
+            # 回测文件可能不在当前目录, 只有回测文件存在但没找到转换时才报
+            if os.path.exists(bt_path):
+                issues.append("回测文件存在但无circ_mv转换, 实盘有circ_mv÷10000转换")
+            # else: 回测文件不存在, 不报
+    
+    return issues
+
+
 # ============================================================
 # 主流程
 # ============================================================
@@ -281,6 +383,7 @@ def main():
         ("5. 成交概率参数", check_hit_probability),
         ("6. 情绪仓位映射", check_sentiment_map),
         ("7. Hardcoded值扫描", check_hardcoded_values),
+        ("8. 回测vs实盘逻辑一致性", check_logic_consistency),
     ]
     
     for name, fn in checks:
@@ -288,7 +391,7 @@ def main():
         try:
             issues = fn()
             if not issues:
-                print(f"   ✅ 全部一致")
+                print("   ✅ 全部一致")
             else:
                 for issue in issues:
                     print(f"   ❌ {issue}")

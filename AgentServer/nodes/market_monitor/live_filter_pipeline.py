@@ -30,9 +30,8 @@
     # result.position_ratio: 建议仓位比例 (0.0 ~ 1.0)
 """
 
-import math
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
@@ -327,7 +326,7 @@ class LiveFilterPipeline:
         # 【v2.9.92w】冷却期检查(强制空仓后N天内仓位上限)
         cooldown_info = getattr(self._scanner, '_cooldown_info', {})
         if cooldown_info and cooldown_info.get('trigger_date'):
-            from datetime import datetime, timedelta
+            from datetime import datetime
             try:
                 trigger = datetime.strptime(cooldown_info['trigger_date'], '%Y%m%d')
                 cooldown_days = cooldown_info.get('cooldown_days', 2)
@@ -362,7 +361,6 @@ class LiveFilterPipeline:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
                     # 查询上证指数最近60天close
-                    import asyncio
                     index_docs = await mongo_manager.find_many(
                         "index_daily",
                         {"ts_code": "000001.SH"},
@@ -509,7 +507,6 @@ class LiveFilterPipeline:
                     t.layer_results[layer] = {"passed": True}
             return
         # 从trace_candidates中查找(包含所有原始候选，不会被过滤)
-        trace_map = {t.ts_code: t for t in result.trace_candidates}
         for t in result.trace_candidates:
             if t.ts_code in dropped_ids and t.final_status != "rejected":
                 # 构造候选数据供reason_fn使用
@@ -534,7 +531,7 @@ class LiveFilterPipeline:
             return f"次新/退市(无行情): {ts_code}"
         if isinstance(vol, (int, float)) and vol < 500:
             return f"流动性不足(日成交{vol:.0f}万<500万)"
-        return f"未知原因"
+        return "未知原因"
 
     def _build_trace_summary(self, result) -> Dict:
         """构建追踪汇总 — 正确追踪每层的输入/输出/淘汰
@@ -976,7 +973,7 @@ class LiveFilterPipeline:
             ]
             async for doc in mongo_manager.db["stock_daily_ak_full"].aggregate(pipeline):
                 return str(doc["max_date"])
-        except Exception as _e:
+        except Exception:
             return None
 
     def get_sentiment_info(self) -> Dict:

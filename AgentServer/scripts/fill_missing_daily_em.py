@@ -13,7 +13,6 @@
 
 import requests
 import time
-import sys
 import gc
 from pymongo import MongoClient, UpdateOne
 
@@ -62,7 +61,7 @@ def fetch_kline(secid, beg=BEG, end=END):
         d = r.json()
         klines = d.get('data', {}).get('klines', [])
         return klines
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -151,7 +150,7 @@ def main():
         if d['_id'] and d['count'] < 5000 and d['_id'] > 20260320:
             incomplete_dates.append(d['_id'])
     
-    print(f"=== 东方财富历史K线 → stock_daily_ak_full ===")
+    print("=== 东方财富历史K线 → stock_daily_ak_full ===")
     print(f"不完整日期: {len(incomplete_dates)}天")
     print(f"参考完整日(5/8): {len(full_codes)}只")
     
@@ -238,13 +237,13 @@ def main():
             print(f"  最后一批写入失败: {e}")
     
     elapsed = time.time() - start_time
-    print(f"\n=== 完成 ===")
+    print("\n=== 完成 ===")
     print(f"写入: {total_upserted}条")
     print(f"失败: {total_errors}只")
     print(f"耗时: {elapsed/60:.1f}分钟")
     
     # 验证
-    print(f"\n=== 验证 ===")
+    print("\n=== 验证 ===")
     for dt in incomplete_dates:
         cnt = col.count_documents({"trade_date": dt})
         status = "✅" if cnt >= 5000 else "⚠️"

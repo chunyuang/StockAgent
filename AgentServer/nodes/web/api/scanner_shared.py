@@ -12,10 +12,8 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter
 from pydantic import BaseModel
 
-from nodes.web.api.utils import sanitize_nan as _sanitize
 
 logger = logging.getLogger("api.scanner")
 

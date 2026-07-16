@@ -6,7 +6,7 @@
 用法: python3 scripts/lightweight_factor_fill.py
 """
 import asyncio
-import sys, functools
+import sys
 import os
 import time
 from collections import defaultdict
@@ -263,7 +263,7 @@ async def compute_opening_and_intraday(trade_dates: list[int]):
             pre_close = doc.get('pre_close', 0) or 0
             high = doc.get('high', 0) or 0
             low = doc.get('low', 0) or 0
-            close_p = doc.get('close', 0) or 0
+            doc.get('close', 0) or 0
             
             if pre_close <= 0:
                 continue

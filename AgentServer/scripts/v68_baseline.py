@@ -116,7 +116,7 @@ async def main():
     # Sell reason stats
     srs = result.get('sell_reason_stats', {})
     if srs:
-        print(f"\n  卖出原因统计:")
+        print("\n  卖出原因统计:")
         for k, v in sorted(srs.items(), key=lambda x: -x[1]):
             if v > 0:
                 print(f"    {k}: {v}")
@@ -137,6 +137,6 @@ async def main():
             'sell_reason_stats': srs,
         }, f, indent=2)
     
-    print(f"\n📁 结果已保存")
+    print("\n📁 结果已保存")
 
 asyncio.run(main())

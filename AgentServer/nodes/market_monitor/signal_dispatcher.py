@@ -19,11 +19,10 @@ SignalDispatcher — 统一信号分发器
     await dispatcher.dispatch(signal)
 """
 
-import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable, Awaitable
+from typing import Dict, List, Any, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -190,7 +189,6 @@ class SignalDispatcher:
     @staticmethod
     def from_scan_signal(scan_signal, source: str = "scanner") -> DispatchSignal:
         """从MarketScanner的ScanSignal转换为DispatchSignal"""
-        from nodes.market_monitor.scanner import ScanSignal
 
         sig = scan_signal  # type: ScanSignal
         signal_type = "buy" if sig.signal_type == "buy" else "alert"
@@ -254,8 +252,7 @@ async def redis_channel_handler(signal: DispatchSignal) -> bool:
         if not redis_manager.client:
             return False
 
-        import json
-        channel = f"scanner:signal"
+        channel = "scanner:signal"
         data = {
             "signal_id": signal.signal_id,
             "ts_code": signal.ts_code,

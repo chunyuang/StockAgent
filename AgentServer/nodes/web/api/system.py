@@ -40,9 +40,7 @@ async def health_check() -> Dict[str, Any]:
     
     【v2.9.103优化】加60s内存缓存, 避免重复开销大的count_documents
     """
-    import socket
     import asyncio
-    import aiohttp
     import time as _time
     from datetime import datetime
     
@@ -60,7 +58,7 @@ async def health_check() -> Dict[str, Any]:
     try:
         from core.managers import mongo_manager
         db = mongo_manager.db
-        server_info = await asyncio.wait_for(db.command('ping'), timeout=5)
+        await asyncio.wait_for(db.command('ping'), timeout=5)
         checks["mongodb"] = {
             "status": "ok",
             "message": f"MongoDB连接正常 (db={db.name})"
@@ -72,7 +70,6 @@ async def health_check() -> Dict[str, Any]:
     # 2. 回测引擎检查（本地执行模式，不再需要独立端口50057）
     # 【v2.9.103优化】跳过PortfolioBacktester实例化(太慢), 改为import检查
     try:
-        import nodes.backtest_engine.factor_selection.portfolio_backtest as _pbt
         checks["backtest_node"] = {"status": "ok", "message": "回测引擎就绪（本地执行模式）"}
     except Exception as e:
         checks["backtest_node"] = {"status": "error", "message": f"回测引擎加载失败: {str(e)[:100]}"}
@@ -982,7 +979,6 @@ async def get_data_status() -> Dict[str, Any]:
 
         # 健康评分 + 问题诊断
         diagnostics = []
-        health_score = 0
 
         # 数据新鲜度(提前计算, diagnostics要用)
         today_str = datetime.now().strftime('%Y%m%d')
@@ -1072,7 +1068,7 @@ async def get_data_status() -> Dict[str, Any]:
         ok_sources = sum(1 for s in data_sources if s['status'] == 'ok')
         source_score = min(20, ok_sources * 5)  # 4个ok=20分
 
-        health_score = int(factor_score + freshness_score + source_score)
+        int(factor_score + freshness_score + source_score)
 
         # ====== 策略可用性 ======
         # 根据最新一天因子覆盖判断各策略能否运行
@@ -1116,8 +1112,7 @@ async def get_data_status() -> Dict[str, Any]:
         action_items = []
         today_int = int(datetime.now().strftime('%Y%m%d'))
         is_weekend = datetime.now().weekday() >= 5
-        now_hour = datetime.now().hour
-        is_trading_hours = not is_weekend and 9 <= now_hour <= 15
+        datetime.now().hour
         latest_date = int(latest_daily_str) if len(latest_daily_str) == 8 else 0
         lag_days = 0
         if latest_date > 0 and not is_weekend:
@@ -1365,7 +1360,6 @@ async def get_version() -> Dict[str, Any]:
 
 # ==================== 数据同步 API ====================
 
-import subprocess
 import threading
 
 _sync_tasks: Dict[str, Dict] = {}
@@ -1508,7 +1502,6 @@ async def sync_index() -> Dict[str, Any]:
 
     使用finance_history API获取指数数据,周末也可用。
     """
-    import requests as http_requests
 
     task_id = f"idx_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -1807,7 +1800,6 @@ async def auto_fill_trigger() -> Dict[str, Any]:
         _sync_tasks[task_id] = {"type": "autofill", "status": "pending", "steps": ["detect", "basic_factors", "daily_bar", "daily_basic", "index_daily", "limit_pools", "derived_factors"]}
 
     def _run_auto_fill():
-        import asyncio
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "running"
             _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()

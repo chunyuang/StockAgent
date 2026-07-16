@@ -18,9 +18,6 @@
 
 import requests
 import time
-import sys
-import os
-from datetime import datetime, timedelta
 from pymongo import MongoClient, UpdateOne
 
 MONGO_URI = "mongodb://localhost:27017"
@@ -174,7 +171,7 @@ def main():
     else:
         sparse_dates = get_sparse_dates(db)
     
-    print(f"=== 东方财富数据中心 → daily_basic ===")
+    print("=== 东方财富数据中心 → daily_basic ===")
     print(f"缺失日期: {len(sparse_dates)}天")
     
     if args.dry_run:
@@ -217,7 +214,7 @@ def main():
     print(f"\n完成! 补全{total_upserted}条, 总耗时{total_time:.1f}s")
     
     # 验证
-    print(f"\n=== 验证 ===")
+    print("\n=== 验证 ===")
     for month in ["202601", "202602", "202603", "202604", "202605"]:
         cnt = db.daily_basic.count_documents({"trade_date": {"$regex": f"^{month}"}})
         # 统计该月每天平均只数

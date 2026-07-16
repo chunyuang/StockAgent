@@ -17,7 +17,6 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Dict
 
 from nodes.market_monitor.scanner_event_bus import ScannerEvents
 from nodes.market_monitor.market_phase import MarketPhase

@@ -165,6 +165,7 @@ export function useCoreMethods(refs: CoreRefs) {
         await fetchScanner()
       }
     } catch (e: any) {
+      console.error('[useCoreMethods] startScanner failed:', e)
       ElMessage.error('启动失败: ' + (e?.response?.data?.detail || e?.message || '超时'))
     } finally {
       refs.loading.value = false
@@ -218,9 +219,9 @@ export function useCoreMethods(refs: CoreRefs) {
     if (sellQty <= 0) { ElMessage.warning('T+1限制或无可用持仓'); return }
     showConfirm('确认卖出', `${pos.stock_name} ${pos.ts_code}\n${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}% | 卖出 ${sellQty}股\n成本 ¥${(pos.cost_price || 0).toFixed(2)} → 现价 ¥${(pos.current_price || 0).toFixed(2)} ≈ ¥${(sellQty * (pos.current_price || 0)).toFixed(0)}`, async () => {
       try {
-        const r = await api.post(`${scannerApi}/trade`, { ts_code: pos.ts_code, stock_name: pos.stock_name, side: 'sell', quantity: sellQty, price: pos.current_price, order_type: 'market', strategy: pos.strategy, reason: `手动卖出 ${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}%` })
-        const p = parseResponse(r); if (p.success) { ElMessage.success(`卖出${pos.stock_name} ${sellQty}股@${p.data.filled_price?.toFixed(2) ?? '市价'}`); fetchScanner() } else ElMessage.error('失败')
-      } catch (e: any) { console.error('[useCoreMethods] quickSell failed:', e); ElMessage.error('卖出失败') }
+        const r = await api.post(`${scannerApi}/sell`, { ts_code: pos.ts_code, quantity: 0, reason: `手动卖出 ${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}%` })
+        const p = parseResponse(r); if (p.success) { ElMessage.success(`卖出${pos.stock_name} ${p.data?.quantity || sellQty}股@${p.data?.filled_price?.toFixed(2) ?? '市价'}`); fetchScanner() } else ElMessage.error(p.data?.message || '失败')
+      } catch (e: any) { console.error('[useCoreMethods] quickSell failed:', e); ElMessage.error(e?.response?.data?.detail || '卖出失败') }
     })
   }
 

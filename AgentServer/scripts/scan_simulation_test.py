@@ -15,11 +15,7 @@
 import sys
 import os
 import time
-import json
 import pandas as pd
-import numpy as np
-from datetime import datetime
-from unittest.mock import MagicMock, patch, AsyncMock
 
 # 确保可以import项目模块
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -201,15 +197,15 @@ def test_limit_down_qiao_scenario():
             {'_id': 0, 'ts_code': 1, 'reason': 1}
         ).limit(5))
         
-        non_trading = sum(1 for b in blocked if 'non_trading' in b.get('reason', ''))
-        print(f"\n  blocked样本(前5条):")
+        sum(1 for b in blocked if 'non_trading' in b.get('reason', ''))
+        print("\n  blocked样本(前5条):")
         for b in blocked:
             print(f"    {b.get('ts_code')}: {b.get('reason', '')[:60]}")
         
-        print(f"\n  📊 根因分析:")
+        print("\n  📊 根因分析:")
         print(f"    总信号{total}条, blocked原因: non_trading_hours(竞价/午休)")
-        print(f"    修复建议: limit_down_qiao信号过期时间从300秒→延长至下一交易时段")
-        print(f"    或: 竞价阶段产生的跌停翘板信号保存到缓存, 9:30开盘后优先执行")
+        print("    修复建议: limit_down_qiao信号过期时间从300秒→延长至下一交易时段")
+        print("    或: 竞价阶段产生的跌停翘板信号保存到缓存, 9:30开盘后优先执行")
         
         return True
     except Exception as e:
@@ -226,21 +222,21 @@ def test_quote_prefetch_design():
     assert hasattr(MarketScanner, '_prefetch_running'), "缺少_prefetch_running属性"
     assert hasattr(MarketScanner, '_quote_prefetch_loop'), "缺少_quote_prefetch_loop方法"
     
-    print(f"  ✅ _prefetch_thread属性存在")
-    print(f"  ✅ _prefetch_running属性存在")
-    print(f"  ✅ _quote_prefetch_loop方法存在")
+    print("  ✅ _prefetch_thread属性存在")
+    print("  ✅ _prefetch_running属性存在")
+    print("  ✅ _quote_prefetch_loop方法存在")
     
     # 验证预取线程在start_risk_thread中启动
     import inspect
     src = inspect.getsource(MarketScanner._start_risk_thread)
     assert 'prefetch' in src.lower(), "_start_risk_thread中应启动预取线程"
-    print(f"  ✅ _start_risk_thread中启动预取线程")
+    print("  ✅ _start_risk_thread中启动预取线程")
     
     # 验证stop中停止预取(在stop()或_stop_cleanup中都可以)
     src_stop = inspect.getsource(MarketScanner.stop)
     src_cleanup = inspect.getsource(MarketScanner._stop_cleanup)
     assert 'prefetch_running' in (src_stop + src_cleanup), "stop/_stop_cleanup中应停止预取"
-    print(f"  ✅ stop()中停止预取线程")
+    print("  ✅ stop()中停止预取线程")
     
     return True
 
@@ -318,7 +314,7 @@ def test_merge_factors_full():
     assert dragon['pullback_days'] >= 0, "pullback_days应>=0"
     assert dragon['limit_up_count'] > 0, "limit_up_count应继承daily_df的值"
     
-    print(f"  ✅ 全流程验证通过")
+    print("  ✅ 全流程验证通过")
     return True
 
 
@@ -326,7 +322,6 @@ def test_limit_down_qiao_deferred():
     """测试7: limit_down_qiao竞价信号延退机制"""
     from nodes.market_monitor.signal_manager import SignalManager
     from nodes.market_monitor.scanner import ScanSignal
-    from nodes.market_monitor.market_phase import MarketPhase
     
     # 模拟scanner
     class MockScanner2:
@@ -351,12 +346,12 @@ def test_limit_down_qiao_deferred():
     src = inspect.getsource(mgr.execute_signals)
     assert 'deferred_to_trading' in src, "应有deferred_to_trading延退逻辑"
     assert 'limit_down_qiao' in src, "应处理limit_down_qiao策略"
-    print(f"  ✅ limit_down_qiao竞价信号延退逻辑已加入")
+    print("  ✅ limit_down_qiao竞价信号延退逻辑已加入")
     
     # 检查过期时间延长
     src_expire = inspect.getsource(mgr._expire_old_signals)
     assert '1800' in src_expire, "limit_down_qiao过期应延长到1800秒(30分钟)"
-    print(f"  ✅ limit_down_qiao过期时间延长到1800秒(30分钟)")
+    print("  ✅ limit_down_qiao过期时间延长到1800秒(30分钟)")
     
     return True
 

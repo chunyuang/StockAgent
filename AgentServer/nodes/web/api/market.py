@@ -57,7 +57,7 @@ def _should_use_realtime_data() -> bool:
 
 async def _get_index_data_from_mongodb(trade_date: Optional[str] = None) -> Dict[str, Any]:
     """从 MongoDB 获取指数数据"""
-    td_int = _int_date(trade_date)
+    _int_date(trade_date)
     """
     从 MongoDB 的 index_daily 表获取指数数据
     
@@ -245,6 +245,7 @@ async def get_latest_market_data() -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="No market data available")
     
     trade_date = latest_stats.get("trade_date", "")
+    td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
     
     # 获取最新的 market_analysis
     latest_analysis = await mongo_manager.find_one(

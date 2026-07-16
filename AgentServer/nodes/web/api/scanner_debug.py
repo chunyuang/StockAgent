@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 """Scanner API - 调试/模拟/热更新"""
-import asyncio
-import logging
-import math
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 from nodes.web.api.unified import aggregate_trades
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
+    _get_scanner, logger,
 )
 from nodes.market_monitor.utils.board_limit import is_limit_up, is_limit_down
 from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis, _build_name_industry_maps, _aggregate_limit_stats
@@ -376,7 +368,6 @@ async def debug_premarket_sim(date: str = None):
                     ll_ups, ll_continue, ll_sectors = _aggregate_limit_stats(ll_docs, ll_name_map, ll_industry_map)
                     ll_down = await mongo_manager.db["limit_list"].count_documents({"trade_date": _trade_date_match(ll_td), "limit": "D"})
                     limit_up_list = ll_ups[:20]
-                    limit_down_count = ll_down
                     continue_stats = dict(sorted(ll_continue.items()))
                     sector_heat = sorted([{"name": k, "count": v} for k, v in ll_sectors.items()], key=lambda x: x["count"], reverse=True)[:8]
                     market_snapshot["limit_up_count"] = len(ll_ups)
@@ -727,10 +718,7 @@ async def strategy_hot_update(strategy_key: str, updates: Dict[str, Any] = {}):
 
 # ==================== 交易终止增强 ====================
 
-class PartialSellRequest(BaseModel):
-    ts_code: str
-    quantity: int = 0  # 0=全部卖出
-    reason: str = ""
+
 
 
 

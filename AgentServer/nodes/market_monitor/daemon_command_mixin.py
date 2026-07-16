@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any, Dict, Optional, Callable
+from typing import Optional
 
 logger = logging.getLogger("scanner.daemon")
 

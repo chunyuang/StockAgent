@@ -53,7 +53,7 @@ async function fetchData() {
     const res = await fetch('/api/v1/system/data-status')
     const json = await res.json()
     if (json.success) { status.value = json.data } else { error.value = json.message || '查询失败' }
-  } catch (e: any) { error.value = e.message } finally { loading.value = false }
+  } catch (e: any) { console.error('[DataStatusPanel] fetch failed:', e); error.value = e.message } finally { loading.value = false }
 }
 
 // ===== 数据同步操作 =====
@@ -71,6 +71,7 @@ async function triggerSync(apiPath: string, actionName: string) {
       ElMessage.error(json.message || '同步启动失败')
     }
   } catch (e: any) {
+    console.error('[DataStatusPanel] sync failed:', e)
     syncLoading.value = ''
     ElMessage.error('请求失败: ' + e.message)
   }
@@ -252,6 +253,7 @@ async function runAutoFill() {
       ElMessage.error('检测失败: ' + (json.message || '未知错误'))
     }
   } catch (e: any) {
+    console.error('[DataStatusPanel] detect failed:', e)
     ElMessage.error('检测请求失败: ' + e.message)
   } finally {
     autoFillDetecting.value = false
@@ -273,6 +275,7 @@ async function triggerAutoFill() {
       ElMessage.error(json.message || '补全启动失败')
     }
   } catch (e: any) {
+    console.error('[DataStatusPanel] autoFill failed:', e)
     autoFillRunning.value = false
     ElMessage.error('补全请求失败: ' + e.message)
   }

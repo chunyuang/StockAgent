@@ -268,7 +268,7 @@ class PositionManager:
         strategy_risk = strategy_config.get("riskParams", {})
         sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
         tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
-        max_hold = strategy_risk.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
+        strategy_risk.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
         
         stop_loss_price = buy_price * (1 - sl_pct)
         take_profit_price = buy_price * (1 + tp_pct)
@@ -637,7 +637,6 @@ class PositionManager:
         try:
             total_trades = len(history)
             win_trades = [t for t in history if t.get("profit", 0) > 0]
-            lose_trades = [t for t in history if t.get("profit", 0) <= 0]
             win_rate = len(win_trades) / total_trades * 100 if total_trades > 0 else 0
             total_profit = sum(t.get("profit", 0) for t in history)
             avg_profit_pct = sum(t.get("profit_pct", 0) for t in history) / total_trades if total_trades > 0 else 0
@@ -701,7 +700,6 @@ if __name__ == "__main__":
             logger.error("参数错误：需要 --ts-code、--name、--buy-price、--shares")
             sys.exit(1)
         
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         
         pos = Position(
             ts_code=args.ts_code,

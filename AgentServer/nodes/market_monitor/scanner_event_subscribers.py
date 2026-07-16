@@ -10,11 +10,10 @@ ScannerEventSubscribers — EventBus事件订阅处理器
 所有handler通过ScannerEventBus.on()注册, 不侵入scanner核心逻辑。
 """
 
-import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Callable
 
 logger = logging.getLogger("scanner.event_subscribers")
 
@@ -98,7 +97,7 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]) -> No
                 "timestamp", name="ttl_90d",
                 expireAfterSeconds=90 * 86400
             )
-        except Exception as _e:
+        except Exception:
             pass  # 索引已存在或其他错误, 不影响写入
         
         now = datetime.now()

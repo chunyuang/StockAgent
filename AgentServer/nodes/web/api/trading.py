@@ -7,7 +7,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional, Dict
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -154,7 +154,7 @@ class ExecuteSignalRequest(BaseModel):
 
 # ==================== API 端点 ====================
 
-@router.get("/accounts", response_model=List[SimAccount])
+@router.get("/accounts")
 async def get_sim_accounts(
     user_id: str = Depends(get_optional_user_id),
 ):
@@ -227,13 +227,13 @@ async def get_sim_accounts(
             )
             accounts.append(default_account)
         
-        return accounts
+        return {"success": True, "data": accounts}
         
     except Exception as e:
         logger.exception(f"Failed to get sim accounts for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/accounts", response_model=SimAccount)
+@router.post("/accounts")
 async def create_sim_account(
     request: CreateSimAccountRequest,
     user_id: str = Depends(get_optional_user_id),
@@ -265,13 +265,13 @@ async def create_sim_account(
             account.model_dump()
         )
         
-        return account
+        return {"success": True, "data": account}
         
     except Exception as e:
         logger.exception(f"Failed to create sim account for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/accounts/{account_id}/positions", response_model=List[Position])
+@router.get("/accounts/{account_id}/positions")
 async def get_positions(
     account_id: str,
     user_id: str = Depends(get_optional_user_id),
@@ -342,7 +342,7 @@ async def get_positions(
             )
             positions.append(pos)
         
-        return positions
+        return {"success": True, "data": positions}
         
     except HTTPException:
         raise
@@ -404,8 +404,8 @@ async def get_trade_records(
             ))
         
         return {
-            "total": total,
-            "items": trades
+            "success": True,
+            "data": {"total": total, "items": trades}
         }
         
     except HTTPException:
@@ -465,8 +465,8 @@ async def get_trading_signals(
             ))
         
         return {
-            "total": total,
-            "items": signals
+            "success": True,
+            "data": {"total": total, "items": signals}
         }
         
     except Exception as e:
@@ -545,8 +545,10 @@ async def execute_signal(
         
         return {
             "success": True,
-            "trade_id": trade_record["trade_id"],
-            "message": message
+            "data": {
+                "trade_id": trade_record["trade_id"],
+                "message": message
+            }
         }
         
     except HTTPException:
@@ -571,8 +573,10 @@ async def trigger_signal_generation(
         
         return {
             "success": True,
-            "message": f"信号生成完成，共生成 {len(signals)} 个信号",
-            "signal_count": len(signals)
+            "data": {
+                "message": f"信号生成完成，共生成 {len(signals)} 个信号",
+                "signal_count": len(signals)
+            }
         }
         
     except Exception as e:
@@ -639,8 +643,8 @@ async def get_performance_reports(
             ))
         
         return {
-            "total": total,
-            "items": reports
+            "success": True,
+            "data": {"total": total, "items": reports}
         }
         
     except HTTPException:

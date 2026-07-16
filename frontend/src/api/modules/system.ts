@@ -142,20 +142,11 @@ export async function saveLogLevelConfig(config: LogLevelConfig): Promise<{ succ
   return api.post('/system/save-log-config', config)
 }
 
-/** 保存策略风控覆盖 */
-export async function saveStrategyRiskConfig(config: Record<string, StrategyRiskOverride & { name: string }>): Promise<{ success: boolean; message: string }> {
-  return api.post('/system/save-strategy-risk-config', { config })
-}
-
 /** 更新用户偏好设置 */
 export async function updateUserPreferences(prefs: UserPreferences): Promise<{ message: string }> {
   return api.put('/user/me/preferences', prefs)
 }
 
-/** 获取净值历史（业绩曲线用） */
-export async function getNetValueHistory(accountId: string, days: number = 90): Promise<{ success: boolean; data: any }> {
-  return api.get(`/trading/performance/net-value`, { params: { account_id: accountId, days } })
-}
 export default {
   getRiskConfig,
   saveRiskConfig,
@@ -165,7 +156,5 @@ export default {
   sendTestPush,
   getLogLevelConfig,
   saveLogLevelConfig,
-  saveStrategyRiskConfig,
   updateUserPreferences,
-  getNetValueHistory,
 }

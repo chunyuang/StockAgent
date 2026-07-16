@@ -23,14 +23,11 @@ GmBroker — 掘金量化交易网关
 import asyncio
 import logging
 import os
-import sys
 import time
-import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
+from typing import Dict, List, Tuple, Any
+from dataclasses import dataclass
 from enum import Enum
-from threading import Thread
 
 logger = logging.getLogger("broker.gm")
 

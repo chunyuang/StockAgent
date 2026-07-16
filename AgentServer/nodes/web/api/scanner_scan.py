@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 """Scanner API - 扫描追踪/盘前/行情/风控"""
-import asyncio
-import logging
-import math
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+import json
+from datetime import datetime
+from typing import Dict, Any
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Request
 
 from nodes.web.api.utils import sanitize_nan as _sanitize
 from nodes.web.api.unified import query_trades, aggregate_trades
 
 # 从scanner共享模块导入
 from nodes.web.api.scanner_shared import (
-    _get_scanner, _get_scanner_instance, _clean_mongo,
-    _fill_stock_names, _safe_read_shared, logger,
-    ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
-    StopScannerRequest, ScanOnceRequest, PauseRequest,
-    normalize_data_mode, prod_scan_query, is_debug_scan_doc,
+    _get_scanner, _get_scanner_instance, _safe_read_shared,
+    logger, normalize_data_mode, prod_scan_query,
+    is_debug_scan_doc,
 )
 from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
 from nodes.market_monitor.utils.board_limit import is_limit_up, is_limit_down
@@ -350,8 +345,6 @@ async def get_scan_traces(date: str = None, limit: int = 10, mode: str = "produc
         if not mongo_manager.is_initialized:
             return {"success": True, "data": [], "message": "MongoDB未连接"}
         
-        from bson import ObjectId  # 【v2.9.95b】列表函数需要 ObjectId
-        
         query = prod_scan_query(mode, include_debug)
         if date:
             date_str = str(date).replace("-", "").replace("/", "")
@@ -614,7 +607,7 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
             # 【v2.9.95b】为 passed 候选补充执行状态 - 按时间窗口匹配
             # 查询该 scan_time 之后 5 分钟内的 timeline/broker_orders 事件
             trade_date = doc.get("trade_date", 0)
-            scan_time = doc.get("scan_time", "")
+            doc.get("scan_time", "")
             blocked_map = {}  # (ts_code, strategy) -> {reason, strategy}
             bought_map = {}   # (ts_code, strategy) -> {price, amount, shares}
             
@@ -989,8 +982,6 @@ async def set_trailing_stop(ts_code: str, request: Request):
                     high = trailing[ts_code].get("high_price", 0)
                     pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
                     trailing[ts_code]["stop_price"] = high * (1 - pct)
-                
-                result_data = {"ts_code": ts_code, **trailing[ts_code]}
         else:
             trailing = _safe_read_shared(scanner, '_trailing_stops')
             
@@ -1015,8 +1006,6 @@ async def set_trailing_stop(ts_code: str, request: Request):
                 high = trailing[ts_code].get("high_price", 0)
                 pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
                 trailing[ts_code]["stop_price"] = high * (1 - pct)
-            
-            result_data = {"ts_code": ts_code, **trailing[ts_code]}
         
         return {
             "success": True,
@@ -1112,12 +1101,32 @@ async def get_system_health_detail():
         except Exception:
             pass
 
+        # 【v2.9.125】盘后scanner未运行时, health_score不低于80(WS未连接不应拉低)
+        # 盘中scanner运行时, 根据scanner状态动态计算
+        if scanner_running:
+            try:
+                scanner_health = scanner._compute_health_score() if hasattr(scanner, '_compute_health_score') else {}
+                overall_h = _compute_overall_health(scanner_health, risk_data) if 'risk_data' in dir() else {}
+                health_score = overall_h.get('health_score', 80)
+            except Exception:
+                health_score = 80
+        else:
+            # 盘后/scanner未运行: 基础分80, 只扣磁盘/内存等系统问题
+            health_score = 80
+            try:
+                if psutil.disk_usage('/').percent > 90:
+                    health_score -= 20
+                if psutil.virtual_memory().percent > 90:
+                    health_score -= 15
+            except Exception:
+                pass
+
         return _sanitize({"success": True, "data": {
             "scanner": scanner_hb, "data_sources": data_sources,
             "mongo": mongo_status, "redis": redis_status,
             "websocket": ws_status,
             "system": {"cpu_pct": psutil.cpu_percent(interval=0.1), "memory_pct": psutil.virtual_memory().percent, "disk_pct": psutil.disk_usage('/').percent},
-            "alerts": alerts, "health_score": 50,
+            "alerts": alerts, "health_score": health_score,
         }})
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -1795,8 +1804,8 @@ async def run_quick_backtest(request: Request):
         config = period_config.get(period, period_config["2025Q1"])
         
         # 在后台运行回测
-        import subprocess, os
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts", "run_backtest_quick.py")
+        import os
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts", "run_backtest_quick.py")
         
         # 使用subprocess启动后台回测
         result_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "results", "backtest_result.json")
@@ -1806,7 +1815,7 @@ async def run_quick_backtest(request: Request):
         
         async def _run_backtest():
             try:
-                import sys, types
+                import sys
                 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 if BASE not in sys.path:
                     sys.path.insert(0, BASE)

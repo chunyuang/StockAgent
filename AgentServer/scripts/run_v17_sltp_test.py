@@ -1,5 +1,9 @@
 """V17 SL/TP穿透测试"""
-import asyncio, sys, os, types, json, time
+import asyncio
+import sys
+import os
+import types
+import time
 
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 sys.path.insert(0, BASE)
@@ -66,7 +70,7 @@ def make_params(sl=0.05, tp=0.10, mhd=3, risk_params=None):
 async def main():
     await mongo_manager.initialize()
     
-    print(f"\n📊 V17 SL/TP穿透测试 | 2策略 | 20260105-20260320")
+    print("\n📊 V17 SL/TP穿透测试 | 2策略 | 20260105-20260320")
     print(f"{'='*110}")
     print(f"  {'测试项':35s} | {'收益':>8s} | {'胜率':>5s} | {'回撤':>6s} | {'夏普':>6s} | {'笔数':>4s} | {'卖出':25s} | {'耗时':>4s}")
     print(f"{'-'*110}")

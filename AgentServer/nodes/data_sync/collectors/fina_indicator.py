@@ -47,7 +47,7 @@ try:
         sys.modules["akshare_fetcher"] = akshare_module
         spec.loader.exec_module(akshare_module)
         AKShareFetcher = akshare_module.AKShareFetcher
-except (FileNotFoundError, ImportError, AttributeError) as e:
+except (FileNotFoundError, ImportError, AttributeError):
     AKShareFetcher = None  # AKShare fetcher not available
 
 

@@ -622,10 +622,10 @@ class PortfolioBacktester:
 
     async def _print_daily_header(self, day_idx: int, total_days: int, trade_date: str):
         """【统一入口!每日开头必须调用!】"""
-        await self.log(f"")
-        await self.log(f"═══════════════════════════════════════════════════════════")
+        await self.log("")
+        await self.log("═══════════════════════════════════════════════════════════")
         await self.log(f"📅 [第 {day_idx}/{total_days} 天] 处理日期: {trade_date}")
-        await self.log(f"═══════════════════════════════════════════════════════════")
+        await self.log("═══════════════════════════════════════════════════════════")
 
     @staticmethod
     def _calc_sentiment_score(limit_up_count: int, limit_down_count: int, index_change: float) -> tuple:
@@ -664,10 +664,10 @@ class PortfolioBacktester:
                 limit_down_count: 跌停家数
                 index_change: 大盘平均涨跌幅(百分比)
         """
-        await self.log(f"")
-        await self.log(f"   ┌───────────────────────────────────────────────────────")
-        await self.log(f"   │ 🌡️ 当日市场环境判断")
-        await self.log(f"   ├───────────────────────────────────────────────────────")
+        await self.log("")
+        await self.log("   ┌───────────────────────────────────────────────────────")
+        await self.log("   │ 🌡️ 当日市场环境判断")
+        await self.log("   ├───────────────────────────────────────────────────────")
 
         # 【P1-1修复(V22):用$substrCP+$switch替代$regexMatch,性能提升3-5x】
         # 旧: $regexMatch对5万条做正则匹配, CPU密集且无法利用索引
@@ -750,9 +750,9 @@ class PortfolioBacktester:
         if index_change is None:
             index_change = 0.0
         if abs(index_change) < 3:
-            await self.log(f"   │     → 🟢 符合交易条件")
+            await self.log("   │     → 🟢 符合交易条件")
         else:
-            await self.log(f"   │     → 🟡 极端行情,谨慎交易")
+            await self.log("   │     → 🟡 极端行情,谨慎交易")
 
         # 【修复#22:统一情绪周期阈值,和因子映射保持一致】
         # 情绪周期评分 → 阈值统一:
@@ -781,7 +781,7 @@ class PortfolioBacktester:
         else:
             sentiment_level = f"冰点期,仓位系数{_spm.get('bearish',0.3)}"
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
-        await self.log(f"   └───────────────────────────────────────────────────────")
+        await self.log("   └───────────────────────────────────────────────────────")
 
         # 【V30:P1-3】缓存情绪评分结果,供非调仓日复用,避免每天5万条聚合查询
         self._cached_sentiment_level = sentiment_level
@@ -836,13 +836,13 @@ class PortfolioBacktester:
             if not matched:
                 return set()
 
-        await self.log(f"")
-        await self.log(f"   ┌───────────────────────────────────────────────────────")
+        await self.log("")
+        await self.log("   ┌───────────────────────────────────────────────────────")
         await self.log(f"   │ 🔹 【{strategy_name}】")
-        await self.log(f"   ├───────────────────────────────────────────────────────")
+        await self.log("   ├───────────────────────────────────────────────────────")
 
         # 参数配置显示(根据不同策略格式化显示)
-        await self.log(f"   │    📌 参数配置:")
+        await self.log("   │    📌 参数配置:")
         if strategy_name == "半路追涨":
             # 【N02/N10修复:日志参数添加默认值fallback,避免None*100的TypeError】
             min_rise_pct = params.get("min_rise_pct") if params.get("min_rise_pct") is not None else STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("min_rise_pct", 0.03)
@@ -885,9 +885,9 @@ class PortfolioBacktester:
             min_volume_ratio = params.get("min_volume_ratio") if params.get("min_volume_ratio") is not None else STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_volume_ratio", 2.0)
             require_sentiment = params.get("require_sentiment_period", ["rising"])
             # 【日线模式修复】涨停开板不再依赖盘中数据
-            await self.log(f"   │        • 昨日涨停 + 今日未封住")
+            await self.log("   │        • 昨日涨停 + 今日未封住")
             await self.log(f"   │        • 近5日≥{min_consecutive}板")
-            await self.log(f"   │        • 今日涨幅≥0%")
+            await self.log("   │        • 今日涨幅≥0%")
             await self.log(f"   │        • 量比≥{min_volume_ratio}")
             await self.log(f"   │        • 换手率≥{min_turnover:.1f}%")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
@@ -903,7 +903,7 @@ class PortfolioBacktester:
             await self.log(f"   │        • 回调幅度: {min_correction*100:.1f}% ~ {max_correction*100:.1f}%")
             await self.log(f"   │        • 回调天数: {correction_days_min} ~ {correction_days_max}天")
             await self.log(f"   │        • 支撑位: {support_level.upper()}")
-            await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.5")
+            await self.log("   │        • 要求缩量回调: volume/ma5 ≤ 1.5")
         elif strategy_name == "跌停翘板":
             min_consecutive = params.get("min_consecutive_limit")
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
@@ -931,13 +931,13 @@ class PortfolioBacktester:
             for param_name, param_value in list(params.items())[:8]:
                 display_value = str(param_value) if not isinstance(param_value, list) else ', '.join(str(v) for v in param_value[:3]) + ('...' if len(param_value) > 3 else '')
                 await self.log(f"   │        • {param_name}: {display_value}")
-        await self.log(f"   └───────────────────────────────────────────────────────")
+        await self.log("   └───────────────────────────────────────────────────────")
 
         # 筛选过程输出
-        await self.log(f"")
-        await self.log(f"   ┌───────────────────────────────────────────────────────")
+        await self.log("")
+        await self.log("   ┌───────────────────────────────────────────────────────")
         await self.log(f"   │ 🔍 【{strategy_name}】筛选过程:")
-        await self.log(f"   ├───────────────────────────────────────────────────────")
+        await self.log("   ├───────────────────────────────────────────────────────")
 
         # 【P1-1修复(V20):避免factor_df.copy()深拷贝,改用布尔索引筛选】
         # 旧: current_df = factor_df.copy() → 每个策略深拷贝~5000行×40列
@@ -995,7 +995,7 @@ class PortfolioBacktester:
             elif operator == "in":
                 if isinstance(target_value, list) and len(target_value) == 0:
                     await self.log(f"   │    ⚪ 条件{idx_cond}: {label}")
-                    await self.log(f"   │       → 跳过(空列表,不进行过滤)")
+                    await self.log("   │       → 跳过(空列表,不进行过滤)")
                     continue
                 cond_mask.loc[valid_idx] = masked_col.isin(target_value)
             current_mask = current_mask & cond_mask
@@ -1012,18 +1012,18 @@ class PortfolioBacktester:
 
         candidate_count = current_mask.sum()
         candidate_codes = factor_df.loc[current_mask, "ts_code"].tolist() if candidate_count > 0 else []
-        await self.log(f"   ├───────────────────────────────────────────────────────")
+        await self.log("   ├───────────────────────────────────────────────────────")
         await self.log(f"   │ 🎯 【{strategy_name}】最终候选: {candidate_count} 只")
-        await self.log(f"   └───────────────────────────────────────────────────────")
-        await self.log(f"")
+        await self.log("   └───────────────────────────────────────────────────────")
+        await self.log("")
 
         return set(candidate_codes)
 
     async def _print_stock_pool_and_cleaning(self, trade_date: str, universe: set, st_count: int, new_stock_count: int, low_liquidity_count: int):
         """【统一入口!股票池获取+数据清洗打印必须调用!】"""
-        await self.log(f"   🔍 正在获取当日股票池...")
+        await self.log("   🔍 正在获取当日股票池...")
         await self.log(f"   ✅ 原始股票池数量: {len(universe)} 只")
-        await self.log(f"   🧹 数据清洗:")
+        await self.log("   🧹 数据清洗:")
         await self.log(f"      🔹 剔除ST股票: {st_count}只")
         await self.log(f"      🔹 剔除次新股: {new_stock_count}只")
         await self.log(f"      🔹 剔除流动性<500万(amount<5000千元): {low_liquidity_count}只")
@@ -1103,11 +1103,11 @@ class PortfolioBacktester:
 
     async def _print_daily_summary(self, trade_date: str, holdings_count: int, cash: float):
         """【统一入口!每日收盘汇总必须调用!】"""
-        await self.log(f"")
-        await self.log(f"═══════════════════════════════════════════════════════════")
+        await self.log("")
+        await self.log("═══════════════════════════════════════════════════════════")
         await self.log(f"📅 处理完成: {trade_date}")
         await self.log(f"   💵 当日持仓: {holdings_count} 只股票, 现金剩余: {cash:,.2f} 元")
-        await self.log(f"═══════════════════════════════════════════════════════════")
+        await self.log("═══════════════════════════════════════════════════════════")
 
     # ==================== 🎯 【统一输出函数集结束】 ====================
 
@@ -1249,7 +1249,7 @@ class PortfolioBacktester:
                     '大盘跌幅≥{:.0f}%'.format(force_empty_index_drop_pct * 100)
                 await self.log(f"   ⚠️  强制空仓开关已启用,市场触发空仓条件({ _trigger_reason}),直接清仓")
             elif not enable_force_empty:
-                await self.log(f"   i️  强制空仓开关已关闭,不检查空仓条件")
+                await self.log("   i️  强制空仓开关已关闭,不检查空仓条件")
 
             # ==================== 3️⃣ 调仓日/非调仓日分流 ====================
             if trade_date in rebalance_set:
@@ -1588,7 +1588,7 @@ class PortfolioBacktester:
                 # 因子自动计算模块(factor_auto_compute.py)在5个月区间下会卡死
                 # 运行时factor_engine.compute_factors会动态从MongoDB读取因子数据
                 # 如果MongoDB中缺少因子(如opening_pct_chg),compute_factors内部会自动计算
-                await self.log(f"   ⚠️ 因子自动计算已跳过(已知卡死问题),将在运行时动态计算")
+                await self.log("   ⚠️ 因子自动计算已跳过(已知卡死问题),将在运行时动态计算")
                 # # 【P0-1修复(V9):因子自动计算添加超时保护,避免阻塞回测主流程】
                 # from .factor_auto_compute import auto_compute_factors
                 # import asyncio as _asyncio
@@ -1727,15 +1727,15 @@ class PortfolioBacktester:
         initial_cash = run_state['initial_cash']
 
         # ==================== 调仓日完整流程 ====================
-        await self.log(f"   📅 当前为调仓日,开始执行调仓逻辑")
+        await self.log("   📅 当前为调仓日,开始执行调仓逻辑")
 
         # 【修复#43:强制空仓时跳过选股计算,直接清仓】
         # 触发强制空仓时,不做任何选股、因子计算、策略筛选,直接清仓
         if force_empty_triggered:
-            await self.log(f"")
-            await self.log(f"   ┌───────────────────────────────────────────────────────")
-            await self.log(f"   │ 🔴 【强制空仓执行】")
-            await self.log(f"   ├───────────────────────────────────────────────────────")
+            await self.log("")
+            await self.log("   ┌───────────────────────────────────────────────────────")
+            await self.log("   │ 🔴 【强制空仓执行】")
+            await self.log("   ├───────────────────────────────────────────────────────")
 
             if holdings and len(holdings) > 0:
                 prices_for_sell = await self._get_prices(set(holdings.keys()), trade_date)
@@ -1792,10 +1792,10 @@ class PortfolioBacktester:
                 await self.log(f"   │  ✅ 已执行强制清仓,卖出 {sell_count} 只持仓")
                 await self.log(f"   │  💵 清仓后现金:{cash:,.2f} 元")
             else:
-                await self.log(f"   │  ⚪ 当前无持仓,无需卖出")
+                await self.log("   │  ⚪ 当前无持仓,无需卖出")
 
-            await self.log(f"   │  ⏭️  强制空仓规则生效,不开新仓")
-            await self.log(f"   └───────────────────────────────────────────────────────")
+            await self.log("   │  ⏭️  强制空仓规则生效,不开新仓")
+            await self.log("   └───────────────────────────────────────────────────────")
 
             # 【V63-P0-4:设置强制空仓冷却期--强制空仓后N天内position_multiplier上限0.5】
             # 冷却期内仓位不超过50%,防止次日立即满仓继续遭遇暴跌
@@ -1864,7 +1864,7 @@ class PortfolioBacktester:
 
         # 2. 计算因子
         if not universe:
-            await self.log(f"   ⚠️  当日无符合条件的股票,跳过调仓")
+            await self.log("   ⚠️  当日无符合条件的股票,跳过调仓")
             await self._print_daily_summary(trade_date, len(holdings), cash)
             # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
@@ -1921,7 +1921,7 @@ class PortfolioBacktester:
         await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
         # 【P2-6:因子数据为空时告警】
         if len(factor_df) == 0:
-            await self.log(f"   ⚠️  【重要告警】因子数据为空!该日期无任何股票数据,全天空仓")
+            await self.log("   ⚠️  【重要告警】因子数据为空!该日期无任何股票数据,全天空仓")
             await self._print_daily_summary(trade_date, len(holdings), cash)
             # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
@@ -1954,7 +1954,7 @@ class PortfolioBacktester:
         should_abort, abort_reason = quality_checker.should_abort_backtest(quality_report)
         if should_abort:
             await self.log(f"   ❌ 【中止回测】{abort_reason}")
-            await self.log(f"   💡 建议:先运行因子同步任务补全数据后再重试")
+            await self.log("   💡 建议:先运行因子同步任务补全数据后再重试")
             await self._print_daily_summary(trade_date, len(holdings), cash)
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
@@ -1993,11 +1993,11 @@ class PortfolioBacktester:
             factor_df['sentiment_period_in'] = market_sentiment_period
             await self.log(f"   ✅ 情绪周期计算完成(市场级): score={market_sentiment_score} → {market_sentiment_period}")
         else:
-            await self.log(f"   i️  情绪周期算法已关闭,跳过情绪周期计算")
+            await self.log("   i️  情绪周期算法已关闭,跳过情绪周期计算")
 
         await self.log(f"   🎯 【{trade_date}】多策略联合筛选开始")
-        await self.log(f"   ============================================================")
-        await self.log(f"")
+        await self.log("   ============================================================")
+        await self.log("")
 
         all_candidates = set()
         # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
@@ -2085,7 +2085,7 @@ class PortfolioBacktester:
         # 当前改进:每个策略独立筛选,只影响选股结果不影响权重,权重调整后分配还是基于等权基础
 
         if len(all_candidates) == 0:
-            await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
+            await self.log("   ⚠️  当日无符合条件的交易标的,跳过调仓")
             # 【修复:当日无候选时,输出每日收盘汇总后continue到下一交易日】
             await self._print_daily_summary(trade_date, len(holdings), cash)
             # 【P0修复:continue前记录净值】
@@ -2161,7 +2161,7 @@ class PortfolioBacktester:
                 await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>7%/低开<-5%)完成: {original_count} → {len(all_candidates)}")
 
             if len(all_candidates) == 0:
-                await self.log(f"   ⚠️  竞价过滤后无候选,跳过调仓")
+                await self.log("   ⚠️  竞价过滤后无候选,跳过调仓")
                 # 【P0修复:提前返回前必须调用日终汇总,否则日志缺失收盘信息】
                 await self._print_daily_summary(trade_date, len(holdings), cash)
                 self._update_run_state(run_state,
@@ -2292,7 +2292,7 @@ class PortfolioBacktester:
         current_day_idx = rebalance_dates.index(trade_date) + 1
         progress = (current_day_idx / total_rebalance_days) * 100
         await self.log(f"   📅 当日调仓进度: {progress:.2f}% ({current_day_idx}/{total_rebalance_days}天)")
-        await self.log(f"   💲 正在获取股票价格...")
+        await self.log("   💲 正在获取股票价格...")
         prices = await self._get_prices(
             set(holdings.keys()) | set(execute_weights.keys()),
             trade_date,
@@ -2305,7 +2305,7 @@ class PortfolioBacktester:
 
         # 如果没有任何股票获取到价格,跳过本次调仓
         if len(prices) == 0 and len(holdings) == 0:
-            await self.log(f"   ⚠️  没有任何股票获取到当日价格,跳过调仓")
+            await self.log("   ⚠️  没有任何股票获取到当日价格,跳过调仓")
             # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
@@ -2321,7 +2321,7 @@ class PortfolioBacktester:
             return run_state
 
         # 5. 执行调仓(用execute_weights, 可能是T-1日的选股结果)
-        await self.log(f"   🔄 正在执行调仓操作...")
+        await self.log("   🔄 正在执行调仓操作...")
         cash, holdings, records = self._rebalance(
             trade_date, execute_weights, cash, holdings, prices, execute_sentiment
         )
@@ -2342,7 +2342,7 @@ class PortfolioBacktester:
         # 输出调仓记录(带股票名称 + 完整原因描述)
         if len(records) > 0:
             await self.log("")
-            await self.log(f"   📝 【当日调仓记录】:")
+            await self.log("   📝 【当日调仓记录】:")
             await self.log(f"   { '-' * 100}")
             await self.log(f"   | {'方向':<6} {'日期':<10} {'名称':<8} {'代码':<12} {'股数':<6} {'价格':<8} {'原因'} ")
             await self.log(f"   { '-' * 100}")
@@ -2403,11 +2403,11 @@ class PortfolioBacktester:
 
         # ==================== 每日收盘汇总(每天必须输出)====================
         # 无论调仓日还是非调仓日,每天都要有完整的日志结尾
-        await self.log(f"")
-        await self.log(f"═══════════════════════════════════════════════════════════════")
+        await self.log("")
+        await self.log("═══════════════════════════════════════════════════════════════")
         await self.log(f"📅 【第 {idx+1}/{total_days} 天】处理完成: {trade_date}")
         await self.log(f"   💵 当日持仓: {len(holdings)} 只股票, 现金剩余: {cash:,.2f} 元")
-        await self.log(f"═══════════════════════════════════════════════════════════════")
+        await self.log("═══════════════════════════════════════════════════════════════")
 
         # ==================== 更新run_state ====================
         self._update_run_state(run_state,
@@ -2435,12 +2435,12 @@ class PortfolioBacktester:
             更新后的run_state
         """
         # 从run_state解包变量
-        config = run_state['config']
+        run_state['config']
         cash = run_state['cash']
         holdings = run_state['holdings']
         rebalance_records = run_state['rebalance_records']
         last_prices = run_state['last_prices']
-        total_days = run_state['total_days']
+        run_state['total_days']
         rebalance_set = run_state['rebalance_set']
         net_value_series = run_state['net_value_series']
         daily_profit_list = run_state['daily_profit_list']
@@ -2449,14 +2449,14 @@ class PortfolioBacktester:
         peak_value = run_state['peak_value']
         last_net_value = run_state['last_net_value']
         stock_names = run_state['stock_names']
-        all_trade_dates = run_state['all_trade_dates']
-        initial_cash = run_state['initial_cash']
+        run_state['all_trade_dates']
+        run_state['initial_cash']
 
         # 【V75-P1-3:非调仓日也执行强制空仓(极端行情下清仓)】
         # 旧bug: 非调仓日完全忽略force_empty_triggered,极端暴跌日如果之前是调仓日后的非调仓日,
         # 强制空仓条件已触发但无法执行,导致持仓继续亏损
         if force_empty_triggered and holdings and len(holdings) > 0:
-            await self.log(f"   🔴 【非调仓日强制空仓】极端行情触发,执行清仓")
+            await self.log("   🔴 【非调仓日强制空仓】极端行情触发,执行清仓")
             prices_for_force_sell = await self._get_prices(set(holdings.keys()), trade_date)
             force_sell_count = 0
             for code in list(holdings.keys()):
@@ -2533,14 +2533,14 @@ class PortfolioBacktester:
                 _prices_for_display = await self._get_prices(set(holdings.keys()), trade_date)
             else:
                 _prices_for_display = {}
-        await self.log(f"")
-        await self.log(f"   ┌───────────────────────────────────────────────────────")
+        await self.log("")
+        await self.log("   ┌───────────────────────────────────────────────────────")
         # 【V13修复】日志区分非调仓日和调仓日无交易
         if trade_date in rebalance_set:
-            await self.log(f"   │ i️  【调仓日无交易】当前持仓与目标一致,无需调仓")
+            await self.log("   │ i️  【调仓日无交易】当前持仓与目标一致,无需调仓")
         else:
-            await self.log(f"   │ i️  【非调仓日】止损止盈检查+持仓监控")
-        await self.log(f"   ├───────────────────────────────────────────────────────")
+            await self.log("   │ i️  【非调仓日】止损止盈检查+持仓监控")
+        await self.log("   ├───────────────────────────────────────────────────────")
 
         # 【P0-C/P1-1修复(第十一轮):复用上方已获取的价格,不重复查询】
         # 【V13-P0-1修复】_prices_for_display已在方法开头初始化,此处不再需要try/except NameError
@@ -2558,11 +2558,11 @@ class PortfolioBacktester:
                     await self.log(f"   │      • {code}: {shares} 股, 收盘价 {price:.2f}, 市值 {market_value:,.2f} 元")
             await self.log(f"   │  💰 持仓总市值:{total_market_value:,.2f} 元")
         else:
-            await self.log(f"   │  📊 当前无持仓")
+            await self.log("   │  📊 当前无持仓")
             _prices_for_display = {}
 
         await self.log(f"   │  💵 当前现金:{cash:,.2f} 元")
-        await self.log(f"   └───────────────────────────────────────────────────────")
+        await self.log("   └───────────────────────────────────────────────────────")
 
 
         # ==================== 记录净值(每天必须执行)====================
@@ -2620,15 +2620,15 @@ class PortfolioBacktester:
         # 修复: 先用原始数据完成所有计算,再为前端显示插入初始值
         _need_initial_insert = net_value_series and net_value_series[0].get('net_value', 0) != 1.0
         # _need_initial_insert稍后在计算完成后用于插入
-        peak_value = run_state['peak_value']
+        run_state['peak_value']
         last_net_value = run_state['last_net_value']
         last_prices = run_state['last_prices']
         all_trade_dates = run_state['all_trade_dates']
-        rebalance_dates = run_state['rebalance_dates']
-        rebalance_set = run_state['rebalance_set']
+        run_state['rebalance_dates']
+        run_state['rebalance_set']
         total_days = run_state['total_days']
         benchmark_data = run_state['benchmark_data']
-        initial_cash = run_state['initial_cash']
+        run_state['initial_cash']
 
         # 计算最终市值(所有日期处理完成后)
         final_value = cash
@@ -2864,7 +2864,7 @@ class PortfolioBacktester:
         completed_trades_for_avg = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
         if len(completed_trades_for_avg) > 0:
             total_hold_days = 0
-            _all_td = run_state.get('all_trade_dates', [])
+            run_state.get('all_trade_dates', [])
             for trade in completed_trades_for_avg:
                 buy_date_int = int(trade['buy_date'])
                 sell_date_int = int(trade['sell_date'])
@@ -3423,7 +3423,6 @@ class PortfolioBacktester:
                 trade_date_nv = nv_point.get('trade_date', 0)
                 date_str = str(trade_date_nv)
                 month_key = date_str[:6]  # "202601"
-                formatted_key = f"{month_key[:4]}-{month_key[4:]}"  # "2026-01"
                 if current_month is not None and month_key != current_month:
                     # 月末,计算该月收益
                     m_return = (nv - month_start_nv) / month_start_nv if month_start_nv and month_start_nv > 0 else 0
@@ -4052,7 +4051,7 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = self._param_or_default(converted_params, "min_consecutive_limit", strategy_defaults, 2)
-            max_consecutive = self._param_or_default(converted_params, "max_consecutive_limit", strategy_defaults, 4)
+            self._param_or_default(converted_params, "max_consecutive_limit", strategy_defaults, 4)
             _raw_turnover = converted_params.get("min_turnover_rate")
             min_turnover = _raw_turnover if _raw_turnover is not None else strategy_defaults.get("min_turnover_rate", 15.0)
             min_volume_ratio = self._param_or_default(converted_params, "min_volume_ratio", strategy_defaults, 2.0)
@@ -4082,7 +4081,7 @@ class PortfolioBacktester:
             max_correction = self._param_or_default(converted_params, "max_correction_pct", strategy_defaults, 0.20)
             correction_days_min = self._param_or_default(converted_params, "correction_days_min", strategy_defaults, 1)
             correction_days_max = self._param_or_default(converted_params, "correction_days_max", strategy_defaults, 7)
-            support_level = self._param_or_default(converted_params, "support_level", strategy_defaults, "ma5")
+            self._param_or_default(converted_params, "support_level", strategy_defaults, "ma5")
             # 【P0-3修复(第十轮):market_leader因子在MongoDB中全0,无法用于龙头筛选】
             # 替代方案:用circ_mv(流通市值)识别龙头股--大市值更可能是龙头
             # 【注意】circ_mv单位是万元,参数单位是亿,需×10000转换
@@ -4124,8 +4123,8 @@ class PortfolioBacktester:
             min_consecutive = self._param_or_default(converted_params, "min_consecutive_limit", strategy_defaults, 2)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             _raw_qiao = self._param_or_default(converted_params, "min_qiao_amount", strategy_defaults, 1000)
-            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-            min_rise_after = self._param_or_default(converted_params, "min_rise_after_qiao", strategy_defaults, 0.03)
+            _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
+            self._param_or_default(converted_params, "min_rise_after_qiao", strategy_defaults, 0.03)
             require_high_sentiment = self._param_or_default(converted_params, "require_high_sentiment", strategy_defaults, False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "differentiation", "chaos"])
             # 【P0-1修复(V24):min_turnover_rate从STRATEGY_CONFIGS读取,不再硬编码】
@@ -4154,7 +4153,7 @@ class PortfolioBacktester:
                 # limit_down_open_amount因子98%为0(数据质量问题),无法可靠使用
                 # 设target=0后_print_single_strategy_filtering会自动跳过此条件
                 # 待因子数据完善后再启用
-                {"name": "limit_down_open_amount", "target": 0, "operator": ">=", "label": f"翘板金额(数据不全,暂不过滤)"},
+                {"name": "limit_down_open_amount", "target": 0, "operator": ">=", "label": "翘板金额(数据不全,暂不过滤)"},
                 # 【V18未来函数分析】:跌停翘板的pct_chg>0是否为未来函数?
                 # 分析: 跌停翘板是"盘中确认"策略,实盘流程:
                 #   1. 开盘看到不继续跌停(open_above_limit_down=1) → 观察候选
@@ -4694,7 +4693,7 @@ class PortfolioBacktester:
         sell_codes = list(dict.fromkeys(sell_codes))
         # 【V29:超时强卖的股票当天不应被重新买入,由PositionManager管理target_shares】
         for code in over_hold_codes:
-            pos_mgr.mark_sold(code, f'超时')
+            pos_mgr.mark_sold(code, '超时')
         # 【V29:止损/冲高回落/高开即卖/止盈的股票,也由PositionManager管理】
         # PositionManager.mark_sold()已自动从target_shares移除,不需额外的del循环
         # 【修复P1-6:减仓逻辑 - 持仓超过目标时卖出差额】
@@ -4765,8 +4764,8 @@ class PortfolioBacktester:
         # 旧bug: 4126行重复声明enable_stop_loss,与3850行同变量名但相隔276行,易混淆
         # enable_stop_loss/enable_take_profit 已在上方(V48d处)声明,此处无需重复
         # 【P0-2修复:默认全局参数,卖出循环中按code覆盖】
-        global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
-        global_tp = self._risk_config.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
+        self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
+        self._risk_config.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
         for ts_code in sell_codes:
             shares = holdings[ts_code]
             price_info = prices.get(ts_code, {})
@@ -4947,7 +4946,6 @@ class PortfolioBacktester:
 
             if cash < total_cost:
                 # 现金不足,按比例缩减
-                original_delta = delta
                 ratio = cash / total_cost
                 delta = int(int(delta * ratio) / 100) * 100
                 if delta <= 0:

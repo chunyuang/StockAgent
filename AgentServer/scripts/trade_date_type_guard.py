@@ -86,7 +86,7 @@ def main():
     
     # 输出各集合统计
     if check_only or not issues:
-        print(f"\n各集合 trade_date 类型统计:")
+        print("\n各集合 trade_date 类型统计:")
         for coll_name in COLLECTIONS_WITH_TRADE_DATE:
             if coll_name not in db.list_collection_names():
                 continue

@@ -134,7 +134,7 @@ def main() -> int:
         lines_str = ", ".join(f"L{ln}" for ln in d["lines"])
         print(f"  {rel}")
         print(f"    class {d['class']}.{d['method']}  →  定义于 {lines_str}")
-        print(f"    后定义会覆盖前定义。如确为意图，请加到 ALLOW_DUPLICATES 白名单。")
+        print("    后定义会覆盖前定义。如确为意图，请加到 ALLOW_DUPLICATES 白名单。")
         print()
 
     return 1

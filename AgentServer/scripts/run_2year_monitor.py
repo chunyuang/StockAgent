@@ -1,4 +1,6 @@
-import subprocess, time, os, signal, sys
+import subprocess
+import time
+import sys
 
 # 启动回测进程
 proc = subprocess.Popen(

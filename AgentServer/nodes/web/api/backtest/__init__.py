@@ -11,7 +11,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from pydantic import ValidationError
@@ -23,13 +23,11 @@ from .common import (
     logger,
     mock_tasks,
     get_optional_user_id,
-    _MAX_CONCURRENT_BACKTESTS,
 )
 from .models import (
     BacktestRequest,
     BacktestTaskResponse,
     FactorSelectionRequest,
-    strategy_name_map,
 )
 from .ultra_short import router as ultra_short_router
 from .logs import router as logs_router
@@ -47,7 +45,7 @@ router.include_router(logs_router)
 # ==================== 单股回测 API ====================
 
 
-@router.post("/submit", response_model=BacktestTaskResponse)
+@router.post("/submit")
 async def submit_backtest(
     request: BacktestRequest,
     user_id: str = Depends(get_current_user_id),
@@ -108,11 +106,11 @@ async def submit_backtest(
 
         rpc_response = first_result.get("result", {})
 
-        return BacktestTaskResponse(
+        return {"success": True, "data": BacktestTaskResponse(
             task_id=task_id,
             status=rpc_response.get("status", "queued"),
             message="任务已提交到回测节点，请使用 task_id 查询进度"
-        )
+        ).model_dump()}
 
     except HTTPException:
         raise
@@ -161,7 +159,6 @@ async def get_backtest_status(
 
     # 【修复风险5：悬挂任务检测 - running超过10分钟且无新日志才标记failed，避免误杀长时间回测】
     if record.get("status") == "running":
-        from datetime import timedelta
         started = record.get("started_at") or record.get("created_at")
         # 方案B：日志不再存MongoDB，不需要读logs
         if started:
@@ -354,8 +351,8 @@ async def get_backtest_history(
         items.append(item)
 
     return {
-        "total": len(items),
-        "items": items,
+        "success": True,
+        "data": {"total": len(items), "items": items},
     }
 
 
@@ -369,7 +366,7 @@ async def cancel_backtest(
     if task_id.startswith("us_") and task_id in mock_tasks:
         mock_tasks[task_id]["status"] = "cancelled"
         pass  # 日志走Redis，不再写mock_tasks
-        return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
+        return {"success": True, "data": {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}}
 
     # 查 MongoDB
     record = await mongo_manager.find_one(
@@ -404,7 +401,7 @@ async def cancel_backtest(
         )
 
         if results and results[0].get("success"):
-            return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
+            return {"success": True, "data": {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}}
 
     except Exception as e:
         logger.warning(f"Failed to cancel task via RPC: {e}")
@@ -416,7 +413,7 @@ async def cancel_backtest(
         {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}},
     )
 
-    return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
+    return {"success": True, "data": {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}}
 
 
 @router.delete("/history/{task_id}")
@@ -446,7 +443,7 @@ async def delete_backtest_history(
         "backtest_tasks",
         {"task_id": task_id},
     )
-    return {"task_id": task_id, "status": "deleted", "message": "回测记录已删除"}
+    return {"success": True, "data": {"task_id": task_id, "status": "deleted", "message": "回测记录已删除"}}
 
 
 # ==================== 因子选股回测 API ====================
@@ -467,12 +464,12 @@ async def list_available_factors() -> Dict[str, Any]:
         grouped[category].append(f)
 
     return {
-        "factors": factors,
-        "grouped": grouped,
+        "success": True,
+        "data": {"factors": factors, "grouped": grouped},
     }
 
 
-@router.post("/factor-selection", response_model=BacktestTaskResponse)
+@router.post("/factor-selection")
 async def submit_factor_selection_backtest(
     raw_request: Request,
     user_id: str = Depends(get_current_user_id),
@@ -537,11 +534,11 @@ async def submit_factor_selection_backtest(
 
         rpc_response = first_result.get("result", {})
 
-        return BacktestTaskResponse(
+        return {"success": True, "data": BacktestTaskResponse(
             task_id=task_id,
             status=rpc_response.get("status", "queued"),
             message="因子选股回测任务已提交，请使用 task_id 查询进度"
-        )
+        ).model_dump()}
 
     except HTTPException:
         raise
