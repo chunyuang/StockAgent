@@ -11,15 +11,7 @@ import { parseResponse } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
 
-/** 获取中国时区的日期字符串 YYYY-MM-DD */
-function getChinaDate(): string {
-  const now = new Date()
-  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-  const y = china.getFullYear()
-  const m = String(china.getMonth() + 1).padStart(2, '0')
-  const d = String(china.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
+import { getChinaDate } from '@/utils/chinaDate'
 
 export function useSentimentMonitor() {
   const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('intraday')

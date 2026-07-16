@@ -8,12 +8,18 @@
 import { ref, computed } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
-import { getChinaDateInt } from '@/utils/chinaDate'
+import { getChinaDateInt, getChinaDate as utilGetChinaDate } from '@/utils/chinaDate'
 
 const scannerApi = '/scanner'
 
-function todayStr(): string {
-  return getChinaDateInt()
+/** 获取最近交易日(周末回退到周五) */
+function getRecentTradeDate(): string {
+  const now = new Date()
+  const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  const dow = china.getDay()
+  if (dow === 6) china.setDate(china.getDate() - 1)
+  else if (dow === 0) china.setDate(china.getDate() - 2)
+  return utilGetChinaDate(china)
 }
 
 // 接收核心状态的接口
@@ -25,23 +31,11 @@ interface CoreState {
 
 export function useAutoTradeMonitor(core: CoreState) {
   const autoTrades = ref<any[]>([])
-  const opsDate = ref(getChinaDate())
+  const opsDate = ref(getRecentTradeDate())
   const paramCompare = ref<any>(null)
   const paramCompareLoading = ref(false)
   const scanConfig = ref<any>(null)
   const scanConfigLoading = ref(false)
-
-  /** 获取最近交易日的日期字符串 YYYY-MM-DD */
-  function getChinaDate(): string {
-    const now = new Date()
-    const china = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
-    const y = china.getFullYear(), m = String(china.getMonth() + 1).padStart(2, '0'), d = String(china.getDate()).padStart(2, '0')
-    // 周六→回退到周五, 周日→回退到周五
-    const dow = china.getDay()
-    if (dow === 6) return `${y}-${m}-${String(china.getDate() - 1).padStart(2, '0')}`
-    if (dow === 0) return `${y}-${m}-${String(china.getDate() - 2).padStart(2, '0')}`
-    return `${y}-${m}-${d}`
-  }
 
   function updatePnlHistory() {
     const pnl = core.totalPnl.value
@@ -59,7 +53,7 @@ export function useAutoTradeMonitor(core: CoreState) {
         return
       }
       // fallback: from unified trades (v2.9.97)
-      const ut = await api.get(`/unified/trades?date=${todayStr()}`)
+      const ut = await api.get(`/unified/trades?date=${getChinaDateInt()}`)
       const up = parseResponse(ut)
       if (up.success && up.data?.trades?.length > 0) {
         let nav = 1.0, peak = 1.0
@@ -74,7 +68,7 @@ export function useAutoTradeMonitor(core: CoreState) {
     } catch (e) { console.error('[useAutoTradeMonitor]', e) }
   }
 
-  // 【v2.9.97】切换到统一数据源 — broker_orders 为唯一真相
+  // 【v2.9.97】切换到统一数据源 - broker_orders 为唯一真相
   async function fetchAutoTrades() {
     try {
       let url = '/unified/trades?limit=50'

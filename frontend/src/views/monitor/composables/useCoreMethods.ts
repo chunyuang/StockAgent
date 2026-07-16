@@ -209,7 +209,7 @@ export function useCoreMethods(refs: CoreRefs) {
     showConfirm('确认买入', `${sig.stock_name} ${sig.ts_code}\n${sig.strategy_name} | 涨${(sig.pct_chg || 0) >= 0 ? '+' : ''}${(sig.pct_chg || 0).toFixed(1)}%\n买入 ${q}股 × ¥${price.toFixed(2)} ≈ ¥${(q * price).toFixed(0)}`, async () => {
       try {
         const r = await api.post(`${scannerApi}/trade`, { ts_code: sig.ts_code, stock_name: sig.stock_name, side: 'buy', quantity: q, price: sig.price, order_type: 'market', strategy: sig.strategy, reason: sig.reason })
-        const p = parseResponse(r); if (p.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${p.data.filled_price?.toFixed(2) ?? '市价'}`); fetchScanner() } else ElMessage.error('失败')
+        const p = parseResponse(r); if (p.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${p.data?.filled_price != null ? Number(p.data.filled_price).toFixed(2) : '市价'}`); fetchScanner() } else ElMessage.error('失败')
       } catch (e: any) { console.error('[useCoreMethods] quickBuy failed:', e); ElMessage.error('买入失败') }
     })
   }
