@@ -1,5 +1,5 @@
 {
-  "score": "float",
+  "score": "int",
   "period": "str",
   "period_label": "str",
   "position_ratio": "float",
@@ -9,34 +9,12 @@
   "broken_count": "int",
   "broken_rate": "float",
   "board_distribution": {
-    "10": "int"
+    "1": "int"
   },
   "max_continue": "int",
   "up_down_ratio": "float",
   "zt_premium": "float",
-  "dimensions": {
-    "limit_up": "int",
-    "limit_down": "int",
-    "up_count": "int",
-    "down_count": "int",
-    "up_down_ratio": "float",
-    "momentum": "float",
-    "broken": "int",
-    "broken_rate": "float",
-    "max_continue": "int",
-    "zt_premium": "float",
-    "today_premium": "float",
-    "sample_count": "int",
-    "formula": "str",
-    "d1_limit_up": "int",
-    "d2_limit_down": "int",
-    "d3_up_down": "float",
-    "d4_momentum": "float",
-    "d5_broken_rate": "float",
-    "d6_max_continue": "int",
-    "d7_zt_premium": "float",
-    "d8_today_premium": "float"
-  },
+  "dimensions": {},
   "formula": "str",
   "date": "int",
   "is_stale": "bool",

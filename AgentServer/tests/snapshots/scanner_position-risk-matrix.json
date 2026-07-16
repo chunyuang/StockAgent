@@ -17,7 +17,7 @@
       "stop_loss_price": "float",
       "take_profit_price": "float",
       "volatility": "float",
-      "turnover_rate": "float",
+      "turnover_rate": "int",
       "risk_score": "float",
       "risk_level": "str",
       "trailing_stop": {
@@ -38,13 +38,12 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "农药化肥": "float",
-      "中成药": "float",
-      "商贸代理": "float",
-      "医药商业": "float",
-      "汽车配件": "float",
-      "全国地产": "float",
-      "化学制药": "float"
+      "": "float",
+      "家用电器": "float",
+      "新型电力": "float",
+      "食品": "float",
+      "专用机械": "float",
+      "农药化肥": "float"
     },
     "position_count": "int",
     "stop_loss_exec_rate": "float",

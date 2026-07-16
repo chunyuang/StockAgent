@@ -2,7 +2,7 @@
   "date": "str",
   "sentiment": {
     "period": "str",
-    "score": "float",
+    "score": "int",
     "raw_period": "str"
   },
   "advice": "str",

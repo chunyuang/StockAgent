@@ -1314,7 +1314,7 @@ async def get_kline_data(ts_code: str, days: int = 30):
         kline = []
         async for doc in cursor:
             kline.append({
-                "date": doc.get("trade_date", ""),
+                "date": str(doc.get("trade_date", "")),
                 "open": round(doc.get("open", 0), 2), "high": round(doc.get("high", 0), 2),
                 "low": round(doc.get("low", 0), 2), "close": round(doc.get("close", 0), 2),
                 "volume": doc.get("vol", 0), "pct_chg": round(doc.get("pct_chg", 0), 2),

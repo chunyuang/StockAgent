@@ -25,6 +25,7 @@
       "risk_monitor_active": "bool",
       "risk_monitor_desc": "str",
       "buy_date": "str",
+      "trailing_stop": "NoneType",
       "buy_time": "str",
       "recent_sells": [
         "<empty_list>"

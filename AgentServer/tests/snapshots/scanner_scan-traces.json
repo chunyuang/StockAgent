@@ -112,54 +112,13 @@
         "L5_auction": "str",
         "L6_strategy": "str",
         "L7_ranking": "str",
+        "L8_cooldown": "str",
         "L8_ma60": "str",
         "L8_position": "str"
       },
       "l9_results": {
-        "000524": {
+        "000661": {
           "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "002484": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "002628": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "300369": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "301259": {
-          "SZ": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "600800": {
-          "SH": {
-            "passed": "bool",
-            "status": "str",
-            "reason": "str"
-          }
-        },
-        "688710": {
-          "SH": {
             "passed": "bool",
             "status": "str",
             "reason": "str"

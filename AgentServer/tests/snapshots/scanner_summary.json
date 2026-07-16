@@ -38,15 +38,20 @@
     "avg_loss_pct": "float"
   },
   "strategy_performance": {
-    "dragon_head": {
+    "anomaly_surge": {
       "trades": "int",
       "wins": "int",
-      "total_pnl": "float"
+      "total_pnl": "int"
     },
     "halfway_chase": {
       "trades": "int",
       "wins": "int",
       "total_pnl": "float"
+    },
+    "dragon_head": {
+      "trades": "int",
+      "wins": "int",
+      "total_pnl": "int"
     },
     "anomaly_strong": {
       "trades": "int",
@@ -106,9 +111,9 @@
       "d3_up_down": "float",
       "d4_momentum": "float",
       "d5_broken_rate": "float",
-      "d6_max_continue": "int",
-      "d7_zt_premium": "float",
-      "d8_today_premium": "float"
+      "d6_max_continue": "float",
+      "d7_zt_premium": "int",
+      "d8_today_premium": "int"
     },
     "formula": "str"
   },

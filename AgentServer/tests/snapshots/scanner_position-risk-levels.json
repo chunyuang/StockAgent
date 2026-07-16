@@ -18,7 +18,7 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "float",
+        "turnover_rate": "int",
         "risk_score": "float",
         "risk_level": "str",
         "trailing_stop": {
@@ -49,7 +49,7 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "float",
+        "turnover_rate": "int",
         "risk_score": "float",
         "risk_level": "str",
         "trailing_stop": {
@@ -80,7 +80,7 @@
         "stop_loss_price": "float",
         "take_profit_price": "float",
         "volatility": "float",
-        "turnover_rate": "float",
+        "turnover_rate": "int",
         "risk_score": "float",
         "risk_level": "str",
         "trailing_stop": {

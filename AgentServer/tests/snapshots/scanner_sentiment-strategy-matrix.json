@@ -36,36 +36,8 @@
         "profit_loss_ratio": "float"
       }
     },
-    "fix": {
-      "未知": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      }
-    },
     "dragon_head": {
       "冰点": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      },
-      "未知": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      }
-    },
-    "test": {
-      "震荡": {
         "count": "int",
         "win_rate": "float",
         "total_pnl": "int",
@@ -86,9 +58,7 @@
   "strategy_names": {
     "halfway_chase": "str",
     "first_limit_up": "str",
-    "fix": "str",
-    "dragon_head": "str",
-    "test": "str"
+    "dragon_head": "str"
   },
   "strategy_totals": {
     "halfway_chase": {
@@ -105,21 +75,7 @@
       "win_rate": "float",
       "total_pnl": "int"
     },
-    "fix": {
-      "count": "int",
-      "wins": "int",
-      "losses": "int",
-      "win_rate": "float",
-      "total_pnl": "int"
-    },
     "dragon_head": {
-      "count": "int",
-      "wins": "int",
-      "losses": "int",
-      "win_rate": "float",
-      "total_pnl": "int"
-    },
-    "test": {
       "count": "int",
       "wins": "int",
       "losses": "int",
