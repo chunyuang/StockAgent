@@ -193,10 +193,14 @@ class SignalManager:
                 "reason": reason or f"信号状态={status}"}
 
     async def _update_scan_trace_l9(self, signals: List[ScanSignal]) -> None:
-        """回写L9执行结果到当轮scan_trace【v2.9.105】。
+        """回写L9执行结果到当轮scan_trace【v2.9.105, v2.9.128修复】。
 
         之前L9固定写"管道筛选通过, 待执行",
         但 execute_signals 里的拦截(异动/持仓/熔断/10点后禁买等)没有回写。
+
+        【v2.9.128修复】L9回写定位: 增加 scan_type="full" 过滤, 避免回写到anomaly scan的trace上。
+        之前: find_one({trade_date}, sort=[scan_time, -1]) → 当天多次scan时,可能回写到anomaly scan
+        现在: find_one({trade_date, scan_type: "full"}, sort=[scan_time, -1]) → 精确回写到full scan
         """
         if not signals:
             return
@@ -209,8 +213,13 @@ class SignalManager:
             if not trade_date:
                 return
             td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
+            # 【v2.9.128修复】限定scan_type=full, 避免L9回写到anomaly scan的trace上
             latest_trace = await mongo_manager.db["scan_traces"].find_one(
-                {"trade_date": td_int}, sort=[("scan_time", -1)])
+                {"trade_date": td_int, "scan_type": "full"}, sort=[("scan_time", -1)])
+            if not latest_trace:
+                # fallback: 无full类型trace时, 仍尝试最新trace(兼容旧数据)
+                latest_trace = await mongo_manager.db["scan_traces"].find_one(
+                    {"trade_date": td_int}, sort=[("scan_time", -1)])
             if not latest_trace:
                 return
             updates = {f"l9_results.{s.ts_code}": self._build_l9_result(s) for s in signals}
