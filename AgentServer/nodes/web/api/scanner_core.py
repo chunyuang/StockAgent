@@ -1873,16 +1873,19 @@ async def get_position_risk_matrix(date: str = None):
         top_ind = max(industry_exp.values()) / max(total_mv, 1) * 100 if industry_exp else 0
         cash_ratio = acct.available_cash / max(acct.total_assets, 1) * 100
 
-        # 【v2.9.120】止损执行率: 亏损卖出中走止损的占比
+        # 【v2.9.120→v2.9.121修复】止损执行率: 分母=止损触发笔数(reason含"止损"的卖出)
+        # 旧逻辑用"亏损卖出"作分母，把未触发止损的亏损也算入，导致执行率被稀释
         sl_exec_rate = 0
         try:
-            loss_sells = await mongo_manager.db["broker_orders"].count_documents(
-                {"account_id": "default", "side": "sell", "profit_pct": {"$lt": 0}}
+            # 分母: 止损触发笔数(reason包含"止损"的所有卖出，含盈利的追踪止损)
+            stop_trigger_sells = await mongo_manager.db["broker_orders"].count_documents(
+                {"account_id": "default", "side": "sell", "reason": {"$regex": "止损"}}
             )
+            # 分子: 止损触发且实际执行的笔数(状态为filled)
             sl_sells = await mongo_manager.db["broker_orders"].count_documents(
-                {"account_id": "default", "side": "sell", "profit_pct": {"$lt": 0}, "reason": {"$regex": "止损"}}
+                {"account_id": "default", "side": "sell", "status": "filled", "reason": {"$regex": "止损"}}
             )
-            sl_exec_rate = round(sl_sells / max(loss_sells, 1) * 100, 0) if loss_sells > 0 else 0
+            sl_exec_rate = round(sl_sells / max(stop_trigger_sells, 1) * 100, 0) if stop_trigger_sells > 0 else 0
         except Exception:
             pass
 
