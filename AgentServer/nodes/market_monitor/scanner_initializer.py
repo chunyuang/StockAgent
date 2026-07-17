@@ -229,15 +229,28 @@ class ScannerInitializer:
         self._slippage_model = SlippageModel
 
     def _init_risk(self) -> None:
-        """初始化风控熔断参数【v2.9.3提取, v2.9.67:提取到ScannerInitializer】"""
+        """初始化风控熔断参数【v2.9.3提取, v2.9.67:提取到ScannerInitializer】
+        
+        【v2.9.127】大盘环境过滤:
+        - consecutive_loss_days: 连续日亏损天数(跨日累积, 盈利日重置)
+        - cumulative_drawdown: 累计回撤(从最近高点算)
+        - peak_assets: 历史最高资产
+        """
         initial_cash = self.config.get("initial_cash", 1_000_000)
         self._circuit_breaker = {
             "daily_start_assets": initial_cash,
-            "daily_max_drawdown": 0.05,
+            "daily_max_drawdown": 0.03,  # 【v2.9.127】5%->3%, 单日亏3%就该停
             "consecutive_losses": 0,
-            "consecutive_loss_limit": 3,
+            "consecutive_loss_limit": 5,  # 【v2.9.127】3->5, 避免中间夹1笔盈利就重置
             "trading_paused": False,
             "pause_reason": "",
             "today_trades": 0,
             "today_losses": 0,
+            # 【v2.9.127】大盘环境过滤
+            "consecutive_loss_days": 0,     # 连续日亏损天数
+            "peak_assets": initial_cash,    # 历史最高资产
+            "cumulative_drawdown": 0.0,    # 从peak开始的累计回撤
+            "buy_paused": False,           # 买入暂停(不影响止损卖出)
+            "buy_pause_reason": "",       # 买入暂停原因
+            "position_cap": 1.0,           # 仓位上限系数(1.0=正常, 0.5=半仓, 0.25=1/4仓, 0=禁止)
         }

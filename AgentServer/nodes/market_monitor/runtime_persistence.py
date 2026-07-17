@@ -184,16 +184,24 @@ class RuntimePersistence:
                 if scanner._position_risk_overrides:
                     logger.info(f"[SNAPSHOT] 恢复风控覆盖: {len(scanner._position_risk_overrides)}只")
         
-        # === 跨日恢复: 熔断器(仅连亏次数, today_*不恢复) ===
+        # === 跨日恢复: 熔断器(连亏次数+大盘环境过滤, today_*不恢复) ===
         if "circuit_breaker" in doc:
             cb = doc["circuit_breaker"]
             if scanner._circuit_breaker is None:
                 scanner._circuit_breaker = {}
             scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
+            # 【v2.9.127】大盘环境过滤跨日恢复
+            scanner._circuit_breaker["consecutive_loss_days"] = cb.get("consecutive_loss_days", 0)
+            scanner._circuit_breaker["peak_assets"] = cb.get("peak_assets", 0)
+            scanner._circuit_breaker["cumulative_drawdown"] = cb.get("cumulative_drawdown", 0.0)
+            # position_cap/buy_paused 在每日reset_daily_risk_state中重算, 不恢复
             # today_trades/today_losses 仅同日恢复
             if is_same_day:
                 scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
                 scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
+                scanner._circuit_breaker["buy_paused"] = cb.get("buy_paused", False)
+                scanner._circuit_breaker["buy_pause_reason"] = cb.get("buy_pause_reason", "")
+                scanner._circuit_breaker["position_cap"] = cb.get("position_cap", 1.0)
         
         # === 同日恢复: 统计/行情降级 ===
         if is_same_day:
@@ -1115,12 +1123,13 @@ class RuntimePersistence:
         _pos_count = len(scanner._broker.get_positions()) if scanner._broker else 0
         _ts_count = len(scanner._safe_copy_trailing_stops())
         
-        # 【v2.9.92n】持仓丢失检测：如果MongoDB恢复0持仓但broker_orders有未平仓买入，说明持仓丢失
-        if _pos_count == 0 and scanner._broker:
+        # 【v2.9.126】持仓一致性校验：不只在内存=0时检测，而是始终校验orders推算 vs 内存持仓
+        # 防止单只持仓丢失（如order_id冲突导致卖出记录被覆盖，持仓"复活"）
+        if scanner._broker:
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    # 从broker_orders重建持仓 【v2.9.96i】排除 rolled_back 【v2.9.96j】用移动加权平均成本(避免清仓后重买成本叠加)
+                    # 从broker_orders推算应有持仓
                     from collections import defaultdict
                     holdings = defaultdict(lambda: {"qty": 0, "total_cost": 0.0, "name": "", "strategy": "", "buy_date": ""})
                     async for doc in mongo_manager.db["broker_orders"].find(
@@ -1146,12 +1155,28 @@ class RuntimePersistence:
                             if h["qty"] == 0:
                                 h["total_cost"] = 0.0
                     
+                    # orders推算应有持仓
+                    expected = {tc: h for tc, h in holdings.items() if h["qty"] > 0}
+                    # 内存当前持仓
+                    current = set(scanner._broker.positions.keys())
+                    expected_set = set(expected.keys())
+                    
+                    # 缺失的持仓（orders有但内存没有）
+                    missing = expected_set - current
+                    # 多余的持仓（内存有但orders没有）
+                    extra = current - expected_set
+                    
+                    if missing or extra:
+                        logger.warning(
+                            f"[SCANNER] ⚠️ 持仓一致性校验: 内存={len(current)}只 orders推算={len(expected)}只 "
+                            f"缺失={list(missing)} 多余={list(extra)}"
+                        )
+                    
+                    # 恢复缺失的持仓
                     restored_count = 0
-                    for tc, h in holdings.items():
-                        if h["qty"] <= 0:
-                            continue
+                    for tc in missing:
+                        h = expected[tc]
                         avg_cost = h["total_cost"] / h["qty"] if h["qty"] > 0 else 0
-                        # 写入broker_positions
                         await mongo_manager.db["broker_positions"].update_one(
                             {"account_id": scanner._broker.account.account_id, "ts_code": tc},
                             {"$set": {
@@ -1170,7 +1195,6 @@ class RuntimePersistence:
                             }},
                             upsert=True,
                         )
-                        # 也加到内存
                         from nodes.market_monitor.broker import Position
                         scanner._broker.positions[tc] = Position(
                             ts_code=tc,
@@ -1183,11 +1207,40 @@ class RuntimePersistence:
                             strategy=h["strategy"],
                         )
                         restored_count += 1
+                        logger.warning(f"[SCANNER] ⚠️ 恢复丢失持仓: {tc} {h['name']} qty={h['qty']}")
+                    
+                    # 清理多余的持仓（orders已平仓但内存仍持有）
+                    for tc in extra:
+                        pos = scanner._broker.positions.get(tc)
+                        if pos:
+                            logger.warning(
+                                f"[SCANNER] ⚠️ 清理幽灵持仓: {tc} {pos.stock_name} "
+                                f"qty={pos.total_qty} (orders显示已平仓但内存仍持有)"
+                            )
+                            del scanner._broker.positions[tc]
+                            await mongo_manager.db["broker_positions"].delete_one(
+                                {"account_id": scanner._broker.account.account_id, "ts_code": tc}
+                            )
+                    
+                    # 【v2.9.126】清理MongoDB中多余的持仓(orders已平仓但MongoDB仍残留)
+                    # 原来由save_state的delete_many负责, 现在改由一致性校验处理(更安全)
+                    mongo_positions = await mongo_manager.db["broker_positions"].find(
+                        {"account_id": scanner._broker.account.account_id}
+                    ).to_list(length=100)
+                    for mp in mongo_positions:
+                        tc = mp.get("ts_code", "")
+                        if tc not in expected:
+                            logger.warning(
+                                f"[SCANNER] ⚠️ 清理MongoDB残留持仓: {tc} "
+                                f"(orders显示已平仓但broker_positions仍残留)"
+                            )
+                            await mongo_manager.db["broker_positions"].delete_one(
+                                {"account_id": scanner._broker.account.account_id, "ts_code": tc}
+                            )
                     
                     if restored_count > 0:
-                        _pos_count = restored_count
+                        _pos_count = len(scanner._broker.positions)
                         logger.warning(f"[SCANNER] ⚠️ 持仓丢失检测：从broker_orders恢复了{restored_count}只持仓！")
-                        logger.warning("[SCANNER] 原因：进程崩溃时save_state()未执行，导致broker_positions为空")
             except Exception as e:
                 logger.warning(f"[SCANNER] 持仓丢失检测失败: {e}")
         

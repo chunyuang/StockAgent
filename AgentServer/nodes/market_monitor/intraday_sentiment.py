@@ -127,10 +127,19 @@ class IntradaySentimentCalculator:
                     broken_codes.append(code)
                 else:
                     # fallback: 用盘中最高价判断(limit_list无此股或无open_times)
-                    high_pct = data.get("high_pct", pct)
-                    if high_pct >= lu_thresh:
-                        broken += 1
-                        broken_codes.append(code)
+                    # 【v2.9.123修复】realtime_data无high_pct字段, 用high/pre_close计算
+                    high = data.get("high", 0)
+                    pre_close = data.get("pre_close", 0)
+                    if high and pre_close and pre_close > 0:
+                        high_pct = (high - pre_close) / pre_close * 100
+                        if high_pct >= lu_thresh:
+                            broken += 1
+                            broken_codes.append(code)
+                    else:
+                        high_pct = data.get("high_pct", 0)
+                        if high_pct and high_pct >= lu_thresh:
+                            broken += 1
+                            broken_codes.append(code)
 
         # 2. 涨跌家数比
         up_count = sum(1 for d in realtime_data.values()

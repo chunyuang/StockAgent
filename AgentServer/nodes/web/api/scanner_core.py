@@ -112,6 +112,53 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                 for p in positions_data:
                     p["_historical"] = True
                     p["status_at"] = str(date_int)
+                # 【v2.9.126】历史日期也返回today_closed_trades
+                try:
+                    from nodes.web.api.unified import query_trades, query_trade_one
+                    hist_sells = await query_trades(
+                        mongo_manager.db, account_id=account_id, side="sell",
+                        date=date_int, status="filled",
+                        sort=[("create_time", 1)], limit=500)
+                    for sell in hist_sells:
+                        tc = sell.get("ts_code", "")
+                        if not tc:
+                            continue
+                        sell_qty_check = int(sell.get("filled_qty") or sell.get("quantity") or 0)
+                        if sell_qty_check <= 0:
+                            continue
+                        buy = await query_trade_one(
+                            mongo_manager.db, account_id=account_id,
+                            ts_code=tc, side="buy",
+                            date_lte=date_int, status="filled",
+                            sort=[("trade_date", -1), ("create_time", -1)])
+                        buy_price = float(buy.get("filled_price") or buy.get("price") or 0) if buy else 0
+                        buy_qty = int(buy.get("filled_qty") or buy.get("quantity") or 0) if buy else 0
+                        sell_price = float(sell.get("filled_price") or sell.get("price") or 0)
+                        sell_qty = int(sell.get("filled_qty") or sell.get("quantity") or 0)
+                        raw_pct = float(sell.get("profit_pct") or 0)
+                        raw_amt = float(sell.get("profit_amount") or 0)
+                        if raw_pct == 0 and buy_price > 0 and sell_price > 0:
+                            raw_pct = (sell_price - buy_price) / buy_price * 100
+                        if raw_amt == 0 and buy_price > 0 and sell_price > 0 and sell_qty > 0:
+                            raw_amt = (sell_price - buy_price) * sell_qty
+                        entry = {
+                            "ts_code": tc,
+                            "stock_name": sell.get("stock_name", ""),
+                            "buy_time": (buy.get("create_time") or buy.get("fill_time") or "") if buy else "",
+                            "buy_price": round(buy_price, 2),
+                            "buy_qty": buy_qty,
+                            "buy_date": buy.get("trade_date", "") if buy else "",
+                            "sell_time": sell.get("create_time") or sell.get("fill_time") or "",
+                            "sell_price": round(sell_price, 2),
+                            "sell_qty": sell_qty,
+                            "profit_pct": round(raw_pct, 2),
+                            "profit_amount": round(raw_amt, 0),
+                            "reason": sell.get("reason", ""),
+                        }
+                        today_closed.append(entry)
+                    today_closed.sort(key=lambda x: x.get("sell_time") or "")
+                except Exception as _e:
+                    logger.warning(f"[SCANNER_API] 历史today_closed_trades计算失败: {_e}", exc_info=True)
             else:
                 # 当日: 从broker_positions读(唯一真相源)
                 from nodes.web.api.scanner_analysis import _compute_positions_from_broker
@@ -167,7 +214,8 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                         }
                         today_closed.append(entry)
                     today_closed.sort(key=lambda x: x.get("sell_time") or "")
-                except Exception:
+                except Exception as _e:
+                    logger.warning(f"[SCANNER_API] today_closed_trades计算失败: {_e}", exc_info=True)
                     today_closed = []
                 # 用scanner内存补充实时字段
                 if scanner._broker:
@@ -456,12 +504,20 @@ async def get_scanner_status():
     
     # 熔断状态
     if hasattr(scanner, '_circuit_breaker'):
+        cb = scanner._circuit_breaker or {}
         status["circuit_breaker"] = {
-            "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
-            "pause_reason": scanner._circuit_breaker.get("pause_reason", ""),
-            "consecutive_losses": scanner._circuit_breaker.get("consecutive_losses", 0),
-            "today_trades": scanner._circuit_breaker.get("today_trades", 0),
-            "today_losses": scanner._circuit_breaker.get("today_losses", 0),
+            "trading_paused": cb.get("trading_paused", False),
+            "pause_reason": cb.get("pause_reason", ""),
+            "consecutive_losses": cb.get("consecutive_losses", 0),
+            "today_trades": cb.get("today_trades", 0),
+            "today_losses": cb.get("today_losses", 0),
+            # 【v2.9.127】大盘环境过滤
+            "buy_paused": cb.get("buy_paused", False),
+            "buy_pause_reason": cb.get("buy_pause_reason", ""),
+            "consecutive_loss_days": cb.get("consecutive_loss_days", 0),
+            "cumulative_drawdown": round(cb.get("cumulative_drawdown", 0.0), 4),
+            "position_cap": cb.get("position_cap", 1.0),
+            "peak_assets": cb.get("peak_assets", 0),
         }
     return _sanitize({"success": True, "data": status})
 
@@ -1003,6 +1059,11 @@ async def reset_account(request: Request):
     scanner._circuit_breaker["consecutive_losses"] = 0
     scanner._circuit_breaker["today_trades"] = 0
     scanner._circuit_breaker["today_losses"] = 0
+    # 【v2.9.127】重置大盘环境过滤
+    scanner._circuit_breaker["buy_paused"] = False
+    scanner._circuit_breaker["buy_pause_reason"] = ""
+    scanner._circuit_breaker["position_cap"] = 1.0
+    # 不重置 consecutive_loss_days/cumulative_drawdown/peak_assets (跨日累积)
     
     # 清空信号和时间线
     scanner._active_signals.clear()

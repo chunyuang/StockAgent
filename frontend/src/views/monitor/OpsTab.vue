@@ -155,17 +155,19 @@ const {
       <template v-if="tradesExpanded">
       <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
       <div v-else class="auto-trades-list">
-        <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因/详情</span></div>
+        <div class="at-header"><span>日期/策略</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>原因/详情</span></div>
         <template v-for="t in autoTrades" :key="t.order_id">
           <div class="at-row" :class="{ 'auto-trade': t.source === 'auto', 'manual-trade': t.source === 'manual' }">
-            <span class="tl-time">{{ t.time }}</span>
+            <span class="tl-date-strat">
+              <span class="tl-date">{{ formatTradeDate(t.trade_date) }} {{ t.time }}</span>
+              <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span>
+            </span>
             <span><ElTag size="small" :type="t.source === 'auto' ? 'primary' : 'warning'" style="font-size:10px">{{ t.source === 'auto' ? '🤖自动' : '✋手动' }}</ElTag></span>
             <span class="tl-action" :class="t.side === 'buy' ? 'buy' : 'sell'">{{ t.side === 'buy' ? '买' : '卖' }}</span>
             <span class="code">{{ t.ts_code }}</span>
             <span class="name">{{ t.stock_name }}</span>
             <span>{{ t.quantity }}股</span>
             <span>¥{{ Number(t.price || 0).toFixed(2) }}</span>
-            <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
             <span class="reason-cell">
               <span class="text-tertiary reason-preview" :title="t.reason" style="font-size:11px">{{ shortTradeReason(t.reason) }}</span>
               <ElButton size="small" link class="trace-toggle" @click="toggleTradeExpand(t.order_id)">
@@ -437,7 +439,11 @@ const {
 
 .auto-trades-list { font-size: 12px; }
 
-.at-header, .at-row { display: grid; grid-template-columns: 52px 50px 28px 72px 56px 50px 60px 56px 1fr; gap: 4px; padding: 3px 0; align-items: center; }
+.tl-date-strat { display: flex; flex-direction: column; gap: 1px; }
+.tl-date-strat .tl-date { font-size: 11px; color: var(--text-tertiary); }
+.tl-date-strat .tl-strat { font-size: 11px; }
+
+.at-header, .at-row { display: grid; grid-template-columns: 80px 50px 28px 72px 56px 50px 60px 1fr; gap: 4px; padding: 3px 0; align-items: center; }
 
 .at-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); font-size: 11px; }
 

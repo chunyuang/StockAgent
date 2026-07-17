@@ -3,8 +3,8 @@
   "account": {
     "total_assets": "float",
     "available_cash": "float",
-    "market_value": "float",
-    "today_profit": "int",
+    "market_value": "int",
+    "today_profit": "float",
     "total_profit": "float",
     "position_ratio": "float"
   },
@@ -13,14 +13,17 @@
     "strategy_summary": {
       "halfway_chase": {
         "count": "int",
-        "market_value": "float",
-        "total_profit": "float",
+        "market_value": "int",
+        "total_profit": "int",
         "win_count": "int",
         "loss_count": "int",
-        "win_rate": "float",
-        "closed_win_rate": "int",
+        "closed_count": "int",
+        "closed_profit": "float",
+        "sell_count": "int",
         "stop_loss_count": "int",
         "take_profit_count": "int",
+        "win_rate": "float",
+        "closed_win_rate": "float",
         "avg_win_pct": "float",
         "avg_loss_pct": "float",
         "profit_loss_ratio": "float",
@@ -29,45 +32,41 @@
       }
     },
     "top_profit": [
-      {
-        "ts_code": "str",
-        "name": "str",
-        "pct": "float"
-      }
+      "<empty_list>"
     ],
     "top_loss": [
-      {
-        "ts_code": "str",
-        "name": "str",
-        "pct": "float"
-      }
+      "<empty_list>"
     ]
   },
   "trades": {
     "buy": "int",
     "sell": "int",
-    "total_amount": "int"
-  },
-  "win_rate": "float",
-  "stop_loss_count": "int",
-  "take_profit_count": "int",
-  "risk": {
-    "circuit_breaker": "bool",
-    "consecutive_losses": "int",
-    "today_losses": "int"
+    "total_amount": "float"
   },
   "scanner_stats": {
     "scans": "int",
     "signals_found": "int",
-    "trades_executed": "int",
-    "stop_losses": "int",
-    "take_profits": "int",
-    "stocks_scanned": "int",
     "scan_count": "int",
     "total_signals": "int",
     "buy_count": "int",
-    "sell_count": "int"
+    "sell_count": "int",
+    "trades_executed": "int",
+    "stop_losses": "int",
+    "take_profits": "int"
   },
-  "funnel_summary": "NoneType",
-  "sentiment_snapshot": "NoneType"
+  "funnel_summary": {
+    "L3_sentiment": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L5_auction": {
+      "total_input": "int",
+      "total_rejected": "int"
+    },
+    "L1_force_empty": {
+      "total_input": "int",
+      "total_rejected": "int"
+    }
+  },
+  "sentiment_snapshot": "str"
 }

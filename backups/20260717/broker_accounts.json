@@ -1,0 +1,19 @@
+[
+ {
+  "_id": "6a3ad2b0154ab55099647006",
+  "account_id": "default",
+  "available_cash": 924247.0979999984,
+  "frozen_cash": 0.0,
+  "market_value": 0,
+  "today_profit": 0,
+  "total_assets": 924247.0979999984,
+  "total_profit": -75752.90200000163,
+  "updated_at": "2026-07-17T16:29:10.214599",
+  "v2": {
+   "9": {
+    "122_fix_note": "从全量filled订单重算"
+   }
+  },
+  "cash": 994624.0
+ }
+]

@@ -116,7 +116,7 @@ const {
   signalFilterOptions, signalFilterHelp,
   toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
   displayStrategyName, formatBuyDateDisplay, positionActionLabel,
-  formatPositionTime, toggleStrategySection, formatTradeDateTime,
+  formatPositionTime, toggleStrategySection, formatTradeDateTime, calcHoldDays,
 } = useViewHelpers({
   todayClosedTrades, stratSectionCollapsed, dateSectionCollapsed, leftRailCollapsed,
   strategies, filteredSignals, formatLayerTrace, unified, strategyCN, stratCollapsed,
@@ -267,13 +267,17 @@ const {
         <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /><ElSelect v-model="posSort" size="small" style="width:80px;margin-left:auto"><ElOption label="盈亏" value="profit" /><ElOption label="市值" value="cost" /><ElOption label="策略" value="strategy" /><ElOption label="时间" value="time" /></ElSelect></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
-          <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card compact-pos" :class="{ 'pos-focused': idx === focusIndex, expanded: expandedPositions[pos.ts_code] }">
+          <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card compact-pos" :class="{ 'pos-focused': idx === focusIndex, expanded: expandedPositions[pos.ts_code], 'pos-profit': (pos.profit_pct || 0) >= 0, 'pos-loss': (pos.profit_pct || 0) < 0 }">
             <div class="pos-summary" @click="togglePositionCard(pos.ts_code)">
               <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid action-tag">{{ positionActionLabel(pos) }}</ElTag>
               <span class="pos-time">{{ formatPositionTime(pos) }}</span>
-              <span class="name pos-name-main">{{ pos.stock_name }}</span>
+              <span class="name pos-name-main">{{ pos.stock_name }} <span v-if="pos.today_buy > 0" class="t1-tag">T+1</span></span>
               <span class="code pos-code-sub">{{ pos.ts_code }}</span>
-              <span v-if="pos.today_buy > 0" class="t1-tag">T+1</span>
+              <span class="pos-hold-days" v-if="pos.buy_date">{{ calcHoldDays(pos.buy_date) }}天</span>
+              <span class="pos-pct" :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span>
+              <span class="pos-price cost">成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span>
+              <span v-if="pos.stop_loss_price" class="pos-sl-tp sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
+              <span v-if="pos.take_profit_price" class="pos-sl-tp tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
               <span class="pos-toggle">{{ expandedPositions[pos.ts_code] ? '▼' : '▶' }}</span>
             </div>
             <div v-if="expandedPositions[pos.ts_code]" class="pos-detail-panel">
@@ -332,6 +336,10 @@ const {
               </div>
             </div>
           </div>
+        </div>
+        <!-- 【v2.9.126】已平仓空状态 -->
+        <div v-else class="closed-trades-empty">
+          <span class="ct-empty-text">📋 当日无平仓记录</span>
         </div>
 
       </div>
@@ -649,12 +657,12 @@ const {
 .emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 【v2.9.97h-v8 布局重构】默认左栏收窄，把空间留给中右数据；展开日期/策略时自动放宽 */
-.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(220px, 1.55fr) minmax(560px, 4.9fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
-.mm-body.rail-collapsed { grid-template-columns: 56px minmax(220px, 1.55fr) minmax(560px, 4.9fr); }
-.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(220px, 1.55fr) minmax(520px, 4.1fr); }
-.mm-body.position-expanded { grid-template-columns: minmax(132px, 0.7fr) minmax(340px, 2.45fr) minmax(440px, 4fr); }
-.mm-body.rail-collapsed.position-expanded { grid-template-columns: 56px minmax(340px, 2.45fr) minmax(440px, 4fr); }
-.mm-body.left-expanded.position-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(340px, 2.45fr) minmax(420px, 3.5fr); }
+.mm-body { flex: 1; display: grid; grid-template-columns: minmax(132px, 0.7fr) minmax(420px, 2.8fr) minmax(440px, 3.5fr); gap: 8px; padding: 8px; overflow: hidden; min-width: 0; background: var(--bg-tertiary, var(--bg-secondary)); transition: grid-template-columns 0.2s ease; }
+.mm-body.rail-collapsed { grid-template-columns: 56px minmax(420px, 2.8fr) minmax(440px, 3.5fr); }
+.mm-body.left-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(420px, 2.8fr) minmax(400px, 3fr); }
+.mm-body.position-expanded { grid-template-columns: minmax(132px, 0.7fr) minmax(520px, 3.2fr) minmax(380px, 3fr); }
+.mm-body.rail-collapsed.position-expanded { grid-template-columns: 56px minmax(520px, 3.2fr) minmax(380px, 3fr); }
+.mm-body.left-expanded.position-expanded { grid-template-columns: minmax(240px, 1.35fr) minmax(520px, 3.2fr) minmax(360px, 2.5fr); }
 
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 12px; min-width: 0; min-height: 0; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-default); }
 
@@ -957,20 +965,34 @@ mm-tab-content {
 .pos-info .pamt { font-weight: 600; font-size: 12px; }
 .compact-pos { display: block; padding: 0; overflow: hidden; }
 .compact-pos:hover { transform: none; }
-.pos-summary { display: grid; grid-template-columns: auto 56px minmax(72px, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; }
+.pos-summary { display: grid; grid-template-columns: auto 44px auto auto 38px 48px 60px 60px 60px 14px; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; min-width: 0; }
 .pos-summary:hover { background: var(--bg-hover); }
-.action-tag { min-width: 44px; text-align: center; justify-content: center; }
-.pos-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-secondary); white-space: nowrap; min-width: 50px; }
-.pos-name-main { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pos-code-sub { color: var(--text-tertiary); font-size: 12px; }
-.pos-toggle { color: var(--text-tertiary); font-size: 12px; margin-left: auto; }
+.action-tag { min-width: 40px; text-align: center; justify-content: center; }
+.pos-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-tertiary); white-space: nowrap; text-align: center; }
+.pos-name-main { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.pos-code-sub { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
+.pos-toggle { color: var(--text-tertiary); font-size: 11px; }
+.pos-hold-days { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; font-weight: 600; text-align: center; }
+
+/* 涨跌背景色 */
+.pos-card.compact-pos.pos-profit .pos-summary { background: rgba(242, 54, 69, 0.18); }
+.pos-card.compact-pos.pos-loss .pos-summary { background: rgba(8, 153, 129, 0.18); }
+.pos-card.compact-pos.pos-profit .pos-summary:hover { background: rgba(242, 54, 69, 0.28); }
+.pos-card.compact-pos.pos-loss .pos-summary:hover { background: rgba(8, 153, 129, 0.28); }
+.pos-pct { font-weight: 700; font-size: 12px; font-family: var(--font-mono, monospace); white-space: nowrap; text-align: right; }
+.pos-price { font-size: 11px; white-space: nowrap; font-family: var(--font-mono, monospace); font-weight: 600; text-align: right; }
+.pos-price.cost { color: var(--text-tertiary); }
+.pos-price.cur { color: var(--text-primary); font-weight: 700; }
+.pos-sl-tp { font-size: 11px; white-space: nowrap; font-family: var(--font-mono, monospace); font-weight: 600; text-align: right; }
+.pos-sl-tp.sl { color: var(--stock-up); }
+.pos-sl-tp.tp { color: var(--stock-down); }
 .pos-detail-panel { border-top: 1px solid var(--border-light); padding: 8px 10px 10px; background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg-secondary)); }
 .compact-pos .pos-top { display: flex; grid-area: auto; }
 .compact-pos .pos-info { grid-area: auto; }
 /* mini-bar 隐藏 (与riskTrack重复) */
 .mini-bar { display: none !important; }
 /* T+1 标签紧凑 */
-.t1-tag { background: var(--el-color-warning-light-9, #fdf6ec); color: var(--el-color-warning, #e6a23c); font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 600; flex-shrink: 0; }
+.t1-tag { background: var(--el-color-warning-light-9, #fdf6ec); color: var(--el-color-warning, #e6a23c); font-size: 9px; padding: 1px 3px; border-radius: 3px; font-weight: 600; flex-shrink: 0; display: inline-block; vertical-align: middle; margin-left: 2px; }
 .emergency-btn-inline { font-size: 14px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--stock-up); color: var(--stock-up); background: transparent; cursor: pointer; }
 .emergency-btn-inline:hover { background: var(--stock-up); color: var(--text-inverse); }
 .emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1035,6 +1057,8 @@ mm-tab-content {
 
 /* 【v2.9.99-r1 恢复 v19】今日已平仓 */
 .closed-trades-section { margin-top: 8px; border-top: 1px dashed var(--border-default); padding-top: 6px; }
+.closed-trades-empty { margin-top: 8px; border-top: 1px dashed var(--border-default); padding-top: 6px; text-align: center; }
+.ct-empty-text { font-size: 12px; color: var(--text-muted, #999); }
 .closed-trades-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg-muted); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); user-select: none; transition: background 0.15s; }
 .closed-trades-header:hover { background: var(--bg-hover); }
 .ct-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }

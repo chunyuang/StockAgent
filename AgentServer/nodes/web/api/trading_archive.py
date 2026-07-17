@@ -226,9 +226,11 @@ async def get_archive_day(
             trade_date=int(o.get("trade_date", 0) or 0),
         ))
 
-    # 5. 委托记录(所有orders)
+    # 5. 委托记录(所有orders, 排除rolled_back)
     orders = []
     for o in all_orders:
+        if o.get("status") == "rolled_back":
+            continue
         orders.append(ArchiveOrder(
             order_id=o.get("order_id", ""),
             ts_code=o.get("ts_code", ""),

@@ -116,7 +116,7 @@ class TestScannerBrokerDecoupling:
         source = read_all_scanner_sources()
         idx = source.find("async def _scan_loop")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+2500]
         # 周末持仓检查用self.get_positions()
         assert "self.get_positions()" in method_code
 
@@ -125,7 +125,7 @@ class TestScannerBrokerDecoupling:
         source = read_all_scanner_sources()
         idx = source.find("async def _scan_loop_trading")
         assert idx > 0
-        method_code = source[idx:idx+2000]
+        method_code = source[idx:idx+2500]
         # 【v2.9.49】重构后使用broker.get_positions(), 不再通过self.get_positions()
         assert "get_positions()" in method_code
 

@@ -4,43 +4,13 @@
   "last_scan_time": "str",
   "active_signals": "int",
   "positions": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "strategy_name": "str",
-      "shares": "int",
-      "available_qty": "int",
-      "cost_price": "float",
-      "current_price": "float",
-      "profit_pct": "float",
-      "profit_amount": "float",
-      "market_value": "float",
-      "today_buy": "int",
-      "stop_loss_pct": "float",
-      "take_profit_pct": "float",
-      "stop_loss_price": "float",
-      "take_profit_price": "float",
-      "stop_loss_status": "str",
-      "stop_loss_desc": "str",
-      "distance_to_stop": "float",
-      "buy_date": "str",
-      "trailing_stop": {
-        "high_price": "float",
-        "trailing_stop_pct": "float",
-        "activated": "bool",
-        "activated_at": "str",
-        "stop_price": "float"
-      },
-      "risk_level": "str",
-      "effective_stop_price": "float"
-    }
+    "<empty_list>"
   ],
   "stocks_scanned": "int",
   "account": {
     "total_assets": "float",
     "available_cash": "float",
-    "market_value": "float",
+    "market_value": "int",
     "total_profit": "float"
   },
   "stats": {
@@ -56,32 +26,8 @@
   "filter_pipeline": {
     "position_ratio": "float",
     "sentiment": {
-      "score": "float",
-      "period": "str",
-      "dimensions": {
-        "limit_up": "int",
-        "limit_down": "int",
-        "up_count": "int",
-        "down_count": "int",
-        "up_down_ratio": "float",
-        "momentum": "float",
-        "broken": "int",
-        "broken_rate": "float",
-        "max_continue": "int",
-        "zt_premium": "float",
-        "today_premium": "float",
-        "sample_count": "int",
-        "formula": "str",
-        "d1_limit_up": "int",
-        "d2_limit_down": "int",
-        "d3_up_down": "float",
-        "d4_momentum": "float",
-        "d5_broken_rate": "float",
-        "d6_max_continue": "float",
-        "d7_zt_premium": "int",
-        "d8_today_premium": "int"
-      },
-      "formula": "str"
+      "score": "int",
+      "period": "str"
     }
   },
   "risk_watchdog": {
@@ -118,15 +64,7 @@
   "tiered_scanner": {},
   "quote_degrade_level": "int",
   "quote_degrade_desc": "str",
-  "trailing_stops": {
-    "001258.SZ": {
-      "high_price": "float",
-      "trailing_stop_pct": "float",
-      "activated": "bool",
-      "activated_at": "str",
-      "stop_price": "float"
-    }
-  },
+  "trailing_stops": {},
   "position_risk_levels": {},
   "execution_stats": {
     "total_slippage_pct": "float",
@@ -134,7 +72,7 @@
     "partial_fills": "int",
     "avg_fill_latency_ms": "float",
     "stop_loss_response_times": [
-      "float"
+      "<empty_list>"
     ]
   },
   "scan_loop_errors": "int",
@@ -146,7 +84,7 @@
   "health": {
     "status": "str",
     "is_healthy": "bool",
-    "scan_lag_seconds": "float",
+    "scan_lag_seconds": "int",
     "risk_check_lag_seconds": "int",
     "quote_staleness_seconds": "float",
     "risk_thread_alive": "bool",
@@ -154,13 +92,7 @@
     "warnings": [
       "str"
     ],
-    "event_bus_stats": {
-      "daily_settled": {
-        "emitted": "int",
-        "handled": "int",
-        "errors": "int"
-      }
-    }
+    "event_bus_stats": {}
   },
   "market_status": "str",
   "current_time": "str",
@@ -178,32 +110,8 @@
     "<empty_list>"
   ],
   "sentiment": {
-    "score": "float",
-    "period": "str",
-    "dimensions": {
-      "limit_up": "int",
-      "limit_down": "int",
-      "up_count": "int",
-      "down_count": "int",
-      "up_down_ratio": "float",
-      "momentum": "float",
-      "broken": "int",
-      "broken_rate": "float",
-      "max_continue": "int",
-      "zt_premium": "float",
-      "today_premium": "float",
-      "sample_count": "int",
-      "formula": "str",
-      "d1_limit_up": "int",
-      "d2_limit_down": "int",
-      "d3_up_down": "float",
-      "d4_momentum": "float",
-      "d5_broken_rate": "float",
-      "d6_max_continue": "float",
-      "d7_zt_premium": "int",
-      "d8_today_premium": "int"
-    },
-    "formula": "str"
+    "score": "int",
+    "period": "str"
   },
   "position_ratio": "float",
   "position_count": "int",
@@ -215,6 +123,12 @@
     "pause_reason": "str",
     "consecutive_losses": "int",
     "today_trades": "int",
-    "today_losses": "int"
+    "today_losses": "int",
+    "buy_paused": "bool",
+    "buy_pause_reason": "str",
+    "consecutive_loss_days": "int",
+    "cumulative_drawdown": "float",
+    "position_cap": "float",
+    "peak_assets": "int"
   }
 }

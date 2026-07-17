@@ -50,14 +50,24 @@ def precompute_factors(trade_date: int):
     print(f"预计算因子: {trade_date}")
     t0 = time.time()
     
-    # 1. 读取最近60天数据(计算MA60需要)
+    # 1. 读取最近60天数据(计算MA60需要) - 分批读取防OOM
     start_date = trade_date - 300  # 粗略估计，取足够多的交易日
-    pipeline = [
-        {"$match": {"trade_date": {"$gte": start_date, "$lte": trade_date}}},
-        {"$sort": {"ts_code": 1, "trade_date": 1}},
-    ]
     
-    raw = list(db.stock_daily_ak_full.aggregate(pipeline, allowDiskUse=True))
+    all_codes = list(db.stock_daily_ak_full.distinct('ts_code', {'trade_date': {'$gte': start_date, '$lte': trade_date}}))
+    if not all_codes:
+        print("  ⚠️ 无数据")
+        return 0
+    
+    BATCH_SIZE = 500
+    all_raw = []
+    for i in range(0, len(all_codes), BATCH_SIZE):
+        batch_codes = all_codes[i:i+BATCH_SIZE]
+        batch_raw = list(db.stock_daily_ak_full.find(
+            {'ts_code': {'$in': batch_codes}, 'trade_date': {'$gte': start_date, '$lte': trade_date}},
+            {'_id': 0}
+        ))
+        all_raw.extend(batch_raw)
+    raw = all_raw
     if not raw:
         print("  ⚠️ 无数据")
         return 0

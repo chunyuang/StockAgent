@@ -284,9 +284,9 @@ class TestCircuitBreakerDelegation:
         assert scanner._circuit_breaker["consecutive_losses"] == 1
         assert scanner._circuit_breaker["today_losses"] == 1
         
-        # 盈利重置连续亏损
+        # 【v2.9.127】盈利不再重置consecutive_losses(改为每日重置)
         RiskWatchdog.record_trade_result(scanner, 0.03)
-        assert scanner._circuit_breaker["consecutive_losses"] == 0
+        assert scanner._circuit_breaker["consecutive_losses"] == 1  # 仍为1, 不因盈利重置
 
     def test_reset_circuit_breaker_delegates_to_watchdog(self):
         """reset_circuit_breaker委托给RiskWatchdog"""

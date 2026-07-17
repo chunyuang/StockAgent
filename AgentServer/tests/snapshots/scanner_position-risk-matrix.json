@@ -1,50 +1,15 @@
 {
   "positions": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "strategy_name": "str",
-      "industry": "str",
-      "current_price": "float",
-      "cost_price": "float",
-      "profit_pct": "float",
-      "profit_amount": "float",
-      "market_value": "float",
-      "position_pct": "float",
-      "dist_stop_loss": "float",
-      "dist_take_profit": "float",
-      "stop_loss_price": "float",
-      "take_profit_price": "float",
-      "volatility": "float",
-      "turnover_rate": "int",
-      "risk_score": "float",
-      "risk_level": "str",
-      "trailing_stop": {
-        "high_price": "float",
-        "trailing_stop_pct": "float",
-        "activated": "bool",
-        "activated_at": "NoneType",
-        "stop_price": "float"
-      },
-      "total_qty": "int"
-    }
+    "<empty_list>"
   ],
   "global": {
     "total_assets": "float",
-    "total_market_value": "float",
+    "total_market_value": "int",
     "cash_ratio": "float",
     "position_ratio": "float",
-    "max_single_pct": "float",
-    "top_industry_concentration": "float",
-    "industry_exposure": {
-      "": "float",
-      "家用电器": "float",
-      "新型电力": "float",
-      "食品": "float",
-      "专用机械": "float",
-      "农药化肥": "float"
-    },
+    "max_single_pct": "int",
+    "top_industry_concentration": "int",
+    "industry_exposure": {},
     "position_count": "int",
     "stop_loss_exec_rate": "float",
     "risk_score": "float",

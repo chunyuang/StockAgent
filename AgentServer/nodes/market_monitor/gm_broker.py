@@ -168,7 +168,7 @@ class GmBroker:
 
         通过写命令文件, 掘金子进程读取并执行
         """
-        order_id = f"GM{datetime.now().strftime('%H%M%S')}{len(self._orders):04d}"
+        order_id = f"GM{datetime.now().strftime('%Y%m%d%H%M%S')}{len(self._orders):04d}"
 
         order = GmOrder(
             order_id=order_id,

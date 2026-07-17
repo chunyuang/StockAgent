@@ -214,7 +214,7 @@ class SimulatedBroker:
                     "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
                     "commission": getattr(order, 'commission', 0),
                     "stamp_duty": getattr(order, 'stamp_duty', 0),
-                    "trade_date": order.trade_date,
+                    "trade_date": int(order.trade_date) if order.trade_date else 0,
                     "create_time": order.create_time,
                     "fill_time": order.fill_time,
                     "profit_pct": getattr(order, 'profit_pct', 0),
@@ -387,12 +387,17 @@ class SimulatedBroker:
                 upsert=True,
             )
 
-        # 清理已平仓的持仓(内存里没有但MongoDB还留着的)
+        # 【v2.9.126】安全清理: 只在内存有持仓时清理MongoDB中多余的
+        # 旧逻辑: delete_many清所有内存中没有的 -> 崩溃重启后内存空 -> MongoDB被清空 -> 持仓永久丢失
+        # 新逻辑: 内存有持仓时才清理(说明已正常恢复), 内存空时不清理(可能还没恢复)
+        # 持仓一致性校验(runtime_persistence)作为二道防线, 会校验orders推算 vs 内存diff
         current_codes = set(self.positions.keys())
-        await self._mongo_db["broker_positions"].delete_many({
-            "account_id": self.account.account_id,
-            "ts_code": {"$nin": list(current_codes)} if current_codes else {"$exists": True},
-        })
+        if current_codes:
+            await self._mongo_db["broker_positions"].delete_many({
+                "account_id": self.account.account_id,
+                "ts_code": {"$nin": list(current_codes)},
+            })
+        # 内存positions为空时不删除MongoDB, 由一致性校验负责判断是否真的该清空
 
     async def _save_today_orders_to_mongo(self) -> None:
         """【v2.9.57提取】持久化今日订单到MongoDB"""
@@ -473,6 +478,18 @@ class SimulatedBroker:
         修复: 从positions+orders反推正确的available_cash
         """
         if not self.positions:
+            # 【v2.9.126】持仓=0时也校验cash(防止从MongoDB读到错误的cash值)
+            buy_cost, sell_income = self._calc_cash_from_mongo_orders()
+            correct_cash = self._initial_cash - buy_cost + sell_income
+            if abs(self.account.available_cash - correct_cash) > 1:
+                logger.warning(
+                    f"[BROKER] ⚠️ 无持仓cash校验: 内存={self.account.available_cash:.0f} "
+                    f"重算={correct_cash:.0f} 差额={self.account.available_cash - correct_cash:.0f}"
+                )
+                self.account.available_cash = correct_cash
+                self.account.market_value = 0
+                self.account.total_assets = correct_cash
+                self.account.total_profit = correct_cash - self._initial_cash
             return
 
         self._recalc_account()
@@ -563,9 +580,11 @@ class SimulatedBroker:
             return None
 
     async def _restore_positions_from_mongo(self) -> None:
-        """【v2.9.57提取】从MongoDB恢复持仓"""
+        """【v2.9.57提取】从MongoDB恢复持仓
+        【v2.9.126】只恢复total_qty>0的持仓, 跳过已清仓的旧记录
+        """
         cursor = self._mongo_db["broker_positions"].find(
-            {"account_id": self.account.account_id}
+            {"account_id": self.account.account_id, "total_qty": {"$gt": 0}}
         )
         loaded = 0
         async for doc in cursor:
@@ -597,15 +616,36 @@ class SimulatedBroker:
         if cleared > 0:
             logger.info(f"[BROKER] 恢复前清除今日内存orders: {cleared}笔")
         
+        # 【v2.9.126】防御性去重: 同一ts_code+side+create_time+filled_qty+filled_price只保留一条
+        # 根因: 手动修数据时可能产生重复order_id的订单, save_state又写回MongoDB
+        seen_keys = {}
         cursor = self._mongo_db["broker_orders"].find(
             {"account_id": self.account.account_id, "trade_date": {"$in": [today, int(today)]}}
-        )
+        ).sort("order_id", 1)  # 短order_id(原始)在前, 长order_id(补回)在后
         loaded_orders = 0
+        dedup_skipped = 0
         existing_ids = set(o.order_id for o in self.orders)  # 防御性
         async for doc in cursor:
             oid = doc["order_id"]
             if oid in existing_ids:
                 continue  # 跳过重复
+            # 去重key: ts_code + side + create_time(归一化) + filled_qty + filled_price
+            raw_ct = doc.get("create_time", "")
+            # 归一化create_time: "09:32:22" -> "2026-07-17 09:32:22"
+            if len(raw_ct) == 8:
+                norm_ct = f"{today[:4]}-{today[4:6]}-{today[6:8]} {raw_ct}"
+            else:
+                norm_ct = raw_ct[:19]
+            dedup_key = (doc.get("ts_code"), doc.get("side"), norm_ct,
+                         doc.get("filled_qty", 0), doc.get("filled_price", 0))
+            if dedup_key in seen_keys:
+                dedup_skipped += 1
+                logger.warning(
+                    f"[BROKER] ⚠️ 跳过重复订单: {oid} (与{seen_keys[dedup_key]}重复: "
+                    f"{doc.get('ts_code')} {doc.get('side')} {norm_ct})"
+                )
+                continue
+            seen_keys[dedup_key] = oid
             order = Order(
                 order_id=oid,
                 account_id=doc.get("account_id", self.account.account_id),
@@ -636,7 +676,7 @@ class SimulatedBroker:
             existing_ids.add(oid)
             loaded_orders += 1
         if loaded_orders:
-            logger.info(f"[BROKER] 订单恢复: {loaded_orders}笔")
+            logger.info(f"[BROKER] 订单恢复: {loaded_orders}笔" + (f", 去重跳过: {dedup_skipped}笔" if dedup_skipped else ""))
 
     def _calc_limit_prices(self, ts_code: str, pre_close: float) -> Dict[str, float]:
         """根据板块计算涨跌停价"""
@@ -1046,7 +1086,7 @@ class SimulatedBroker:
         """【v2.9.57提取】创建订单实例"""
         now = datetime.now()
         trade_date = now.strftime("%Y%m%d")
-        order_id = f"ORD{now.strftime('%H%M%S')}{len(self.orders):04d}"
+        order_id = f"ORD{now.strftime('%Y%m%d%H%M%S')}{len(self.orders):04d}"
 
         side_enum = OrderSide.BUY if side == "buy" else OrderSide.SELL
         type_enum = OrderType.MARKET if order_type == "market" else OrderType.LIMIT

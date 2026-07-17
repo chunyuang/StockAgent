@@ -156,23 +156,30 @@ class ScanLoopRunner:
         self._restart_risk_thread_if_dead()
         await self._try_recover_quote_source()
 
-        # 尾盘只做持仓检查,不做全量扫描(避免新开仓)
+        # v2.9.126: 尾盘恢复全量扫描, 但最后5分钟只做持仓检查
         phase = MarketPhase.classify()
         if phase == MarketPhase.LATE_TRADING:
-            try:
-                realtime_data = await self._fetch_realtime_batch()
-                await self._check_positions(realtime_data, trade_date)
-                self._sync_broker_prices(realtime_data)
-                await asyncio.sleep(3)
-                return False
-            except Exception as e:
-                logger.error(f"[SCAN_LATE] 尾盘持仓检查异常: {e}")
-                await asyncio.sleep(5)
-                return False
+            # 检查是否在最后5分钟(14:55-15:00)
+            now = datetime.now()
+            cutoff_time = now.replace(hour=14, minute=55, second=0, microsecond=0)
+            if now >= cutoff_time:
+                # 最后5分钟: 只做持仓检查, 不做全量扫描(避免新开仓)
+                try:
+                    realtime_data = await self._fetch_realtime_batch()
+                    await self._check_positions(realtime_data, trade_date)
+                    self._sync_broker_prices(realtime_data)
+                    await asyncio.sleep(3)
+                    return False
+                except Exception as e:
+                    logger.error(f"[SCAN_LATE] 尾盘持仓检查异常: {e}")
+                    await asyncio.sleep(5)
+                    return False
+            # 14:30-14:55: 继续全量扫描(间隔60秒)
+            # 落入下面的全量扫描逻辑
 
         elapsed = time.time() - last_full_scan
         current_interval = self._get_dynamic_scan_interval()
-        if elapsed >= current_interval:
+        if current_interval > 0 and elapsed >= current_interval:
             try:
                 await self.scan_once(trade_date)
                 return True

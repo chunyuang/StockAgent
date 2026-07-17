@@ -213,6 +213,15 @@ export function useViewHelpers(deps: {
     if (bd) { const s = String(bd).replace(/\D/g, ''); if (s.length >= 8) return `${s.slice(4, 6)}-${s.slice(6, 8)}` }
     return ''
   }
+  function calcHoldDays(buyDate: any) {
+    if (!buyDate) return 0
+    const s = String(buyDate).replace(/\D/g, '')
+    if (s.length < 8) return 0
+    try {
+      const buyTime = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
+      return Math.max(0, Math.floor((Date.now() - buyTime) / (1000 * 60 * 60 * 24)))
+    } catch { return 0 }
+  }
   function toggleStrategySection() {
     if (deps.leftRailCollapsed.value) deps.leftRailCollapsed.value = false
     deps.stratSectionCollapsed.value = !deps.stratSectionCollapsed.value
@@ -237,6 +246,6 @@ export function useViewHelpers(deps: {
     signalFilterOptions, signalFilterHelp,
     toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
     displayStrategyName, formatBuyDateDisplay, positionActionLabel,
-    formatPositionTime, toggleStrategySection, formatTradeDateTime,
+    formatPositionTime, toggleStrategySection, formatTradeDateTime, calcHoldDays,
   }
 }

@@ -312,6 +312,14 @@ class LiveFilterPipeline:
 
         # ---- L1: 强制空仓 ----
         if await self._apply_L1_force_empty(result, trade_date, realtime_data):
+            # 【v2.9.123】L1强制空仓时仍计算情绪, 保证sentiment_live_log持续更新
+            if realtime_data and len(realtime_data) > 0:
+                try:
+                    sentiment_ratio, score, period = await self._calc_sentiment(trade_date, realtime_data)
+                    self._sentiment_score = score
+                    self._sentiment_period = period
+                except Exception as _e:
+                    logger.debug(f"[L1] 强制空仓后情绪计算失败(非致命): {_e}")
             return result
 
         # ---- L2~L8: 筛选层应用 ----
@@ -384,6 +392,26 @@ class LiveFilterPipeline:
         
         result.position_ratio = final_ratio
         result.layers_applied["L8_position"] = True
+        
+        # 【v2.9.127】大盘环境过滤: 应用circuit_breaker的position_cap
+        if self._scanner and hasattr(self._scanner, '_circuit_breaker'):
+            cb = self._scanner._circuit_breaker or {}
+            cap = cb.get("position_cap", 1.0)
+            if cap < 1.0:
+                result.position_ratio = result.position_ratio * cap
+                if cap == 0.0:
+                    result.candidates = []
+                    for t in result.trace_candidates:
+                        if t.final_status != "rejected":
+                            t.final_status = "rejected"
+                            t.final_rejection_layer = "L8_market_risk"
+                            t.final_rejection_reason = f"大盘环境过滤: {cb.get('buy_pause_reason', '')}"
+                    cap_reason = cb.get('buy_pause_reason', '大盘环境过滤')
+                    result.layer_details["L8_market_risk"] = f"🛑 {cap_reason}, 禁止新开仓"
+                    logger.warning(f"[L8] 大盘环境过滤: {cap_reason}, position_cap=0, 禁止买入")
+                else:
+                    result.layer_details["L8_market_risk"] = f"⚠️ 大盘环境过滤: 仓位上限={cap:.0%}"
+                    logger.info(f"[L8] 大盘环境过滤: position_cap={cap:.0%}, ratio {final_ratio:.2f}->{result.position_ratio:.2f}")
         result.layer_details["L8_position"] = (
             f"总仓位上限={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 硬上限{max_position_ratio:.0%}), "
             f"单票上限={max_per_stock:.0%} | 仓位系数=min(情绪仓位, 特殊时期, 硬上限)"
@@ -733,6 +761,7 @@ class LiveFilterPipeline:
             try:
                 from .intraday_sentiment import intraday_calculator
                 # 获取limit_list数据用于炸板判断
+                # 【v2.9.123修复】limit_list盘中不更新导致broken=0, 增加scanner._limit_pools作为补充
                 limit_list_data = None
                 try:
                     from core.managers import mongo_manager
@@ -743,6 +772,22 @@ class LiveFilterPipeline:
                             limit_list_data[doc.get("ts_code", "")] = doc
                 except Exception:
                     pass
+                # 【v2.9.123】补充scanner实时涨停池数据(limit_list盘中不写MongoDB)
+                scanner = getattr(self, '_scanner', None)
+                if scanner:
+                    limit_pools = getattr(scanner, '_limit_pools', None) or {}
+                    for item in limit_pools.get("limit_up", []):
+                        code = item.get("ts_code", "")
+                        if code and code not in limit_list_data:
+                            limit_list_data[code] = item
+                    for item in limit_pools.get("limit_down", []):
+                        code = item.get("ts_code", "")
+                        if code and code not in limit_list_data:
+                            limit_list_data[code] = item
+                    for item in limit_pools.get("broken", []):
+                        code = item.get("ts_code", "")
+                        if code and code not in limit_list_data:
+                            limit_list_data[code] = {**item, "open_times": 1}
                 result = await intraday_calculator.calculate(trade_date, realtime_data, limit_list_data=limit_list_data)
                 # 保存维度明细供_apply_L3_sentiment写入L3_sentiment_data
                 self._last_intraday_dimensions = result.dimensions
@@ -775,6 +820,8 @@ class LiveFilterPipeline:
             score = emotion.score
             phase = emotion.phase.value
             ratio = emotion.position_multiplier
+            # 【v2.9.123】fallback路径也persist到live_log
+            await _persist_fallback_live_log(trade_date, score, phase, limit_stocks, realtime_data)
             return ratio, score, phase
         except Exception as e:
             logger.error(f"[L3] EmotionCycleManager失败, fallback简化: {e}", exc_info=True)
@@ -1051,3 +1098,73 @@ class LiveFilterPipeline:
                         layer: lr for layer, lr in ct.layer_results.items()
                     }
         return filtered_signals
+
+
+async def _persist_fallback_live_log(trade_date, score, phase, limit_stocks, realtime_data):
+    """【v2.9.123】fallback路径(EmotionCycleManager)也persist到sentiment_live_log
+    
+    解决: 13:00后午休结束首次scan可能realtime_data不足100条,
+    走fallback而非7dim -> live_log无新记录 -> 前端看不到情绪更新。
+    """
+    try:
+        from datetime import datetime
+        from .intraday_sentiment import _persist_live_log_entry
+        from .utils.board_limit import is_limit_up, is_limit_down
+        
+        limit_up = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
+        limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
+        up_count = sum(1 for v in limit_stocks.values() if v.get("pct_chg", 0) > 0) if limit_stocks else 0
+        down_count = sum(1 for v in limit_stocks.values() if v.get("pct_chg", 0) < 0) if limit_stocks else 0
+        total_active = up_count + down_count
+        up_down_ratio = up_count / max(total_active, 1) if total_active > 0 else 0.5
+        
+        # phase中文映射
+        phase_map = {
+            "rising": ("rising", "高潮"),
+            "differentiation": ("differentiation", "分化"),
+            "chaos": ("chaos", "震荡"),
+            "bearish": ("bearish", "冰点"),
+        }
+        phase_en, phase_cn = phase_map.get(phase, (phase, phase))
+        
+        # 仓位系数
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        spm = GLOBAL_RISK.get("sentiment_position_map", {})
+        if score >= 70:
+            ratio = spm.get("rising", 1.0)
+        elif score >= 55:
+            ratio = spm.get("differentiation", 0.7)
+        elif score >= 40:
+            ratio = spm.get("chaos", 0.5)
+        else:
+            ratio = spm.get("bearish", 0.3)
+        
+        entry = {
+            'time': datetime.now().strftime('%H:%M:%S'),
+            'trade_date': trade_date,
+            'score': round(score, 1),
+            'phase': phase_en,
+            'phase_label': phase_cn,
+            'position_ratio': ratio,
+            'limit_up': limit_up,
+            'limit_down': limit_down,
+            'max_continue': 1,
+            'up_down_ratio': round(up_down_ratio, 3),
+            'zt_premium': 0.0,
+            'broken': 0,
+            'broken_rate': 0.0,
+            'momentum': 0.0,
+            'formula': '5dim_fallback',
+            'breakdown': {
+                'limit_up_score': min(20, limit_up),
+                'limit_down_score': max(0, 15 - limit_down * 1.5),
+                'up_down_score': round(up_down_ratio * 15, 1),
+                'momentum_score': 0.0,
+                'broken_score': 10.0,
+                'max_continue_score': 1.5,
+                'zt_premium_score': 0.0,
+            },
+        }
+        await _persist_live_log_entry(entry)
+    except Exception as _e:
+        logger.debug(f"[GUARD] _persist_fallback_live_log: {_e}")

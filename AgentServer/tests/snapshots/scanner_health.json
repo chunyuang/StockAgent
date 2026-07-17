@@ -49,7 +49,7 @@
     ],
     "health_score": "int",
     "data_freshness": "str",
-    "scan_lag_seconds": "float",
+    "scan_lag_seconds": "int",
     "risk_check_lag_seconds": "int",
     "warnings": [
       "str"
@@ -58,7 +58,7 @@
     "scanner_health": {
       "status": "str",
       "is_healthy": "bool",
-      "scan_lag_seconds": "float",
+      "scan_lag_seconds": "int",
       "risk_check_lag_seconds": "int",
       "quote_staleness_seconds": "float",
       "risk_thread_alive": "bool",
@@ -66,13 +66,7 @@
       "warnings": [
         "str"
       ],
-      "event_bus_stats": {
-        "daily_settled": {
-          "emitted": "int",
-          "handled": "int",
-          "errors": "int"
-        }
-      }
+      "event_bus_stats": {}
     },
     "pending_sells_detail": [
       "<empty_list>"

@@ -59,19 +59,19 @@ MIN_TRAILING_ACTIVATE_PCT = 3.0  # 最低3%才激活追踪止损
 # 10笔固定止损全被误杀, 14笔跳空止损本可不触发(持有到收盘少亏6716元)
 # 方案: stop_loss = min(max(strategy_min, 1.2*ATR14%), strategy_max)
 # v2.9.120: ATR上限从2×收紧到1.5×, 与回测固定止损更接近
-# 之前: halfway_chase (3%, 6%) -> 高波动时取6%, 比回测3%宽一倍
-# 现在: halfway_chase (3%, 4.5%) -> 高波动时取4.5%, 与回测差距缩小50%
+# v2.9.124: halfway_chase上限再从4.5%收到3.5%, -5%~-8%区间20笔占18.3%,
+#   ATR=4.5%时跳空穿破直接亏到-6%~-8%, 收到3.5%后跳空穿破最多-4.5%~-5%
 ATR_STOP_MULTIPLIER = 1.2      # ATR乘数
 ATR_STOP_CAP_PCT = 6.0          # 全局封顶6%(防止极端值)
 ATR_STOP_PERIOD = 14            # ATR计算周期(14天)
 ATR_STOP_MIN_PCT = 2.5          # 止损下限2.5%(即使低波动也至少2.5%)
-# 策略级ATR止损范围(v2.9.120: 上限从2×stop_loss收紧到1.5×stop_loss)
+# 策略级ATR止损范围(v2.9.124: halfway_chase上限4.5%→3.5%, 防止-5%~-8%区间集中亏损)
 STRATEGY_ATR_RANGES = {
-    "halfway_chase":   (3.0, 4.5),   # 追涨: 3%-4.5% (原3%-6%, 收窄33%)
-    "first_limit_up":  (3.5, 5.25),  # 首板: 3.5%-5.25% (原3.5%-7%, 收窄25%)
-    "limit_up_open":   (4.0, 6.0),   # 炸板: 4%-6% (原4%-7%, 收窄14%)
-    "dragon_head":     (3.0, 4.5),   # 龙头: 3%-4.5% (原3%-7%, 收窄36%)
-    "limit_down_qiao": (5.0, 7.5),   # 翘板: 5%-7.5% (原5%-8%, 收窄6%)
+    "halfway_chase":   (3.0, 3.5),   # 追涨: 3%-3.5% (原3%-4.5%, 收窄22%)
+    "first_limit_up":  (3.5, 5.25),  # 首板: 3.5%-5.25% (涨停波动大, 保持)
+    "limit_up_open":   (4.0, 6.0),   # 炸板: 4%-6% (炸板波动更大, 保持)
+    "dragon_head":     (3.0, 4.5),   # 龙头: 3%-4.5% (保持)
+    "limit_down_qiao": (5.0, 7.5),   # 翘板: 5%-7.5% (翘板风险最高, 保持)
 }
 
 
@@ -1241,8 +1241,11 @@ class PositionManager:
                 ratio = 0.40
             else:
                 ratio = 0.25
-        elif "半路" in strategy or "mid_chase" in strategy:
+        elif "半路" in strategy or "mid_chase" in strategy or "halfway" in strategy:
             ratio = 0.25
+            # 周五半路追涨减仓(25%->15%)
+            if getattr(signal, '_friday_reduced_position', False):
+                ratio = 0.15
         elif "跌停" in strategy or "limit_down" in strategy:
             ratio = 0.15
         elif "龙头" in strategy or "leader" in strategy:

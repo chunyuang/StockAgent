@@ -760,9 +760,10 @@ class RiskWatchdog:
         """风控熔断检查(从scanner提取)【v2.9.56:提取回撤+亏损检查子方法】
 
         规则:
-        1. 单日回撤>5% → 暂停所有交易
-        2. 连续亏损3次 → 暂停买入(可卖出止损)
-        3. 手动暂停 → 尊重人工干预
+        1. 单日回撤>3% -> 暂停所有交易【v2.9.127: 5%->3%】
+        2. 连续亏损5次 -> 暂停买入(可卖出止损)【v2.9.127: 3->5】
+        3. 手动暂停 -> 尊重人工干预
+        4. 【v2.9.127】大盘环境过滤: buy_paused时暂停买入(不影响止损卖出)
 
         Args:
             scanner: MarketScanner实例
@@ -776,9 +777,11 @@ class RiskWatchdog:
                 "trading_paused": cb.get("trading_paused", False),
                 "pause_reason": cb.get("pause_reason", ""),
                 "daily_start_assets": cb.get("daily_start_assets", 0),
-                "daily_max_drawdown": cb.get("daily_max_drawdown", 0.05),
+                "daily_max_drawdown": cb.get("daily_max_drawdown", 0.03),
                 "consecutive_losses": cb.get("consecutive_losses", 0),
-                "consecutive_loss_limit": cb.get("consecutive_loss_limit", 3),
+                "consecutive_loss_limit": cb.get("consecutive_loss_limit", 5),
+                "buy_paused": cb.get("buy_paused", False),
+                "buy_pause_reason": cb.get("buy_pause_reason", ""),
             },
         )
 
@@ -793,6 +796,11 @@ class RiskWatchdog:
         # 连续亏损检查(只限制买入, 不限制卖出)
         if cb_data["consecutive_losses"] >= cb_data["consecutive_loss_limit"]:
             logger.info(f"[CIRCUIT] 连续亏损{cb_data['consecutive_losses']}次, 暂停买入")
+            return False
+
+        # 【v2.9.127】大盘环境过滤: buy_paused时暂停买入(不影响止损卖出)
+        if cb_data["buy_paused"]:
+            logger.debug(f"[CIRCUIT] 买入暂停: {cb_data['buy_pause_reason']}")
             return False
 
         return True
@@ -845,6 +853,9 @@ class RiskWatchdog:
         Args:
             scanner: MarketScanner实例
             profit_pct: 本次交易盈亏百分比
+        
+        【v2.9.127】consecutive_losses不再因单笔盈利重置(改为每日重置)
+        避免连续7笔亏损中间夹1笔小盈利就重置的问题
         """
         # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
         def _record() -> None:
@@ -852,8 +863,8 @@ class RiskWatchdog:
             if profit_pct < 0:
                 scanner._circuit_breaker["consecutive_losses"] += 1
                 scanner._circuit_breaker["today_losses"] += 1
-            else:
-                scanner._circuit_breaker["consecutive_losses"] = 0  # 盈利重置
+            # 【v2.9.127】不再因单笔盈利重置consecutive_losses
+            # 每日在reset_daily_risk_state中重置
         RiskWatchdog._with_state_lock(scanner, _record, fallback=_record)
 
     @staticmethod
@@ -868,6 +879,12 @@ class RiskWatchdog:
             scanner._circuit_breaker["trading_paused"] = False
             scanner._circuit_breaker["pause_reason"] = ""
             scanner._circuit_breaker["consecutive_losses"] = 0
+            # 【v2.9.127】重置大盘环境过滤
+            scanner._circuit_breaker["buy_paused"] = False
+            scanner._circuit_breaker["buy_pause_reason"] = ""
+            scanner._circuit_breaker["position_cap"] = 1.0
+            # 不重置 consecutive_loss_days/cumulative_drawdown/peak_assets
+            # 这些是跨日累积的, 手动重置熔断只恢复当日暂停状态
         RiskWatchdog._with_state_lock(scanner, _reset, fallback=_reset)
         logger.info("[CIRCUIT] 熔断已重置")
 
@@ -879,7 +896,8 @@ class RiskWatchdog:
         - circuit_breaker: daily_start_assets/today_trades/today_losses/trading_paused
         - 执行统计: stop_loss_response_times清空
         - pending_sells: 清理跨日过期的(已无持仓的票)
-        - 追踪止损/风险等级: 在_load_positions→load_runtime_snapshot中按日期恢复
+        - 追踪止损/风险等级: 在_load_positions->load_runtime_snapshot中按日期恢复
+        - 【v2.9.127】每日日亏损统计+仓位上限重置
         """
         # 重置circuit_breaker(需要broker账户信息)
         if scanner._broker:
@@ -887,13 +905,69 @@ class RiskWatchdog:
                 acct = scanner._broker.get_account()
                 if acct:
                     def _reset_cb() -> None:
+                        prev_start = scanner._circuit_breaker.get("daily_start_assets", 0)
                         scanner._circuit_breaker["daily_start_assets"] = acct.total_assets
                         scanner._circuit_breaker["today_trades"] = 0
                         scanner._circuit_breaker["today_losses"] = 0
                         scanner._circuit_breaker["trading_paused"] = False
                         scanner._circuit_breaker["pause_reason"] = ""
+                        # 【v2.9.127】每日重置: 当日暂停买入状态(但保留consecutive_loss_days)
+                        scanner._circuit_breaker["buy_paused"] = False
+                        scanner._circuit_breaker["buy_pause_reason"] = ""
+                        scanner._circuit_breaker["consecutive_losses"] = 0  # 每日重置连续亏损笔数
+                        
+                        # 【v2.9.127】更新连续日亏损天数+累计回撤+仓位上限
+                        if prev_start > 0:
+                            day_pnl = acct.total_assets - prev_start
+                            if day_pnl < 0:
+                                scanner._circuit_breaker["consecutive_loss_days"] += 1
+                            else:
+                                scanner._circuit_breaker["consecutive_loss_days"] = 0  # 盈利日重置
+                        
+                        # 更新peak_assets和cumulative_drawdown
+                        peak = scanner._circuit_breaker.get("peak_assets", acct.total_assets)
+                        if acct.total_assets > peak:
+                            scanner._circuit_breaker["peak_assets"] = acct.total_assets
+                            peak = acct.total_assets
+                        if peak > 0:
+                            scanner._circuit_breaker["cumulative_drawdown"] = (peak - acct.total_assets) / peak
+                        
+                        # 根据连续日亏损+累计回撤计算仓位上限
+                        cld = scanner._circuit_breaker["consecutive_loss_days"]
+                        cd = scanner._circuit_breaker["cumulative_drawdown"]
+                        cap = 1.0
+                        reasons = []
+                        if cld >= 4:
+                            cap = 0.0
+                            reasons.append(f"连续{cld}日亏损")
+                        elif cld >= 3:
+                            cap = 0.25
+                            reasons.append(f"连续{cld}日亏损")
+                        elif cld >= 2:
+                            cap = 0.5
+                            reasons.append(f"连续{cld}日亏损")
+                        
+                        if cd >= 0.08:
+                            cap = min(cap, 0.0)
+                            reasons.append(f"累计回撤{cd*100:.1f}%")
+                        elif cd >= 0.05:
+                            cap = min(cap, 0.25)
+                            reasons.append(f"累计回撤{cd*100:.1f}%")
+                        elif cd >= 0.03:
+                            cap = min(cap, 0.5)
+                            reasons.append(f"累计回撤{cd*100:.1f}%")
+                        
+                        scanner._circuit_breaker["position_cap"] = cap
+                        if cap == 0.0:
+                            scanner._circuit_breaker["buy_paused"] = True
+                            scanner._circuit_breaker["buy_pause_reason"] = ", ".join(reasons)
+                        
+                        logger.info(
+                            f"[SCANNER] 每日风控重置: asset={acct.total_assets:.0f} "
+                            f"连续亏{cld}日 累计回撤={cd*100:.1f}% 仓位上限={cap:.0%}"
+                            + (f" [{', '.join(reasons)}]" if reasons else "")
+                        )
                     RiskWatchdog._with_state_lock(scanner, _reset_cb, fallback=_reset_cb)
-                    logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
             except Exception as e:
                 logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
 

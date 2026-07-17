@@ -155,9 +155,13 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         },
         MarketPhase.AFTERNOON:   {
             "13:00-14:00": 300,   # 午盘初段 5分钟/次
-            "14:00-14:30": 180,   # 午盘后段 3分钟/次 (尾盘前最后机会)
+            "14:00-14:30": 120,   # 午盘后段 2分钟/次 (尾盘前加密)
         },
-        # LATE_TRADING: 尾盘不做全量扫描, 维持现状
+        # LATE_TRADING: v2.9.126 尾盘恢复全量扫描
+        MarketPhase.LATE_TRADING: {
+            "14:30-14:55": 60,    # 尾盘扫描 1分钟/次 (原不做全量扫描)
+            "14:55-15:00": 0,     # 最后5分钟只做持仓检查
+        },
         # LUNCH: 午休不扫描
     }
     POSITION_CHECK_INTERVAL = 30  # 持仓检查间隔(秒): 常规30秒
@@ -946,6 +950,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         
         合并scan_once中Step3的策略+筛选+异动三步,
         减少scan_once的行数, 使扫描流程更清晰。
+        # 【v2.9.127】大盘环境过滤: buy_paused时跳过买入(不影响止损卖出)
+        cb = self._circuit_breaker or {}
+        if cb.get("buy_paused", False):
+            logger.info(f"[SCAN] 买入暂停: {cb.get('buy_pause_reason', '')}, 跳过策略筛选")
+            return []
+        
         """
         # 策略筛选 → 筛选管道
         new_signals = await self._apply_strategies(merged_df, trade_date)

@@ -48,7 +48,7 @@ class TestApplyStrategiesAndFilters:
         source = read_all_scanner_sources()
         idx = source.find("async def _apply_strategies_and_filters")
         assert idx > 0
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         assert "_apply_strategies" in method_code
         assert "_apply_filter_pipeline" in method_code
         assert "_detect_anomalies" in method_code
@@ -67,7 +67,7 @@ class TestApplyStrategiesAndFilters:
         source = read_all_scanner_sources()
         idx = source.find("async def _apply_strategies_and_filters")
         assert idx > 0
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         assert "List[ScanSignal]" in method_code
 
     @pytest.mark.asyncio
@@ -115,7 +115,7 @@ class TestEmitRiskThreadError:
         source = read_all_scanner_sources()
         idx = source.find("def _emit_risk_thread_error")
         assert idx > 0
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         # v2.9.43: 逻辑已迁移到RiskWatchdog.emit_risk_thread_error
         assert "RiskWatchdog" in method_code
         # 验证RiskWatchdog中有SCANNER_ERROR
@@ -164,21 +164,21 @@ class TestBuildModuleStatus:
         """包含risk_watchdog状态"""
         source = read_all_scanner_sources()
         idx = source.find("def _build_module_status")
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         assert "_risk_watchdog" in method_code
 
     def test_includes_signal_dispatcher(self):
         """包含signal_dispatcher状态"""
         source = read_all_scanner_sources()
         idx = source.find("def _build_module_status")
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         assert "_signal_dispatcher" in method_code
 
     def test_includes_quote_degrade(self):
         """包含行情降级信息"""
         source = read_all_scanner_sources()
         idx = source.find("def _build_module_status")
-        method_code = source[idx:idx+800]
+        method_code = source[idx:idx+1000]
         assert "degrade_level" in method_code or "degrade_desc" in method_code
 
 

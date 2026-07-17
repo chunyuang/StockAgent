@@ -136,7 +136,7 @@ class SignalManager:
                     except Exception as _e:
                         logger.debug(f"event publish failed: {_e}")
         self.active_signals = [s for s in self.active_signals
-                                if s.signal_status not in ("expired",) or s.created_at == 0]
+                                if s.signal_status not in ("expired", "blocked") or s.created_at == 0]
 
     def _remove_signal(self, ts_code: str, strategy: str) -> bool:
         """【优化】从活跃信号池移除指定信号, 下轮可重新尝试"""
@@ -526,25 +526,42 @@ class SignalManager:
 
         # A5: 半路追涨10点后禁止买入
         if strategy == 'halfway_chase':
+            now = datetime.now()
+            # A5a: 半路追涨09:35前禁止买入(开盘5分钟冲高回落假突破, 胜率0%)
+            if now.hour == 9 and now.minute < 35:
+                block_reason = (
+                    f"时间过滤·半路追涨09:35前禁止 "
+                    f"当前{now.strftime('%H:%M')} "
+                    f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
+                )
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {
+                    "mode": "strategy_filter",
+                    "reason": block_reason,
+                }
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, block_reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
+                return False, "time_filter"
+            # A5b: 半路追涨10点后禁止买入(涨幅已高, 风险收益比差)
             allow_after_10am = params.get('allow_after_10am', False)
-            if not allow_after_10am:
-                now = datetime.now()
-                if now.hour >= 10 and now.minute > 0:
-                    block_reason = (
-                        f"时间过滤·半路追涨10点后禁止 "
-                        f"当前{now.strftime('%H:%M')} "
-                        f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
-                    )
-                    sig.signal_status = "blocked"
-                    sig.layer_trace = sig.layer_trace or {}
-                    sig.layer_trace["execution"] = {
-                        "mode": "strategy_filter",
-                        "reason": block_reason,
-                    }
-                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        name, block_reason, sig)
-                    logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
-                    return False, "time_filter"
+            if not allow_after_10am and (now.hour > 10 or (now.hour == 10 and now.minute > 0)):
+                block_reason = (
+                    f"时间过滤·半路追涨10点后禁止 "
+                    f"当前{now.strftime('%H:%M')} "
+                    f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
+                )
+                sig.signal_status = "blocked"
+                sig.layer_trace = sig.layer_trace or {}
+                sig.layer_trace["execution"] = {
+                    "mode": "strategy_filter",
+                    "reason": block_reason,
+                }
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    name, block_reason, sig)
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
+                return False, "time_filter"
 
         # A4: 首板打板换手率/市值限制
         if strategy == 'first_limit_up':
@@ -712,20 +729,27 @@ class SignalManager:
                     return False, "ma5_trend_down"
 
 
-        # 【v2.9.124】周五新建仓限制: 非涨停票周五不新建仓(减少周末黑天鹅暴露)
-        # 涨停票仍允许(次日有溢价惯性), 仅限制半路追涨等非涨停票
+        # 【v2.9.125】周五建仓策略: 半路追涨允许但减仓, 涨停开板/跌停翘板禁止
+        # 半路追涨 = 高收益主力策略, 周五仍可建仓但仓位减半控风险
+        # 涨停开板/跌停翘板 = 纯博弈型, 周末黑天鹅风险大, 禁止
+        # 首板打板/龙头低吸 = 风险可控, 正常建仓
         from datetime import datetime as _dt
         if _dt.now().weekday() == 4:  # Friday
             is_limit_up_sig = sig_factors.get('is_limit_up', 0) or 0
-            if not is_limit_up_sig:
-                reason = "周五非涨停不建仓(减少周末黑天鹅暴露)"
+            friday_blocked_strategies = {"limit_up_open", "limit_down_reversal"}
+            if strategy in friday_blocked_strategies and not is_limit_up_sig:
+                reason = f"周五高风险策略({name})不建仓(减少周末黑天鹅暴露)"
                 sig.signal_status = "blocked"
                 sig.layer_trace = sig.layer_trace or {}
                 sig.layer_trace["execution"] = {"mode": "strategy_filter", "reason": reason}
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                     name, reason, sig)
                 logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {reason}")
-                return False, "friday_no_new_position"
+                return False, "friday_high_risk_blocked"
+            # 半路追涨周五减仓标记(仓位从25%降到15%)
+            if strategy == "halfway_chase" and not is_limit_up_sig:
+                sig._friday_reduced_position = True
+                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} 周五半路追涨减仓(25%->15%)")
 
         return True, ""
 

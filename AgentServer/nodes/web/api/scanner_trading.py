@@ -331,6 +331,8 @@ async def get_orders(limit: int = 50, date: str = None):
         
         db = scanner._broker._mongo_db
         query = {"account_id": scanner._broker.account.account_id}
+        # 【v2.9.126】排除rolled_back(幽灵订单/重复卖出等)
+        query["status"] = {"$ne": "rolled_back"}
         if date:
             # 支持int和string两种格式
             query["trade_date"] = {"$in": [date, int(date)] if date.isdigit() else date}

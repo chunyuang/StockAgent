@@ -147,11 +147,11 @@ class TestPositionSizing:
         )
 
     def test_position_ratio_halfway_chase(self):
-        """半路追涨仓位(默认0.20, 因为halfway_chase不包含'半路'/'mid_chase')"""
+        """半路追涨仓位(0.25, 因为halfway_chase匹配'halfway'关键词)"""
         pm = self._make_manager()
         sig = self._make_signal(strategy="halfway_chase")
         ratio = pm.calc_position_ratio(sig)
-        assert ratio == pytest.approx(0.20, abs=0.01)  # 默认仓位
+        assert ratio == pytest.approx(0.25, abs=0.01)  # halfway→0.25
 
     def test_position_ratio_limit_up_consecutive(self):
         """首板打板仓位(默认0.25, 因为first_limit_up含'limit_up')"""
@@ -184,15 +184,15 @@ class TestPositionSizing:
         pm._scanner._current_position_ratio = 0.5  # 情绪50%
         sig = self._make_signal(strategy="halfway_chase")
         ratio = pm.calc_position_ratio(sig)
-        assert ratio == pytest.approx(0.10, abs=0.01)  # 0.20(默认) * 0.5(情绪)
+        assert ratio == pytest.approx(0.125, abs=0.01)  # 0.25(halfway) * 0.5(情绪)
 
     def test_calc_would_buy_shares(self):
         """计算买入股数"""
         pm = self._make_manager(available_cash=800_000)
         sig = self._make_signal(price=10.0)
         shares = pm.calc_would_buy_shares(sig)
-        # 800000 * 0.20(默认) / 10 / 100 * 100 = 16000
-        assert shares == 16000
+        # 800000 * 0.25(halfway_chase) / 10 / 100 * 100 = 20000
+        assert shares == 20000
 
     def test_calc_would_buy_shares_zero_price(self):
         """零价格返回0"""

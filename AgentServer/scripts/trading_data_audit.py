@@ -75,13 +75,21 @@ def main():
     if ac_none > 0:
         issues.append(('P1', f'sell orders avg_cost=None: {ac_none}条'))
     
-    # 6. cash偏差检查
+    # 6. cash偏差检查 (含佣金+印花税, filled_amount fallback)
+    def get_amount(o):
+        """获取成交金额, filled_amount为None时用qty*price回退"""
+        if o.get('filled_amount') is not None:
+            return o['filled_amount']
+        return (o.get('filled_qty') or 0) * (o.get('filled_price') or 0)
+
     if account:
         buys = list(db.broker_orders.find({'side': 'buy', 'status': 'filled'}))
         sells = list(db.broker_orders.find({'side': 'sell', 'status': 'filled'}))
-        total_buy = sum(b.get('filled_amount', 0) or 0 for b in buys)
-        total_sell = sum(s.get('filled_amount', 0) or 0 for s in sells)
-        cash_from_orders = 1000000 - total_buy + total_sell
+        total_buy = sum(get_amount(b) for b in buys)
+        total_sell = sum(get_amount(s) for s in sells)
+        total_commission = sum((o.get('commission') or 0) for o in buys + sells)
+        total_stamp_duty = sum((o.get('stamp_duty') or 0) for o in buys + sells)
+        cash_from_orders = 1000000 - total_buy + total_sell - total_commission - total_stamp_duty
         cash_db = account.get('available_cash', 0) or 0
         cash_diff = abs(cash_db - cash_from_orders)
         if cash_diff > 10000:
