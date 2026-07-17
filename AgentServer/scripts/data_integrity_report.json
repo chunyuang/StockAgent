@@ -1,29 +1,29 @@
 {
   "checks": [
     {
-      "name": "20260716 因子完整性",
+      "name": "20260717 因子完整性",
       "passed": true,
-      "detail": "5526条全部完整"
+      "detail": "5524条全部完整"
     },
     {
-      "name": "20260716 daily_basic",
+      "name": "20260717 daily_basic",
       "passed": true,
-      "detail": "5526条, 完整"
+      "detail": "5524条, 完整"
     },
     {
-      "name": "20260716 limit_list",
+      "name": "20260717 limit_list",
       "passed": true,
-      "detail": "涨停=49(ak:60) 跌停=33 总=82 差异=11(<=15正常)"
+      "detail": "涨停=35(ak:38) 跌停=192 总=227 差异=3(<=15正常)"
     },
     {
-      "name": "20260716 sentiment",
+      "name": "20260717 sentiment",
       "passed": true,
-      "detail": "score=57 period=分化 lu=49 ld=33"
+      "detail": "score=41 period=震荡 lu=35 ld=192"
     },
     {
       "name": "orders commission",
       "passed": true,
-      "detail": "0/236笔无commission"
+      "detail": "0/235笔无commission"
     },
     {
       "name": "orders stamp_duty",
@@ -38,20 +38,20 @@
     {
       "name": "positions market_value",
       "passed": true,
-      "detail": "0/6只无market_value"
+      "detail": "0/0只无market_value"
     },
     {
       "name": "positions stop_loss",
       "passed": true,
-      "detail": "0/6只无stop_loss_price"
+      "detail": "0/0只无stop_loss_price"
     },
     {
       "name": "cash闭环",
-      "passed": true,
-      "detail": "漂移=0.52元"
+      "passed": false,
+      "detail": "漂移=5.17元"
     }
   ],
   "fills": [],
   "pending": [],
-  "summary": "检查10项: 通过10 失败0 补全0次 待补0天"
+  "summary": "检查10项: 通过9 失败1 补全0次 待补0天"
 }

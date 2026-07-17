@@ -311,7 +311,7 @@ const closedStats = computed(() => {
                 <span class="ord-dir" :class="o.side === 'buy' ? 'up' : 'down'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
                 <span class="ord-code">{{ o.ts_code?.slice(0,6) }}</span>
                 <span class="ord-name">{{ o.stock_name }}</span>
-                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price != null ? o.filled_price.toFixed(2) : '-' }}</span>
+                <span class="ord-qty">{{ o.filled_qty }}@¥{{ o.filled_price != null ? Number(o.filled_price).toFixed(2) : '-' }}</span>
                 <span class="ord-time">{{ String(o.create_time || '').slice(0,8) }}</span>
               </div>
             </div>

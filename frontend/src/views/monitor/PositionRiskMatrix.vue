@@ -130,7 +130,7 @@ onUnmounted(() => clearInterval(timer))
         <div class="rm-stat" v-if="globalRisk?.stop_loss_exec_rate != null">
           <span class="rm-label">止损执行</span>
           <!-- 止损执行率分母=亏损卖出笔数(不含止盈/手动止盈), 分子=其中走止损卖出的笔数 -->
-          <span class="rm-val" :class="(globalRisk?.stop_loss_exec_rate ?? 0) < 50 ? 'warn' : ''">{{ Number(globalRisk?.stop_loss_exec_rate).toFixed(0) }}%</span>
+          <span class="rm-val" :class="(globalRisk?.stop_loss_exec_rate ?? 0) < 50 ? 'warn' : ''">{{ globalRisk?.stop_loss_exec_rate != null && Number.isFinite(Number(globalRisk?.stop_loss_exec_rate)) ? Number(globalRisk?.stop_loss_exec_rate).toFixed(0) + '%' : '-' }}</span>
         </div>
         <div class="rm-risk-counts">
           <span class="rm-rc ok">🟢 {{ globalRisk?.risk_summary?.normal ?? 0 }}</span>

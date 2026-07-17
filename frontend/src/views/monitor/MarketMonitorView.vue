@@ -73,7 +73,7 @@ const {
   tradeMode, replayDate, replayDateInput,
   replayDateVisible,
   startScanner, stopScanner, fetchScanner,
-  manualScan, forceScan, quickBuy, quickSell, fetchReviewData, fetchSentimentData,
+  manualScan, forceScan, /* quickBuy - used via inject */ quickSell, fetchReviewData, fetchSentimentData,
   // sentiment sub-composable
   openTradeDetail,
   runBacktest, saveParamSnapshot,
@@ -84,7 +84,7 @@ const {
   posSort, sortedPositions,
   strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining,
   modeMeta,
-  onModeChange, confirmReplay, cancelReplay, dryRun,
+  onModeChange, confirmReplay, cancelReplay, /* dryRun - used via inject */
   // 【v2.9.71: WS连接状态】
   wsStatus, wsIsConnected, wsRetryCount,
   stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
@@ -109,12 +109,12 @@ const leftRailCollapsed = ref(false)
 const {
   closedTradesCollapsed, closedTradesProfitTotal, todayInt, formatBuyDateShort,
   expandedClosedTrades, toggleClosedTrade,
-  activeSignalTrace, activeSignalTraceKey, activeSignalTraceLines,
+  activeSignalTrace, /* activeSignalTraceKey - used via inject */ activeSignalTraceLines,
   leftPanelExpanded, expandedPositions, anyPositionExpanded,
   currentDateCompact, enabledStrategyCount, visibleSignals,
   signalsByHour, signalHourCollapse, signalSubCollapse, signalSubFilter, toggleSignalHour, toggleSignalSubGroup, cycleSubFilter,
   signalFilterOptions, signalFilterHelp,
-  toggleDateSection, togglePositionCard, toggleActiveSignalTrace,
+  toggleDateSection, togglePositionCard, /* toggleActiveSignalTrace - used via inject */
   displayStrategyName, formatBuyDateDisplay, positionActionLabel,
   formatPositionTime, toggleStrategySection, formatTradeDateTime, calcHoldDays,
 } = useViewHelpers({

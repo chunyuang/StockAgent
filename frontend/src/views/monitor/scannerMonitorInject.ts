@@ -163,6 +163,74 @@ export interface ScannerMonitorData {
   wsRetryCount: ComputedRef<number>
   wsDataStale: ComputedRef<boolean>
 
+  // --- 情绪域 (显式类型) ---
+  sentimentMode: Ref<'intraday' | 'daily' | 'weekly' | 'monthly'>
+  sentimentDate: Ref<string>
+  sentimentTimeline: ComputedRef<any[]>
+  displayTimeline: ComputedRef<any[]>
+  isIntradayFallback: ComputedRef<boolean>
+  sentimentMatrix: Ref<any>
+  sentimentLoading: Ref<boolean>
+  sentimentLive: Ref<any>
+  phaseGuide: ComputedRef<any[]>
+  downgradeRules: any[]
+  phaseColors: Record<string, string>
+  phaseCN: (label: string) => string
+  sentimentAdvice: ComputedRef<string>
+  fetchSentimentData: () => void
+
+  // --- 自动交易域 (显式类型) ---
+  autoTrades: Ref<any[]>
+  opsDate: Ref<string>
+  paramCompare: Ref<any>
+  paramCompareLoading: Ref<boolean>
+  scanConfig: Ref<any>
+  scanConfigLoading: Ref<boolean>
+  fetchAutoTrades: () => void
+  fetchParamCompare: () => void
+  fetchScanConfig: () => void
+
+  // --- 历史域 (显式类型) ---
+  historyDate: Ref<string>
+  historyData: Ref<any[]>
+  historyOrders: Ref<any[]>
+  historyLoading: Ref<boolean>
+  loadHistory: () => void
+
+  // --- 审计域 (显式类型) ---
+  auditLog: Ref<any[]>
+  auditLogLoading: Ref<boolean>
+  fetchAuditLog: () => void
+
+  // --- 交易详情/审计弹窗 ---
+  tradeAuditVisible: Ref<boolean>
+  tradeAuditData: Ref<any[]>
+  openTradeDetail: (ts_code: string) => void
+  openTradeAudit: () => void
+  cumulativePnl: ComputedRef<number>
+  exportTradeLog: () => void
+  exportJSON: () => void
+
+  // --- 追踪止损 ---
+  trailEditPct: Ref<number>
+  trailSaving: Ref<boolean>
+  setTrailingStop: (ts_code: string, activated: boolean) => void
+
+  // --- 手动交易 ---
+  manualTrade: any
+  manualQuote: Ref<any>
+  onManualCodeChange: (code: string) => void
+  executeManualTrade: () => void
+
+  // --- 策略编辑 ---
+  editingStrategy: Ref<any>
+  editDialogVisible: Ref<boolean>
+  editTab: Ref<string>
+  editParams: Ref<any>
+  editRiskParams: Ref<any>
+  saving: Ref<boolean>
+  saveStrategy: () => void
+
   // --- 兼容索引签名 (其余composable属性) ---
   [key: string]: any
 }

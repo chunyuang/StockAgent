@@ -104,21 +104,14 @@ const positions = computed(() => {
 const totalAssets = computed(() => acc.value.total_assets || 0)
 const availableCash = computed(() => acc.value.available_cash || 0)
 const marketValue = computed(() => acc.value.market_value || positions.value.reduce((s: number, p: any) => s + (p.market_value || 0), 0))
-const totalProfit = computed(() => kpiData.value?.kpi?.total_pnl_all ?? (totalAssets.value - 1000000) ?? 0)
+const totalProfit = computed(() => kpiData.value?.kpi?.total_pnl_all ?? (totalAssets.value - 1000000))
 const positionRatio = computed(() => (totalAssets.value ?? 0) > 0 ? (marketValue.value ?? 0) / (totalAssets.value ?? 1) * 100 : 0)
 const riskParams = GLOBAL_RISK  // 前端参数与后端strategy_defaults.py完全对齐(由sync脚本同步)
 const brokenSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'broken'))
 const nearSL = computed(() => positions.value.filter((p: any) => p.stop_loss_status === 'near'))
 
-const fmt = (v: number) => `¥${((v || 0) / 10000).toFixed(2)}万`
 const cls = (v: number) => v >= 0 ? 'up' : 'down'
 
-const fmtMoney = (v: number) => {
-  if (v == null || isNaN(v)) return '¥0'
-  const abs = Math.abs(v), sign = v >= 0 ? '' : '-'
-  if (abs >= 10000) return sign + '¥' + (abs/10000).toFixed(2) + '万'
-  return sign + '¥' + abs.toLocaleString()
-}
 const fmtPnl = (v: number) => {
   if (v == null || isNaN(v)) return '¥0'
   const abs = Math.abs(v), sign = v >= 0 ? '+' : '-'
