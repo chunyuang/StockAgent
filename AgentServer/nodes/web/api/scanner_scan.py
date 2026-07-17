@@ -15,7 +15,7 @@ from nodes.web.api.scanner_shared import (
     logger, normalize_data_mode, prod_scan_query,
     is_debug_scan_doc,
 )
-from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
+from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis, _compute_overall_health, _build_risk_metrics
 from nodes.market_monitor.utils.board_limit import is_limit_up, is_limit_down
 
 router = APIRouter(prefix="/scanner", tags=["扫描追踪/盘前/行情/风控"])
@@ -1106,7 +1106,11 @@ async def get_system_health_detail():
         if scanner_running:
             try:
                 scanner_health = scanner._compute_health_score() if hasattr(scanner, '_compute_health_score') else {}
-                overall_h = _compute_overall_health(scanner_health, risk_data) if 'risk_data' in dir() else {}
+                try:
+                    risk_data = _build_risk_metrics(scanner)
+                except Exception:
+                    risk_data = {"daily_drawdown": 0, "consecutive_losses": 0, "trading_paused": False, "pending_sells_count": 0}
+                overall_h = _compute_overall_health(scanner_health, risk_data)
                 health_score = overall_h.get('health_score', 80)
             except Exception:
                 health_score = 80
