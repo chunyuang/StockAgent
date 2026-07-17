@@ -159,7 +159,7 @@ async def get_stock_daily_ak_full(
             low=r.get("low", 0),
             close=r.get("close", 0),
             pre_close=r.get("pre_close"),
-            change=r.get("change"),
+            change=r.get("change") if r.get("change") is not None else round(r.get("close", 0) - r.get("pre_close", 0), 2) if r.get("pre_close") else None,
             pct_chg=r.get("pct_chg"),
             vol=r.get("vol"),
             amount=r.get("amount"),
