@@ -1,0 +1,25 @@
+{
+  "P0": 0,
+  "P1": 1,
+  "P2": 4,
+  "findings": [
+    {
+      "severity": "P1",
+      "check_id": "FUC-4.stock_daily_ak_full",
+      "description": "stock_daily_ak_full turnover_rate 超过100% (1条)",
+      "detail": "可能存储的是小数(0-1)而非百分比(0-100), min=0.0, max=124878.37874098854"
+    },
+    {
+      "severity": "P2",
+      "check_id": "FUC-5.daily_basic",
+      "description": "daily_basic volume_ratio>50 (81条)",
+      "detail": "可能是百分比而非比值, max=735.94"
+    },
+    {
+      "severity": "P2",
+      "check_id": "FUC-5.stock_daily_ak_full",
+      "description": "stock_daily_ak_full volume_ratio>50 (54条)",
+      "detail": "可能是百分比而非比值, max=470.32"
+    }
+  ]
+}

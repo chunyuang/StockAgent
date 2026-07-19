@@ -762,10 +762,22 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 doc["candidates"] = bought_candidates[offset:offset + limit]
                 doc.pop("rejected_summary", None)
             elif filter_status == "rejected":
+                # 【v2.9.125】补全rejected候选的拦截信息
+                for r in rejected:
+                    if not r.get("final_rejection_layer") and r.get("rejection_layer"):
+                        r["final_rejection_layer"] = r["rejection_layer"]
+                    if not r.get("final_rejection_reason") and r.get("rejection_reason"):
+                        r["final_rejection_reason"] = r["rejection_reason"]
                 doc["candidates"] = rejected[offset:offset + limit]
                 doc.pop("rejected_summary", None)
             else:
                 # all: 先放passed，再放rejected，合计不超过limit
+                # 【v2.9.125】补全rejected候选的拦截信息
+                for r in rejected:
+                    if not r.get("final_rejection_layer") and r.get("rejection_layer"):
+                        r["final_rejection_layer"] = r["rejection_layer"]
+                    if not r.get("final_rejection_reason") and r.get("rejection_reason"):
+                        r["final_rejection_reason"] = r["rejection_reason"]
                 combined = list(candidates[offset:offset + limit])
                 remaining = limit - len(combined)
                 if remaining > 0:
@@ -845,6 +857,29 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 "has_more_rejected": offset + limit < len(rejected),
                 "has_more_bought": offset + limit < len(bought_candidates),
             }
+        
+            # 【v2.9.126】为candidates补充factors(因子数据)和reason(信号描述)
+            trade_date_val = doc.get("trade_date", 0)
+            if doc.get("candidates") and trade_date_val:
+                cand_keys = [(c.get("ts_code", ""), c.get("strategy", "")) for c in doc["candidates"]]
+                if cand_keys:
+                    td_q = {"$in": [trade_date_val, str(trade_date_val)]} if isinstance(trade_date_val, int) else trade_date_val
+                    sig_map = {}
+                    async for sig in mongo_manager.db["scanner_signals"].find(
+                        {"trade_date": td_q},
+                        {"ts_code": 1, "strategy": 1, "factors": 1, "reason": 1, "signal_status": 1, "_id": 0}
+                    ):
+                        k = (sig.get("ts_code", ""), sig.get("strategy", ""))
+                        if k not in sig_map:
+                            sig_map[k] = sig
+                    for c in doc["candidates"]:
+                        k = (c.get("ts_code", ""), c.get("strategy", ""))
+                        sig = sig_map.get(k)
+                        if sig:
+                            if sig.get("factors") and not c.get("factors"):
+                                c["factors"] = sig["factors"]
+                            if sig.get("reason") and not c.get("reason"):
+                                c["reason"] = sig["reason"]
         
         return {"success": True, "data": doc}
     except Exception as e:

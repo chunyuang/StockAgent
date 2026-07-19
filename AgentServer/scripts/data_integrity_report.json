@@ -47,11 +47,11 @@
     },
     {
       "name": "cash闭环",
-      "passed": false,
-      "detail": "漂移=5.17元"
+      "passed": true,
+      "detail": "漂移=0.57元"
     }
   ],
   "fills": [],
   "pending": [],
-  "summary": "检查10项: 通过9 失败1 补全0次 待补0天"
+  "summary": "检查10项: 通过10 失败0 补全0次 待补0天"
 }

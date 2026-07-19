@@ -205,12 +205,12 @@ def check_known_patterns(filepath: str) -> list:
 # ============================================================
 # 5. 检查TS类型定义完整性
 # ============================================================
-def check_ts_types() -> list:
+def check_ts_types(base_dir: str = "") -> list:
     """检查前端TS类型是否覆盖所有tab"""
     issues = []
     
     # 检查MonitorTab类型
-    type_file = "frontend/src/views/monitor/useScannerMonitor.ts"
+    type_file = os.path.join(base_dir, "frontend/src/views/monitor/useScannerMonitor.ts")
     try:
         with open(type_file, 'r') as f:
             content = f.read()
@@ -233,11 +233,11 @@ def check_ts_types() -> list:
 # ============================================================
 # 6. 检查defineAsyncComponent的errorComponent
 # ============================================================
-def check_async_components() -> list:
+def check_async_components(base_dir: str = "") -> list:
     """检查异步组件是否有错误降级"""
     issues = []
     
-    monitor_file = "frontend/src/views/monitor/MarketMonitorView.vue"
+    monitor_file = os.path.join(base_dir, "frontend/src/views/monitor/MarketMonitorView.vue")
     try:
         with open(monitor_file, 'r') as f:
             content = f.read()
@@ -285,11 +285,19 @@ async def main():
     print("=" * 70)
     
     all_issues = []
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    # 验证 frontend 存在
+    if not os.path.exists(os.path.join(base_dir, 'frontend')):
+        # fallback: 可能只有两层
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if not os.path.exists(os.path.join(base_dir, 'frontend')):
+            print(f"❌ 找不到 frontend/ 目录 (base_dir={base_dir})")
+            sys.exit(1)
     
     # ---- 1. TS类型检查 ----
     print("\n📋 1. TypeScript类型完整性...")
-    ts_issues = check_ts_types()
+    ts_issues = check_ts_types(base_dir)
     if ts_issues:
         all_issues.extend(ts_issues)
         for i in ts_issues:
@@ -299,7 +307,7 @@ async def main():
     
     # ---- 2. 异步组件错误降级 ----
     print("\n📋 2. 异步组件错误降级...")
-    async_issues = check_async_components()
+    async_issues = check_async_components(base_dir)
     if async_issues:
         all_issues.extend(async_issues)
         for i in async_issues:
@@ -359,9 +367,17 @@ async def main():
                 api_key_set.add(parts[-1])
                 api_key_set.add(parts[0])  # 顶层key
             
+            # 运行时才返回的字段（scanner未运行时API不返回，但前端合法引用）
+            RUNTIME_ONLY_FIELDS = {
+                'position_ratio', 'trade_date', 'scan_thread', 'risk_thread',
+                'prefetch', 'scan_errors', 'force_empty',
+            }
+            
             mismatch = []
             for var, refs in front_refs.items():
                 for ref in refs:
+                    if ref in RUNTIME_ONLY_FIELDS:
+                        continue  # 运行时才返回的字段，非运行时API不返回是正常的
                     if ref not in api_key_set and ref not in ('_error', '_raw'):
                         # 检查是否在嵌套key中
                         found = False

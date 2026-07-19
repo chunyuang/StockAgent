@@ -172,12 +172,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     # 【动态持仓上限】情绪越高, 允许持仓越多, 抓住行情好的时候多买
     # 高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
     DYNAMIC_MAX_POSITIONS = {
-        # sentiment_scores period (中文) - 盘后情绪得分集合的key
-        "高潮": 10, "分化": 8, "震荡": 6, "冰点": 4,
-        # sentiment_live_log phase (英文) - 盘中实时情绪日志的key
+        # runtime period(英文) - scanner._current_sentiment["period"]始终为英文
         "rising": 10, "differentiation": 8, "chaos": 6, "bearish": 4,
-        # 兼容别名(历史遗留)
-        "divergence": 8, "euphoria": 10, "frozen": 4,
+        # sentiment_scores.period(中文) - 盘后集合存中文，防御性映射
+        "高潮": 10, "分化": 8, "震荡": 6, "冰点": 4,
     }
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
@@ -554,8 +552,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     def _get_dynamic_max_positions(self) -> int:
         """【动态持仓上限】根据当前情绪周期返回持仓数上限
 
-        高潮≥70 → 12只 | 分化55-70 → 10只 | 震荡40-55 → 8只 | 冰点<40 → 5只
-        启动阶段(无情绪数据)返回MAX_POSITIONS(10)
+        rising(高潮)≥70 → 10只 | differentiation(分化)55-70 → 8只 | chaos(震荡)40-55 → 6只 | bearish(冰点)<40 → 4只
+        启动阶段(无情绪数据)返回MAX_POSITIONS(8)
         """
         sentiment = self._current_sentiment
         if not sentiment:

@@ -29,6 +29,7 @@ import {
   DataLine,
   Download,
   Box,
+  TrendCharts,
   Search,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
@@ -55,6 +56,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/data-source')) return '/data-source'
   if (path.startsWith('/trading-archive')) return '/trading-archive'
   if (path.startsWith('/stop-loss')) return '/stop-loss-analysis'
+  if (path.startsWith('/signal-trace')) return '/signal-trace'
   if (path.startsWith('/scan-insight')) return '/scan-insight'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
   return path
@@ -70,6 +72,7 @@ const menuItems = [
   { path: '/data-source', icon: Download, title: '数据获取' },
   { path: '/trading-archive', icon: Box, title: '交易归档' },
   { path: '/stop-loss-analysis', icon: Setting, title: '止损止盈' },
+  { path: '/signal-trace', icon: TrendCharts, title: '信号追踪' },
   { path: '/scan-insight', icon: Search, title: '数据扫描' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
