@@ -77,7 +77,7 @@
   },
   "scan_loop_errors": "int",
   "last_realtime_update_ts": "float",
-  "realtime_cache_age_sec": "NoneType",
+  "realtime_cache_age_sec": "float",
   "smart_check_interval": "NoneType",
   "current_scan_interval": "NoneType",
   "sell_logic_mode": "str",
