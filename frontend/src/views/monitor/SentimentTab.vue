@@ -180,7 +180,7 @@ onUnmounted(() => { if (liveLogTimer) clearInterval(liveLogTimer) })
         <div class="dev-row"><span>允许开仓</span><span :style="{color:sentimentLive.can_open!==false?'#67c23a':'#f56c6c'}">{{ sentimentLive.can_open!==false?'✅ 是':'❌ 否' }}</span></div>
         <div class="dev-row"><span>涨停</span><span class="up">{{ sentimentLive.limit_up_count||0 }}</span></div>
         <div class="dev-row"><span>跌停</span><span class="down">{{ sentimentLive.limit_down_count||0 }}</span></div>
-        <div class="dev-row"><span>炸板</span><span>{{ sentimentLive.broken_count||0 }}(<b>{{ ((sentimentLive.broken_rate||0)*100).toFixed(1) }}%</b>)</span></div>
+        <div class="dev-row"><span>炸板</span><span>{{ sentimentLive.broken_count||0 }}(<b>{{ (sentimentLive.broken_rate||0).toFixed(1) }}%</b>)</span></div>
       </div>
 
       <div class="review-section">

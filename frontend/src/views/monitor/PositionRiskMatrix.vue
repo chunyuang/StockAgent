@@ -71,16 +71,16 @@ function slColor(dist: number): string {
 
 const riskScore = computed(() => {
   if (!globalRisk.value) return 0
+  // 【v2.9.122】优先使用后端15维汇总的risk_score, 无则从risk_summary近似
+  if (globalRisk.value.risk_score != null) {
+    const v = Number(globalRisk.value.risk_score)
+    return Number.isFinite(v) ? Math.min(Math.round(v), 100) : 0
+  }
   const c = globalRisk.value?.risk_summary?.critical ?? 0
   const w = globalRisk.value?.risk_summary?.warning ?? 0
   const n = globalRisk.value?.risk_summary?.normal ?? 0
   const t = c + w + n
   if (t === 0) return 0
-  // 【v2.9.112】全局风险评分: 基于持仓15维度评分(risk_score)汇总, 归一化到0-100
-  // 后端每只持仓已有D1-D15的risk_score, 此处用3级汇总做全局仪表
-  // 15维度: D1止损距离(0-25) D2仓位集中(0-15) D3浮亏(0-15) D4换手(0-10) D5波动(0-10)
-  //   D6追踪止损(0-5) D7行业集中(0-5) D8新仓(0-5) D9连亏(0-5) D10持仓天数(0-3)
-  //   D11溢价(0-2) D12大盘(0-2) D13流动性(0-2) D14盈亏偏离(0-2) D15策略胜率(0-2)
   const raw = (c * 80 + w * 45 + n * 10) / t
   return safeNum(Math.min(Math.round(raw / 80 * 100), 100))
 })
