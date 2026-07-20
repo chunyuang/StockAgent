@@ -149,8 +149,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     # 【v2.9.111】分时段扫描间隔(秒) — 早盘高峰加密, 午盘恢复
     SCAN_INTERVALS_BY_PHASE = {
         MarketPhase.MORNING:     {
-            "09:30-10:00": 120,   # 早盘高峰 2分钟/次 (原来5分钟)
-            "10:00-11:00": 180,   # 早盘延续 3分钟/次
+            "09:30-10:00": 30,    # v2.9.126: 早盘高峰 30秒/次 (预取15s刷新, 缓存≤15s)
+            "10:00-11:00": 120,   # 早盘延续 2分钟/次
             "11:00-11:30": 300,   # 早盘尾段 5分钟/次
         },
         MarketPhase.AFTERNOON:   {
@@ -195,6 +195,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     _risk_thread_restarts: int = 0
     _prefetch_thread = None  # 【v2.9.112】行情预取线程
     _prefetch_running: bool = False  # 【v2.9.112】行情预取控制标志
+    _prefetch_kick: bool = False  # 【v2.9.126】scan_once通知预取加速刷新
     _prefetch_in_progress: bool = False  # 【v2.9.112】防重入标志
     _cache_lock = None
     _state_lock: threading.Lock = None  # type: ignore[assignment]  # 初始化在__init__中完成
@@ -948,12 +949,9 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         
         合并scan_once中Step3的策略+筛选+异动三步,
         减少scan_once的行数, 使扫描流程更清晰。
-        # 【v2.9.127】大盘环境过滤: buy_paused时跳过买入(不影响止损卖出)
-        cb = self._circuit_breaker or {}
-        if cb.get("buy_paused", False):
-            logger.info(f"[SCAN] 买入暂停: {cb.get('buy_pause_reason', '')}, 跳过策略筛选")
-            return []
         
+        注意: 大盘环境过滤(buy_paused)由_apply_filter_pipeline中L8_market_risk处理,
+        不在此处短路(策略筛选计算量可接受, L8清空candidates更优雅)。
         """
         # 策略筛选 → 筛选管道
         new_signals = await self._apply_strategies(merged_df, trade_date)
@@ -1001,7 +999,18 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
     # ==================== 实时行情 ====================
 
     async def _fetch_realtime_batch(self, force: bool = False) -> Dict[str, Dict]:
-        """批量获取实时行情 — 委托给QuoteManager【Phase3.1】"""
+        """批量获取实时行情 — 职责分离架构【v2.9.126重构】
+        
+        预取线程(scanner._quote_prefetch_loop)负责定期调本方法刷新缓存,
+        scan_once负责读缓存。两者通过force参数区分:
+        
+        - 预取线程调用: force=False → 直接走QuoteManager(force_refresh=True)
+          QuoteManager内部会调eastmoney.get_all_realtime(force_refresh=True)
+          每次都实际拉API, 刷新realtime_cache
+        
+        - scan_once调用: force=False → 读预取缓存(0-2秒)
+          缓存>60秒才同步拉API(兜底)
+        """
         # 同步回放模式到QuoteManager
         self._quote_manager.set_replay_mode(
             self._replay_mode, self._replay_provider, self._replay_date
@@ -1010,7 +1019,31 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         if self._cache_lock and not self._quote_manager.cache_lock_initialized:
             self._quote_manager.set_cache_lock(self._cache_lock)
         
-        realtime = await self._quote_manager.fetch_realtime_batch(force=force)
+        # 【v2.9.126】判断调用者: 预取线程 vs scan_once
+        cache = self._quote_manager.realtime_cache
+        cache_ts = getattr(self._quote_manager, '_last_fetch_time', 0)
+        cache_age = time.monotonic() - cache_ts if cache_ts > 0 else 9999
+        is_prefetch = threading.current_thread().name == "scanner-quote-prefetch"
+        
+        if is_prefetch:
+            # 预取线程: 必须走QuoteManager拉API(force_refresh=True)
+            # 不读自己之前写的缓存, 否则缓存永远不会刷新
+            realtime = await self._quote_manager.fetch_realtime_batch(force=True)
+        elif cache and cache_age < 60:
+            # scan_once: 缓存新鲜, 直接用(0-2秒)
+            if cache_age > 30:
+                # 缓存稍旧, 通知预取线程加速刷新
+                self._prefetch_kick = True
+            logger.info(f"[QUOTE] 使用预取缓存: {len(cache)}只, {cache_age:.0f}秒前")
+            self._realtime_cache = cache
+            self._prev_realtime_cache = self._quote_manager.prev_realtime_cache
+            self._last_realtime_update_ts = time.time()
+            self._data_router = self._quote_manager.data_router
+            self._quote_degrade_level = self._quote_manager.quote_degrade_level
+            return cache
+        else:
+            # scan_once: 缓存过期(>60秒), 同步拉API(兜底)
+            realtime = await self._quote_manager.fetch_realtime_batch(force=force)
         
         # 同步缓存引用(Scanner其他方法可能直接读self._realtime_cache)
         self._realtime_cache = self._quote_manager.realtime_cache
@@ -1587,10 +1620,12 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
     def _quote_prefetch_loop(self) -> None:
-        """【v2.9.112】行情预取独立线程
+        """【v2.9.112+v2.9.126】行情预取独立线程
 
-        每30秒刷新realtime_cache, 使scan_once不用等待行情获取(6-10秒)。
-        scan_once直接读缓存 → 单轮从10秒降到2秒。
+        分时段刷新频率:
+        - 早盘高峰(09:30-10:00): 15秒刷新, 配合30秒扫描间隔
+        - 其他交易时间: 30秒刷新, 配合120秒扫描间隔
+        - 非交易时间: sleep
 
         设计原则:
         - threading.Thread(daemon=True), 随进程退出
@@ -1608,23 +1643,36 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                     time.sleep(30)
                     continue
 
-                # 30秒刷新一次行情(用东财TTL缓存: <5秒返回缓存, >5秒才拉API)
-                if self._loop and not self._loop.is_closed() and self._quote_manager:
-                    quote_age = time.monotonic() - getattr(self._quote_manager, '_last_fetch_time', 0)
-                    if quote_age > 25 and not self._prefetch_in_progress:  # 防重入
-                        self._prefetch_in_progress = True
-                        try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                self._fetch_realtime_batch(force=False),
-                                self._loop
-                            )
-                            future.result(timeout=15)  # 最多等15秒
-                        finally:
-                            self._prefetch_in_progress = False
+                # 【v2.9.126】分时段刷新频率
+                now = datetime.now()
+                ct = now.strftime("%H:%M")
+                if "09:30" <= ct < "10:00":
+                    refresh_interval = 15  # 早盘高峰: 15秒刷新
+                else:
+                    refresh_interval = 30  # 其他时段: 30秒刷新
+
+                quote_age = time.monotonic() - getattr(self._quote_manager, '_last_fetch_time', 0)
+                kick = self._prefetch_kick
+                if kick:
+                    self._prefetch_kick = False
+
+                if (quote_age > refresh_interval or kick) and not self._prefetch_in_progress:
+                    self._prefetch_in_progress = True
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._fetch_realtime_batch(force=False),
+                            self._loop
+                        )
+                        future.result(timeout=15)  # 最多等15秒
+                    finally:
+                        self._prefetch_in_progress = False
             except Exception as e:
                 logger.debug(f"[PREFETCH] 行情预取异常(非致命): {e}")
 
-            time.sleep(30)
+            # 【v2.9.126】分时段sleep
+            ct = datetime.now().strftime("%H:%M")
+            sleep_time = 5 if "09:30" <= ct < "10:00" else 10
+            time.sleep(sleep_time)
 
         logger.info("[PREFETCH] 行情预取线程已退出")
 

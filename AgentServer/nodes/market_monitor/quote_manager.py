@@ -46,6 +46,7 @@ class QuoteManager:
         self._last_recover_attempt: float = 0.0  # 上次恢复尝试时间
         self._recover_interval: float = 300.0    # 5分钟尝试一次恢复
         self._last_fetch_time: float = 0.0      # 上次成功获取行情时间
+        self._last_pool_fetch_time: float = 0.0  # 【v2.9.126】上次必盈池刷新时间
         
         # 回放模式
         self._replay_mode = False
@@ -453,11 +454,24 @@ class QuoteManager:
                 })
 
     async def _merge_limit_pool_data(
-        self, biying: Any, realtime: Dict[str, Dict], today: str
+        self, biying: Any, realtime: Dict[str, Dict], today: str,
+        force: bool = False
     ) -> None:
-        """必盈涨停/跌停/炸板池数据合并【v2.9.63重构: 3池分别提取@staticmethod】"""
+        """必盈涨停/跌停/炸板池数据合并【v2.9.126: 5分钟限流】
+        
+        涨停池变化慢(分钟级), 不需要15秒刷新一次。
+        必盈免费版200次/天, 3池×4次/分=720次/天 → 严重超标。
+        改为5分钟刷新一次: 3池×12次/h×4h=144次/天 ✅
+        """
         if not biying:
             return
+        
+        # 【v2.9.126】5分钟限流: 必盈200次/天, 不随行情高频刷新
+        pool_age = time.monotonic() - self._last_pool_fetch_time
+        if pool_age < 300 and not force:  # 5分钟内不重复拉
+            return
+        self._last_pool_fetch_time = time.monotonic()
+        
         try:
             # 涨停池
             limit_ups = await biying.get_limit_up_pool(today)

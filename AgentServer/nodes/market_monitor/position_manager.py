@@ -1352,7 +1352,7 @@ class PositionManager:
     # ==================== v2.9.27: 风控卖出执行逻辑提取 ====================
 
     def _retry_single_pending_sell(self, ts_code: str, info: Dict, positions) -> bool:
-        """重试单个挂起卖出, 返回是否成功【v2.9.62提取】"""
+        """重试单个挂起卖出, 返回是否成功【v2.9.62提取, v2.9.128:防御性时间门控】"""
         scanner = self._scanner
 
         # 检查是否仍持有该票
@@ -1362,9 +1362,15 @@ class PositionManager:
                 pos = p
                 break
         if not pos:
-            # 已无持仓或无可用数量, 清除挂起
+            # 已无持仓或无可用数量, 清除挂起(无论是否在交易时间)
             with self.state_lock:
                 self.pending_sells.pop(ts_code, None)
+            return False
+
+        # 【v2.9.128】防御性时间门控: 非连续竞价时段不执行实际卖出
+        # 但已无持仓的清理逻辑(上方)不受时间限制
+        from nodes.market_monitor.market_phase import MarketPhase
+        if not MarketPhase.is_continuous_auction():
             return False
 
         # 检查是否不再跌停
