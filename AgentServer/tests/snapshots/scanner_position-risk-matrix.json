@@ -1,15 +1,44 @@
 {
   "positions": [
-    "<empty_list>"
+    {
+      "ts_code": "str",
+      "stock_name": "str",
+      "strategy": "str",
+      "strategy_name": "str",
+      "industry": "str",
+      "current_price": "float",
+      "cost_price": "float",
+      "profit_pct": "float",
+      "profit_amount": "float",
+      "market_value": "float",
+      "position_pct": "float",
+      "dist_stop_loss": "float",
+      "dist_take_profit": "float",
+      "stop_loss_price": "float",
+      "take_profit_price": "float",
+      "volatility": "float",
+      "turnover_rate": "int",
+      "risk_score": "float",
+      "risk_level": "str",
+      "trailing_stop": {},
+      "total_qty": "int"
+    }
   ],
   "global": {
     "total_assets": "float",
-    "total_market_value": "int",
+    "total_market_value": "float",
     "cash_ratio": "float",
     "position_ratio": "float",
-    "max_single_pct": "int",
-    "top_industry_concentration": "int",
-    "industry_exposure": {},
+    "max_single_pct": "float",
+    "top_industry_concentration": "float",
+    "industry_exposure": {
+      "煤炭开采": "float",
+      "农药化肥": "float",
+      "水力发电": "float",
+      "电气设备": "float",
+      "染料涂料": "float",
+      "IT设备": "float"
+    },
     "position_count": "int",
     "stop_loss_exec_rate": "float",
     "risk_score": "float",

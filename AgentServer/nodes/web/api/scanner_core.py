@@ -444,8 +444,7 @@ async def get_scanner_status():
                                 cur_price = float(p.get("current_price", 0) or 0)
                                 profit_pct = (cur_price - avg_cost) / avg_cost * 100 if avg_cost > 0 else 0.0
                                 pos = _build_position_dict(p, qty, avg_cost, cur_price, profit_pct)
-                                # 补充scanner_core专有字段
-                                pos["strategy_name"] = p.get("strategy_name", "") or pos.get("strategy", "")
+                                # 补充scanner_core专有字段(strategy_name已由_build_position_dict正确填充)
                                 pos["today_buy"] = p.get("today_buy_qty", 0) or 0
                                 pos["risk_level"] = pos.get("risk_level") or ("high" if pos["stop_loss_status"] == "broken" else "elevated" if pos["stop_loss_status"] == "near" else "normal")
                                 built.append(pos)

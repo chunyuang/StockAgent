@@ -9,6 +9,7 @@ import { useChartColors } from './useChartColors'
 
 use([CanvasRenderer, PieChart, LineChart, BarChart, HeatmapChart, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent])
 import { useUnifiedData } from './composables/useUnifiedData'
+import { strategyCN } from '@/utils/scanner'
 
 const c = useChartColors().value
 const loading = ref(false)
@@ -338,7 +339,7 @@ const metricGroups = computed(() => {
         <div v-for="(t, i) in closedTrades" :key="i" :class="['ct-row', (t.profit_amount||0)>=0?'ct-win':'ct-loss']">
           <span class="ct-code">{{ t.ts_code?.slice(0,6) }}</span>
           <span class="ct-name">{{ t.stock_name }}</span>
-          <span class="ct-strat">{{ t.strategy?.slice(0,4) }}</span>
+          <span class="ct-strat">{{ strategyCN(t.strategy || '') }}</span>
           <span class="ct-buy">{{ t.buy_date?.slice(4) }}@¥{{ t.buy_price != null ? Number(t.buy_price || 0).toFixed(2) : '-' }}</span>
           <span class="ct-sell">{{ t.sell_date?.slice(4) }}@¥{{ t.sell_price != null ? Number(t.sell_price || 0).toFixed(2) : '-' }}</span>
           <span class="ct-qty">{{ t.qty }}</span>

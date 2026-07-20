@@ -6,28 +6,6 @@
     "available_cash": "float"
   },
   "daily_stats": {
-    "20260713": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "float",
-      "strategies": {
-        "dragon_head": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "float"
-        },
-        "halfway_chase": {
-          "trades": "int",
-          "sell_count": "int",
-          "amount": "float",
-          "wins": "int",
-          "pnl": "float"
-        }
-      }
-    },
     "20260714": {
       "buys": "int",
       "sells": "int",
@@ -101,10 +79,25 @@
           "pnl": "float"
         }
       }
+    },
+    "20260720": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "int",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "int"
+        }
+      }
     }
   },
   "strategy_summary": {
-    "dragon_head": {
+    "halfway_chase": {
       "trades": "int",
       "sell_count": "int",
       "amount": "float",
@@ -112,7 +105,7 @@
       "pnl": "float",
       "win_rate": "float"
     },
-    "halfway_chase": {
+    "dragon_head": {
       "trades": "int",
       "sell_count": "int",
       "amount": "float",

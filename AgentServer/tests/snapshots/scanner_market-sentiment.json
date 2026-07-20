@@ -9,7 +9,7 @@
   "broken_count": "int",
   "broken_rate": "float",
   "board_distribution": {
-    "5": "int"
+    "3": "int"
   },
   "max_continue": "int",
   "up_down_ratio": "float",

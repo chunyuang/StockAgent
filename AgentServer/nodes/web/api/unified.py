@@ -329,13 +329,13 @@ def _build_position_dict(p: dict, qty: int, avg_cost: float, cur_price: float, p
         stop_loss_status = "near"
         stop_loss_desc = f"接近止损价 {stop_loss_price:.2f}"
 
-    # 【v2.9.97h-v7】获取策略中文名
+    # 【v2.9.97h-v7】规范化策略字段: strategy=英文key(前端strategyMeta索引), strategy_name=中文显示名
     strategy_name_cn = strat_cfg.get("display_name", strategy) if strat_cfg else strategy
 
     return {
         "ts_code": p.get("ts_code", ""),
         "stock_name": p.get("stock_name", ""),
-        "strategy": strategy,
+        "strategy": strat_en,
         "strategy_name": strategy_name_cn,
         "strategy_en": strat_en,
         "shares": qty,

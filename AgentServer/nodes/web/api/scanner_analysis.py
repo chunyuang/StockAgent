@@ -9,6 +9,15 @@ router = APIRouter(prefix="/scanner", tags=["analysis"])
 STRAT_MAP = {"halfway_chase": "半路追涨", "first_limit": "首板打板", "dragon_head": "龙头回调", "limit_bounce": "跌停翘板"}
 
 def _norm_strat(s):
+    """将策略标识规范化为英文key(前端strategyMeta以此索引)"""
+    # 反向查找: 中文→英文
+    for en, cn in STRAT_MAP.items():
+        if s == cn:
+            return en
+    return s or "未知"
+
+def _strat_cn(s):
+    """策略英文名→中文显示名"""
     return STRAT_MAP.get(s, s or "未知")
 
 
@@ -138,12 +147,14 @@ async def _compute_positions_from_broker(db, account_id: str = "default") -> lis
                 pass
 
             # 【v2.9.97h-v7】补全前端需要的字段，与unified/scanner_utils保持一致
-            strategy_name_cn = strat_cfg.get("display_name", strategy) if strat_cfg else strategy
+            # strategy=英文key(前端strategyMeta索引), strategy_name=中文显示名
+            strategy_key = _norm_strat(strategy)
+            strategy_name_cn = strat_cfg.get("display_name", _strat_cn(strategy_key)) if strat_cfg else _strat_cn(strategy_key)
             risk_lvl = "high" if stop_loss_status == "broken" else ("elevated" if stop_loss_status == "near" else "normal")
             positions.append({
                 "ts_code": tc,
                 "stock_name": stock_name,
-                "strategy": _norm_strat(strategy),
+                "strategy": strategy_key,
                 "strategy_name": strategy_name_cn,
                 "shares": qty,
                 "available_qty": p.get("available_qty", 0),
