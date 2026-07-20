@@ -833,8 +833,8 @@ async def check_runtime_state():
             m = re.search(r'DYNAMIC_MAX_POSITIONS\s*=\s*\{([^}]+)\}', scanner_py)
             if m:
                 dict_text = m.group(1)
-                # 提取所有key
-                code_keys = re.findall(r'"([^"]+)"\s*:', dict_text)
+                # 提取dict key(冒号前的引号内容),排除注释中的引用
+                code_keys = re.findall(r'[\'\"]([^\'\"]+)[\'\"]\s*:', dict_text)
             else:
                 code_keys = []
                 p0("无法从scanner.py提取DYNAMIC_MAX_POSITIONS")
@@ -1062,7 +1062,7 @@ def check_config_effectiveness():
         dyn_match = re.search(r'DYNAMIC_MAX_POSITIONS\s*[=:]?\s*\{([^}]+)\}', sc_src)
         if dyn_match:
             keys_text = dyn_match.group(1)
-            dyn_keys = set(re.findall(r'[\'"](\w+)[\'"]', keys_text))
+            dyn_keys = set(re.findall(r'[\'\"]([^\'\"]+)[\'\"]\\s*:', keys_text))
             info(f"DYNAMIC_MAX_POSITIONS keys: {dyn_keys}")
         else:
             dyn_keys = set()
@@ -1141,7 +1141,7 @@ def check_cross_module_key_mapping():
         # 找所有情绪phase相关的key
         # DYNAMIC_MAX_POSITIONS的key
         dyn_match = re.search(r'DYNAMIC_MAX_POSITIONS\s*[=:]?\s*\{([^}]+)\}', sc_src)
-        dyn_keys = set(re.findall(r'[\'"](\w+)[\'"]', dyn_match.group(1))) if dyn_match else set()
+        dyn_keys = set(re.findall(r'[\'\"]([^\'\"]+)[\'\"]\s*:', dyn_match.group(1))) if dyn_match else set()
         # 构建key->value映射
         dyn_keys_map = {}
         if dyn_match:

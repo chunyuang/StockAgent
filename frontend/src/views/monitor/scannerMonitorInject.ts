@@ -205,7 +205,7 @@ export interface ScannerMonitorData {
   // --- 交易详情/审计弹窗 ---
   tradeAuditVisible: Ref<boolean>
   tradeAuditData: Ref<any[]>
-  openTradeDetail: (ts_code: string) => void
+  openTradeDetail: (ts_code: string, date?: string) => void
   openTradeAudit: () => void
   cumulativePnl: ComputedRef<number>
   exportTradeLog: () => void

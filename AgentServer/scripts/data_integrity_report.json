@@ -1,29 +1,29 @@
 {
   "checks": [
     {
-      "name": "20260717 因子完整性",
+      "name": "20260720 因子完整性",
       "passed": true,
-      "detail": "5524条全部完整"
+      "detail": "5526条全部完整"
     },
     {
-      "name": "20260717 daily_basic",
+      "name": "20260720 daily_basic",
       "passed": true,
-      "detail": "5524条, 完整"
+      "detail": "5526条, 完整"
     },
     {
-      "name": "20260717 limit_list",
+      "name": "20260720 limit_list",
       "passed": true,
-      "detail": "涨停=35(ak:38) 跌停=192 总=227 差异=3(<=15正常)"
+      "detail": "涨停=59(ak:65) 跌停=211 总=270 差异=6(<=15正常)"
     },
     {
-      "name": "20260717 sentiment",
+      "name": "20260720 sentiment",
       "passed": true,
-      "detail": "score=41 period=震荡 lu=35 ld=192"
+      "detail": "score=43 period=震荡 lu=59 ld=211"
     },
     {
       "name": "orders commission",
       "passed": true,
-      "detail": "0/235笔无commission"
+      "detail": "0/241笔无commission"
     },
     {
       "name": "orders stamp_duty",
@@ -38,12 +38,12 @@
     {
       "name": "positions market_value",
       "passed": true,
-      "detail": "0/0只无market_value"
+      "detail": "0/6只无market_value"
     },
     {
       "name": "positions stop_loss",
       "passed": true,
-      "detail": "0/0只无stop_loss_price"
+      "detail": "0/6只无stop_loss_price"
     },
     {
       "name": "cash闭环",

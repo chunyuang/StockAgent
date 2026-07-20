@@ -369,7 +369,7 @@ const {
                   <span v-if="signalSubFilter[g.hour + '-' + sg.halfHour]" class="sig-sub-filter-clear cp" @click.stop="signalSubFilter[g.hour + '-' + sg.halfHour] = ''">✕</span>
                 </div>
                 <div v-show="(g.subGroups || []).length <= 1 || !signalSubCollapse[g.hour + '-' + sg.halfHour]" class="sig-sub-body">
-                <div v-for="sig in sg.signals.filter((s:any) => !(signalSubFilter[g.hour + '-' + sg.halfHour]) || s.signal_status === signalSubFilter[g.hour + '-' + sg.halfHour])" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :class="sig.signal_status" :style="{ '--strat-color': strategyMeta[sig.strategy]?.color || '#888' }" :title="`${sig.ts_code} ${sig.stock_name}\n扫描: ${sig.scan_time || '-'}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`" @click="sig.decision_detail && openTradeDetail(sig.ts_code)">
+                <div v-for="sig in sg.signals.filter((s:any) => !(signalSubFilter[g.hour + '-' + sg.halfHour]) || s.signal_status === signalSubFilter[g.hour + '-' + sg.halfHour])" :key="sig.ts_code + sig.strategy + (sig.scan_time || '')" class="sig-row" :class="sig.signal_status" :style="{ '--strat-color': strategyMeta[sig.strategy]?.color || '#888' }" :title="`${sig.ts_code} ${sig.stock_name}\n扫描: ${sig.scan_time || '-'}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`" @click="sig.decision_detail && openTradeDetail(sig.ts_code, (sig.scan_time || '').substring(0, 10).replace(/-/g, ''))">
                   <span class="sig-dot" :style="{ background: strategyMeta[sig.strategy]?.color || '#888' }" :title="displayStrategyName(sig.strategy, sig.strategy_name)"></span>
                   <span class="sig-name" :title="sig.ts_code">{{ sig.stock_name }}</span>
                   <span class="sig-pct" :class="(sig.pct_chg || 0) >= 0 ? 'up' : 'down'">{{ (sig.pct_chg || 0) >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
@@ -468,6 +468,22 @@ const {
           </template>
           <div v-else class="td2-empty">暂无卖出记录</div>
         </div>
+        <!-- 拦截/跳过记录 -->
+        <div class="td2-sec" v-if="tradeDetailData.blocked_records?.length">
+          <div class="td2-title">🚫 拦截/跳过记录 ({{ tradeDetailData.blocked_records.length }}次)</div>
+          <div v-for="(b, i) in tradeDetailData.blocked_records" :key="i" class="td2-blocked-item">
+            <div class="td2-grid">
+              <div class="td2-card"><div class="td2-label">⏰ 扫描时间</div><div class="td2-val">{{ String(b.scan_time || '').substring(11, 19) }}</div></div>
+              <div class="td2-card"><div class="td2-label">💰 当时价格</div><div class="td2-val">¥{{ Number(b.price || 0).toFixed(2) }}</div></div>
+              <div class="td2-card"><div class="td2-label">📊 当时涨幅</div><div class="td2-val" :class="(b.pct_chg || 0) >= 0 ? 'up' : 'down'">{{ (b.pct_chg || 0) >= 0 ? '+' : '' }}{{ Number(b.pct_chg || 0).toFixed(2) }}%</div></div>
+              <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" type="warning">{{ strategyCN(b.strategy) }}</ElTag></div></div>
+            </div>
+            <div class="td2-blocked-reason">
+              <ElTag size="small" type="danger">{{ b.rejection_layer }}</ElTag>
+              <span class="td2-blocked-text">{{ b.rejection_reason }}</span>
+            </div>
+          </div>
+        </div>
         <!-- 当前持仓 -->
         <div class="td2-sec" v-if="tradeDetailData.position"><div class="td2-title">📊 当前持仓</div>
           <div class="td2-grid">
@@ -511,7 +527,7 @@ const {
 
     <!-- 审查弹窗 -->
     <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px">
-      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
+      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code, t.trade_date); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
       <div v-else class="empty">暂无交易记录</div>
     </ElDialog>
     
@@ -935,6 +951,9 @@ mm-tab-content {
 .td2-fk { color: var(--text-tertiary); margin-right: 4px; }
 .td2-fv { font-weight: 500; color: var(--text-primary); }
 .td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary); font-size: 13px; }
+.td2-blocked-item { padding: 10px 12px; margin: 8px 0; background: var(--bg-elevated); border-radius: 8px; border-left: 3px solid var(--el-color-danger); }
+.td2-blocked-reason { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 6px 8px; background: rgba(245, 108, 108, 0.08); border-radius: 4px; font-size: 12px; }
+.td2-blocked-text { color: var(--text-secondary); }
 .td2-trail-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-default); }
 .td2-trail-ctrl { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 

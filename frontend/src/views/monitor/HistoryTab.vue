@@ -264,7 +264,7 @@ const closedStats = computed(() => {
                   <span v-if="sg.sells" class="tl-sub-sells">卖{{ sg.sells }}</span>
                   <span v-if="sg.blocked" class="tl-sub-blocked">停{{ sg.blocked }}</span>
                 </div>
-                <div v-for="(item, i) in sg.items" :key="group.key + '-' + sg.halfHour + '-' + i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)">
+                <div v-for="(item, i) in sg.items" :key="group.key + '-' + sg.halfHour + '-' + i" class="tl-row" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code, item.trade_date)">
                   <span class="tl-time">{{ item.time }}</span>
                   <span class="tl-act" :class="item.action">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span>
                   <span class="tl-code">{{ item.ts_code?.slice(0,6) }}</span>
@@ -292,7 +292,7 @@ const closedStats = computed(() => {
             </div>
             <div v-if="!displayClosedPositions.length" class="ht-empty-sm">暂无</div>
             <div class="ht-cp-list">
-              <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct != null ? (cp.profit_pct >= 0 ? 'win' : 'loss') : ''" @click="openTradeDetail(cp.ts_code)">
+              <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct != null ? (cp.profit_pct >= 0 ? 'win' : 'loss') : ''" @click="openTradeDetail(cp.ts_code, cp.trade_date || cp.buy_date)">
                 <span class="cp-code">{{ cp.ts_code?.slice(0,6) }}</span>
                 <span class="cp-name">{{ cp.stock_name }}</span>
                 <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ cp.profit_pct != null ? ((cp.profit_pct >= 0 ? '+' : '') + Number(cp.profit_pct).toFixed(1) + '%') : '持仓中' }}</span>
@@ -307,7 +307,7 @@ const closedStats = computed(() => {
             <div class="ht-sec-header"><span>📋 成交订单</span><span class="ht-stat">{{ displayOrders.length }}笔</span></div>
             <div v-if="!displayOrders.length" class="ht-empty-sm">暂无</div>
             <div class="ht-ord-list">
-              <div v-for="o in displayOrders" :key="o.order_id" class="ord-row" @click="openTradeDetail(o.ts_code)">
+              <div v-for="o in displayOrders" :key="o.order_id" class="ord-row" @click="openTradeDetail(o.ts_code, o.trade_date)">
                 <span class="ord-dir" :class="o.side === 'buy' ? 'up' : 'down'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
                 <span class="ord-code">{{ o.ts_code?.slice(0,6) }}</span>
                 <span class="ord-name">{{ o.stock_name }}</span>

@@ -619,6 +619,53 @@ async def get_trade_detail(ts_code: str, date: str = None):
                 })
     detail["orders"] = orders
     
+    # 【v2.9.127】6. 从scan_traces查询该股票被拦截/跳过的记录
+    blocked_records = []
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            # 从rejected_summary中查找该股票【v2.9.127: 兼容str/int类型的trade_date】
+            td_query = {"$in": [str(target_date), int(target_date)]} if str(target_date).isdigit() else target_date
+            async for trace in mongo_manager.db["scan_traces"].find(
+                {"trade_date": td_query},
+                {"scan_time": 1, "candidates": 1, "rejected_summary": 1, "layer_details": 1, "summary": 1}
+            ).sort("scan_time", 1):
+                scan_time = trace.get("scan_time", "")
+                # 检查rejected_summary
+                for rej in trace.get("rejected_summary", []):
+                    if rej.get("ts_code") == ts_code:
+                        blocked_records.append({
+                            "scan_time": scan_time,
+                            "ts_code": ts_code,
+                            "stock_name": rej.get("stock_name", ""),
+                            "strategy": rej.get("strategy", ""),
+                            "strategy_name": rej.get("strategy_name", ""),
+                            "price": rej.get("price", 0),
+                            "pct_chg": rej.get("pct_chg", 0),
+                            "final_status": rej.get("final_status", "rejected"),
+                            "rejection_layer": rej.get("rejection_layer", ""),
+                            "rejection_reason": rej.get("rejection_reason", ""),
+                        })
+                # 也检查candidates中非passed的
+                for c in trace.get("candidates", []):
+                    if c.get("ts_code") == ts_code and c.get("final_status") != "passed":
+                        blocked_records.append({
+                            "scan_time": scan_time,
+                            "ts_code": ts_code,
+                            "stock_name": c.get("stock_name", ""),
+                            "strategy": c.get("strategy", ""),
+                            "strategy_name": c.get("strategy_name", ""),
+                            "price": c.get("price", 0),
+                            "pct_chg": c.get("pct_chg", 0),
+                            "final_status": c.get("final_status", "rejected"),
+                            "rejection_layer": c.get("rejection_layer", ""),
+                            "rejection_reason": c.get("rejection_reason", ""),
+                            "layer_results": c.get("layer_results", {}),
+                        })
+    except Exception:
+        pass
+    detail["blocked_records"] = blocked_records
+    
     # 5. 如果买入信息缺失,从订单中补充
     # 【v2.9.94】补全 trade_date / fill_time / time_display，避免买入卖出跨日时前端误导
     if not detail["buy"] and orders:
@@ -863,6 +910,7 @@ async def get_trade_audit():
                         "ts_code": ts_code,
                         "stock_name": doc.get("stock_name", ""),
                         "strategy": doc.get("strategy", ""),
+                        "trade_date": str(doc.get("trade_date", "")),  # 【v2.9.127】增加trade_date
                         "buy_time": "", "buy_price": 0, "buy_reason": "",
                         "buy_detail": None,
                         "sell_time": "", "sell_price": 0, "sell_reason": "",

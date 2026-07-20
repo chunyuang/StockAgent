@@ -29,6 +29,11 @@ KEY_FACTORS = [
     "ma5", "ma10", "ma20", "ma60",
     "rsi_6", "rsi_12",
     
+    # 技术指标(talib)
+    "macd", "macd_signal", "macd_hist",
+    "boll_upper", "boll_mid", "boll_lower",
+    "atr",
+    
     # 涨跌停相关
     "limit_up_yesterday", "limit_down_yesterday",
     "open_above_limit", "open_above_limit_down",
@@ -109,6 +114,52 @@ def precompute_factors(trade_date: int):
                 if pd.notna(ma):
                     update[name] = round(ma, 2)
         
+        # 技术指标: MACD/RSI/BOLL/ATR (需要talib)
+        try:
+            import talib
+            close_arr = close_series.values
+            high_arr = group['high'].astype(float).values
+            low_arr = group['low'].astype(float).values
+            
+            if len(close_arr) >= 12:
+                # RSI
+                rsi6 = talib.RSI(close_arr, timeperiod=6)
+                rsi12 = talib.RSI(close_arr, timeperiod=12)
+                if pd.notna(rsi6[-1]):
+                    update['rsi_6'] = round(float(rsi6[-1]), 3)
+                if pd.notna(rsi12[-1]):
+                    update['rsi_12'] = round(float(rsi12[-1]), 3)
+            
+            if len(close_arr) >= 26:
+                # MACD
+                macd, macd_signal, macd_hist = talib.MACD(close_arr)
+                if pd.notna(macd[-1]):
+                    update['macd'] = round(float(macd[-1]), 4)
+                if pd.notna(macd_signal[-1]):
+                    update['macd_signal'] = round(float(macd_signal[-1]), 4)
+                if pd.notna(macd_hist[-1]):
+                    update['macd_hist'] = round(float(macd_hist[-1]), 4)
+            
+            if len(close_arr) >= 20:
+                # BOLL
+                bb_upper, bb_mid, bb_lower = talib.BBANDS(close_arr, timeperiod=20)
+                if pd.notna(bb_upper[-1]):
+                    update['boll_upper'] = round(float(bb_upper[-1]), 4)
+                if pd.notna(bb_mid[-1]):
+                    update['boll_mid'] = round(float(bb_mid[-1]), 4)
+                if pd.notna(bb_lower[-1]):
+                    update['boll_lower'] = round(float(bb_lower[-1]), 4)
+            
+            if len(close_arr) >= 14:
+                # ATR
+                atr = talib.ATR(high_arr, low_arr, close_arr, timeperiod=14)
+                if pd.notna(atr[-1]):
+                    update['atr'] = round(float(atr[-1]), 4)
+        except ImportError:
+            pass  # talib不可用时跳过
+        except Exception:
+            pass  # 计算失败时跳过(不影响其他因子)
+
         # 涨跌停判断
         float(row.get('close', 0))
         pre_close = float(row.get('pre_close', 0))
@@ -148,8 +199,14 @@ def precompute_factors(trade_date: int):
             update['limit_up_count'] = int(last5.get('is_limit_up', pd.Series([0]*5)).sum())
             update['limit_down_count'] = int(last5.get('is_limit_down', pd.Series([0]*5)).sum())
         
-        # 涨停/跌停打开 (简化版)
-        update['first_limit_up'] = update.get('is_limit_up', 0)
+        # 首板: 今天涨停 且 昨天不涨停(排除2连板+)
+        # 需要检查group中前一条记录的is_limit_up
+        is_lu_today = update.get('is_limit_up', 0)
+        if is_lu_today and len(group) >= 2:
+            prev_is_lu = int(group.iloc[-2].get('is_limit_up', 0)) if 'is_limit_up' in group.columns else 0
+            update['first_limit_up'] = 1 if prev_is_lu == 0 else 0
+        else:
+            update['first_limit_up'] = is_lu_today
         
         # 回调指标(pullback_pct/pullback_days/pullback_ma5)
         if len(group) >= 10:

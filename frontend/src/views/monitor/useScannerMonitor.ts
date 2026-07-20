@@ -281,7 +281,7 @@ export function useScannerMonitor() {
   const tradeDetailData = ref<any>(null)
   const tradeAuditVisible = ref(false)
   const tradeAuditData = ref<any[]>([])
-  async function openTradeDetail(ts_code: string) { try { const r = await api.get(`${scannerApi}/trade-detail/${ts_code}`); const p = parseResponse(r); if (p.success) { tradeDetailData.value = p.data; tradeDetailVisible.value = true } } catch (e: any) { console.error('[useScannerMonitor] openTradeDetail failed:', e); ElMessage.error('获取详情失败') } }
+  async function openTradeDetail(ts_code: string, date?: string) { try { const params: any = {}; if (date) params.date = date; const r = await api.get(`${scannerApi}/trade-detail/${ts_code}`, { params }); const p = parseResponse(r); if (p.success) { tradeDetailData.value = p.data; tradeDetailVisible.value = true } } catch (e: any) { console.error('[useScannerMonitor] openTradeDetail failed:', e); ElMessage.error('获取详情失败') } }
   async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); const p = parseResponse(r); if (p.success) { tradeAuditData.value = p.data; tradeAuditVisible.value = true } } catch (e: any) { console.error('[useScannerMonitor] openTradeAudit failed:', e); ElMessage.error('获取审查失败') } }
 
   // ==================== 📌 追踪止损 ====================

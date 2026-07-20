@@ -21,6 +21,9 @@ from pydantic import BaseModel, Field
 from core.managers import mongo_manager
 from .auth import get_optional_user_id as get_current_user_id
 
+# 【v2.9.125】API响应缓存(模块级变量, 避免函数属性在异步中失效)
+_api_cache: Dict[str, Any] = {}
+
 
 
 router = APIRouter(prefix="/system", tags=["系统状态和配置"])
@@ -774,6 +777,13 @@ async def _get_factor_detail(db, date_str: str, factors: list) -> dict:
 @router.get("/data-status")
 async def get_data_status() -> Dict[str, Any]:
     """获取数据层状态:各集合记录数、因子覆盖率、最新数据日期"""
+    # 【v2.9.125】加内存缓存(60s TTL), 避免每次3s+聚合查询
+    import time as _time
+    _cache_key = "_data_status_cache"
+    if hasattr(get_data_status, _cache_key):
+        _cached = getattr(get_data_status, _cache_key)
+        if _time.time() - _cached["ts"] < 60:
+            return _cached["data"]
     try:
         # 【v2.9.49】P2修复: 全部改用异步mongo_manager, 消除同步pymongo阻塞
         from core.managers import mongo_manager
@@ -1288,7 +1298,7 @@ async def get_data_status() -> Dict[str, Any]:
         if collections.get('limit_pool_down', {}).get('count', 0) < 10:
             diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 - 跌停翘板策略数据不足'})
 
-        return {
+        result = {
             "success": True,
             "data": {
                 "health_score": live_health_score,
@@ -1310,6 +1320,9 @@ async def get_data_status() -> Dict[str, Any]:
                 "data_alignment": data_alignment,
             }
         }
+        # 【v2.9.125】写入缓存
+        setattr(get_data_status, _cache_key, {"ts": _time.time(), "data": result})
+        return result
     except Exception as e:
         return {"success": False, "message": str(e)}
 
@@ -1707,6 +1720,13 @@ async def auto_fill_detect() -> Dict[str, Any]:
 
     检测范围:最近30个交易日,找出缺因子的日期和字段。
     """
+    # 【v2.9.125】加内存缓存(60s TTL)
+    import time as _time
+    _cache_key = "_auto_fill_detect_cache"
+    if hasattr(auto_fill_detect, _cache_key):
+        _cached = getattr(auto_fill_detect, _cache_key)
+        if _time.time() - _cached["ts"] < 60:
+            return _cached["data"]
     try:
         if not mongo_manager._initialized:
             await mongo_manager.initialize()
@@ -1765,7 +1785,7 @@ async def auto_fill_detect() -> Dict[str, Any]:
             key=lambda x: x["total_missing"], reverse=True
         )
 
-        return {
+        result = {
             "success": True,
             "data": {
                 "missing_dates": missing_dates,
@@ -1776,6 +1796,9 @@ async def auto_fill_detect() -> Dict[str, Any]:
                 "key_factors": key_factors,
             },
         }
+        # 【v2.9.125】写入缓存
+        setattr(auto_fill_detect, _cache_key, {"ts": _time.time(), "data": result})
+        return result
     except Exception as e:
         logger.error(f"Auto-fill detect failed: {e}")
         return {"success": False, "message": str(e)}

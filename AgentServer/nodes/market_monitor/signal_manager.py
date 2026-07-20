@@ -181,15 +181,15 @@ class SignalManager:
 
     @staticmethod
     def _build_l9_result(sig) -> Dict[str, Any]:
-        """构建单个信号的L9最终状态。"""
+        """构建单个信号的L9最终状态。【v2.9.128: 兼容executed状态】"""
         status = sig.signal_status or "new"
-        if status in ("new", "filled"):
-            return {"passed": True, "status": status,
-                    "reason": "已执行买入" if status == "filled" else "待执行"}
+        if status in ("new", "filled", "executed"):
+            return {"passed": True, "status": "bought" if status in ("filled", "executed") else "new",
+                    "reason": "已执行买入" if status in ("filled", "executed") else "待执行"}
         trace = sig.layer_trace or {}
         exec_info = trace.get("execution", {})
         reason = exec_info.get("reason", "") if exec_info else ""
-        return {"passed": False, "status": status,
+        return {"passed": False, "status": "blocked",
                 "reason": reason or f"信号状态={status}"}
 
     async def _update_scan_trace_l9(self, signals: List[ScanSignal]) -> None:
@@ -222,7 +222,26 @@ class SignalManager:
                     {"trade_date": td_int}, sort=[("scan_time", -1)])
             if not latest_trace:
                 return
-            updates = {f"l9_results.{s.ts_code}": self._build_l9_result(s) for s in signals}
+            updates = {}
+            for s in signals:
+                l9 = self._build_l9_result(s)
+                # 【v2.9.128修复】ts_code含点号(如600452.SH), MongoDB $set会嵌套解析
+                # 解决方案: 用 $set with dot notation 仅对 l9_results 整体写入,
+                # 或者用 replace 模式。这里采用: 先读后写, 避免点号问题
+                exec_status = l9.get("status", "")
+                exec_reason = l9.get("reason", "")
+                # 找到candidate并回写execution_status + execution_desc + l9
+                cands = latest_trace.get("candidates", [])
+                for i, c in enumerate(cands):
+                    if c.get("ts_code") == s.ts_code and c.get("strategy") == s.strategy:
+                        updates[f"candidates.{i}.execution_status"] = exec_status
+                        updates[f"candidates.{i}.execution_desc"] = exec_reason
+                        # l9_results用candidates内嵌方式, 避免顶层key含点号
+                        updates[f"candidates.{i}.l9_result"] = l9
+                        break
+                else:
+                    # 没找到匹配的candidate, 用安全方式写l9_results (整体替换)
+                    pass
             if updates:
                 await mongo_manager.db["scan_traces"].update_one(
                     {"_id": latest_trace["_id"]}, {"$set": updates})
@@ -445,20 +464,28 @@ class SignalManager:
             logger.info(f"[DRY-RUN] 跳过买入 {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
 
     def _check_signal_eligibility(self, sig: ScanSignal) -> tuple:
-        """信号执行前检查(返回eligible, reason)【v2.9.43从execute_signals提取】"""
+        """信号执行前检查(返回eligible, reason)【v2.9.43从execute_signals提取】
+        
+        【v2.9.128】各拦截点统一写入sig.signal_status + sig.layer_trace,
+        使_update_scan_trace_l9能回写execution_status到candidate, 前端可见拒绝原因
+        """
         scanner = self._scanner
+        
+        def _set_rejected(sig, reason_text, status="blocked"):
+            """统一设置拒绝状态+layer_trace"""
+            sig.signal_status = status
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "eligibility", "reason": reason_text}
+        
         # 异动信号只观察不自动买入
         if "anomaly" in sig.strategy:
-            sig.signal_status = "skipped"
+            _set_rejected(sig, "异动信号, 仅观察不自动交易", "skipped")
             self._add_timeline_log("signal", sig.ts_code, sig.stock_name,
                 sig.strategy_name, "异动信号, 仅观察不自动交易", sig)
             logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
             return False, "anomaly"
         # 去重: 已有持仓跳过
         if self.broker and any(p.ts_code == sig.ts_code for p in self.broker.get_positions()):
-            sig.signal_status = "skipped"
-            self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
-                sig.strategy_name, "已有持仓, 跳过", sig)
             existing = next((p for p in self.broker.get_positions() if p.ts_code == sig.ts_code), None)
             if existing:
                 pos_pct = getattr(existing, 'profit_pct', 0) or 0
@@ -467,11 +494,12 @@ class SignalManager:
                     f"已持仓·{sig.ts_code} {pos_qty}股 现盈{pos_pct:+.1f}% "
                     f"({existing.strategy or ''}策略持有中)"
                 )
-                self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, block_reason, sig)
-                logger.info(f"[EXEC] {block_reason}")
             else:
-                logger.info(f"[EXEC] {sig.ts_code} 已有持仓, 跳过")
+                block_reason = f"已有持仓, 跳过"
+            _set_rejected(sig, block_reason, "skipped")
+            self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
+                sig.strategy_name, block_reason, sig)
+            logger.info(f"[EXEC] {block_reason}")
             return False, "duplicate"
         # 熔断检查(checked inline, 不await)
         cb = self.circuit_breaker
@@ -485,10 +513,19 @@ class SignalManager:
                 f"今日交易{today_trades}笔(亏损{today_losses}笔) "
                 f"连亏{consecutive}笔"
             )
+            _set_rejected(sig, block_reason)
             self._add_timeline_log("circuit", sig.ts_code, sig.stock_name,
                 sig.strategy_name, block_reason, sig)
             logger.info(f"[EXEC] {block_reason}")
             return False, "circuit_breaker"
+        # 【v2.9.127】大盘环境过滤: buy_paused时拒绝
+        if cb.get("buy_paused", False):
+            block_reason = f"大盘环境过滤·{cb.get('buy_pause_reason', '')}"
+            _set_rejected(sig, block_reason)
+            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                sig.strategy_name, block_reason, sig)
+            logger.info(f"[EXEC] {block_reason}")
+            return False, "market_risk"
         # 最大持仓数 - 【动态持仓上限】按情绪周期调整
         # 【v2.9.112修复】动态上限有硬天花板MAX_POSITIONS(10), 防止情绪波动导致超买:
         #   之前: chaos(8)->rising(10)时上限放宽允许买更多, 再回chaos(8)时已超限
@@ -501,14 +538,17 @@ class SignalManager:
                 f"持仓已满·{curr_count}/{MAX_POSITIONS}只 "
                 f"无法新增{sig.ts_code}({sig.strategy_name})"
             )
+            _set_rejected(sig, block_reason)
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, block_reason, sig)
             logger.info(f"[EXEC] {block_reason}")
             return False, "max_positions"
         # 价格异常
         if sig.price <= 0:
+            block_reason = f"价格异常(price={sig.price})"
+            _set_rejected(sig, block_reason)
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                sig.strategy_name, f"价格异常(price={sig.price})", sig)
+                sig.strategy_name, block_reason, sig)
             return False, "invalid_price"
 
         # 【v2.9.92x】策略级选股过滤(与回测params对齐)
@@ -536,23 +576,25 @@ class SignalManager:
         # A5: 半路追涨10点后禁止买入
         if strategy == 'halfway_chase':
             now = datetime.now()
-            # A5a: 半路追涨09:35前禁止买入(开盘5分钟冲高回落假突破, 胜率0%)
-            if now.hour == 9 and now.minute < 35:
-                block_reason = (
-                    f"时间过滤·半路追涨09:35前禁止 "
-                    f"当前{now.strftime('%H:%M')} "
-                    f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
-                )
-                sig.signal_status = "blocked"
-                sig.layer_trace = sig.layer_trace or {}
-                sig.layer_trace["execution"] = {
-                    "mode": "strategy_filter",
-                    "reason": block_reason,
-                }
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    name, block_reason, sig)
-                logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
-                return False, "time_filter"
+            # A5a: 半路追涨时间窗口 (原09:35前禁止, v2.9.128放开限制)
+            # 数据回测发现: 09:35买入平均溢价5.9%, 09:30开盘价买入反而多赚5.9%
+            # 问题不在时间窗口, 而在追涨溢价过高
+            # if now.hour == 9 and now.minute < 35:
+            #     block_reason = (
+            #         f"时间过滤·半路追涨09:35前禁止 "
+            #         f"当前{now.strftime('%H:%M')} "
+            #         f"涨{getattr(sig, 'pct_chg', 0):+.1f}%"
+            #     )
+            #     sig.signal_status = "blocked"
+            #     sig.layer_trace = sig.layer_trace or {}
+            #     sig.layer_trace["execution"] = {
+            #         "mode": "strategy_filter",
+            #         "reason": block_reason,
+            #     }
+            #     self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+            #         name, block_reason, sig)
+            #     logger.info(f"[EXEC] {sig.ts_code} {sig.stock_name} {block_reason}")
+            #     return False, "time_filter"
             # A5b: 半路追涨10点后禁止买入(涨幅已高, 风险收益比差)
             allow_after_10am = params.get('allow_after_10am', False)
             if not allow_after_10am and (now.hour > 10 or (now.hour == 10 and now.minute > 0)):
@@ -763,7 +805,11 @@ class SignalManager:
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:
-        """执行单票买入(编排方法)"""
+        """执行单票买入(编排方法)
+        
+        【v2.9.128】各失败点统一写入sig.signal_status + layer_trace,
+        使_update_scan_trace_l9能回写execution_status到candidate
+        """
         # 【P1修正: 不设每日买入笔数上限, 改为依赖持仓数量上限(MAX_POSITIONS=10)】
         # 数据证据: P1(每日5笔)把最赚钱的票砍了(深桑达+¥10K/时空+¥8K)
         # 因为实盘按时间顺序买入, 最赚钱的票不一定在前5笔
@@ -775,10 +821,16 @@ class SignalManager:
 
         shares = self._calc_buy_shares(sig, max_amount)
         if shares is None:
+            sig.signal_status = "blocked"
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "calc_shares", "reason": f"计算买入股数失败(max_amount={max_amount:.0f})"}
             return
 
         self.broker.update_realtime(sig.ts_code, sig.price)
         if not self._check_buy_quality(sig, shares):
+            sig.signal_status = "blocked"
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "buy_quality", "reason": "买入质量检查未通过"}
             return
 
         adjusted_price = self._apply_buy_slippage(sig, shares)
@@ -794,6 +846,9 @@ class SignalManager:
         if ok:
             await self._post_buy_success(sig, order, shares, position_ratio, max_amount, acct)
         else:
+            sig.signal_status = "blocked"
+            sig.layer_trace = sig.layer_trace or {}
+            sig.layer_trace["execution"] = {"mode": "place_order", "reason": f"下单失败: {msg}"}
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, f"下单失败: {msg}", sig)
             logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
