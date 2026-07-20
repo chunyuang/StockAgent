@@ -126,7 +126,7 @@ const topFactors = computed(() => {
     { label: '涨幅', value: avg('pct_chg') + '%' },
     { label: '量比', value: avg('volume_ratio') + '倍' },
     { label: '换手', value: avg('turnover_rate') + '%' },
-    { label: '流通市值', value: (parseFloat(avg('circ_mv')) / 10000).toFixed(0) + '亿' },
+    { label: '流通市值', value: avg('circ_mv') !== '-' ? (parseFloat(avg('circ_mv')) / 10000).toFixed(0) + '亿' : '-' },
   ]
 })
 

@@ -220,7 +220,7 @@ export function useViewHelpers(deps: {
     try {
       const buyTime = new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T00:00:00`).getTime()
       return Math.max(0, Math.floor((Date.now() - buyTime) / (1000 * 60 * 60 * 24)))
-    } catch { return 0 }
+    } catch (e) { console.warn('[useViewHelpers] 持仓天数计算失败:', e); return 0 }
   }
   function toggleStrategySection() {
     if (deps.leftRailCollapsed.value) deps.leftRailCollapsed.value = false

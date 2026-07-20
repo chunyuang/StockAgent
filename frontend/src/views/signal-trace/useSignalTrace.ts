@@ -41,10 +41,10 @@ export function useSignalTrace() {
           const resp = await api.get(`${BASE}/params/${sid}`)
           const data = parseResponse(resp) as any
           if (data?.params) results[sid] = data.params
-        } catch { /* 忽略单个策略获取失败 */ }
+        } catch (e) { console.warn('[useSignalTrace] 策略参数获取失败 sid=%s:', sid, e) }
       }))
       strategyParams.value = results
-    } catch { /* 整体获取失败时使用硬编码默认值 */ }
+    } catch (e) { console.warn('[useSignalTrace] 整体策略参数获取失败:', e) }
   }
 
   const filterLayer = ref('all')
