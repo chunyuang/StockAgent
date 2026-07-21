@@ -131,10 +131,10 @@ const rankedListFull = computed(() => trace.filteredStockTraces.value.filter(s=>
     <div class="kpi-row">
       <div class="kpi-card" @click="clickFilterResult('all')" :class="{active:!trace.filterResult.value||trace.filterResult.value==='all'}"><div class="kpi-value">{{trace.kpi.value.total}}</div><div class="kpi-label">候选</div></div>
       <div class="kpi-card bought" @click="clickFilterResult('bought')" :class="{active:trace.filterResult.value==='bought'}"><div class="kpi-value">{{trace.kpi.value.boughtCount}}</div><div class="kpi-label">💰 成交</div></div>
-      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.winRate.toFixed(0)}}%</div><div class="kpi-label">胜率</div></div>
-      <div class="kpi-card"><div class="kpi-value" :class="trace.kpi.value.avgPct>0?'up':'down'">{{trace.kpi.value.avgPct>0?'+':''}}{{trace.kpi.value.avgPct.toFixed(1)}}%</div><div class="kpi-label">均涨幅</div></div>
-      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.avgVR.toFixed(1)}}x</div><div class="kpi-label">均量比</div></div>
-      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.avgScore.toFixed(0)}}</div><div class="kpi-label">均评分</div></div>
+      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.winRate?.toFixed(0) ?? '-'}}%</div><div class="kpi-label">胜率</div></div>
+      <div class="kpi-card"><div class="kpi-value" :class="trace.kpi.value.avgPct>0?'up':'down'">{{trace.kpi.value.avgPct>0?'+':''}}{{trace.kpi.value.avgPct?.toFixed(1) ?? '-'}}%</div><div class="kpi-label">均涨幅</div></div>
+      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.avgVR?.toFixed(1) ?? '-'}}x</div><div class="kpi-label">均量比</div></div>
+      <div class="kpi-card"><div class="kpi-value">{{trace.kpi.value.avgScore?.toFixed(0) ?? '-'}}</div><div class="kpi-label">均评分</div></div>
       <div class="kpi-card rejected" @click="clickFilterResult('rejected')" :class="{active:trace.filterResult.value==='rejected'}"><div class="kpi-value">{{trace.kpi.value.rejected}}</div><div class="kpi-label">❌ 被拦</div></div>
       <div class="kpi-card" v-if="trace.summary.value.maxLayer!=='-'"><div class="kpi-value clickable" @click="clickFilterLayer(trace.summary.value.maxLayerKey||'all')">{{trace.summary.value.maxLayer}}</div><div class="kpi-label">最大拦截</div></div>
     </div>

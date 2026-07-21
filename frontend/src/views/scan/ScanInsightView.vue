@@ -99,7 +99,7 @@
           <div v-for="d in emotionDims" :key="d.name" class="ed-row">
             <span class="ed-name">{{ d.name }}</span>
             <div class="ed-bar-wrap"><div class="ed-bar" :style="{ width: (d.weight * 100) + '%' }" /></div>
-            <span class="ed-wt">{{ (d.weight * 100).toFixed(0) }}%</span>
+            <span class="ed-wt">{{ (d.weight * 100)?.toFixed(0) ?? '-' }}%</span>
           </div>
         </div>
         <div class="emotion-periods" v-if="emotionPeriods.length">

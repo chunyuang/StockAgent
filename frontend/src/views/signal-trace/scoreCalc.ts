@@ -20,10 +20,10 @@ export async function fetchStrategyParams() {
         const resp = await api.get(`${BASE}/params/${sid}`)
         const data = parseResponse(resp) as any
         if (data?.params) results[sid] = data.params
-      } catch {}
+      } catch (e) { console.warn('[scoreCalc] fetchStrategyParams single failed:', sid, e) }
     }))
     strategyParams.value = results
-  } catch {}
+  } catch (e) { console.error('[scoreCalc] fetchStrategyParams failed:', e) }
 }
 
 /** 综合评分路由 */
