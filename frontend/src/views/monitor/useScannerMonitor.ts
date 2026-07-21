@@ -268,10 +268,7 @@ export function useScannerMonitor() {
     strategies, globalRisk, healthData, confirmVisible, confirmLoading, confirmData,
     manualTrade, manualQuote, riskBarCollapsed, trailEditPct, trailSaving,
     emergencyLiquidating, dataSources, brokers, dailyReport,
-    stratCollapsed: ref<Record<string, boolean>>({}),
-    stratSectionCollapsed: ref(true),
-    qaSectionCollapsed: ref(false),
-    timelineCollapsed: ref(true),
+    stratCollapsed, stratSectionCollapsed, qaSectionCollapsed, timelineCollapsed,
     editDialogVisible, editTab, editParams, editRiskParams,
     editingStrategy, saving,
   })
