@@ -4,18 +4,43 @@
     "total_assets": "float",
     "available_cash": "float",
     "market_value": "float",
-    "today_profit": "float",
+    "today_profit": "int",
     "total_profit": "float",
     "position_ratio": "float"
   },
   "positions": {
     "count": "int",
-    "strategy_summary": {},
+    "strategy_summary": {
+      "halfway_chase": {
+        "count": "int",
+        "market_value": "float",
+        "total_profit": "float",
+        "win_count": "int",
+        "loss_count": "int",
+        "win_rate": "float",
+        "closed_win_rate": "int",
+        "stop_loss_count": "int",
+        "take_profit_count": "int",
+        "avg_win_pct": "int",
+        "avg_loss_pct": "int",
+        "profit_loss_ratio": "int",
+        "max_win_pct": "int",
+        "max_loss_pct": "int"
+      }
+    },
     "top_profit": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "name": "str",
+        "pct": "float"
+      }
     ],
     "top_loss": [
-      "<empty_list>"
+      {
+        "ts_code": "str",
+        "name": "str",
+        "pct": "float"
+      }
     ]
   },
   "trades": {
@@ -23,25 +48,25 @@
     "sell": "int",
     "total_amount": "int"
   },
-  "win_rate": "float",
-  "take_profit_count": "int",
+  "win_rate": "int",
   "stop_loss_count": "int",
+  "take_profit_count": "int",
   "risk": {
     "circuit_breaker": "bool",
     "consecutive_losses": "int",
     "today_losses": "int"
   },
   "scanner_stats": {
-    "total_signals": "int",
-    "signals_found": "int",
     "scans": "int",
-    "buy_count": "int",
+    "signals_found": "int",
     "trades_executed": "int",
     "stop_losses": "int",
-    "stocks_scanned": "int",
-    "sell_count": "int",
     "take_profits": "int",
-    "scan_count": "int"
+    "stocks_scanned": "int",
+    "scan_count": "int",
+    "total_signals": "int",
+    "buy_count": "int",
+    "sell_count": "int"
   },
   "funnel_summary": "NoneType",
   "sentiment_snapshot": "NoneType"
