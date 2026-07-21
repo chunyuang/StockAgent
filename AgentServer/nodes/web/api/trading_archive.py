@@ -220,7 +220,6 @@ async def get_archive_day(
     # 对于当天: 优先用broker_positions(有止损价等实时字段)
     # 对于历史日: 从所有filled orders推算到该日为止的持仓
     from datetime import datetime as _dt
-    from collections import defaultdict
 
     # 获取当日所有filled orders(已有), 再加上之前的
     is_today = (trade_date == int(_dt.now().strftime("%Y%m%d")))

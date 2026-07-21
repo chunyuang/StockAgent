@@ -1109,7 +1109,6 @@ async def _persist_fallback_live_log(trade_date, score, phase, limit_stocks, rea
     try:
         from datetime import datetime
         from .intraday_sentiment import _persist_live_log_entry
-        from .utils.board_limit import is_limit_up, is_limit_down
         
         limit_up = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
         limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")

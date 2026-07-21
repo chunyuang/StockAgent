@@ -300,7 +300,6 @@ async def get_risk_system():
         ATR_STOP_CAP_PCT, ATR_STOP_MIN_PCT,
         PARTIAL_TAKE_PROFIT_THRESHOLD, PARTIAL_TAKE_PROFIT_RATIO,
         MIN_TRAILING_ACTIVATE_PCT,
-        calc_tiered_trailing_pct,
     )
     try:
         from nodes.market_monitor.position_manager import _TRAILING_BASE, _DEFAULT_TRAILING_OFFSETS, STRATEGY_TRAILING_OFFSETS

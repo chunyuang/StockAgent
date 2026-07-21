@@ -109,31 +109,30 @@ class TestUpdateStrategyConfigBugFix:
 
 
 class TestBareExceptCleanup:
-    """v2.9.25: bare except Exception: → except Exception as _e: 
+    """v2.9.25: bare except规范检查
     
-    验证源码中不再有bare except(无异常变量捕获)
+    v2.9.125更新: except Exception as _e 后未使用 _e 也是lint问题(pyflakes warning)
+    新规则: 对非关键路径(接pass)用 except Exception: 即可, 只要求有日志输出的except捕获异常变量
     """
 
     def test_no_bare_except_in_scanner(self):
-        """scanner.py不应有bare except Exception:"""
+        """scanner.py: except Exception后接pass的非关键路径, 允许无异常变量"""
         scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
         with open(scanner_path) as f:
             content = f.read()
-        # 匹配 "except Exception:" (不含 "as")
-        matches = re.findall(r'except Exception\s+as\s+\w+\s*:', content)
-        bare_matches = re.findall(r'except Exception\s*:\s*\n', content)
-        # bare_matches匹配"except Exception:\n"这种形式
-        # 但如果有"as _e:"则不是bare
-        assert len(bare_matches) == 0, f"发现{len(bare_matches)}个bare except Exception: (应改为except Exception as _e:)"
+        # 检查: 如果用了 as _e，后续代码必须使用 _e (不能只pass)
+        unused_e_matches = re.findall(r'except Exception as _e:\s*\n\s*pass', content)
+        assert len(unused_e_matches) == 0, f"发现{len(unused_e_matches)}个except Exception as _e后直接pass(应改为except Exception:)"
 
     def test_event_emission_exceptions_captured(self):
-        """EventBus事件发射的except应捕获异常对象(可追踪)"""
+        """有日志输出的except必须捕获异常对象(可追踪)"""
         scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
         with open(scanner_path) as f:
             content = f.read()
-        # 查找所有 "except Exception:" (不跟 "as") 后跟 "pass" 的模式
-        bare_excepts = re.findall(r'except Exception:\s*\n\s*pass', content)
-        assert len(bare_excepts) == 0, f"发现{len(bare_excepts)}个bare except Exception: ... pass"
+        # 查找 logger.warning/debug/error 后跟的 except，应使用 as _e
+        # 而非 bare except Exception:
+        bare_excepts = re.findall(r'except Exception:\s*\n\s*logger\.', content)
+        assert len(bare_excepts) == 0, f"发现{len(bare_excepts)}个有日志输出但未捕获异常变量的except"
 
 
 class TestInitModulesDecomposition:

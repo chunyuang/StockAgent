@@ -1275,7 +1275,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
             pct = q.get("pct_chg", q.get("auction_pct", p.profit_pct)) if isinstance(q, dict) else p.profit_pct
             try:
                 pct = float(pct or 0)
-            except Exception as _e:
+            except Exception:
                 pct = 0.0
             pcts.append(pct)
             if pct >= 0:
@@ -1477,7 +1477,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner, ScannerA
                 return False
             from nodes.market_monitor.market_phase import MarketPhase
             return MarketPhase.is_continuous_auction()
-        except Exception as _e:
+        except Exception:
             return False
 
     async def _execute_pending_premarket_risk_action(self) -> None:

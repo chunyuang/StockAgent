@@ -461,7 +461,7 @@ class RuntimePersistence:
                         {"$inc": {"count": 1}, "$set": {"is_debug": is_debug}},
                         upsert=True
                     )
-            except Exception as _e:
+            except Exception:
                 pass  # 非关键, 不影响主流程
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
         except Exception as e:
@@ -515,7 +515,7 @@ class RuntimePersistence:
         # 【v2.9.104】记录全量扫描股票数 (5529 只)
         try:
             total_stocks = len(getattr(self._scanner, "_realtime_cache", {}) or {})
-        except Exception as _e:
+        except Exception:
             total_stocks = 0
         trace_doc = {
             "trade_date": today_int,
@@ -1521,7 +1521,7 @@ class RuntimePersistence:
                 await db["sell_compare_diff"].create_index(
                     "time", name="ttl_30d_compare", expireAfterSeconds=30 * 86400
                 )
-            except Exception as _e:
+            except Exception:
                 pass  # 索引已存在
             
             logger.info(f"[COMPARE] 差异已持久化: "
