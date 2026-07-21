@@ -876,11 +876,13 @@ class SimulatedBroker:
             pass
 
         # 【v2.9.111】持仓数量上限检查(防止超过MAX_POSITIONS只)
-        # 【v2.9.112修复】动态上限有硬天花板, min(dynamic, MAX_POSITIONS)
+        # 【v2.9.112修复→v2.9.127修复】动态上限优先使用,未设置时fallback到MAX_POSITIONS
+        # 旧bug: min(dynamic, MAX_POSITIONS) → rising=10被截断为8, DYNAMIC_MAX_POSITIONS从未生效
+        # 修复: dynamic已设置时直接使用(可高于或低于基础值, 情绪冰点时=4<8, 高潮时=10>8)
         current_positions = len([p for p in self.positions.values() if p.total_qty > 0])
         existing = self.positions.get(ts_code)
         is_new_position = existing is None or existing.total_qty <= 0
-        effective_limit = min(self._dynamic_max_positions or self.MAX_POSITIONS, self.MAX_POSITIONS)
+        effective_limit = self._dynamic_max_positions if self._dynamic_max_positions is not None else self.MAX_POSITIONS
         if is_new_position and current_positions >= effective_limit:
             return False, f"持仓数已达上限{effective_limit}只", 0
 

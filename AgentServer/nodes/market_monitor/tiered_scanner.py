@@ -718,25 +718,40 @@ class TieredScanner:
     @staticmethod
     def _map_quote_to_price_dict(quote: Any) -> Dict:
         """统一quote对象(属性/dict)→价格字典【v2.9.62提取】"""
+        def _safe_get(key):
+            v = getattr(quote, key, None)
+            if v is not None:
+                return v
+            if hasattr(quote, 'get'):
+                return quote.get(key)
+            return None
         return {
-            "price": getattr(quote, "price", None) or quote.get("price"),
-            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
-            "high": getattr(quote, "high", None) or quote.get("high"),
-            "low": getattr(quote, "low", None) or quote.get("low"),
-            "open": getattr(quote, "open", None) or quote.get("open"),
-            "pre_close": getattr(quote, "pre_close", None) or quote.get("pre_close"),
+            "price": _safe_get("price"),
+            "pct_chg": _safe_get("pct_chg"),
+            "high": _safe_get("high"),
+            "low": _safe_get("low"),
+            "open": _safe_get("open"),
+            "pre_close": _safe_get("pre_close"),
         }
 
     @staticmethod
     def _map_l2_quote_to_dict(quote: Any) -> Dict:
         """L2 quote→缓存字典【v2.9.62提取】"""
+        # 安全读取: 优先getattr(dataclass), fallback .get()(dict), 都失败返回None
+        def _safe_get(key):
+            v = getattr(quote, key, None)
+            if v is not None:
+                return v
+            if hasattr(quote, 'get'):
+                return quote.get(key)
+            return None
         return {
-            "price": getattr(quote, "price", None) or quote.get("price"),
-            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
-            "high": getattr(quote, "high", None) or quote.get("high"),
-            "low": getattr(quote, "low", None) or quote.get("low"),
-            "volume_ratio": getattr(quote, "volume_ratio", None) or quote.get("volume_ratio"),
-            "turnover_rate": getattr(quote, "turnover_rate", None) or quote.get("turnover_rate"),
+            "price": _safe_get("price"),
+            "pct_chg": _safe_get("pct_chg"),
+            "high": _safe_get("high"),
+            "low": _safe_get("low"),
+            "volume_ratio": _safe_get("volume_ratio"),
+            "turnover_rate": _safe_get("turnover_rate"),
         }
 
     async def _fetch_l3_eastmoney_batch(self, codes: List[str]) -> Dict[str, Dict]:
