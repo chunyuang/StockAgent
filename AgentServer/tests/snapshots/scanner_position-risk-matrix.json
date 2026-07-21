@@ -32,12 +32,12 @@
     "max_single_pct": "float",
     "top_industry_concentration": "float",
     "industry_exposure": {
-      "煤炭开采": "float",
-      "农药化肥": "float",
-      "水力发电": "float",
+      "专用机械": "float",
+      "农用机械": "float",
+      "普钢": "float",
       "电气设备": "float",
-      "染料涂料": "float",
-      "IT设备": "float"
+      "机械基件": "float",
+      "医疗保健": "float"
     },
     "position_count": "int",
     "stop_loss_exec_rate": "float",

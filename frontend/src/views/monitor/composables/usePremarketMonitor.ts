@@ -141,11 +141,19 @@ export function usePremarketMonitor() {
         }
 
         // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
+        // 【v2.9.128修复】只在premarketDate未设置且dataDate>=today时才回填
+        // 之前: dataDate=20260720(昨天)也会回填 -> 盘前竞价面板显示昨天数据
         const dataDate = p.data.market_snapshot?.data_date
         if (dataDate && !premarketDate.value) {
-          // 首次加载: 设置日期为实际数据日期
+          const todayDash = getChinaDate()
           const ds = String(dataDate)
-          premarketDate.value = ds.length === 8 ? `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}` : ds
+          const dataDateDash = ds.length === 8 ? `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}` : ds
+          // 只在dataDate是今天或未来时才自动设置, 避免回填到昨天的数据
+          if (dataDateDash >= todayDash) {
+            premarketDate.value = dataDateDash
+          } else {
+            premarketDate.value = todayDash
+          }
         }
 
         // 修正status: debug API统一返回status='debug', 但根据实际时间应该显示更有意义的标签

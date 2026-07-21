@@ -294,12 +294,59 @@ async def get_quote_manager():
 @router.get("/risk-system")
 async def get_risk_system():
     scanner = _get_scanner()
-    # 前端模板用 riskStopLoss/riskTakeProfit/riskTrailing/riskHoldDays
-    # 都是ElDescriptionsItem遍历，需要 {label: value} 格式
-    stop_loss = {"半路追涨": "3%", "首板打板": "3.5%", "龙头股": "3%", "涨停开板": "5%", "跌停翘板": "5%"}
-    take_profit = {"半路追涨": "12%", "首板打板": "10%", "龙头股": "30%", "涨停开板": "6%", "跌停翘板": "20%"}
-    trailing_stop = {"半路追涨": "保护4%回撤2%", "首板打板": "回撤2%", "龙头股": "保护4%回撤3%", "跌停翘板": "回撤4%"}
-    max_hold_days = {"半路追涨": "3天", "首板打板": "2天", "龙头股": "7天", "涨停开板": "2天", "跌停翘板": "3天"}
+    # 从代码动态读取实际参数, 替代硬编码
+    from nodes.market_monitor.position_manager import (
+        STRATEGY_ATR_RANGES, ATR_STOP_MULTIPLIER, ATR_STOP_PERIOD,
+        ATR_STOP_CAP_PCT, ATR_STOP_MIN_PCT,
+        PARTIAL_TAKE_PROFIT_THRESHOLD, PARTIAL_TAKE_PROFIT_RATIO,
+        MIN_TRAILING_ACTIVATE_PCT,
+        calc_tiered_trailing_pct,
+    )
+    try:
+        from nodes.market_monitor.position_manager import _TRAILING_BASE, _DEFAULT_TRAILING_OFFSETS, STRATEGY_TRAILING_OFFSETS
+    except ImportError:
+        _TRAILING_BASE, _DEFAULT_TRAILING_OFFSETS = 0.05, (0.00, 0.02, 0.05, 0.08)
+        STRATEGY_TRAILING_OFFSETS = {}
+
+    STRAT_CN = {
+        "halfway_chase": "半路追涨", "first_limit_up": "首板打板",
+        "limit_up_open": "涨停开板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
+    }
+
+    # 1. ATR自适应止损(实际参数)
+    stop_loss = {}
+    for sid, (lo, hi) in STRATEGY_ATR_RANGES.items():
+        stop_loss[STRAT_CN.get(sid, sid)] = f"{lo:.1f}%-{hi:.1f}% (ATR×{ATR_STOP_MULTIPLIER})"
+
+    # 2. 止盈(固定阈值)
+    take_profit = {"半路追涨": "12%", "首板打板": "10%", "龙头低吸": "30%", "涨停开板": "6%", "跌停翘板": "20%"}
+
+    # 3. 追踪止损(分级逻辑)
+    trailing_stop = {}
+    for sid in STRATEGY_ATR_RANGES:
+        cn = STRAT_CN.get(sid, sid)
+        offsets = STRATEGY_TRAILING_OFFSETS.get(sid, _DEFAULT_TRAILING_OFFSETS)
+        base_pct = _TRAILING_BASE * 100
+        tiers = []
+        for i, label in enumerate(["<2%", "2-4%", "4-8%", "≥8%"]):
+            if i < len(offsets):
+                tiers.append(f"{label}→回撤{(base_pct + offsets[i]*100):.0f}%")
+        trailing_stop[cn] = f"激活≥{MIN_TRAILING_ACTIVATE_PCT:.0f}% | " + " | ".join(tiers)
+
+    # 4. 持仓天数
+    max_hold_days = {"半路追涨": "3天", "首板打板": "2天", "龙头低吸": "7天", "涨停开板": "2天", "跌停翘板": "3天"}
+
+    # 5. 高级风控规则(v2.9.118+新增)
+    advanced_rules = [
+        {"name": "ATR自适应止损", "version": "v2.9.119", "formula": f"min(max(策略下限, {ATR_STOP_MULTIPLIER}×ATR{ATR_STOP_PERIOD}), 策略上限)", "cap": f"全局封顶{ATR_STOP_CAP_PCT}%", "min": f"下限{ATR_STOP_MIN_PCT}%", "desc": "高波动股ATR大→止损宽, 低波动股ATR小→止损紧"},
+        {"name": "跳空止损分级观察期", "version": "v2.9.118", "formula": "基于pre_close(非avg_cost)", "tiers": [{"range": "微跳<3%", "obs": "30分钟", "hit": "75%可避免假摔"}, {"range": "中跳3-5%", "obs": "10分钟", "hit": "部分可避免"}, {"range": "大跳>5%", "obs": "立即止损", "hit": "极端行情"}], "desc": "防止已亏损持仓被微跳空误杀"},
+        {"name": "快速跌幅紧急止损", "version": "v2.9.124", "formula": "开盘vs当前跌幅>5%且持仓亏损", "action": "立即卖出", "desc": "防止开盘后急跌造成大亏损"},
+        {"name": "分批止盈", "version": "v2.9.118", "formula": f"盈利≥{PARTIAL_TAKE_PROFIT_THRESHOLD:.0f}%时卖{PARTIAL_TAKE_PROFIT_RATIO*100:.0f}%仓位", "desc": "先落袋一半，剩余继续追踪"},
+        {"name": "追踪止损高盈利紧缩", "version": "v2.9.116", "formula": "盈利≥8%时回撤容忍收紧到3%", "desc": "解决6-8%盈利被宽追踪洗出的问题"},
+        {"name": "日内盈利锁定", "version": "v2.9.115", "formula": "日内盈利达到阈值时锁定", "desc": "防止日内盈利回吐"},
+        {"name": "halfway_chase止损收窄", "version": "v2.9.124", "formula": "ATR上限4.5%→3.5%", "desc": "-5%~-8%区间20笔占18.3%, 收窄后跳空穿破最多-4.5%~-5%"},
+    ]
+
     runtime = {}
     if scanner and scanner.is_running():
         try:
@@ -315,6 +362,7 @@ async def get_risk_system():
         "take_profit": take_profit,
         "trailing_stop": trailing_stop,
         "max_hold_days": max_hold_days,
+        "advanced_rules": advanced_rules,
         "ma60_filter": True,
         "sector_top_n": 3,
         "runtime": runtime,

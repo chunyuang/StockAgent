@@ -213,11 +213,13 @@ class SignalManager:
             if not trade_date:
                 return
             td_int = int(trade_date) if str(trade_date).isdigit() else trade_date
-            # 【v2.9.128修复】限定scan_type=full, 避免L9回写到anomaly scan的trace上
+            # 【v2.9.128修复】L9回写定位: 优先找有candidate的trace(无论full还是anomaly)
+            # 之前只查scan_type=full -> 异动扫描的candidate匹配不到 -> execution_status不回写
             latest_trace = await mongo_manager.db["scan_traces"].find_one(
-                {"trade_date": td_int, "scan_type": "full"}, sort=[("scan_time", -1)])
+                {"trade_date": td_int, "candidates.0": {"$exists": True}},
+                sort=[("scan_time", -1)])
             if not latest_trace:
-                # fallback: 无full类型trace时, 仍尝试最新trace(兼容旧数据)
+                # fallback: 无candidate的trace时, 用最新trace
                 latest_trace = await mongo_manager.db["scan_traces"].find_one(
                     {"trade_date": td_int}, sort=[("scan_time", -1)])
             if not latest_trace:

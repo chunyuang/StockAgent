@@ -175,8 +175,9 @@ def compute_technical_factors(td):
             update['rsi_12'] = round(float(talib.RSI(close_arr, timeperiod=12)[-1]), 4)
             update['rsi_24'] = round(float(talib.RSI(close_arr, timeperiod=24)[-1]), 4)
             
-            # MACD
-            macd, macd_signal, macd_hist = talib.MACD(close_arr)
+            # MACD (hist = 2*(DIF-DEA), talib只返回DIF-DEA)
+            macd, macd_signal, macd_hist_raw = talib.MACD(close_arr)
+            macd_hist = macd_hist_raw * 2
             update['macd'] = round(float(macd[-1]), 4)
             update['macd_signal'] = round(float(macd_signal[-1]), 4)
             update['macd_hist'] = round(float(macd_hist[-1]), 4)

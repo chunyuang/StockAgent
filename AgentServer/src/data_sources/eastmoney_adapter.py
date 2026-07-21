@@ -149,7 +149,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
             if data:
                 return data
         except Exception as e:
-            logger.debug(f"[EASTMONEY] push2失败({e}), 尝试push2delay...")
+            logger.info(f"[EASTMONEY] push2失败({e}), 尝试push2delay...")
         
         # push2 失败 → 试 push2delay (延迟接口, 有量比)
         try:
@@ -158,7 +158,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
                 logger.info(f"[EASTMONEY] push2delay回退: {len(data)}只(延迟15s, 含量比)")
                 return data
         except Exception as e:
-            logger.debug(f"[EASTMONEY] push2delay也失败({e})")
+            logger.info(f"[EASTMONEY] push2delay也失败({e})")
         
         raise ConnectionError("push2和push2delay均不可用")
 
@@ -195,14 +195,21 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
                     if ts_code:
                         all_data[ts_code] = self._parse_em_item(item)
 
-        if all_data:
+        # v2.9.128: 校验数据完整性 - 竞价期间push2可能部分页失败/返回空
+        # 导致all_data只有几百只(应5400+), 不抛异常但数据不完整
+        # 不足3000只视为失败, 让上层尝试push2delay回退
+        if len(all_data) >= 3000:
             self._total_stocks = len(all_data)
             self._cache = all_data
             self._cache_time = time.time()
             self._last_fetch_time = time.time()
             self._fetch_count += 1
             return all_data
-        raise ConnectionError(f"{url}返回空数据")
+        
+        fail_count = sum(1 for r in results if isinstance(r, Exception))
+        raise ConnectionError(
+            f"{url}数据不完整: 仅{len(all_data)}只(需≥3000), {fail_count}/{len(results)}页失败"
+        )
 
     async def _fetch_tencent_batch(self) -> Dict[str, Dict]:
         """腾讯行情: 分批拉取(每批最多800只), 回退方案

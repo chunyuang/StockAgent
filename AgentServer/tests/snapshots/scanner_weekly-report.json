@@ -94,6 +94,28 @@
           "pnl": "int"
         }
       }
+    },
+    "20260721": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "first_limit_up": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "int"
+        },
+        "halfway_chase": {
+          "trades": "int",
+          "sell_count": "int",
+          "amount": "float",
+          "wins": "int",
+          "pnl": "float"
+        }
+      }
     }
   },
   "strategy_summary": {
@@ -111,6 +133,14 @@
       "amount": "float",
       "wins": "int",
       "pnl": "float",
+      "win_rate": "float"
+    },
+    "first_limit_up": {
+      "trades": "int",
+      "sell_count": "int",
+      "amount": "float",
+      "wins": "int",
+      "pnl": "int",
       "win_rate": "float"
     }
   },

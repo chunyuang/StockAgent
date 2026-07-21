@@ -3,29 +3,13 @@
   "account": {
     "total_assets": "float",
     "available_cash": "float",
-    "market_value": "float",
+    "market_value": "int",
     "total_profit": "float",
     "position_ratio": "float",
     "position_count": "int"
   },
   "positions": [
-    {
-      "ts_code": "str",
-      "stock_name": "str",
-      "strategy": "str",
-      "shares": "int",
-      "available_qty": "int",
-      "cost_price": "float",
-      "current_price": "float",
-      "profit_pct": "float",
-      "market_value": "float",
-      "stop_loss_price": "float",
-      "take_profit_price": "float",
-      "stop_loss_pct": "float",
-      "take_profit_pct": "float",
-      "distance_to_stop": "float",
-      "is_t1_locked": "bool"
-    }
+    "<empty_list>"
   ],
   "trade_stats": {
     "total_trades": "int",

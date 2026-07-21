@@ -12,8 +12,8 @@
       "buy_time": "str",
       "sell_time": "str",
       "sell_reason": "str",
-      "why_profit": "str",
-      "why_loss": "NoneType",
+      "why_profit": "NoneType",
+      "why_loss": "str",
       "scan_info": {
         "scan_time": "str",
         "sentiment": "str",

@@ -131,8 +131,9 @@ def precompute_factors(trade_date: int):
                     update['rsi_12'] = round(float(rsi12[-1]), 3)
             
             if len(close_arr) >= 26:
-                # MACD
-                macd, macd_signal, macd_hist = talib.MACD(close_arr)
+                # MACD (hist = 2*(DIF-DEA), talib只返回DIF-DEA)
+                macd, macd_signal, macd_hist_raw = talib.MACD(close_arr)
+                macd_hist = macd_hist_raw * 2
                 if pd.notna(macd[-1]):
                     update['macd'] = round(float(macd[-1]), 4)
                 if pd.notna(macd_signal[-1]):
