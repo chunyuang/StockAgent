@@ -46,6 +46,9 @@ KEY_FACTORS = [
     
     # 新修复的因子（通过 _compute_factors_for_stock 计算）
     "volume_increase", "market_leader", "hot_sector", "sentiment_score",
+    
+    # 从limit_list合并的字段
+    "limit_times",
 ]
 
 def precompute_factors(trade_date: int):
@@ -233,12 +236,12 @@ def precompute_factors(trade_date: int):
             if ma5_val and ma5_val > 0:
                 update['pullback_ma5'] = 1 if (low_val <= ma5_val and close_val >= ma5_val) else 0
         
-        # 使用_factor_auto_compute中的函数计算新修复的因子
+        # 使用_factor_auto_compute中的函数计算新修复的因子(except market_leader)
         try:
             from nodes.backtest_engine.factor_selection.factor_auto_compute import _compute_factors_for_stock
             
-            # 计算新修复的因子
-            new_factors = ['volume_increase', 'market_leader', 'hot_sector', 'sentiment_score']
+            # market_leader需要同日全市场排名，不在单股时序中计算
+            new_factors = ['volume_increase', 'hot_sector', 'sentiment_score']
             factor_result = _compute_factors_for_stock(group, new_factors)
             
             # 取目标日期的因子值
@@ -280,9 +283,83 @@ def precompute_factors(trade_date: int):
         r = db.stock_daily_ak_full.bulk_write(results, ordered=False)
         print(f"  更新{r.modified_count}条因子, 耗时{time.time()-t1:.1f}s")
     
+    # 5. 同日全市场排名计算market_leader(必须在所有股票因子写入后)
+    _compute_market_leader_cross_section(db, trade_date, df)
+    
+    # 6. 从limit_list合并limit_times到ak_full
+    _merge_limit_times_from_limit_list(db, trade_date)
+    
     total_time = time.time() - t0
     print(f"  总耗时: {total_time:.1f}s")
     return len(results)
+
+def _compute_market_leader_cross_section(db, trade_date: int, df: pd.DataFrame):
+    """同日全市场排名计算market_leader: 涨幅+成交量双前10%"""
+    # 从完整DataFrame中筛选目标日(如果有trade_date列), 否则整个df就是目标日数据
+    if 'trade_date' in df.columns:
+        day_df = df[df['trade_date'] == trade_date].copy()
+    else:
+        day_df = df.copy()
+    
+    if len(day_df) < 10:
+        return
+    
+    day_df['pct_chg'] = pd.to_numeric(day_df['pct_chg'], errors='coerce').fillna(0)
+    day_df['vol'] = pd.to_numeric(day_df.get('vol', 0), errors='coerce').fillna(0)
+    
+    pct_chg_rank = day_df['pct_chg'].rank(pct=True)
+    vol_rank = day_df['vol'].rank(pct=True)
+    day_df['market_leader'] = (pct_chg_rank > 0.9) & (vol_rank > 0.9)
+    
+    ops = []
+    for _, row in day_df.iterrows():
+        is_leader = bool(row['market_leader'])
+        ops.append(UpdateOne(
+            {'ts_code': row['ts_code'], 'trade_date': trade_date},
+            {'$set': {'market_leader': is_leader}},
+            upsert=False,
+        ))
+    
+    if ops:
+        r = db.stock_daily_ak_full.bulk_write(ops, ordered=False)
+        leader_count = sum(1 for _, row in day_df.iterrows() if row['market_leader'])
+        print(f"  market_leader: {leader_count}只龙头 (全市场排名)")
+
+
+def _merge_limit_times_from_limit_list(db, trade_date: int):
+    """从limit_list集合合并limit_times(连板数)到stock_daily_ak_full"""
+    limit_data = {}
+    for doc in db.limit_list.find({'trade_date': trade_date}, {'ts_code': 1, 'limit_times': 1}):
+        limit_data[doc['ts_code']] = doc.get('limit_times', 0) or 0
+    
+    if not limit_data:
+        # 无涨停跌停数据时，全部设为0
+        db.stock_daily_ak_full.update_many(
+            {'trade_date': trade_date, 'limit_times': None},
+            {'$set': {'limit_times': 0}}
+        )
+        return
+    
+    # 有limit_times的股票
+    ops = []
+    for ts_code, lt in limit_data.items():
+        ops.append(UpdateOne(
+            {'trade_date': trade_date, 'ts_code': ts_code},
+            {'$set': {'limit_times': lt}},
+            upsert=False,
+        ))
+    
+    if ops:
+        r = db.stock_daily_ak_full.bulk_write(ops, ordered=False)
+    
+    # 非涨停票设为0
+    db.stock_daily_ak_full.update_many(
+        {'trade_date': trade_date, 'ts_code': {'$nin': list(limit_data.keys())}, 'limit_times': None},
+        {'$set': {'limit_times': 0}}
+    )
+    
+    print(f"  limit_times: 合并{len(limit_data)}只涨停/跌停, 其余设为0")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

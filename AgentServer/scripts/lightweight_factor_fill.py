@@ -215,6 +215,11 @@ async def compute_limit_flags(trade_dates: list[int]):
         ):
             cur_limit_up.add(doc['ts_code'])
         
+        # 从limit_list获取limit_times(连板数)
+        limit_times_map = {}
+        async for doc in db['limit_list'].find({'trade_date': td}, {'ts_code': 1, 'limit_times': 1}):
+            limit_times_map[doc['ts_code']] = doc.get('limit_times', 0) or 0
+        
         # 更新当天数据
         ops = []
         cursor = db['stock_daily_ak_full'].find({'trade_date': td}, {'ts_code': 1, '_id': 0})
@@ -225,9 +230,14 @@ async def compute_limit_flags(trade_dates: list[int]):
                 'limit_down_yesterday': 1 if ts_code in prev_limit_down else 0,
                 'first_limit_up': 1 if (ts_code in cur_limit_up and ts_code not in prev_limit_up) else 0,
                 'hot_sector': 0,
-                'market_leader': None,
+                'market_leader': False,  # 占位,后续Step 7.5全市场排名覆盖
                 'sentiment_score': 0.5,  # 市场级，回测引擎会覆盖
             }
+            # 从limit_list合并limit_times
+            if ts_code in limit_times_map:
+                update['limit_times'] = limit_times_map[ts_code]
+            else:
+                update['limit_times'] = 0
             ops.append(UpdateOne(
                 {'ts_code': ts_code, 'trade_date': td},
                 {'$set': update}
@@ -389,6 +399,55 @@ async def compute_limit_up_count(trade_dates: list[int]):
         if ops:
             result = await db['stock_daily_ak_full'].bulk_write(ops)
             print(f"  {td}: limit_up_count computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+
+
+async def compute_market_leader(trade_dates: list[int]):
+    """同日全市场排名计算market_leader: 涨幅+成交量双前10%"""
+    await mongo_manager.initialize()
+    db = mongo_manager.db
+    
+    for td in trade_dates:
+        t0 = time.time()
+        
+        # 读取该日所有股票的pct_chg和vol
+        cursor = db['stock_daily_ak_full'].find(
+            {'trade_date': td},
+            {'ts_code': 1, 'pct_chg': 1, 'vol': 1, '_id': 0}
+        )
+        
+        docs = []
+        async for doc in cursor:
+            docs.append(doc)
+        
+        if len(docs) < 10:
+            continue
+        
+        # 计算排名百分位
+        pct_chgs = [float(d.get('pct_chg', 0) or 0) for d in docs]
+        vols = [float(d.get('vol', 0) or 0) for d in docs]
+        
+        import numpy as np
+        pct_chg_arr = np.array(pct_chgs, dtype=float)
+        vol_arr = np.array(vols, dtype=float)
+        
+        pct_chg_rank = pct_chg_arr.argsort().argsort() / max(len(pct_chg_arr) - 1, 1)
+        vol_rank = vol_arr.argsort().argsort() / max(len(vol_arr) - 1, 1)
+        
+        # market_leader: 双前10%
+        ops = []
+        leader_count = 0
+        for i, doc in enumerate(docs):
+            is_leader = bool(pct_chg_rank[i] > 0.9 and vol_rank[i] > 0.9)
+            if is_leader:
+                leader_count += 1
+            ops.append(UpdateOne(
+                {'ts_code': doc['ts_code'], 'trade_date': td},
+                {'$set': {'market_leader': is_leader}}
+            ))
+        
+        if ops:
+            result = await db['stock_daily_ak_full'].bulk_write(ops)
+            print(f"  {td}: market_leader={leader_count}只龙头, updated={result.modified_count} ({time.time()-t0:.1f}s)")
 
 
 async def compute_pullback(trade_dates: list[int]):
@@ -605,7 +664,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
         'is_limit_up', 'is_limit_down',
         'opening_pct_chg', 'open_above_limit',
         'intraday_max_rise_pct', 'intraday_open_rise_pct',
-        'limit_up_count',
+        'limit_up_count', 'limit_times',
         'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
     ]
     
@@ -675,6 +734,9 @@ async def main():
     print("\n=== Step 5: Compute limit_up_count (连板数) ===")
     await compute_limit_up_count(trade_dates)
     
+    print("\n=== Step 5.5: Compute market_leader (同日全市场排名) ===")
+    await compute_market_leader(trade_dates)
+    
     print("\n=== Step 6: Compute pullback_pct ===")
     await compute_pullback(trade_dates)
     
@@ -696,7 +758,7 @@ async def main():
             {'trade_date': td},
             {'ts_code': 1, 'ma5': 1, 'ma10': 1, 'macd': 1, 'rsi_6': 1, 'boll_upper': 1, 'atr': 1,
              'turnover_rate': 1, 'is_limit_up': 1, 'opening_pct_chg': 1, 'open_above_limit': 1,
-             'intraday_max_rise_pct': 1, 'limit_up_count': 1, 'pullback_pct': 1, 'fear_greed_index': 1, '_id': 0}
+             'intraday_max_rise_pct': 1, 'limit_up_count': 1, 'limit_times': 1, 'pullback_pct': 1, 'fear_greed_index': 1, '_id': 0}
         )
         if sample:
             print(f"  {td}: {sample}")
