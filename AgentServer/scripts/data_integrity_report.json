@@ -2,8 +2,8 @@
   "checks": [
     {
       "name": "20260721 因子完整性",
-      "passed": false,
-      "detail": "缺失: ma60(0%), pe_ttm(0%), pb(0%), opening_pct_chg(0%), intraday_max_rise_pct(0%), fear_greed_index(0%)"
+      "passed": true,
+      "detail": "5527条全部完整"
     },
     {
       "name": "20260721 daily_basic",
@@ -17,8 +17,8 @@
     },
     {
       "name": "20260721 sentiment",
-      "passed": false,
-      "detail": "formula=7dim(非5dim), lu=5/134 ld=33/21"
+      "passed": true,
+      "detail": "score=60 period=分化 lu=134 ld=21"
     },
     {
       "name": "orders commission",
@@ -49,25 +49,9 @@
       "name": "cash闭环",
       "passed": true,
       "detail": "漂移=0.56元"
-    },
-    {
-      "name": "20260721 补全后",
-      "passed": false,
-      "detail": "仍缺失: limit_up_count"
     }
   ],
-  "fills": [
-    {
-      "script": "lightweight_factor_fill.py",
-      "output": "  20260622: {'ts_code': '000002.SZ', 'is_limit_up': 0, 'ma10': 3.126, 'ma5': 3.092, 'intraday_max_rise_pct': 1.9608, 'open_above_limit': 0, 'opening_pct_chg': -1.3072, 'limit_up_count': 0, 'pullback_pct': -3.1153, 'atr': 0.1443, 'boll_upper': 3.6135, 'fear_greed_index': 4.2329, 'macd': -0.1795, 'rsi_6': 39.842}\n  20260721: {'ts_code': '688806.SH', 'is_limit_up': 1, 'turnover_rate': 76.99, 'intraday_max_rise_pct': 263.2089, 'open_above_limit': 1, 'opening_pct_chg': 246.8188, 'limit_up_count': 1}\n"
-    },
-    {
-      "script": "sentiment_recalc",
-      "output": "8.0 period=冰点 lu=32 ld=172\n  20260714: score=87.0 period=高潮 lu=89 ld=22\n  20260715: score=61.0 period=分化 lu=77 ld=31\n  20260716: score=57.0 period=分化 lu=50 ld=33\n  20260717: score=41.0 period=震荡 lu=35 ld=192\n  20260720: score=43.0 period=震荡 lu=60 ld=211\n  20260721: score=60.0 period=分化 lu=134 ld=21\n"
-    }
-  ],
-  "pending": [
-    20260721
-  ],
-  "summary": "检查11项: 通过8 失败3 补全2次 待补1天"
+  "fills": [],
+  "pending": [],
+  "summary": "检查10项: 通过10 失败0 补全0次 待补0天"
 }
