@@ -33,11 +33,10 @@
     "top_industry_concentration": "float",
     "industry_exposure": {
       "专用机械": "float",
-      "农用机械": "float",
-      "普钢": "float",
-      "电气设备": "float",
-      "机械基件": "float",
-      "医疗保健": "float"
+      "电器仪表": "float",
+      "铅锌": "float",
+      "机床制造": "float",
+      "互联网": "float"
     },
     "position_count": "int",
     "stop_loss_exec_rate": "float",

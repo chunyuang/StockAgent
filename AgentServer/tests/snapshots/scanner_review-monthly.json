@@ -7,17 +7,17 @@
     "pnl": "float"
   },
   "strategy_stats": {
+    "first_limit_up": {
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "float"
+    },
     "halfway_chase": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"
     },
     "dragon_head": {
-      "trades": "int",
-      "win_rate": "float",
-      "pnl": "float"
-    },
-    "first_limit_up": {
       "trades": "int",
       "win_rate": "float",
       "pnl": "float"

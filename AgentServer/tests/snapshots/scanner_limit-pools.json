@@ -8,7 +8,7 @@
       "limit_times": "int",
       "open_times": "int",
       "fd_amount": "int",
-      "turnover": "float",
+      "turnover": "int",
       "first_time": "str",
       "industry": "str"
     }
@@ -22,7 +22,7 @@
       "limit_times": "int",
       "open_times": "int",
       "fd_amount": "int",
-      "turnover": "float",
+      "turnover": "int",
       "first_time": "str",
       "industry": "str"
     }
