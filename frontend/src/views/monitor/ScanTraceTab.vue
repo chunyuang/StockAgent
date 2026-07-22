@@ -351,12 +351,24 @@ function shortRejectionReason(reason: string): string {
 const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
 
 // 挂载时自动加载日期数据(用于日期选择器高亮)
-// 并自动选择最近有数据的日期加载扫描历史
+// 并自动选择今天日期(即使今天还没开盘); 如果今天没数据则回退到最近有数据日期
 onMounted(async () => {
   const dates = await fetchScanTraceDates()
-  if (!scanTraceDate.value && dates?.length) {
-    const latestDate = dates[0]?.date || dates[0]
-    scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+  // 默认选今天
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+  const todayYYYYMMDD = todayStr.replace(/-/g, '')
+  const hasTodayData = dates?.some((d: any) => String(d.date || d) === todayYYYYMMDD)
+  if (!scanTraceDate.value) {
+    if (hasTodayData) {
+      scanTraceDate.value = todayStr
+    } else if (dates?.length) {
+      // 今天没数据,回退到最近有数据的日期
+      const latestDate = dates[0]?.date || dates[0]
+      scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+    } else {
+      scanTraceDate.value = todayStr
+    }
     fetchScanHistory()
   }
   // 【v2.9.110】盘前竞价数据可能还未加载,触发一次

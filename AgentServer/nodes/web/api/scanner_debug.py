@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Scanner API - 调试/模拟/热更新"""
+from datetime import datetime as _dt
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter
@@ -433,6 +434,8 @@ async def debug_premarket_sim(date: str = None):
             if (rt.get("volume_ratio") or 0) >= 2: market_snapshot["volume_ratio_gt2"] += 1
         market_snapshot["total_stocks"] = len(pct_list)
         market_snapshot["avg_pct_chg"] = round(sum(pct_list) / len(pct_list), 2) if pct_list else 0
+        # realtime_cache路径也要设置data_date
+        market_snapshot["data_date"] = _dt.now().strftime("%Y%m%d")
     elif scanner._daily_factors_df is not None and len(scanner._daily_factors_df) > 0:
         # 用日级因子填充(非交易时间)
         cache_source = "daily_factors"
@@ -450,17 +453,20 @@ async def debug_premarket_sim(date: str = None):
             market_snapshot["total_stocks"] = len(pcts)
         if 'volume_ratio' in df.columns:
             market_snapshot["volume_ratio_gt2"] = int((df['volume_ratio'].fillna(0) >= 2).sum())
-        # 标记数据日期(从MongoDB读最新日期)
-        if not market_snapshot.get("data_date") and mongo_manager.is_initialized:
-            try:
-                latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
-                    {"trade_date": {"$exists": True}}, sort=[("trade_date", -1)],
-                    projection={"trade_date": 1}
-                )
-                if latest and latest.get("trade_date"):
-                    market_snapshot["data_date"] = str(latest["trade_date"])
-            except Exception:
-                pass
+        # 标记数据日期(优先用target_date参数, 否则从MongoDB读最新日期)
+        if not market_snapshot.get("data_date"):
+            if date:
+                market_snapshot["data_date"] = date.replace("-", "")
+            elif mongo_manager.is_initialized:
+                try:
+                    latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                        {"trade_date": {"$exists": True}}, sort=[("trade_date", -1)],
+                        projection={"trade_date": 1}
+                    )
+                    if latest and latest.get("trade_date"):
+                        market_snapshot["data_date"] = str(latest["trade_date"])
+                except Exception:
+                    pass
     
     # ===== 情绪(从MongoDB读最新) =====
     sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}

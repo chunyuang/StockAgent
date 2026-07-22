@@ -732,11 +732,12 @@ async def get_discipline_check(date: str = None):
             raw_period = _en_to_cn_period[raw_period]  # 英文转中文
 
         # 策略-情绪适配规则(统一用中文key)
+        # 【v2.9.125】与L3情绪周期逻辑对齐: 震荡期允许半路追涨(仓位50%)
         strategy_fit = {
-            "halfway_chase": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
-            "first_limit_up": {"高潮": True, "分化": False, "震荡": False, "冰点": False},
+            "halfway_chase": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
+            "first_limit_up": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
             "limit_down_qiao": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
-            "dragon_head": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
+            "dragon_head": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
         }
 
         violations = []
@@ -751,20 +752,33 @@ async def get_discipline_check(date: str = None):
             total_actions += 1
             strat = _norm_strat(doc.get("strategy", ""))  # 归一化:anomaly_surge→halfway_chase
             fit = strategy_fit.get(strat, {})
-            is_fit = fit.get(raw_period, True)  # 未知策略默认合规
 
-            # 冰点期禁止开仓
-            if raw_period in ["BEARISH", "冰点", "bearish"]:
+            # 【v2.9.125修复】用订单decision_trace中记录的盘中情绪判断违纪
+            # 而非盘后5维回溯(盘中买入时情绪可能=震荡46分, 收盘后变冰点27分, 不应算违纪)
+            trace = doc.get("decision_trace", {}) or {}
+            trace_sent = trace.get("sentiment", {}) or {}
+            trace_period = trace_sent.get("period", "")  # 盘中当时的阶段(英文)
+            trace_score = trace_sent.get("score", 0)      # 盘中当时的分数
+            # 如果有盘中情绪, 优先用; 否则fallback到盘后
+            check_period = trace_period if trace_period else raw_period
+            check_score = trace_score if trace_score else sentiment_score
+            # 归一化:英文→中文
+            _en2cn = {"rising": "高潮", "RISING": "高潮", "differentiation": "分化", "DIFFERENTIATION": "分化",
+                      "chaos": "震荡", "CHAOS": "震荡", "bearish": "冰点", "BEARISH": "冰点"}
+            check_period_cn = _en2cn.get(check_period, check_period)
+            is_fit = fit.get(check_period_cn, True)  # 未知策略默认合规
+
+            if check_period_cn == "冰点":
                 violations.append({
                     "ts_code": doc.get("ts_code",""), "strategy": strat, "side": "buy",
                     "violation": "冰点期禁止开仓", "severity": "high",
-                    "detail": f"情绪{sentiment_score:.0f}分处于冰点,不应买入"
+                    "detail": f"买入时情绪{check_score:.0f}分处于冰点,不应买入"
                 })
             elif not is_fit:
                 violations.append({
                     "ts_code": doc.get("ts_code",""), "strategy": strat, "side": "buy",
                     "violation": "情绪不匹配", "severity": "medium",
-                    "detail": f"{raw_period}期不适合做{strat}"
+                    "detail": f"{check_period_cn}期不适合做{strat}"
                 })
             else:
                 correct_actions += 1

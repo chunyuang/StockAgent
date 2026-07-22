@@ -31,6 +31,7 @@ import {
   Box,
   TrendCharts,
   Search,
+  Sunrise,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useTaskStore, useThemeStore } from '@/stores'
@@ -58,6 +59,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/stop-loss')) return '/stop-loss-analysis'
   if (path.startsWith('/signal-trace')) return '/signal-trace'
   if (path.startsWith('/scan-insight')) return '/scan-insight'
+  if (path.startsWith('/sentiment-pulse')) return '/sentiment-pulse'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
   return path
 })
@@ -74,6 +76,7 @@ const menuItems = [
   { path: '/stop-loss-analysis', icon: Setting, title: '止损止盈' },
   { path: '/signal-trace', icon: TrendCharts, title: '信号追踪' },
   { path: '/scan-insight', icon: Search, title: '数据扫描' },
+  { path: '/sentiment-pulse', icon: Sunrise, title: '情绪脉搏' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 

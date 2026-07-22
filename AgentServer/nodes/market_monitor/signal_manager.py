@@ -497,7 +497,7 @@ class SignalManager:
                     f"({existing.strategy or ''}策略持有中)"
                 )
             else:
-                block_reason = f"已有持仓, 跳过"
+                block_reason = "已有持仓, 跳过"
             _set_rejected(sig, block_reason, "skipped")
             self._add_timeline_log("skip", sig.ts_code, sig.stock_name,
                 sig.strategy_name, block_reason, sig)

@@ -83,6 +83,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据扫描' },
       },
       {
+        path: 'sentiment-pulse',
+        name: 'SentimentPulse',
+        component: () => import('@/views/sentiment-pulse/SentimentPulseView.vue'),
+        meta: { title: '情绪脉搏' },
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/SettingsView.vue'),
