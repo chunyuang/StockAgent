@@ -165,6 +165,10 @@ def _aggregate_to_buckets(
 async def get_intraday_timeline(db, date: str, data_mode: str = "production") -> Dict[str, Any]:
     """获取日内情绪时间线数据(新版: 多指标+结构化维度)"""
     
+    # 【v2.9.122修复】中英文period映射(与daily/weekly/monthly模式一致)
+    _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+                 "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
+
     # 1. 收集所有scan_traces, 解析涨跌停+情绪
     raw_points = []
     async for doc in db["scan_traces"].find(
@@ -184,10 +188,29 @@ async def get_intraday_timeline(db, date: str, data_mode: str = "production") ->
             limit_up = l1["limit_up"]
             limit_down = l1["limit_down"]
         
+        # 【v2.9.122修复】period英文→中文统一; 空period从score推断
+        raw_period = l3.get("period", "")
+        cn_period = _en_to_cn.get(raw_period, raw_period)
+        _cn_periods = {"高潮", "分化", "震荡", "冰点"}
+        if cn_period not in _cn_periods and l3.get("score") is not None:
+            # 非标准period: 根据score推断(与sentiment-timeline daily模式一致)
+            try:
+                from nodes.web.api.scanner_sentiment import _get_effective_sentiment_thresholds
+                _th = _get_effective_sentiment_thresholds()
+                sc = l3["score"] or 0
+                if sc >= _th["rising"]: cn_period = "高潮"
+                elif sc >= _th["differentiation"]: cn_period = "分化"
+                elif sc >= _th["chaos"]: cn_period = "震荡"
+                else: cn_period = "冰点"
+            except Exception:
+                cn_period = cn_period or "震荡"  # 最终fallback
+        elif not cn_period:
+            cn_period = "震荡"  # 无score也无period的极端情况
+        
         raw_points.append({
             "time": doc.get("scan_time", "")[:19],
             "score": l3["score"],
-            "period": l3["period"],
+            "period": cn_period,
             "position_ratio": l3["position_ratio"],
             "formula": l3.get("formula", ""),
             "limit_up": limit_up,
