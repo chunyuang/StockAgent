@@ -26,17 +26,18 @@ function strategyColor(s: string): string {
 function getFactorDetails(stock: any) {
   const f = stock.factors || {}
   const mv = (f.circ_mv || 0) / 10000, pb = (f.pullback_pct || 0) * 100, opPct = f.opening_pct_chg || 0
+  const safe = (v: number|undefined, d: number) => v != null ? v : d
   return [
-    { label: '涨幅', value: `${f.pct_chg?.toFixed(1)||'-'}%`, cls: (f.pct_chg||0)>0?'up':'down' },
-    { label: '量比', value: `${f.volume_ratio?.toFixed(1)||'-'}x`, cls: (f.volume_ratio||0)>5?'warn':'' },
-    { label: '换手率', value: `${f.turnover_rate?.toFixed(1)||'-'}%`, cls: (f.turnover_rate||0)>5?'warn':'' },
-    { label: '流通市值', value: `${mv.toFixed(0)}亿` },
-    { label: 'MA5偏离', value: `${pb.toFixed(1)}%`, cls: pb<-3?'down':'' },
-    { label: 'RSI6', value: `${f.rsi_6?.toFixed(0)||'-'}`, cls: (f.rsi_6||50)>80?'warn':'' },
-    { label: '开盘涨幅', value: `${opPct.toFixed(1)}%`, cls: opPct>2?'warn':opPct<0?'up':'', desc: opPct>2?'高开追高风险':opPct<-1?'低开冲高较优':'' },
+    { label: '涨幅', value: `${f.pct_chg!=null?f.pct_chg.toFixed(1):'-'}%`, cls: (f.pct_chg||0)>0?'up':'down' },
+    { label: '量比', value: `${f.volume_ratio!=null?f.volume_ratio.toFixed(1):'-'}x`, cls: (f.volume_ratio||0)>5?'warn':'' },
+    { label: '换手率', value: `${f.turnover_rate!=null?f.turnover_rate.toFixed(1):'-'}%`, cls: (f.turnover_rate||0)>5?'warn':'' },
+    { label: '流通市值', value: `${(mv||0).toFixed(0)}亿` },
+    { label: 'MA5偏离', value: `${(pb||0).toFixed(1)}%`, cls: pb<-3?'down':'' },
+    { label: 'RSI6', value: `${f.rsi_6!=null?f.rsi_6.toFixed(0):'-'}`, cls: (f.rsi_6||50)>80?'warn':'' },
+    { label: '开盘涨幅', value: `${(opPct||0).toFixed(1)}%`, cls: opPct>2?'warn':opPct<0?'up':'', desc: opPct>2?'高开追高风险':opPct<-1?'低开冲高较优':'' },
     { label: '恐贪指数', value: f.fear_greed_index!=null?f.fear_greed_index.toFixed(1):'-', cls: (f.fear_greed_index||5)<3?'up':'' },
-    { label: '开盘价', value: `¥${f.open?.toFixed(2)||'-'}` }, { label: '最高价', value: `¥${f.high?.toFixed(2)||'-'}` },
-    { label: '最低价', value: `¥${f.low?.toFixed(2)||'-'}` }, { label: '昨收价', value: `¥${f.pre_close?.toFixed(2)||'-'}` },
+    { label: '开盘价', value: f.open!=null?`¥${f.open.toFixed(2)}`:'-' }, { label: '最高价', value: f.high!=null?`¥${f.high.toFixed(2)}`:'-' },
+    { label: '最低价', value: f.low!=null?`¥${f.low.toFixed(2)}`:'-' }, { label: '昨收价', value: f.pre_close!=null?`¥${f.pre_close.toFixed(2)}`:'-' },
     { label: 'MA5', value: `¥${f.ma5?.toFixed(2)||'-'}` }, { label: 'ATR', value: f.atr?.toFixed(2)||'-' },
     { label: 'MACD', value: f.macd?.toFixed(3)||'-' }, { label: '连板数', value: `${f.limit_up_count||0}` },
     { label: '是否涨停', value: f.is_limit_up?'是':'否' },

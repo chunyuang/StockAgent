@@ -123,7 +123,7 @@ const monthStats = computed(() => {
     .map(([k, v]) => ({
       label: `${k.slice(0, 4)}/${k.slice(4, 6)}`,
       count: v.count,
-      avg: (v.avg / v.count).toFixed(1),
+      avg: v.count > 0 ? (v.avg / v.count).toFixed(1) : '0.0',
       hot: v.hot,
       cold: v.cold,
     }))
