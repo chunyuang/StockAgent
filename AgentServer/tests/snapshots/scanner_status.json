@@ -33,7 +33,7 @@
   "account": {
     "total_assets": "float",
     "available_cash": "float",
-    "market_value": "float",
+    "market_value": "int",
     "total_profit": "float"
   },
   "stats": {

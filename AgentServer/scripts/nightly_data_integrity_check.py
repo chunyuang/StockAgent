@@ -262,6 +262,13 @@ for td in sorted(set(doc['trade_date'] for doc in db['sentiment_scores'].find({}
             total = db["stock_daily_ak_full"].count_documents({"trade_date": td})
             missing = []
             for field, threshold in factor_fields.items():
+                if field in ('is_limit_up', 'limit_up_count'):
+                    # 这些字段只对涨停票有意义，单独检查
+                    lu_total = db["stock_daily_ak_full"].count_documents({"trade_date": td, "is_limit_up": 1})
+                    lu_has = db["stock_daily_ak_full"].count_documents({"trade_date": td, "is_limit_up": 1, field: {"$exists": True, "$ne": 0}})
+                    if lu_total > 0 and lu_has < lu_total * 0.9:
+                        missing.append(field)
+                    continue
                 cnt = db["stock_daily_ak_full"].count_documents({"trade_date": td, field: {"$exists": True, "$ne": 0}})
                 if total > 0 and cnt / total < threshold:
                     missing.append(field)
