@@ -1,29 +1,29 @@
 {
   "checks": [
     {
-      "name": "20260721 因子完整性",
-      "passed": true,
-      "detail": "5527条全部完整"
+      "name": "20260722 因子完整性",
+      "passed": false,
+      "detail": "缺失: ma60(0%), pe_ttm(0%), pb(0%), opening_pct_chg(0%), intraday_max_rise_pct(0%), fear_greed_index(0%)"
     },
     {
-      "name": "20260721 daily_basic",
+      "name": "20260722 daily_basic",
       "passed": true,
-      "detail": "5527条, 完整"
+      "detail": "5528条, 完整"
     },
     {
-      "name": "20260721 limit_list",
-      "passed": true,
-      "detail": "涨停=134(ak:141) 跌停=21 总=155 差异=7(<=15正常)"
+      "name": "20260722 limit_list",
+      "passed": false,
+      "detail": "涨停=12(ak:52) 跌停=6 总=18 差异=40(<=15正常)"
     },
     {
-      "name": "20260721 sentiment",
-      "passed": true,
-      "detail": "score=60 period=分化 lu=134 ld=21"
+      "name": "20260722 sentiment",
+      "passed": false,
+      "detail": "lu不匹配(11/12) ld不匹配(7/6)"
     },
     {
       "name": "orders commission",
       "passed": true,
-      "detail": "0/255笔无commission"
+      "detail": "0/268笔无commission"
     },
     {
       "name": "orders stamp_duty",
@@ -38,20 +38,36 @@
     {
       "name": "positions market_value",
       "passed": true,
-      "detail": "0/7只无market_value"
+      "detail": "0/6只无market_value"
     },
     {
       "name": "positions stop_loss",
       "passed": true,
-      "detail": "0/7只无stop_loss_price"
+      "detail": "0/6只无stop_loss_price"
     },
     {
       "name": "cash闭环",
       "passed": true,
-      "detail": "漂移=0.56元"
+      "detail": "漂移=0.55元"
+    },
+    {
+      "name": "20260722 补全后",
+      "passed": false,
+      "detail": "仍缺失: is_limit_up, limit_up_count"
     }
   ],
-  "fills": [],
-  "pending": [],
-  "summary": "检查10项: 通过10 失败0 补全0次 待补0天"
+  "fills": [
+    {
+      "script": "lightweight_factor_fill.py",
+      "output": "', 'is_limit_up': 0, 'ma10': 3.126, 'ma5': 3.092, 'intraday_max_rise_pct': 1.9608, 'open_above_limit': 0, 'opening_pct_chg': -1.3072, 'limit_up_count': 0, 'pullback_pct': -3.1153, 'atr': 0.1443, 'boll_upper': 3.6135, 'fear_greed_index': 4.2329, 'macd': -0.1795, 'rsi_6': 39.842, 'limit_times': 0}\n  20260722: {'ts_code': '920079.SH', 'is_limit_up': 1, 'turnover_rate': 94.38, 'limit_times': 1, 'intraday_max_rise_pct': 65.5989, 'open_above_limit': 1, 'opening_pct_chg': 10.0279, 'limit_up_count': 1}\n"
+    },
+    {
+      "script": "sentiment_recalc",
+      "output": "=87.0 period=高潮 lu=89 ld=22\n  20260715: score=61.0 period=分化 lu=77 ld=31\n  20260716: score=57.0 period=分化 lu=50 ld=33\n  20260717: score=41.0 period=震荡 lu=35 ld=192\n  20260720: score=43.0 period=震荡 lu=60 ld=211\n  20260721: score=60.0 period=分化 lu=134 ld=21\n  20260722: score=31.0 period=冰点 lu=12 ld=6\n"
+    }
+  ],
+  "pending": [
+    20260722
+  ],
+  "summary": "检查11项: 通过7 失败4 补全2次 待补1天"
 }
