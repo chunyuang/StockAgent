@@ -201,6 +201,7 @@ async def get_all_scanner_data(date: str = None, mode: str = "production", inclu
                         entry = {
                             "ts_code": tc,
                             "stock_name": sell.get("stock_name", ""),
+                            "strategy": sell.get("strategy", "") or (buy.get("strategy", "") if buy else ""),
                             "buy_time": (buy.get("create_time") or buy.get("fill_time") or "") if buy else "",
                             "buy_price": round(buy_price, 2),
                             "buy_qty": buy_qty,
@@ -416,6 +417,32 @@ async def get_scanner_status():
     # 前端兼容字段(Pinia store refreshFromApi期望的字段名)
     status["sentiment"] = status.get("filter_pipeline", {}).get("sentiment", None)
     status["position_ratio"] = status.get("filter_pipeline", {}).get("position_ratio", 1.0)
+    
+    # 【v2.9.128】补充情绪维度明细(涨停/跌停/炸板等), 供前端仓位决策信息条展示
+    sent = status.get("filter_pipeline", {}).get("sentiment", {})
+    if sent and not sent.get("dimensions"):
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                today_int_v = int(datetime.now().strftime('%Y%m%d'))
+                doc = await mongo_manager.db["sentiment_live_log"].find_one(
+                    {"trade_date": today_int_v}, sort=[("timestamp", -1)]
+                )
+                if doc:
+                    sent["dimensions"] = {
+                        "limit_up": doc.get("limit_up", 0),
+                        "limit_down": doc.get("limit_down", 0),
+                        "broken": doc.get("broken", 0),
+                        "max_continue": doc.get("max_continue", 0),
+                        "momentum": doc.get("momentum", 0),
+                        "up_down_ratio": doc.get("up_down_ratio", 0),
+                    }
+                    if not sent.get("score"):
+                        sent["score"] = doc.get("score", 50)
+                    if not sent.get("period"):
+                        sent["period"] = doc.get("phase", "chaos")
+        except Exception:
+            pass
     
     # 【v2.9.86修复】添加完整持仓列表+账户详情, 供REST轮询全量刷新
     # 之前positions只返回数量(数字), 导致前端refreshFromApi把数组覆盖为数字

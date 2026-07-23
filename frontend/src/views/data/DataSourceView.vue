@@ -1585,9 +1585,7 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .data-source-page {
-  padding: 24px;
-  max-width: 1400px;
-  margin: 0 auto;
+  padding: 16px;
 }
 
 // 数据采补状态

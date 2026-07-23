@@ -281,11 +281,26 @@ async def get_archive_day(
                     pos["total_cost"] -= avg * sell_qty
                 pos["qty"] -= sell_qty
 
-        # 只保留qty>0的
+        # 只保留qty>0的, 并从日线数据补收盘价/盈亏
+        # 批量查询当日收盘价
+        active_codes = [tc for tc, p in running.items() if p["qty"] > 0]
+        close_prices = {}
+        if active_codes:
+            daily_cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"ts_code": {"$in": active_codes}, "trade_date": trade_date},
+                {"ts_code": 1, "close": 1}
+            )
+            async for doc in daily_cursor:
+                close_prices[doc["ts_code"]] = doc.get("close", 0) or 0
+
         for tc, p in running.items():
             if p["qty"] <= 0:
                 continue
             avg_cost = p["total_cost"] / p["qty"] if p["qty"] > 0 else 0
+            cur_price = close_prices.get(tc, 0)
+            mv = cur_price * p["qty"]
+            profit_amt = (cur_price - avg_cost) * p["qty"] if cur_price > 0 else 0
+            profit_pct = ((cur_price - avg_cost) / avg_cost * 100) if (cur_price > 0 and avg_cost > 0) else 0
             buy_date = p.get("first_buy_date", "")
             hold_days = 0
             if buy_date:
@@ -301,10 +316,10 @@ async def get_archive_day(
                 quantity=p["qty"],
                 available_qty=0,
                 avg_cost=round(avg_cost, 4),
-                current_price=0,
-                market_value=0,
-                profit_pct=0,
-                profit_amount=0,
+                current_price=round(cur_price, 2),
+                market_value=round(mv, 2),
+                profit_pct=round(profit_pct, 2),
+                profit_amount=round(profit_amt, 2),
                 strategy=p.get("strategy", ""),
                 stop_loss_price=0,
                 buy_time=str(buy_date),
@@ -465,6 +480,37 @@ async def get_equity_curve(account_id: str = Query(default="default")):
             "market_value": doc.get("market_value", 0) or 0,
             "realized_pnl": doc.get("realized_pnl", 0) or 0,
         })
+
+    # 补充每日交易统计(买卖笔数/金额/盈亏)
+    trade_pipeline = [
+        {"$match": {"account_id": account_id, "status": "filled"}},
+        {"$group": {
+            "_id": "$trade_date",
+            "buys": {"$sum": {"$cond": [{"$eq": ["$side", "buy"]}, 1, 0]}},
+            "sells": {"$sum": {"$cond": [{"$eq": ["$side", "sell"]}, 1, 0]}},
+            "buy_amount": {"$sum": {"$cond": [{"$eq": ["$side", "buy"]}, {"$ifNull": ["$filled_amount", 0]}, 0]}},
+            "sell_amount": {"$sum": {"$cond": [{"$eq": ["$side", "sell"]}, {"$ifNull": ["$filled_amount", 0]}, 0]}},
+            "daily_pnl": {"$sum": {"$ifNull": ["$profit_amount", 0]}},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    trade_cursor = mongo_manager.db[COL_ORDERS].aggregate(trade_pipeline)
+    trade_stats = {}
+    async for doc in trade_cursor:
+        trade_stats[doc["_id"]] = {
+            "buys": doc["buys"], "sells": doc["sells"],
+            "buy_amount": doc["buy_amount"], "sell_amount": doc["sell_amount"],
+            "daily_pnl": doc["daily_pnl"],
+        }
+
+    # 合并到performance数据中
+    for p in ps_data:
+        ts = trade_stats.get(p["date"], {})
+        p["buys"] = ts.get("buys", 0)
+        p["sells"] = ts.get("sells", 0)
+        p["buy_amount"] = ts.get("buy_amount", 0)
+        p["sell_amount"] = ts.get("sell_amount", 0)
+        p["daily_pnl"] = ts.get("daily_pnl", 0)
 
     return {"success": True, "data": {"performance": ps_data, "equity": ec_data}}
 

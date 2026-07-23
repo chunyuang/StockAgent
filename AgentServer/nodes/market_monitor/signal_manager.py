@@ -819,7 +819,7 @@ class SignalManager:
         scanner = self._scanner
         acct = self.broker.get_account()
         position_ratio = scanner._position_manager.calc_position_ratio(sig) if scanner._position_manager else 0.2
-        max_amount = acct.available_cash * position_ratio
+        max_amount = acct.total_assets * position_ratio
 
         shares = self._calc_buy_shares(sig, max_amount)
         if shares is None:
@@ -965,7 +965,7 @@ class SignalManager:
             {"step": "3. L1-L9全局过滤", "logic": "依次检查强制空仓、特殊时期、情绪周期、盘前过滤、竞价过滤、策略筛选、排序去重、大盘/仓位、行业集中度", "params": {}, "observed": trace["layers"], "result": "通过所有已启用过滤层"},
             {"step": "4. 情绪与仓位系数", "logic": "根据情绪周期映射仓位系数,决定本票可用资金比例", "params": {"sentiment_phase": sent_period}, "observed": trace["sentiment"], "result": f"仓位系数{position_ratio*100:.0f}%"},
             {"step": "5. 风控参数载入", "logic": "载入该策略止损、止盈、追踪止损、最大持有天数、滑点等风控配置", "params": trace["risk_params"], "observed": {}, "result": "风控参数已绑定到后续持仓"},
-            {"step": "6. 买入股数计算", "logic": "根据可用现金×仓位系数得到最大买入金额,再按100股手数取整", "params": {"max_amount": round(max_amount, 2), "lot_size": 100}, "observed": {"available_cash": round(acct.available_cash, 2), "price": sig.price, "shares": shares}, "result": f"计划买入{shares}股"},
+            {"step": "6. 买入股数计算", "logic": "根据总资产×仓位系数得到最大买入金额,再按100股手数取整", "params": {"max_amount": round(max_amount, 2), "lot_size": 100}, "observed": {"total_assets": round(acct.total_assets, 2), "price": sig.price, "shares": shares}, "result": f"计划买入{shares}股"},
             {"step": "7. 执行质量检查", "logic": "检查资金、持仓、下单质量、滑点与撮合前置条件", "params": {}, "observed": {"raw_price": sig.price, "adjusted_price": adjusted_price}, "result": "通过,提交订单"},
             {"step": "8. 下单撮合", "logic": "以调整后价格更新实时价并提交市价订单,成交后写入broker_orders", "params": {"order_type": "market"}, "observed": {"filled_price_estimate": adjusted_price, "buy_amount": round(adjusted_price * shares, 2)}, "result": "等待Broker成交结果"},
         ]

@@ -89,6 +89,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '情绪脉搏' },
       },
       {
+        path: 'positions',
+        name: 'PositionManagement',
+        component: () => import('@/views/positions/PositionManagementView.vue'),
+        meta: { title: '持仓管理' },
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/SettingsView.vue'),

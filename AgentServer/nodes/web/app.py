@@ -76,6 +76,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("[APP] Redis→WS 桥接已启动")
     except Exception as e:
         logger.warning(f"[APP] Redis→WS 桥接启动失败(不影响其他功能): {e}")
+    # 【v2.9.128】交易时间自动启动scanner, 避免重启后需手动启动
+    try:
+        from datetime import datetime as _dt
+        from nodes.web.api.scanner_shared import _get_scanner
+        now = _dt.now()
+        is_weekday = now.weekday() < 5
+        ct = now.strftime("%H:%M")
+        should_auto_start = is_weekday and ("09:00" <= ct <= "15:30")
+        if should_auto_start:
+            scanner = await _get_scanner()
+            if not scanner._is_running:
+                trade_date = now.strftime("%Y%m%d")
+                logger.info(f"[APP] 交易时段自动启动scanner (date={trade_date}, time={ct})")
+                import asyncio as _aio
+                _aio.create_task(scanner.start(trade_date=trade_date))
+            else:
+                logger.info("[APP] scanner已在运行中, 跳过自动启动")
+        else:
+            logger.info(f"[APP] 非交易时段({ct}), 跳过scanner自动启动")
+    except Exception as e:
+        logger.warning(f"[APP] scanner自动启动失败(可手动启动): {e}")
     
     yield
     

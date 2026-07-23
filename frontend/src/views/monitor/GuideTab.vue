@@ -113,9 +113,9 @@
           <div class="rk-group">
             <div class="rk-gtitle">🟡 持仓保护</div>
             <div class="rk-row"><span class="rk-k">单票/总仓位</span><span class="rk-v">35% / 75%</span></div>
-            <div class="rk-row"><span class="rk-k">盘中锁定</span><span class="rk-v">冲高≥6% + 回撤≥2.5% → 利润保护</span></div>
-            <div class="rk-row"><span class="rk-k">持仓保护</span><span class="rk-v">利润≥6%启用冲高回落 / 次日高开≥2%</span></div>
-            <div class="rk-row"><span class="rk-k">追踪止损</span><span class="rk-v">默认2% / 龙头3% / 翘板4%</span></div>
+            <div class="rk-row"><span class="rk-k">分批止盈</span><span class="rk-v">高潮禁用 / 分化8% / 震荡6% / 冰点5%</span></div>
+            <div class="rk-row"><span class="rk-k">持仓保护</span><span class="rk-v">利润≥6%启用冲高回落(高潮跳过) / 次日高开≥2%</span></div>
+            <div class="rk-row"><span class="rk-k">追踪止损</span><span class="rk-v">默认2% / 龙头3% · 高潮放宽5% / 震荡收紧2%</span></div>
           </div>
           <!-- 第三组: 买入过滤 -->
           <div class="rk-group">

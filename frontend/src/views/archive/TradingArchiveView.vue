@@ -811,9 +811,7 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .archive-page {
-  padding: 24px;
-  max-width: 1440px;
-  margin: 0 auto;
+  padding: 16px;
 }
 
 /* ===== 顶部导航栏 ===== */

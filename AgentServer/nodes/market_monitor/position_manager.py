@@ -49,6 +49,22 @@ HIGH_PROFIT_TIGHTEN_PCT = 0.03       # 紧缩回撤容忍到3%(从最高价回�
 PARTIAL_TAKE_PROFIT_THRESHOLD = 8.0  # 盈利≥8%时触发分批止盈
 PARTIAL_TAKE_PROFIT_RATIO = 0.5     # 卖出50%仓位
 
+# 【v2.9.128】情绪自适应止盈参数
+# 数据依据: 高潮期追踪止损avg+6.33%洗出率0%, 震荡期avg+2.37%洗出率57%
+# 高潮: 分批禁用/追踪放宽/冲高回落禁用 -> 让利润奔跑
+# 震荡/冰点: 降低分批阈值/收紧追踪 -> 有赚就跑
+SENTIMENT_PARTIAL_TP = {
+    "rising": None,           # 高潮: 不分批, 全仓持有到止盈
+    "differentiation": 8.0,   # 分化: 保持8%
+    "chaos": 6.0,             # 震荡: 降到6%
+    "bearish": 5.0,           # 冰点: 降到5%
+}
+SENTIMENT_TRAILING_PCT_OVERRIDE = {
+    "rising": 0.05,           # 高潮: 追踪止损回撤容忍5%(给空间)
+    "chaos": 0.02,            # 震荡: 收紧到2%
+    "bearish": 0.015,         # 冰点: 收紧到1.5%
+}
+
 # 【v2.9.118】追踪止损最低激活阈值
 # 旧: halfway_chase trailing_stop_pct=2%, 日内正常波动就激活→6笔0-2%被洗出
 # 新: 最低3%激活, 给盈利更多呼吸空间
@@ -376,6 +392,14 @@ class PositionManager:
         if 'take_profit_pct' in pos_overrides:
             risk['take_profit_pct'] = pos_overrides['take_profit_pct']
         return risk
+
+    def _get_sentiment_period(self) -> str:
+        """获取当前情绪周期【v2.9.128】
+
+        返回: rising/differentiation/chaos/bearish, 默认chaos
+        """
+        sent = getattr(self._scanner, '_current_sentiment', None) or {}
+        return sent.get('period', 'chaos') if isinstance(sent, dict) else 'chaos'
     
     # ==================== ATR自适应止损 ====================
     
@@ -461,42 +485,49 @@ class PositionManager:
             return None
     
     def _check_partial_take_profit(self, pos, risk: Dict, take_profit_pct: float) -> Optional[Tuple]:
-        """【v2.9.118】分批止盈: 盈利≥8%时卖出半仓锁定利润
-        
-        数据证据: 追踪止损20笔中6笔(30%)盈利仅0-2%, 被正常波动洗出。
-        3笔盈利≥8%的追踪止损本可等止盈12%, 但被回撤洗出。
-        分批止盈让8%以上的盈利先落袋一半, 剩余继续追踪/止盈。
-        
-        规则:
-        - 盈利≥8%且<止盈线(12%) → 卖50%, 剩余继续持有
-        - 同一持仓只分批一次(用position_risk_overrides标记)
-        - 不影响涨停票(first_limit_up止盈10%, 8%太接近不触发)
+        """【v2.9.118/v2.9.128】分批止盈: 情绪自适应阈值卖出半仓锁定利润
+
+        v2.9.128: 情绪自适应
+        - 高潮(rising): 不分批, 全仓持有到止盈线让利润奔跑
+        - 震荡(chaos): 阈值降到6%, 有赚就跑
+        - 冰点(bearish): 阈值降到5%
+        - 分化(differentiation): 保持8%
+
+        数据依据: 高潮期追踪止损avg+6.33%洗出率0%, 不该分批
+                  震荡期追踪止损avg+2.37%洗出率57%, 应该降低阈值
         """
-        if pos.profit_pct < PARTIAL_TAKE_PROFIT_THRESHOLD:
+        # 【v2.9.128】情绪自适应阈值
+        period = self._get_sentiment_period()
+        partial_threshold = SENTIMENT_PARTIAL_TP.get(period, PARTIAL_TAKE_PROFIT_THRESHOLD)
+
+        if partial_threshold is None:
+            return None  # 高潮期禁用分批止盈
+
+        if pos.profit_pct < partial_threshold:
             return None
         if pos.profit_pct >= take_profit_pct:
             return None  # 已到止盈线, 走正常止盈全仓卖出
-        
+
         # 检查是否已经分批过
         ts_code = pos.ts_code
         with self.state_lock:
             already_partial = self.position_risk_overrides.get(ts_code, {}).get('_partial_tp_done', False)
         if already_partial:
             return None
-        
+
         # 计算卖出数量(半仓, 取整到手)
         lot = 200 if ts_code.startswith('688') else 100
         sell_qty = (pos.available_qty // 2 // lot) * lot
         if sell_qty < lot:
             return None  # 仓位太小无法分批
-        
+
         # 标记已分批
         with self.state_lock:
             if ts_code not in self.position_risk_overrides:
                 self.position_risk_overrides[ts_code] = {}
             self.position_risk_overrides[ts_code]['_partial_tp_done'] = True
-        
-        reason = f"分批止盈·盈{pos.profit_pct:+.1f}%≥{PARTIAL_TAKE_PROFIT_THRESHOLD:.0f}% 卖{sell_qty}/{pos.available_qty}股"
+
+        reason = f"分批止盈·盈{pos.profit_pct:+.1f}%≥{partial_threshold:.0f}%[{period}] 卖{sell_qty}/{pos.available_qty}股"
         logger.info(f"[PARTIAL_TP] {ts_code} {reason}")
         
         # 返回时用特殊risk标记sell_qty
@@ -707,7 +738,11 @@ class PositionManager:
         pullback_lock = risk.get("pullback_profit_lock_threshold", _get_global_risk().get("pullback_profit_lock_threshold", 0))  # 利润>=此值不触发冲高回落
         
         # 冲高回落(利润保护锁: 利润>=pullback_lock时不触发，让利润锁定/超时处理)
-        if open_rise >= next_day_sell_pct and pos.current_price < today_open:
+        # 【v2.9.128】高潮期禁用冲高回落, 行情好时正常波动不该卖
+        period = self._get_sentiment_period()
+        if period == 'rising':
+            pass  # 高潮期: 跳过冲高回落, 让利润奔跑
+        elif open_rise >= next_day_sell_pct and pos.current_price < today_open:
             # 利润保护锁: 浮盈>=pullback_lock时不触发冲高回落
             if pullback_lock > 0 and close_rise >= pullback_lock:
                 pass  # 利润够高，不触发冲高回落
@@ -1013,9 +1048,28 @@ class PositionManager:
         """分级追踪止损: 盈利越多,回撤容忍越宽, 策略差异化偏移
         
         v2.9.114: 委托给模块级 calc_tiered_trailing_pct
+        v2.9.128: 情绪自适应覆盖
+        - 高潮(rising): 回撤容忍×5%, 给利润奔跑空间
+        - 震荡(chaos): 回撤容忍收紧到2%
+        - 冰点(bearish): 回撤容忍收紧到1.5%
+        - 分化(differentiation): 保持原始计算
+        
         base_trailing_pct 保留参数签名但不再作为base(仅用于激活阈值)
         """
-        return calc_tiered_trailing_pct(peak_profit_pct, strategy)
+        pct = calc_tiered_trailing_pct(peak_profit_pct, strategy)
+        
+        # 【v2.9.128】情绪自适应覆盖
+        period = self._get_sentiment_period()
+        override = SENTIMENT_TRAILING_PCT_OVERRIDE.get(period)
+        if override is not None:
+            # 高潮: 取max(原始, override)让追踪更宽
+            # 震荡/冰点: 取min(原始, override)让追踪更紧
+            if period == 'rising':
+                pct = max(pct, override)
+            else:
+                pct = min(pct, override)
+        
+        return pct
 
     def _update_single_trailing_stop(
         self, ts_code: str, current_price: float, avg_cost: float,
@@ -1242,10 +1296,10 @@ class PositionManager:
             else:
                 ratio = 0.25
         elif "半路" in strategy or "mid_chase" in strategy or "halfway" in strategy:
-            ratio = 0.25
-            # 周五半路追涨减仓(25%->15%)
+            ratio = 0.35
+            # 周五半路追涨减仓(35%->20%)
             if getattr(signal, '_friday_reduced_position', False):
-                ratio = 0.15
+                ratio = 0.20
         elif "跌停" in strategy or "limit_down" in strategy:
             ratio = 0.15
         elif "龙头" in strategy or "leader" in strategy:
@@ -1278,7 +1332,7 @@ class PositionManager:
             return 0
         acct = self.broker.get_account()
         position_ratio = self.calc_position_ratio(signal)
-        max_amount = acct.available_cash * position_ratio
+        max_amount = acct.total_assets * position_ratio
         lot = 200 if signal.ts_code.startswith('688') else 100
         shares = int(max_amount / signal.price / lot) * lot
         return shares

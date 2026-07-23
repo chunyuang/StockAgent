@@ -32,6 +32,7 @@ import {
   TrendCharts,
   Search,
   Sunrise,
+  WalletFilled,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useTaskStore, useThemeStore } from '@/stores'
@@ -77,6 +78,7 @@ const menuItems = [
   { path: '/signal-trace', icon: TrendCharts, title: '信号追踪' },
   { path: '/scan-insight', icon: Search, title: '数据扫描' },
   { path: '/sentiment-pulse', icon: Sunrise, title: '情绪脉搏' },
+  { path: '/positions', icon: WalletFilled, title: '持仓管理' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 

@@ -6,10 +6,18 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide, defineAsyncComponent, ref, h } from 'vue'
+import { provide, defineAsyncComponent, ref, computed, h } from 'vue'
 import { ElEmpty } from 'element-plus'
 import { useScannerMonitor } from './useScannerMonitor'
 import { useViewHelpers } from './useViewHelpers'
+
+// 仓位管理helper
+function sentimentCN(period: string): string {
+  return ({ rising: '高潮', differentiation: '分化', chaos: '震荡', bearish: '冰点' } as Record<string, string>)[period] || period
+}
+function sentimentColor(period: string): string {
+  return ({ rising: '#f23645', differentiation: '#e6a23c', chaos: '#409eff', bearish: '#089981' } as Record<string, string>)[period] || '#888'
+}
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useScannerStore } from '@/stores/scanner'
 import { useThemeStore } from '@/stores/theme'
@@ -45,6 +53,12 @@ provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
 
 // 确保themeStore独立初始化(避免composable返回undefined的问题)
 const themeStore = monitorData.themeStore || useThemeStore()
+const maxPositions = computed(() => {
+  const period = status.value?.filter_pipeline?.sentiment?.period || 'chaos'
+  const map: Record<string, number> = { rising: 10, differentiation: 8, chaos: 6, bearish: 4 }
+  return map[period] || 8
+})
+const sentimentDims = computed(() => status.value?.filter_pipeline?.sentiment?.dimensions)
 const scannerStore = useScannerStore()
 const quoteStatus = scannerStore.quoteStatus
 
@@ -103,7 +117,7 @@ const {
 
 
 const dateSectionCollapsed = ref(true)
-const leftRailCollapsed = ref(false)
+const leftRailCollapsed = ref(true)
 
 // 【v2.9.99-r1 恢复 v17/v18/v19】从 useViewHelpers 取所有视图辅助逻辑
 const {
@@ -157,6 +171,17 @@ const {
         <span class="ha">可用<span class="hv">{{ ((accountInfo.available_cash || 0) / 10000).toFixed(1) }}万</span></span>
         <span class="ha">仓位<span class="hv">{{ positionRatio }}%</span></span>
         <span class="ha">盈亏<span class="hv" :class="(totalPnl || 0) >= 0 ? 'up' : 'down'">{{ (totalPnl || 0) >= 0 ? '+' : '' }}{{ (totalPnl || 0).toFixed(0) }}</span></span>
+        <span class="ha ha-divider">|</span>
+        <span class="ha" v-if="status?.filter_pipeline?.sentiment" :style="{ color: sentimentColor(status.filter_pipeline.sentiment.period) }">
+          {{ sentimentCN(status.filter_pipeline.sentiment.period) }}<span class="hv">{{ status.filter_pipeline.sentiment.score }}</span>
+        </span>
+        <span class="ha" v-if="status?.circuit_breaker?.position_cap != null && status.circuit_breaker.position_cap < 1">
+          cap<span class="hv" :class="status.circuit_breaker.position_cap <= 0.25 ? 'down' : status.circuit_breaker.position_cap <= 0.5 ? 'warn' : ''">×{{ status.circuit_breaker.position_cap }}</span>
+        </span>
+        <span class="ha" v-if="status?.circuit_breaker?.cumulative_drawdown">
+          回撤<span class="hv down">{{ ((status.circuit_breaker.cumulative_drawdown ?? 0) * 100).toFixed(1) }}%</span>
+        </span>
+        <span class="ha">持仓<span class="hv">{{ positions.length }}/{{ maxPositions }}只</span></span>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
@@ -264,6 +289,47 @@ const {
 
       <!-- 中列: 持仓 -->
       <div class="mm-center holdings-center">
+        <!-- 仓位决策信息条 -->
+        <div class="pos-decision-bar">
+          <span class="pdb-item">
+            <span class="pdb-label">仓位</span>
+            <span class="pdb-val">{{ positionRatio }}%</span>
+            <span class="pdb-hint">{{ positions.length }}/{{ maxPositions }}只</span>
+          </span>
+          <span class="pdb-sep"></span>
+          <span class="pdb-item" v-if="status?.filter_pipeline?.sentiment">
+            <span class="pdb-label">情绪</span>
+            <span class="pdb-val" :style="{ color: sentimentColor(status.filter_pipeline.sentiment.period) }">
+              {{ sentimentCN(status.filter_pipeline.sentiment.period) }} {{ status.filter_pipeline.sentiment.score }}
+            </span>
+          </span>
+          <span class="pdb-sep"></span>
+          <span class="pdb-item" v-if="sentimentDims">
+            <span class="pdb-label">涨停</span>
+            <span class="pdb-val up">{{ sentimentDims.limit_up || 0 }}</span>
+            <span class="pdb-label" style="margin-left:4px">跌停</span>
+            <span class="pdb-val down">{{ sentimentDims.limit_down || 0 }}</span>
+            <span class="pdb-hint" v-if="sentimentDims.broken">炸板{{ sentimentDims.broken }}</span>
+          </span>
+          <span class="pdb-sep"></span>
+          <span class="pdb-item" v-if="status?.circuit_breaker?.position_cap != null && status.circuit_breaker.position_cap < 1">
+            <span class="pdb-label">cap</span>
+            <span class="pdb-val" :class="status.circuit_breaker.position_cap <= 0.25 ? 'down' : 'warn'">×{{ status.circuit_breaker.position_cap }}</span>
+            <span class="pdb-hint" v-if="status?.circuit_breaker?.cumulative_drawdown">回撤{{ ((status.circuit_breaker.cumulative_drawdown ?? 0) * 100).toFixed(1) }}%</span>
+          </span>
+          <span class="pdb-sep"></span>
+          <span class="pdb-item">
+            <span class="pdb-label">现金</span>
+            <span class="pdb-val">¥{{ ((accountInfo.available_cash || 0) / 10000).toFixed(1) }}万</span>
+            <span class="pdb-hint">{{ ((accountInfo.available_cash || 0) / (accountInfo.total_assets || 1) * 100).toFixed(0) }}%可用</span>
+          </span>
+          <span class="pdb-sep"></span>
+          <span class="pdb-item">
+            <span class="pdb-label">单票</span>
+            <span class="pdb-val">≤35%</span>
+            <span class="pdb-hint">半路35%/龙头15%</span>
+          </span>
+        </div>
         <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /><ElSelect v-model="posSort" size="small" style="width:80px;margin-left:auto"><ElOption label="盈亏" value="profit" /><ElOption label="市值" value="cost" /><ElOption label="策略" value="strategy" /><ElOption label="时间" value="time" /></ElSelect></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
@@ -303,8 +369,12 @@ const {
             <span class="ct-arrow">{{ closedTradesCollapsed ? '▶' : '▼' }}</span>
             <span class="ct-title">💰 今日已平仓</span>
             <ElTag size="small" type="info" class="ct-count">{{ todayClosedTrades.length }}笔</ElTag>
+
             <span class="ct-total" :class="closedTradesProfitTotal >= 0 ? 'up' : 'down'">
-              总盈亏 {{ (closedTradesProfitTotal ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal ?? 0).toFixed(0) }}
+              {{ (closedTradesProfitTotal ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(closedTradesProfitTotal ?? 0).toFixed(0) }}
+            </span>
+            <span class="ct-winrate" v-if="todayClosedTrades.length">
+              {{ todayClosedTrades.filter((t: any) => (t.profit_pct ?? 0) >= 0).length }}胜{{ todayClosedTrades.filter((t: any) => (t.profit_pct ?? 0) < 0).length }}负
             </span>
           </div>
           <div v-show="!closedTradesCollapsed" class="closed-trades-body">
@@ -313,25 +383,50 @@ const {
                 <span class="ct-arrow-item">{{ expandedClosedTrades[t.ts_code + t.sell_time] ? '▼' : '▶' }}</span>
                 <span class="ct-name">{{ t.stock_name }}</span>
                 <span class="ct-code">{{ t.ts_code }}</span>
+                <span class="ct-strat-badge" :style="{ background: strategyMeta[t.strategy]?.color || '#888' }">{{ strategyMeta[t.strategy]?.cn || t.strategy }}</span>
+                <span class="ct-qty">{{ t.buy_qty || t.qty }}股</span>
+                <span class="ct-prices">¥{{ Number(t.buy_price || 0).toFixed(2) }}->¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
                 <span :class="t.profit_pct != null && t.profit_pct >= 0 ? 'up' : 'down'" class="ct-pct">
                   {{ t.profit_pct != null && t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%
                 </span>
+                <span :class="t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amt">
+                  {{ t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
+                </span>
+                <span class="ct-reason" v-if="t.reason">{{ t.reason.length > 20 ? t.reason.substring(0, 20) + '...' : t.reason }}</span>
               </div>
               <div v-if="expandedClosedTrades[t.ts_code + t.sell_time]" class="ct-detail">
                 <div class="ct-line2">
                   <span class="ct-tag-buy">买</span>
                   <span class="ct-time">{{ t.buy_time || '--' }}</span>
                   <span class="ct-price">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
-                  <span class="ct-qty">x{{ t.buy_qty }}</span>
+                  <span class="ct-qty">x{{ t.buy_qty || t.qty }}</span>
                   <span v-if="t.buy_date && String(t.buy_date) !== String(todayInt)" class="ct-buy-date">{{ formatBuyDateShort(t.buy_date) }}</span>
-                  <span class="ct-arrow-trade">→</span>
+                  <span class="ct-arrow-trade">-></span>
                   <span class="ct-tag-sell">卖</span>
                   <span class="ct-time">{{ t.sell_time || '--' }}</span>
                   <span class="ct-price">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
-                  <span class="ct-qty">x{{ t.sell_qty }}</span>
+                  <span class="ct-qty">x{{ t.sell_qty || t.qty }}</span>
                   <span :class="t.profit_amount != null && t.profit_amount >= 0 ? 'up' : 'down'" class="ct-amount">
                     {{ t.profit_amount != null && t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}
                   </span>
+                </div>
+                <div class="ct-line3">
+                  <span class="ct-meta-label">策略</span>
+                  <span class="ct-strat-badge" :style="{ background: strategyMeta[t.strategy]?.color || '#888' }">{{ strategyMeta[t.strategy]?.cn || t.strategy }}</span>
+                  <span class="ct-meta-label">数量</span>
+                  <span class="ct-meta-val">{{ t.buy_qty || t.qty }}股</span>
+                  <span class="ct-meta-label">买价</span>
+                  <span class="ct-meta-val">¥{{ Number(t.buy_price || 0).toFixed(2) }}</span>
+                  <span class="ct-meta-label">卖价</span>
+                  <span class="ct-meta-val">¥{{ Number(t.sell_price || 0).toFixed(2) }}</span>
+                  <span class="ct-meta-label">收益率</span>
+                  <span class="ct-meta-val" :class="t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct >= 0 ? '+' : '' }}{{ Number(t.profit_pct || 0).toFixed(2) }}%</span>
+                  <span class="ct-meta-label">盈亏额</span>
+                  <span class="ct-meta-val" :class="t.profit_amount >= 0 ? 'up' : 'down'">{{ t.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(t.profit_amount || 0)).toFixed(0) }}</span>
+                </div>
+                <div class="ct-line4" v-if="t.reason">
+                  <span class="ct-meta-label">卖出原因</span>
+                  <span class="ct-reason-full">{{ t.reason }}</span>
                 </div>
               </div>
             </div>
@@ -1079,6 +1174,23 @@ mm-tab-content {
 .closed-trades-empty { margin-top: 8px; border-top: 1px dashed var(--border-default); padding-top: 6px; text-align: center; }
 .ct-empty-text { font-size: 12px; color: var(--text-muted, #999); }
 .closed-trades-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg-muted); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); user-select: none; transition: background 0.15s; }
+.ct-stocks { font-size: 11px; color: var(--text-tertiary, #888); margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.ct-winrate { font-size: 11px; color: var(--text-tertiary, #888); margin-left: 6px; }
+.ct-strat-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  min-width: 36px;
+  text-align: center;
+  line-height: 1.5;
+}
+.ct-qty { font-size: 11px; color: var(--text-tertiary, #888); }
+.ct-prices { font-size: 11px; color: var(--text-secondary, #aaa); font-variant-numeric: tabular-nums; }
+.ct-amt { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ct-reason { font-size: 10px; color: var(--text-quaternary, #666); margin-left: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .closed-trades-header:hover { background: var(--bg-hover); }
 .ct-arrow { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
 .ct-title { flex: 0 0 auto; }
@@ -1098,6 +1210,11 @@ mm-tab-content {
 .ct-pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; min-width: 56px; text-align: right; }
 .ct-line2 { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; }
 .ct-amount { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ct-line3 { display: flex; align-items: center; gap: 8px; font-size: 11px; margin-top: 4px; flex-wrap: wrap; }
+.ct-line4 { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; margin-top: 4px; }
+.ct-meta-label { font-size: 10px; color: var(--text-quaternary, #666); }
+.ct-meta-val { font-size: 11px; color: var(--text-secondary, #aaa); font-variant-numeric: tabular-nums; }
+.ct-reason-full { font-size: 11px; color: var(--text-secondary, #ccc); word-break: break-all; line-height: 1.4; }
 .ct-tag-buy { color: var(--text-inverse); background: var(--stock-up); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
 .ct-tag-sell { color: var(--text-inverse); background: var(--stock-down); padding: 0 4px; border-radius: 2px; font-size: 10px; font-weight: 600; }
 .ct-time { font-variant-numeric: tabular-nums; min-width: 50px; }
@@ -1156,4 +1273,21 @@ mm-tab-content {
 .sig-sub-block { color: var(--el-color-danger); font-size: 10px; font-weight: 600; padding: 0 4px; border-radius: 3px; }
 .sig-sub-block.active { background: var(--el-color-danger); color: #fff; }
 .sig-sub-filter-clear { color: var(--text-tertiary); font-size: 10px; padding: 0 2px; }
+
+/* 仓位决策信息条 */
+.pos-decision-bar {
+  display: flex; align-items: center; gap: 0;
+  padding: 4px 8px; margin-bottom: 6px;
+  background: var(--bg-elevated, #1a1a2e);
+  border-radius: 8px; border: 1px solid var(--border-default, #333);
+  flex-wrap: nowrap; overflow: hidden; white-space: nowrap;
+}
+.pdb-item { display: flex; flex-direction: row; align-items: baseline; gap: 3px; padding: 0 6px; flex-shrink: 0; }
+.pdb-label { font-size: 10px; color: var(--text-tertiary, #888); }
+.pdb-val { font-size: 12px; font-weight: 600; }
+.pdb-hint { font-size: 10px; color: var(--text-quaternary, #666); margin-left: 2px; }
+.pdb-sep { width: 1px; height: 28px; background: var(--border-default, #333); }
+.warn { color: #e6a23c; }
+.ha-ha-divider { color: var(--text-quaternary, #444); }
+
 </style>

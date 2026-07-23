@@ -1,0 +1,126 @@
+[
+ {
+  "_id": "6a4f5fa1154846788bb9ad39",
+  "trade_date": 20260709,
+  "timestamp": "2026-07-09T16:45:21.650024",
+  "total_assets": 959320.0,
+  "available_cash": 624845.0,
+  "market_value": 334475.0,
+  "total_profit": -40680.0,
+  "source": "post_market_snapshot",
+  "realized_pnl": -39954.16,
+  "date": 20260709
+ },
+ {
+  "_id": "6a50b12131b2735ff70d8aa0",
+  "trade_date": 20260710,
+  "timestamp": "2026-07-10T16:45:21.790139",
+  "total_assets": 948925.7584000002,
+  "available_cash": 550920.7584000002,
+  "market_value": 398005.0,
+  "total_profit": -51074.241599999834,
+  "source": "post_market_snapshot",
+  "cash": 550920.7584000002,
+  "equity": 948925.7584000002,
+  "realized_pnl": -51074.241599999834,
+  "date": 20260710
+ },
+ {
+  "_id": "6a54a5a2631459fe64b64605",
+  "trade_date": 20260713,
+  "timestamp": "2026-07-13T16:45:22.380460",
+  "total_assets": 836583.609699998,
+  "available_cash": 552198.609699998,
+  "market_value": 284385.0,
+  "total_profit": -163416.39030000195,
+  "source": "post_market_snapshot",
+  "date": 20260713,
+  "realized_pnl": 5243.29
+ },
+ {
+  "_id": "6a559a30fb9a170cea2c0d90",
+  "date": "20260714",
+  "available_cash": 376225.58,
+  "market_value": 381533.0,
+  "total_assets": 757758.58,
+  "realized_pnl": -23661.44,
+  "updated_at": "2026-07-14T10:02:00",
+  "note": "v2.9.122修正后"
+ },
+ {
+  "_id": "6a55f71b7df668f4cde1deb3",
+  "trade_date": 20260714,
+  "timestamp": "2026-07-14T16:45:15.324083",
+  "total_assets": 683436.0813999986,
+  "available_cash": 372278.0813999986,
+  "market_value": 311158.0,
+  "total_profit": -316563.9186000014,
+  "source": "post_market_snapshot",
+  "date": 20260714,
+  "realized_pnl": -15590.54
+ },
+ {
+  "_id": "6a57489defa59b3c7cc76fdc",
+  "trade_date": 20260715,
+  "timestamp": "2026-07-15T16:45:17.492749",
+  "total_assets": 864537.6621999983,
+  "available_cash": 546541.6621999983,
+  "market_value": 317996.0,
+  "total_profit": -135462.33780000173,
+  "source": "post_market_snapshot",
+  "date": 20260715,
+  "realized_pnl": -21504.45
+ },
+ {
+  "_id": "6a589a1d89e7f71dbe87716d",
+  "trade_date": 20260716,
+  "timestamp": "2026-07-16T16:45:17.228297",
+  "total_assets": 1095356.3698999984,
+  "available_cash": 917624.3698999984,
+  "market_value": 177732.0,
+  "total_profit": 95356.36989999842,
+  "source": "post_market_snapshot",
+  "date": 20260716,
+  "realized_pnl": -1465.0
+ },
+ {
+  "_id": "6a59eba18aa4262245ca8855",
+  "trade_date": 20260717,
+  "timestamp": "2026-07-17T16:45:21.292240",
+  "total_assets": 924247.0979999984,
+  "available_cash": 924247.0979999984,
+  "market_value": 0,
+  "total_profit": -75752.90200000163,
+  "source": "post_market_snapshot"
+ },
+ {
+  "_id": "6a5de02245d7b5414aff607b",
+  "trade_date": 20260720,
+  "timestamp": "2026-07-20T16:45:22.429136",
+  "total_assets": 923755.0979999984,
+  "available_cash": 844524.0979999984,
+  "market_value": 79231.0,
+  "total_profit": -76244.90200000163,
+  "source": "post_market_snapshot"
+ },
+ {
+  "_id": "6a5f31a0b0b9b263f47f1ad1",
+  "trade_date": 20260721,
+  "timestamp": "2026-07-21T16:45:20.179194",
+  "total_assets": 930618.0542999972,
+  "available_cash": 595832.0542999972,
+  "market_value": 334786.0,
+  "total_profit": -69381.94570000283,
+  "source": "post_market_snapshot"
+ },
+ {
+  "_id": "6a608324966c7bd56ac7bc34",
+  "trade_date": 20260722,
+  "timestamp": "2026-07-22T16:45:24.314632",
+  "total_assets": 934154.0627999976,
+  "available_cash": 870124.0627999976,
+  "market_value": 64030.0,
+  "total_profit": -65845.93720000237,
+  "source": "post_market_snapshot"
+ }
+]

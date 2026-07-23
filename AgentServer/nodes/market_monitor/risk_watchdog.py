@@ -947,13 +947,13 @@ class RiskWatchdog:
                             cap = 0.5
                             reasons.append(f"连续{cld}日亏损")
                         
-                        if cd >= 0.08:
+                        if cd >= 0.15:
                             cap = min(cap, 0.0)
                             reasons.append(f"累计回撤{cd*100:.1f}%")
-                        elif cd >= 0.05:
+                        elif cd >= 0.10:
                             cap = min(cap, 0.25)
                             reasons.append(f"累计回撤{cd*100:.1f}%")
-                        elif cd >= 0.03:
+                        elif cd >= 0.05:
                             cap = min(cap, 0.5)
                             reasons.append(f"累计回撤{cd*100:.1f}%")
                         

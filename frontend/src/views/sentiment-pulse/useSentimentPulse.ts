@@ -130,10 +130,10 @@ export function useSentimentPulse() {
 
   async function fetchParams() {
     try {
-      const r = await api.get('/strategy-config/defaults', { timeout: 5000 })
+      const r = await api.get('/strategy-config/global-risk', { timeout: 5000 })
       const p = parseResponse(r)
       if (p.success && p.data) {
-        const gr = p.data.global_risk || {}
+        const gr = p.data || {}
         if (gr.sentiment_thresholds) thresholds.value = { ...thresholds.value, ...gr.sentiment_thresholds }
         if (gr.sentiment_position_map) positionMap.value = { ...positionMap.value, ...gr.sentiment_position_map }
       }
