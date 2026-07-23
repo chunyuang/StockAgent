@@ -21,7 +21,7 @@ interface GlobalRisk {
   total_assets: number; cash_ratio: number; position_ratio: number; max_single_pct: number
   top_industry_concentration: number; industry_exposure: Record<string, number>
   position_count: number; risk_summary: { normal: number; warning: number; critical: number }
-  stop_loss_exec_rate?: number  // 止损执行率(0-100): 亏损中走止损的占比
+  stop_loss_exec_rate?: number  // 止损执行率(0-100): 止损触发且执行/止损触发笔数
 }
 
 const positions = ref<RiskPosition[]>([])

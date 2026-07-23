@@ -295,7 +295,7 @@ const closedStats = computed(() => {
               <div v-for="cp in displayClosedPositions" :key="cp.ts_code + cp.strategy + cp.sell_time" class="cp-row" :class="cp.profit_pct != null ? (cp.profit_pct >= 0 ? 'win' : 'loss') : ''" @click="openTradeDetail(cp.ts_code, cp.trade_date || cp.buy_date)">
                 <span class="cp-code">{{ cp.ts_code?.slice(0,6) }}</span>
                 <span class="cp-name">{{ cp.stock_name }}</span>
-                <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ cp.profit_pct != null ? ((cp.profit_pct >= 0 ? '+' : '') + Number(cp.profit_pct).toFixed(1) + '%') : '持仓中' }}</span>
+                <span class="cp-pct" :class="(cp.profit_pct??0) >= 0 ? 'up' : 'down'">{{ cp.profit_pct != null ? ((cp.profit_pct >= 0 ? '+' : '') + Number(cp.profit_pct).toFixed(1) + '%') : (cp.is_overnight ? '隔夜' : '-') }}</span>
                 <span class="cp-amt" :class="(cp.profit_amount??0) >= 0 ? 'up' : 'down'">{{ cp.profit_amount != null ? ('¥' + Number(cp.profit_amount).toFixed(0)) : '-' }}</span>
                 <span class="cp-time" :class="{overnight: cp.is_overnight}">{{ cp.is_overnight ? '昨→今' : '今→今' }}</span>
               </div>
